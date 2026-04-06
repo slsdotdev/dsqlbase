@@ -1,0 +1,15 @@
+{
+  "name": "@tsbase/core",
+  "version": "1.0.0",
+  "description": "Core utilities and types for the tsbase",
+  "sideEffects": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "dev": "vitest watch"
+  }
+}

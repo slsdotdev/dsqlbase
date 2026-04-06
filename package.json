@@ -1,0 +1,54 @@
+{
+  "name": "tsbase",
+  "version": "1.0.0",
+  "description": "Starter template for TypeScript projects",
+  "main": "turbo.json",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slsdotdev/tsbase.git"
+  },
+  "author": "sls.dev",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/slsdotdev/tsbase/issues"
+  },
+  "homepage": "https://github.com/slsdotdev/tsbase#readme",
+  "packageManager": "^npm@8.19.2",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.19.0",
+    "yarn": "use-npm",
+    "pnpm": "use-npm"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "test": "turbo run test",
+    "coverage": "turbo run test -- --coverage",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "changeset": "changeset",
+    "publish": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-config-turbo": "^2.9.3",
+    "globals": "^17.4.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.8.1",
+    "turbo": "^2.9.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^4.1.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}
