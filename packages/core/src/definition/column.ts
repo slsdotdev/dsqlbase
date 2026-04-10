@@ -1,101 +1,58 @@
-import { ValueCodec } from "../sql/codec.js";
-import { SQLBuildContext, SQLStatement, sql } from "../sql/index.js";
-import { Entity, Kind, TypedObject } from "./base.js";
-
-import { Table } from "./table.js";
+import { NotNull, PrimaryKey, Unique } from "../types/object.js";
+import { DefinitionNode, Kind } from "./base.js";
 
 export type DataType = "string" | "number" | "boolean" | "bigint" | "object" | "custom";
 export type ColumnType = DataType | `${DataType} ${string}`;
 
-export type NotNull<T extends TypedObject<ColumnConfig>> = T & { __type: { nullable: false } };
-
-export type PrimaryKey<T extends TypedObject<ColumnConfig>> = T & {
-  __type: { primaryKey: true; nullable: false };
-};
-
-export type Unique<T extends TypedObject<ColumnConfig>> = T & {
-  __type: { unique: true };
-};
-
-export interface ColumnConfig<TColumnType extends ColumnType = ColumnType> {
-  name: string;
-  columnType: TColumnType;
-  type: unknown;
-  driverType: unknown;
-  nullable: boolean;
-  default: boolean;
+export interface ColumnConfig {
+  notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
 }
 
-export abstract class Column<TConfig extends ColumnConfig>
-  extends Entity<TConfig>
-  implements ValueCodec<TConfig["type"], TConfig["driverType"]>
-{
+export type ColumnDefinitionType = ColumnDefinition<string, ColumnConfig>;
+
+export class ColumnDefinition<
+  TName extends string,
+  TConfig extends ColumnConfig,
+> extends DefinitionNode<TName, TConfig> {
   readonly kind = Kind.COLUMN;
 
-  public readonly table: Table;
-  public readonly config: TConfig;
+  protected _notNull: boolean;
+  protected _primaryKey: boolean;
+  protected _unique: boolean;
 
-  constructor(table: Table, name: string, config: TConfig) {
+  constructor(name: TName, config: Partial<TConfig> = {}) {
     super(name);
 
-    this.table = table;
-    this.config = config;
-  }
-
-  public encode(value: unknown): unknown {
-    return value;
-  }
-
-  public decode(value: unknown): unknown {
-    return value;
-  }
-
-  toSQL(ctx: SQLBuildContext): SQLStatement {
-    const statement = sql.join([sql.identifier(this.table.name), sql.identifier(this.name)], ".");
-    return statement.toSQL(ctx);
-  }
-}
-
-export abstract class ColumnBuilder<TConfig extends ColumnConfig> implements TypedObject<TConfig> {
-  declare readonly __type: TConfig;
-
-  protected readonly config: TConfig;
-
-  constructor(name: string, columnType: ColumnType) {
-    this.config = {
-      name,
-      columnType,
-      type: null,
-      driverType: null,
-      nullable: true,
-      default: false,
-      primaryKey: false,
-      unique: false,
-    } as TConfig;
+    this._notNull = config.notNull ?? false;
+    this._primaryKey = config.primaryKey ?? false;
+    this._unique = config.unique ?? false;
   }
 
   public notNull(): NotNull<this> {
-    this.config.nullable = false;
+    this._notNull = true;
     return this as NotNull<this>;
   }
 
   public primaryKey(): PrimaryKey<this> {
-    this.config.primaryKey = true;
-    this.config.nullable = false;
+    this._primaryKey = true;
+    this._notNull = true;
     return this as PrimaryKey<this>;
   }
 
   public unique(): Unique<this> {
-    this.config.unique = true;
+    this._unique = true;
     return this as Unique<this>;
   }
 
-  public default(): this {
-    this.config.default = true;
-    return this;
+  toJSON() {
+    return {
+      kind: this.kind,
+      name: this.name,
+      notNull: this._notNull,
+      primaryKey: this._primaryKey,
+      unique: this._unique,
+    };
   }
-
-  public abstract build(table: Table): Column<TConfig>;
 }

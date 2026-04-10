@@ -1,5 +1,5 @@
-import { Entity, Kind } from "./base.js";
+import { DefinitionNode, Kind } from "./base.js";
 
-export class Sequence extends Entity {
+export class Sequence<TName extends string> extends DefinitionNode<TName> {
   public readonly kind = Kind.SEQUENCE;
 }

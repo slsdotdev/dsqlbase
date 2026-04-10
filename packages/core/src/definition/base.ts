@@ -1,13 +1,4 @@
-import { SQLBuildContext, SQLNode, SQLStatement } from "../sql/nodes.js";
-
-export const SCHEMA = Symbol.for("dsql:Schema");
-export const TABLE = Symbol.for("dsql:Table");
-export const COLUMN = Symbol.for("dsql:Column");
-export const INDEX = Symbol.for("dsql:Index");
-export const DOMAIN = Symbol.for("dsql:Domain");
-export const SEQUENCE = Symbol.for("dsql:Sequence");
-export const VIEW = Symbol.for("dsql:View");
-export const FUNCTION = Symbol.for("dsql:Function");
+import { TypedObject } from "../types/object.js";
 
 export const Kind = Object.freeze({
   SCHEMA: "SCHEMA",
@@ -20,34 +11,29 @@ export const Kind = Object.freeze({
   FUNCTION: "FUNCTION",
 } as const);
 
-export type EntityKind = (typeof Kind)[keyof typeof Kind];
+export type NodeKind = (typeof Kind)[keyof typeof Kind];
 
-export interface TypedObject<T> {
-  readonly __type: T;
-}
+export type SerializedNode<T extends DefinitionNode<string>> =
+  T extends DefinitionNode<string> ? ReturnType<T["toJSON"]> : never;
 
-export const isEntity = (value: unknown): value is Entity => {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    Object.values(Kind).includes(value.kind as EntityKind)
-  );
-};
+export abstract class DefinitionNode<
+  TName extends string,
+  TConfig extends object = object,
+> implements TypedObject<TConfig> {
+  abstract readonly kind: NodeKind;
 
-export abstract class Entity<T = unknown> implements SQLNode, TypedObject<T> {
-  abstract readonly kind: EntityKind;
+  declare readonly __type: TConfig;
 
-  declare readonly __type: T;
+  public readonly name: TName;
 
-  public readonly name: string;
-
-  constructor(name: string) {
+  constructor(name: TName) {
     this.name = name;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public toSQL(_ctx: SQLBuildContext): SQLStatement {
-    return { text: "", params: [] };
+  public toJSON() {
+    return {
+      kind: this.kind,
+      name: this.name,
+    };
   }
 }

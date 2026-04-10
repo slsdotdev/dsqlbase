@@ -1,18 +1,14 @@
-import { Table } from "./table.js";
-import { sql, SQLStatement } from "../sql/index.js";
-import { Entity, EntityKind, Kind } from "./base.js";
+import { WithSchema } from "../types/object.js";
+import { DefinitionNode, Kind } from "./base.js";
+import { TableConfig, TableDefinition } from "./table.js";
 
-export class Schema extends Entity {
-  public readonly kind: EntityKind = Kind.SCHEMA;
-  public readonly tables: Table[];
+export class SchemaDefinition<TName extends string = string> extends DefinitionNode<TName> {
+  public readonly kind = Kind.SCHEMA;
 
-  constructor(name: string, tables: Table[] = []) {
-    super(name);
-
-    this.tables = tables;
-  }
-
-  toSQL(): SQLStatement {
-    return sql.identifier(this.name).toSQL();
+  public table<TName extends string, TConfig extends TableConfig>(
+    name: TName,
+    config: TConfig
+  ): WithSchema<TableDefinition<TName, TConfig>, this> {
+    return new TableDefinition(name, { ...config, schema: this });
   }
 }

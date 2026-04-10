@@ -1,23 +1,51 @@
-import { sql, SQLBuildContext, SQLStatement } from "../sql/index.js";
-import { Entity, EntityKind, Kind } from "./base.js";
-import { Schema } from "./schema.js";
+import { DefinitionNode, Kind } from "./base.js";
+import { ColumnDefinitionType } from "./column.js";
+import { IndexConfig, IndexDefinition } from "./indexes.js";
+import { SchemaDefinition } from "./schema.js";
 
-export class Table extends Entity {
-  readonly kind: EntityKind = Kind.TABLE;
+export interface TableConfig<
+  TSchema extends SchemaDefinition = SchemaDefinition,
+  TColumns extends Record<string, ColumnDefinitionType> = Record<string, ColumnDefinitionType>,
+> {
+  schema?: TSchema;
+  columns: TColumns;
+}
 
-  readonly schema?: Schema;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyTableDefinition = TableDefinition<any, any>;
 
-  constructor(schema: Schema | undefined = undefined, name: string) {
+export class TableDefinition<
+  TName extends string,
+  out TConfig extends TableConfig,
+> extends DefinitionNode<TName, TConfig> {
+  readonly kind = Kind.TABLE;
+
+  protected _schema?: SchemaDefinition;
+  protected _columns: TConfig["columns"];
+  protected _indexes: IndexDefinition<string, IndexConfig, this>[] = [];
+
+  constructor(name: TName, config: TConfig) {
     super(name);
 
-    this.schema = schema;
+    this._schema = config.schema;
+    this._columns = config.columns ?? {};
   }
 
-  toSQL(ctx: SQLBuildContext): SQLStatement {
-    if (!this.schema) {
-      return sql.identifier(this.name).toSQL();
-    }
+  public index<T extends string>(name: T) {
+    const idx = new IndexDefinition(name, {}, this);
+    this._indexes.push(idx);
+    return idx;
+  }
 
-    return sql.join([sql.identifier(this.schema.name), sql.identifier(this.name)], ".").toSQL(ctx);
+  public toJSON() {
+    return {
+      kind: this.kind,
+      name: this.name,
+      schema: this._schema?.toJSON(),
+      columns: Object.fromEntries(
+        Object.entries(this._columns).map(([name, column]) => [name, column.toJSON()])
+      ),
+      indexes: this._indexes.map((idx) => idx.toJSON()),
+    } as const;
   }
 }

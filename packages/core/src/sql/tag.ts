@@ -2,8 +2,8 @@ import { ValueEncoder } from "./codec.js";
 import { type SQLNode, SQLRaw, SQLQuery, SQLParam, isSQLNode, SQLIdentifier } from "./nodes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function sql<T>(strings: TemplateStringsArray, ...params: any[]): SQLQuery<T>;
-export function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {
+function sql<T>(strings: TemplateStringsArray, ...params: any[]): SQLQuery<T>;
+function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {
   const node = new SQLQuery();
 
   if (params.length > 0 || (strings.length > 0 && strings[0] !== "")) {
@@ -35,3 +35,5 @@ sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
 
   return node;
 };
+
+export { sql };
