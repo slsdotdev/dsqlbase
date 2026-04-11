@@ -1,5 +1,5 @@
 {
-  "name": "tsbase",
+  "name": "dsqlbase",
   "version": "1.0.0",
   "description": "Starter template for TypeScript projects",
   "main": "turbo.json",
@@ -7,14 +7,14 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/slsdotdev/tsbase.git"
+    "url": "git+https://github.com/slsdotdev/dsqlbase.git"
   },
   "author": "sls.dev",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/slsdotdev/tsbase/issues"
+    "url": "https://github.com/slsdotdev/dsqlbase/issues"
   },
-  "homepage": "https://github.com/slsdotdev/tsbase#readme",
+  "homepage": "https://github.com/slsdotdev/dsqlbase#readme",
   "packageManager": "^npm@8.19.2",
   "engines": {
     "node": ">=18.0.0",
@@ -46,7 +46,7 @@
     "turbo": "^2.9.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.58.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.4"
   },
   "workspaces": [
     "packages/*"

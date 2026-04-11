@@ -17,24 +17,10 @@ import {
 } from "../sql/expressions.js";
 import { SQLNode, SQLStatement } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
+import { Prettify } from "../types/prettify.js";
 import { AnyColumn } from "./column.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable, RecordOf, Table } from "./table.js";
-
-export type OperationType = "select" | "insert" | "update" | "delete";
-
-export interface Operation<
-  TTable extends Table<string, TableConfig>,
-  TArgs extends object,
-  TReturn = unknown,
-> {
-  type: OperationType;
-  table: TTable;
-  name: string;
-  args: TArgs;
-  query: SQLStatement;
-  parseResult: (rows: unknown[]) => TReturn;
-}
 
 export type OrderDirection = "asc" | "desc";
 
@@ -68,15 +54,62 @@ export type WhereExpression<T extends Record<string, AnyColumn> = Record<string,
   | { or?: WhereExpression<T>[] }
   | { not?: WhereExpression<T> };
 
-interface SelectArgs<T extends AnyTable = AnyTable> {
-  select: {
-    [K in keyof T["columns"]]?: T["columns"][K] extends AnyColumn ? boolean : never;
-  };
+export type SelectColumnsOf<TTable extends AnyTable> = {
+  [K in keyof TTable["columns"]]?: TTable["columns"][K] extends AnyColumn ? boolean : never;
+};
+
+export type InsertRecordOf<TTable extends AnyTable> = Prettify<{
+  [K in keyof TTable["columns"]]: TTable["columns"][K] extends AnyColumn
+    ? string | null | undefined
+    : never;
+}>;
+
+export type UpdateRecordOf<TTable extends AnyTable> = Prettify<{
+  [K in keyof TTable["columns"]]?: TTable["columns"][K] extends AnyColumn
+    ? TTable["columns"][K]["primaryKey"] extends true
+      ? never
+      : string | null | undefined
+    : never;
+}>;
+
+export interface SelectArgs<T extends AnyTable = AnyTable> {
+  select: SelectColumnsOf<T>;
   where?: WhereExpression<T["columns"]>;
   distinct?: boolean;
   orderBy?: Record<string, OrderDirection>;
   limit?: number;
   offset?: number;
+}
+
+export interface InsertArgs<T extends AnyTable = AnyTable> {
+  data: InsertRecordOf<T> | InsertRecordOf<T>[];
+  return?: SelectColumnsOf<T>;
+}
+
+export interface UpdateArgs<T extends AnyTable = AnyTable> {
+  set: UpdateRecordOf<T>;
+  where?: WhereExpression<T["columns"]>;
+  return?: SelectColumnsOf<T>;
+}
+
+export interface DeleteArgs<T extends AnyTable = AnyTable> {
+  where?: WhereExpression<T["columns"]>;
+  return?: SelectColumnsOf<T>;
+}
+
+export type OperationType = "select" | "insert" | "update" | "delete";
+
+export interface Operation<
+  TTable extends Table<string, TableConfig>,
+  TArgs extends object,
+  TReturn = unknown,
+> {
+  type: OperationType;
+  table: TTable;
+  name: string;
+  args: TArgs;
+  query: SQLStatement;
+  parseResult: (rows: unknown[]) => TReturn;
 }
 
 interface OperationOptions<TArgs extends object> {
@@ -92,6 +125,30 @@ export interface SelectOperation<
   type: "select";
 }
 
+export interface InsertOperation<
+  TTable extends Table<string, TableConfig>,
+  TArgs extends InsertArgs = InsertArgs,
+  TReturn = unknown,
+> extends Operation<TTable, TArgs, TReturn> {
+  type: "insert";
+}
+
+export interface UpdateOperation<
+  TTable extends Table<string, TableConfig>,
+  TArgs extends UpdateArgs = UpdateArgs,
+  TReturn = unknown,
+> extends Operation<TTable, TArgs, TReturn> {
+  type: "update";
+}
+
+export interface DeleteOperation<
+  TTable extends Table<string, TableConfig>,
+  TArgs extends DeleteArgs = DeleteArgs,
+  TReturn = unknown,
+> extends Operation<TTable, TArgs, TReturn> {
+  type: "delete";
+}
+
 export class OperationFactory {
   private readonly _ctx: ExecutionContext;
 
@@ -99,7 +156,10 @@ export class OperationFactory {
     this._ctx = ctx;
   }
 
-  _resolveFields(table: AnyTable, selection?: Partial<Record<string, boolean>>): FieldSelection[] {
+  private _resolveFields(
+    table: AnyTable,
+    selection?: Partial<Record<string, boolean>>
+  ): FieldSelection[] {
     const fields: FieldSelection[] = [];
 
     if (!selection) {
@@ -130,7 +190,7 @@ export class OperationFactory {
     return fields;
   }
 
-  _resolveWhereExpression(table: AnyTable, expression: WhereExpression): SQLNode {
+  private _resolveWhereExpression(table: AnyTable, expression: WhereExpression): SQLNode {
     const conditions: SQLNode[] = [];
 
     if ("and" in expression && Array.isArray(expression["and"])) {
@@ -212,7 +272,7 @@ export class OperationFactory {
     return and([...conditions]);
   }
 
-  _resolveOrderExpression(
+  private _resolveOrderExpression(
     table: AnyTable,
     orderBy?: Record<string, OrderDirection>
   ): SQLNode[] | undefined {
@@ -236,7 +296,57 @@ export class OperationFactory {
     return nodes.length > 0 ? nodes : undefined;
   }
 
-  createSelect<TTable extends AnyTable>(
+  private _resolveInsertEntries<T extends AnyTable>(
+    table: T,
+    data: InsertRecordOf<T>[]
+  ): [SQLNode[], SQLNode[][]] {
+    const columns: SQLNode[] = [];
+    const rows: SQLNode[][] = [];
+
+    for (const record of data) {
+      const row: SQLNode[] = [];
+
+      for (const [key, value] of Object.entries(record)) {
+        const column = table.getColumn(key);
+
+        if (!column) {
+          throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
+        }
+
+        columns.push(sql.identifier(column.name));
+        row.push(sql.param(value));
+      }
+
+      rows.push(row);
+    }
+
+    return [columns, rows];
+  }
+
+  private _resolveUpdateEntries<T extends AnyTable>(
+    table: T,
+    data: UpdateRecordOf<T>
+  ): [SQLNode, SQLNode][] {
+    const entries: [SQLNode, SQLNode][] = [];
+
+    for (const [key, value] of Object.entries(data)) {
+      const column = table.getColumn(key);
+
+      if (!column) {
+        throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
+      }
+
+      if (column.primaryKey) {
+        throw new Error(`Cannot update primary key column "${key}"`);
+      }
+
+      entries.push([sql.identifier(column.name), sql.param(value)]);
+    }
+
+    return entries;
+  }
+
+  public createSelect<TTable extends AnyTable>(
     table: TTable,
     config: OperationOptions<SelectArgs<TTable>>
   ): SelectOperation<TTable, SelectArgs<TTable>, RecordOf<TTable>> {
@@ -263,6 +373,88 @@ export class OperationFactory {
       args: args,
       query: query.toQuery(),
       parseResult: (rows) => rows as RecordOf<TTable>,
+    };
+  }
+
+  public createInsert<TTable extends AnyTable>(
+    table: TTable,
+    config: OperationOptions<InsertArgs<TTable>>
+  ): Prettify<InsertOperation<TTable, InsertArgs<TTable>, unknown>> {
+    const { name, args } = config;
+
+    const [columns, values] = this._resolveInsertEntries(
+      table,
+      Array.isArray(args.data) ? args.data : [args.data]
+    );
+
+    const selection = this._resolveFields(table, args.return);
+
+    const query = this._ctx.dialect.buildInsertQuery({
+      table,
+      columns,
+      values,
+      return: selection.map(({ column }) => column),
+    });
+
+    return {
+      type: "insert",
+      table: table,
+      name: name ?? `insert_${table.name}`,
+      args: args,
+      query: query.toQuery(),
+      parseResult: (rows) => rows,
+    };
+  }
+
+  public createUpdate<TTable extends AnyTable>(
+    table: TTable,
+    config: OperationOptions<UpdateArgs<TTable>>
+  ): UpdateOperation<TTable, UpdateArgs<TTable>, unknown> {
+    const { name, args } = config;
+
+    const entries = this._resolveUpdateEntries(table, args.set);
+    const where = args.where ? this._resolveWhereExpression(table, args.where) : undefined;
+    const selection = this._resolveFields(table, args.return);
+
+    const query = this._ctx.dialect.buildUpdateQuery({
+      table,
+      set: entries,
+      where,
+      return: selection.map(({ column }) => column),
+    });
+
+    return {
+      type: "update",
+      table: table,
+      name: name ?? `update_${table.name}`,
+      args: args,
+      query: query.toQuery(),
+      parseResult: (rows) => rows,
+    };
+  }
+
+  public createDelete<TTable extends AnyTable>(
+    table: TTable,
+    config: OperationOptions<DeleteArgs<TTable>>
+  ): DeleteOperation<TTable, DeleteArgs<TTable>, unknown> {
+    const { name, args } = config;
+
+    const where = args.where ? this._resolveWhereExpression(table, args.where) : undefined;
+    const selection = this._resolveFields(table, args.return);
+
+    const query = this._ctx.dialect.buildDeleteQuery({
+      table,
+      where,
+      return: selection.map(({ column }) => column),
+    });
+
+    return {
+      type: "delete",
+      table: table,
+      name: name ?? `delete_${table.name}`,
+      args: args,
+      query: query.toQuery(),
+      parseResult: (rows) => rows,
     };
   }
 }

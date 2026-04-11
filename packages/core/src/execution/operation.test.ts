@@ -37,4 +37,48 @@ describe("OperationFactory", () => {
     );
     expect(query.params).toEqual([1, 10, 0]);
   });
+
+  it("should create an InsertOperation with the correct name and args", () => {
+    const { query } = factory.createInsert(table, {
+      name: "insertUser",
+      args: {
+        data: { id: "1", name: "Alice", email: null },
+        return: { id: true },
+      },
+    });
+
+    expect(query.text).toBe(
+      `INSERT INTO "users" ("id", "name", "email") VALUES ($1, $2, $3) RETURNING "users"."id"`
+    );
+    expect(query.params).toEqual(["1", "Alice", null]);
+  });
+
+  it("should create an UpdateOperation with the correct name and args", () => {
+    const { query } = factory.createUpdate(table, {
+      name: "updateUser",
+      args: {
+        set: { name: "Bob" },
+        where: { id: { eq: 1 } },
+        return: { name: true },
+      },
+    });
+
+    expect(query.text).toBe(
+      `UPDATE "users" SET "name" = $1 WHERE "users"."id" = $2 RETURNING "users"."name"`
+    );
+    expect(query.params).toEqual(["Bob", 1]);
+  });
+
+  it("should create a DeleteOperation with the correct name and args", () => {
+    const { query } = factory.createDelete(table, {
+      name: "deleteUser",
+      args: {
+        where: { id: { eq: 1 } },
+        return: { id: true },
+      },
+    });
+
+    expect(query.text).toBe(`DELETE FROM "users" WHERE "users"."id" = $1 RETURNING "users"."id"`);
+    expect(query.params).toEqual([1]);
+  });
 });
