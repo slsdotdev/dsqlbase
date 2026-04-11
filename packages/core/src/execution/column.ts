@@ -1,8 +1,10 @@
 import { TypedObject } from "../types/object.js";
 import { ColumnConfig, ColumnDefinition } from "../definition/column.js";
 import { TableConfig } from "../definition/table.js";
-import { SQLBuildContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
-import { Table } from "./table.js";
+import { SQLContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
+import { AnyTable, Table } from "./table.js";
+
+export type AnyColumn = Column<AnyTable, string, ColumnConfig>;
 
 export class Column<
   TTable extends Table<string, TableConfig>,
@@ -27,7 +29,7 @@ export class Column<
     this.unique = definition["_unique"];
   }
 
-  toSQL(ctx: SQLBuildContext): SQLStatement {
+  toSQL(ctx: SQLContext): SQLStatement {
     return sql.join([sql.identifier(this.table.name), sql.identifier(this.name)], ".").toSQL(ctx);
   }
 }

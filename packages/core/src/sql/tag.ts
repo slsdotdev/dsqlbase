@@ -1,5 +1,13 @@
-import { ValueEncoder } from "./codec.js";
-import { type SQLNode, SQLRaw, SQLQuery, SQLParam, isSQLNode, SQLIdentifier } from "./nodes.js";
+import { type ValueEncoder } from "../driver/index.js";
+import {
+  type SQLNode,
+  SQLRaw,
+  SQLQuery,
+  SQLParam,
+  isSQLNode,
+  SQLIdentifier,
+  SQLWrapper,
+} from "./nodes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function sql<T>(strings: TemplateStringsArray, ...params: any[]): SQLQuery<T>;
@@ -21,6 +29,7 @@ function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {
 sql.raw = (text: string) => new SQLRaw(text);
 sql.param = <TValue>(value: TValue, encoder?: ValueEncoder<TValue>) => new SQLParam(value, encoder);
 sql.identifier = (name: string) => new SQLIdentifier(name);
+sql.wrap = (node: SQLNode) => new SQLWrapper(node);
 
 sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
   const node = new SQLQuery();

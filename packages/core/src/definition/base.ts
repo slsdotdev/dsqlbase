@@ -17,7 +17,7 @@ export type SerializedNode<T extends DefinitionNode<string>> =
   T extends DefinitionNode<string> ? ReturnType<T["toJSON"]> : never;
 
 export abstract class DefinitionNode<
-  TName extends string,
+  TName extends string = string,
   TConfig extends object = object,
 > implements TypedObject<TConfig> {
   abstract readonly kind: NodeKind;

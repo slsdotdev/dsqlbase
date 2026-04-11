@@ -2,9 +2,9 @@ import { TypedObject } from "../types/object.js";
 import { ColumnConfig, ColumnDefinition } from "../definition/column.js";
 import { SchemaDefinition } from "../definition/schema.js";
 import { TableConfig, TableDefinition } from "../definition/table.js";
-import { SQLBuildContext, SQLNode, SQLStatement } from "../sql/nodes.js";
+import { SQLContext, SQLNode, SQLStatement } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
-import { Column } from "./column.js";
+import { AnyColumn, Column } from "./column.js";
 
 export type AnyTable = Table<string, TableConfig>;
 
@@ -71,7 +71,19 @@ export class Table<TName extends string, TConfig extends TableConfig>
     return columns as ColumsOf<this>;
   }
 
-  public toSQL(ctx: SQLBuildContext): SQLStatement {
+  public hasColumn(name: string): boolean {
+    return Object.hasOwn(this.columns, name);
+  }
+
+  public getColumn(name: string) {
+    if (this.columns[name]) {
+      return this.columns[name];
+    }
+
+    return Object.values<AnyColumn>(this.columns).find((col) => col.name === name);
+  }
+
+  public toSQL(ctx: SQLContext): SQLStatement {
     if (this.schema) {
       return sql.join([sql.identifier(this.schema), sql.identifier(this.name)], ".").toSQL(ctx);
     }
