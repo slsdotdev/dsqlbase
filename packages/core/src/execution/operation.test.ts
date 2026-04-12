@@ -9,15 +9,15 @@ import { Table } from "./table.js";
 const dialect = new QueryDialect();
 const factory = new OperationFactory(new ExecutionContext({ dialect } as ExecutionContextOptions));
 
-const tableDefinition = new TableDefinition("users", {
+const definition = new TableDefinition("users", {
   columns: {
     id: new ColumnDefinition("id").primaryKey(),
     name: new ColumnDefinition("name").notNull(),
-    email: new ColumnDefinition("email"),
+    email: new ColumnDefinition("email").unique(),
   },
 });
 
-const table = new Table(tableDefinition);
+const table = new Table(definition);
 
 describe("OperationFactory", () => {
   it("should create a SelectOperation with the correct query", () => {

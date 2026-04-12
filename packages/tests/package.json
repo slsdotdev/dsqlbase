@@ -1,0 +1,16 @@
+{
+  "name": "@dsqlbase/tests",
+  "version": "1.0.0",
+  "description": "Tests for dsqlbase",
+  "sideEffects": false,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "dev": "vitest watch"
+  },
+  "devDependencies": {
+    "@dsqlbase/core": "*",
+    "@electric-sql/pglite": "^0.4.4"
+  }
+}

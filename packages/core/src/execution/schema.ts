@@ -30,4 +30,16 @@ export class SchemaRegistry<
   public hasTable(aliasOrName: string): boolean {
     return this._tables.has(aliasOrName);
   }
+
+  public getTables(): {
+    [K in keyof TSchema]: TSchema[K] extends TableDefinition<infer Name, infer Config>
+      ? Table<Name, Config>
+      : never;
+  } {
+    return Object.fromEntries(this._tables.entries()) as {
+      [K in keyof TSchema]: TSchema[K] extends TableDefinition<infer Name, infer Config>
+        ? Table<Name, Config>
+        : never;
+    };
+  }
 }

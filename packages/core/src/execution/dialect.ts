@@ -2,7 +2,7 @@ import { SQLNode, SQLQuery } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
 import { AnyTable } from "./table.js";
 
-interface SelectParams {
+export interface SelectParams {
   table: AnyTable;
   select: SQLNode[];
   where?: SQLNode;
@@ -12,7 +12,7 @@ interface SelectParams {
   distinct?: boolean;
 }
 
-interface InsertParams {
+export interface InsertParams {
   table: AnyTable;
   columns: SQLNode[];
   values: SQLNode[][];

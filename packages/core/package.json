@@ -6,6 +6,24 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./*": {
+      "default": "./dist/*/index.js",
+      "types": "./dist/*/index.d.ts"
+    },
+    "./types": {
+      "default": "./dist/types/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./types/*": {
+      "default": "./dist/types/*.js",
+      "types": "./dist/types/*.d.ts"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

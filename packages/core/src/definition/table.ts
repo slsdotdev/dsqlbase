@@ -31,9 +31,13 @@ export class TableDefinition<
     this._columns = config.columns ?? {};
   }
 
-  public index<T extends string>(name: T) {
-    const idx = new IndexDefinition(name, {}, this);
+  public index<TIdxName extends string, TIdxConfig extends IndexConfig>(
+    name: TIdxName,
+    config?: Partial<TIdxConfig>
+  ): IndexDefinition<TIdxName, IndexConfig, this> {
+    const idx = new IndexDefinition(name, config, this);
     this._indexes.push(idx);
+
     return idx;
   }
 
