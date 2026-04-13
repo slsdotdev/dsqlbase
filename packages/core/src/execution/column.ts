@@ -24,6 +24,11 @@ export class Column<TTable extends AnyTable, TName extends string, TConfig exten
     this.unique = definition["_unique"];
   }
 
+  public resolve(value: unknown): TConfig["valueType"] {
+    // In a real implementation, this would include type checking and conversion logic
+    return value as TConfig["valueType"];
+  }
+
   toSQL(ctx: SQLContext): SQLStatement {
     return sql.join([sql.identifier(this.table.name), sql.identifier(this.name)], ".").toSQL(ctx);
   }

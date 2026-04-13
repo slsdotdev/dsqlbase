@@ -63,15 +63,15 @@ export class QueryDialect {
    * @example
    * Given a `tasks` table with a relation to an `assignee` in the `users` table, the following join definition:
    * ```ts
-   * {
+   * const join: JoinParams = {
    *   alias: "assignee",
    *   type: "one",
-   *   from: sql`${tasks}."assignee_id"`,
-   *   to: sql`${users}."id"`,
+   *   from: sql`${tasks.assigneeId}`,
+   *   to: sql`${users.id}`,
    *   params: {
    *     table: users,
-   *     select: [users.columns.id, users.columns.name, users.columns.email],
-   *     where: { id: { eq: sql`${tasks}."assignee_id"` } },
+   *     select: [users.id, users.name, users.email],
+   *     where: sql`${users.id} = ${tasks.assigneeId}`,
    *   },
    * }
    * ```

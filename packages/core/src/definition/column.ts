@@ -4,7 +4,7 @@ import { DefinitionNode, Kind } from "./base.js";
 export type DataType = "string" | "number" | "boolean" | "bigint" | "object" | "custom";
 export type ColumnType = DataType | `${DataType} ${string}`;
 
-export interface ColumnConfig<TValueType = string> {
+export interface ColumnConfig<TValueType = unknown> {
   dataType: string;
   valueType: TValueType;
   notNull: boolean;
@@ -12,8 +12,8 @@ export interface ColumnConfig<TValueType = string> {
   unique: boolean;
 }
 
-export type ValueType<T extends ColumnConfig, TValue> = {
-  [K in keyof T]: K extends "valueType" ? TValue : T[K];
+export type WithValueType<T extends AnyColumnDefinition, TValue> = T & {
+  __type: { valueType: TValue };
 };
 
 export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
@@ -60,8 +60,8 @@ export class ColumnDefinition<
     return this as HasDefault<this>;
   }
 
-  public $type() {
-    return this;
+  public $type<T>(): WithValueType<this, T> {
+    return this as WithValueType<this, T>;
   }
 
   public $onCreate(): this {

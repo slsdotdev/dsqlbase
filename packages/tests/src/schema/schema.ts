@@ -34,7 +34,7 @@ members.index("team_members_team_user_idx", { unique: true });
 
 const users = new TableDefinition("users", {
   columns: {
-    id: new ColumnDefinition("id").primaryKey(),
+    id: new ColumnDefinition("id").primaryKey().$type<string>(),
     name: new ColumnDefinition("name").notNull(),
     email: new ColumnDefinition("email").notNull().unique(),
     createdAt: new ColumnDefinition("created_at").notNull(),

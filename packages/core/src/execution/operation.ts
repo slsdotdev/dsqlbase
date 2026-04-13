@@ -29,10 +29,11 @@ import { AnySchema, SchemaRelationsOf } from "./types.js";
 
 export type OrderDirection = "asc" | "desc";
 
+export type FieldResolver = [string, AnyColumn | FieldResolver[]];
+
 export interface FieldSelection {
-  path: string[];
-  column: AnyColumn;
-  alias?: string;
+  columns: AnyColumn[];
+  resolvers: FieldResolver[];
 }
 
 export interface FilterCondition<Value = unknown> {
@@ -269,35 +270,33 @@ export class OperationFactory<
   private _resolveFields(
     table: AnyTable,
     selection?: Partial<Record<string, boolean>>
-  ): FieldSelection[] {
-    const fields: FieldSelection[] = [];
+  ): FieldSelection {
+    const columns: AnyColumn[] = [];
+    const resolvers: FieldResolver[] = [];
 
     if (!selection || Object.keys(selection).length === 0) {
       for (const [key, column] of Object.entries(table.columns)) {
-        fields.push({
-          path: [key],
-          column: column,
-        });
+        columns.push(column);
+        resolvers.push([key, column]);
       }
 
-      return fields;
+      return { columns, resolvers };
     }
 
     for (const [key, selected] of Object.entries(selection)) {
       if (selected) {
         const column = table.columns[key];
+
         if (!column) {
           throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
         }
 
-        fields.push({
-          path: [key],
-          column: column,
-        });
+        columns.push(column);
+        resolvers.push([key, column]);
       }
     }
 
-    return fields;
+    return { columns, resolvers };
   }
 
   private _resolveWhereExpression<T extends AnyTable>(
@@ -467,29 +466,34 @@ export class OperationFactory<
   private _resolveSelectParams<T extends AnyTable>(
     table: T,
     args: SelectArgs<T>,
-    mode: OperationMode
-  ): SelectParams {
+    mode: OperationMode,
+    resolvers: FieldResolver[] = []
+  ): SelectParams & { resolvers: FieldResolver[] } {
     const fields = this._resolveFields(table, args.select);
+    resolvers.push(...fields.resolvers);
+
     const where = args.where ? this._resolveWhereExpression(table, args.where) : undefined;
     const order = args.orderBy ? this._resolveOrderExpression(table, args.orderBy) : undefined;
-    const join = args.join ? this._resolveJoinEntries(table, args.join) : undefined;
+    const join = args.join ? this._resolveJoinEntries(table, args.join, resolvers) : undefined;
     const limit = mode === "one" ? 1 : args.limit;
 
     return {
       table,
-      select: fields.map(({ column }) => column),
+      select: fields.columns,
       distinct: args.distinct,
       where,
       order,
       limit: limit,
       offset: args.offset,
       join,
+      resolvers,
     };
   }
 
   private _resolveJoinEntries<T extends AnyTable>(
     table: T,
-    join?: JoinExpressionOf<T, this["__type"]>
+    join: JoinExpressionOf<T, this["__type"]>,
+    resolvers: FieldResolver[]
   ): JoinParams[] {
     const joins: JoinParams[] = [];
 
@@ -524,17 +528,21 @@ export class OperationFactory<
       }
 
       let params: SelectParams | undefined = undefined;
+      const joinResolvers: FieldResolver[] = [];
 
       if (typeof value === "boolean" && value === true) {
-        params = {
-          table: targetTable,
-          select: [],
-        };
+        params = this._resolveSelectParams(
+          targetTable,
+          { select: {} },
+          relation.type === "has_many" ? "many" : "one",
+          joinResolvers
+        );
       } else if (typeof value === "object") {
         params = this._resolveSelectParams(
           targetTable,
           value,
-          relation.type === "has_many" ? "many" : "one"
+          relation.type === "has_many" ? "many" : "one",
+          joinResolvers
         );
       }
 
@@ -552,9 +560,63 @@ export class OperationFactory<
           },
         });
       }
+
+      resolvers.push([key, joinResolvers]);
     }
 
     return joins;
+  }
+
+  public _createResultResolver<
+    TTable extends AnyTable,
+    TArgs extends SelectArgs<TTable, this["__type"]>,
+    TMode extends OperationMode,
+  >(
+    resolvers: FieldResolver[],
+    mode: TMode
+  ): (rows: unknown[]) => OperationResult<TMode, SelectResult<TTable, this["__type"], TArgs>> {
+    return (
+      rows: unknown[]
+    ): OperationResult<TMode, SelectResult<TTable, this["__type"], TArgs>> => {
+      const results: SelectResult<TTable, this["__type"], TArgs>[] = [];
+
+      for (const row of rows as Record<string, unknown>[]) {
+        const result: Record<string, unknown> = {};
+
+        for (const [key, resolver] of resolvers) {
+          if (Array.isArray(resolver)) {
+            const nestedRows = row[key];
+
+            if (typeof nestedRows === "undefined" || nestedRows === null) {
+              result[key] = null;
+              continue;
+            }
+
+            const nestedResolver = this._createResultResolver(
+              resolver,
+              Array.isArray(nestedRows) ? "many" : "one"
+            );
+
+            result[key] = nestedResolver(Array.isArray(nestedRows) ? nestedRows : [nestedRows]);
+
+            continue;
+          }
+
+          result[key] = resolver.resolve(row[resolver.name]);
+        }
+
+        results.push(result as SelectResult<TTable, this["__type"], TArgs>);
+      }
+
+      if (mode === "one") {
+        return (results[0] ?? null) as OperationResult<
+          TMode,
+          SelectResult<TTable, this["__type"], TArgs>
+        >;
+      }
+
+      return results as OperationResult<TMode, SelectResult<TTable, this["__type"], TArgs>>;
+    };
   }
 
   public createSelect<
@@ -571,8 +633,7 @@ export class OperationFactory<
   > {
     const { name, args, mode } = config;
 
-    const params = this._resolveSelectParams(table, args, mode);
-
+    const { resolvers: fieldResolvers, ...params } = this._resolveSelectParams(table, args, mode);
     const query = this._ctx.dialect.buildSelectQuery(params);
 
     return {
@@ -582,8 +643,7 @@ export class OperationFactory<
       name: name ?? `select_${table.name}`,
       args: args,
       query: query.toQuery(),
-      resolve: (rows) =>
-        rows as OperationResult<TMode, SelectResult<TTable, this["__type"], TArgs>>,
+      resolve: this._createResultResolver<TTable, TArgs, TMode>(fieldResolvers, mode),
     };
   }
 
@@ -604,7 +664,7 @@ export class OperationFactory<
       table,
       columns,
       values,
-      return: selection.map(({ column }) => column),
+      return: selection.columns,
     });
 
     return {
@@ -614,7 +674,7 @@ export class OperationFactory<
       name: name ?? `insert_${table.name}`,
       args: args,
       query: query.toQuery(),
-      resolve: (rows) => rows,
+      resolve: this._createResultResolver(selection.resolvers, "one"),
     };
   }
 
@@ -632,7 +692,7 @@ export class OperationFactory<
       table,
       set: entries,
       where,
-      return: selection.map(({ column }) => column),
+      return: selection.columns,
     });
 
     return {
@@ -642,7 +702,7 @@ export class OperationFactory<
       name: name ?? `update_${table.name}`,
       args: args,
       query: query.toQuery(),
-      resolve: (rows) => rows,
+      resolve: this._createResultResolver(selection.resolvers, "one"),
     };
   }
 
@@ -658,7 +718,7 @@ export class OperationFactory<
     const query = this._ctx.dialect.buildDeleteQuery({
       table,
       where,
-      return: selection.map(({ column }) => column),
+      return: selection.columns,
     });
 
     return {
@@ -668,7 +728,7 @@ export class OperationFactory<
       name: name ?? `delete_${table.name}`,
       args: args,
       query: query.toQuery(),
-      resolve: (rows) => rows,
+      resolve: this._createResultResolver(selection.resolvers, "one"),
     };
   }
 }

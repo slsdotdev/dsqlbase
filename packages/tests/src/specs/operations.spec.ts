@@ -112,12 +112,10 @@ describe("CRUD Operations", () => {
 
     const results = await client.context.session.execute(operation.query);
 
-    console.dir(results[0], { depth: 10 });
-
     expect(results).toBeInstanceOf(Array);
     expect(results).toHaveLength(1);
 
-    const result = results[0];
+    const result = operation.resolve(results);
 
     expect(result).toMatchObject({
       id: data.users[1].id,
@@ -125,6 +123,7 @@ describe("CRUD Operations", () => {
       tasks: expect.arrayContaining([
         expect.objectContaining({
           title: expect.any(String),
+          dueDate: expect.any(String),
           project: expect.objectContaining({
             name: expect.any(String),
           }),
