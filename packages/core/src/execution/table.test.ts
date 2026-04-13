@@ -5,6 +5,8 @@ import { ColumnDefinition } from "../definition/column.js";
 import { Column } from "./column.js";
 import { SchemaDefinition } from "../definition/schema.js";
 import { sql } from "../sql/index.js";
+import { RelationsDefinition } from "../definition/relations.js";
+import { RELATION_TYPE } from "../definition/base.js";
 
 describe("Table", () => {
   const definition = new TableDefinition("users", {
@@ -62,6 +64,56 @@ describe("Table", () => {
       const { text } = sql`${table}`.toQuery();
 
       expect(text).toBe('"test"."users"');
+    });
+  });
+
+  describe("with relations", () => {
+    const posts = new TableDefinition("posts", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        userId: new ColumnDefinition("user_id").notNull(),
+        authorId: new ColumnDefinition("author_id").notNull(),
+      },
+    });
+
+    const users = new TableDefinition("users", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+      },
+    });
+
+    const userRelations = new RelationsDefinition("users", {
+      table: users,
+      relations: {
+        posts: {
+          target: posts,
+          type: RELATION_TYPE.HAS_MANY,
+          from: [users["_columns"].id],
+          to: [posts["_columns"].userId],
+        },
+      },
+    });
+
+    const secondUserRelations = new RelationsDefinition("users", {
+      table: users,
+      relations: {
+        authored: {
+          target: posts,
+          type: RELATION_TYPE.HAS_MANY,
+          from: [users["_columns"].id],
+          to: [posts["_columns"].authorId],
+        },
+      },
+    });
+
+    it("should create a Table object with the correct relations", () => {
+      const table = new Table(definition, {
+        ...userRelations["_relations"],
+        ...secondUserRelations["_relations"],
+      });
+
+      expect(table.name).toBe("users");
+      expect(table.relations).toHaveProperty("posts");
     });
   });
 });

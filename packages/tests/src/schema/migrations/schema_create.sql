@@ -8,7 +8,7 @@ CREATE TABLE "teams" (
   "updated_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "members" (
+CREATE TABLE "team_members" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "team_id" uuid NOT NULL,
   "user_id" uuid NOT NULL,

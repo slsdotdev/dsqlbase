@@ -9,9 +9,17 @@ export const Kind = Object.freeze({
   SEQUENCE: "SEQUENCE",
   VIEW: "VIEW",
   FUNCTION: "FUNCTION",
+  RELATIONS: "RELATIONS",
+} as const);
+
+export const RELATION_TYPE = Object.freeze({
+  HAS_ONE: "has_one",
+  HAS_MANY: "has_many",
+  BELONGS_TO: "belongs_to",
 } as const);
 
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
+export type RelationType = (typeof RELATION_TYPE)[keyof typeof RELATION_TYPE];
 
 export type SerializedNode<T extends DefinitionNode<string>> =
   T extends DefinitionNode<string> ? ReturnType<T["toJSON"]> : never;

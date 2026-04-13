@@ -1,16 +1,11 @@
 import { TypedObject } from "../types/object.js";
 import { ColumnConfig, ColumnDefinition } from "../definition/column.js";
-import { TableConfig } from "../definition/table.js";
 import { SQLContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
-import { AnyTable, Table } from "./table.js";
+import { AnyTable } from "./table.js";
 
 export type AnyColumn = Column<AnyTable, string, ColumnConfig>;
 
-export class Column<
-  TTable extends Table<string, TableConfig>,
-  TName extends string,
-  TConfig extends ColumnConfig,
->
+export class Column<TTable extends AnyTable, TName extends string, TConfig extends ColumnConfig>
   implements SQLNode, TypedObject<TConfig>
 {
   declare readonly __type: TConfig;

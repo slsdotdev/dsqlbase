@@ -1,4 +1,5 @@
 export interface TypedObject<T = unknown> {
+  /** @internal */
   readonly __type: T;
 }
 

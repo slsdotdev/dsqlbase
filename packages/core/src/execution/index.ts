@@ -36,3 +36,4 @@ export {
   type RecordOf,
   type SchemaNameOf,
 } from "./table.js";
+export type { Schema, TableByName } from "./types.js";

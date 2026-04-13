@@ -1,4 +1,5 @@
-import { TableConfig } from "../definition/table.js";
+import { Relation } from "../definition/relations.js";
+import { AnyTableDefinition, TableConfig, TableDefinition } from "../definition/table.js";
 import {
   and,
   between,
@@ -17,10 +18,12 @@ import {
 } from "../sql/expressions.js";
 import { SQLNode, SQLStatement } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
+import { TypedObject } from "../types/object.js";
 import { Prettify } from "../types/prettify.js";
 import { AnyColumn } from "./column.js";
 import { ExecutionContext } from "./context.js";
-import { AnyTable, RecordOf, Table } from "./table.js";
+import { AnyTable, RecordOf } from "./table.js";
+import { AnySchema, TableByName } from "./types.js";
 
 export type OrderDirection = "asc" | "desc";
 
@@ -72,13 +75,25 @@ export type UpdateRecordOf<TTable extends AnyTable> = Prettify<{
     : never;
 }>;
 
-export interface SelectArgs<T extends AnyTable = AnyTable> {
+export interface SelectArgs<TSchema extends AnySchema = AnySchema, T extends AnyTable = AnyTable> {
   select: SelectColumnsOf<T>;
   where?: WhereExpression<T["columns"]>;
   distinct?: boolean;
   orderBy?: Record<string, OrderDirection>;
   limit?: number;
   offset?: number;
+  join?: T["__type"]["relations"] extends object
+    ? {
+        [K in keyof T["__type"]["relations"]]?: T["__type"]["relations"][K] extends Relation<
+          AnyTableDefinition,
+          TableDefinition<infer TargetName, TableConfig>
+        >
+          ? TableByName<TSchema, TargetName> extends AnyTable
+            ? SelectArgs<TSchema, TableByName<TSchema, TargetName>>
+            : never
+          : never;
+      }
+    : never;
 }
 
 export interface InsertArgs<T extends AnyTable = AnyTable> {
@@ -99,11 +114,7 @@ export interface DeleteArgs<T extends AnyTable = AnyTable> {
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 
-export interface Operation<
-  TTable extends Table<string, TableConfig>,
-  TArgs extends object,
-  TReturn = unknown,
-> {
+export interface Operation<TTable extends AnyTable, TArgs extends object, TReturn = unknown> {
   type: OperationType;
   table: TTable;
   name: string;
@@ -118,7 +129,7 @@ interface OperationOptions<TArgs extends object> {
 }
 
 export interface SelectOperation<
-  TTable extends Table<string, TableConfig>,
+  TTable extends AnyTable,
   TArgs extends SelectArgs = SelectArgs,
   TReturn = unknown,
 > extends Operation<TTable, TArgs, TReturn> {
@@ -126,7 +137,7 @@ export interface SelectOperation<
 }
 
 export interface InsertOperation<
-  TTable extends Table<string, TableConfig>,
+  TTable extends AnyTable,
   TArgs extends InsertArgs = InsertArgs,
   TReturn = unknown,
 > extends Operation<TTable, TArgs, TReturn> {
@@ -134,7 +145,7 @@ export interface InsertOperation<
 }
 
 export interface UpdateOperation<
-  TTable extends Table<string, TableConfig>,
+  TTable extends AnyTable,
   TArgs extends UpdateArgs = UpdateArgs,
   TReturn = unknown,
 > extends Operation<TTable, TArgs, TReturn> {
@@ -142,14 +153,18 @@ export interface UpdateOperation<
 }
 
 export interface DeleteOperation<
-  TTable extends Table<string, TableConfig>,
+  TTable extends AnyTable,
   TArgs extends DeleteArgs = DeleteArgs,
   TReturn = unknown,
 > extends Operation<TTable, TArgs, TReturn> {
   type: "delete";
 }
 
-export class OperationFactory {
+export class OperationFactory<
+  TSchema extends AnySchema = AnySchema,
+> implements TypedObject<TSchema> {
+  declare readonly __type: TSchema;
+
   private readonly _ctx: ExecutionContext;
 
   constructor(ctx: ExecutionContext) {
@@ -162,7 +177,7 @@ export class OperationFactory {
   ): FieldSelection[] {
     const fields: FieldSelection[] = [];
 
-    if (!selection) {
+    if (!selection || Object.keys(selection).length === 0) {
       for (const [key, column] of Object.entries(table.columns)) {
         fields.push({
           path: [key],
@@ -190,21 +205,25 @@ export class OperationFactory {
     return fields;
   }
 
-  private _resolveWhereExpression(table: AnyTable, expression: WhereExpression): SQLNode {
+  private _resolveWhereExpression(
+    table: AnyTable,
+    expression: WhereExpression,
+    wrap = false
+  ): SQLNode {
     const conditions: SQLNode[] = [];
 
     if ("and" in expression && Array.isArray(expression["and"])) {
-      const nodes = expression.and.map((expr) => this._resolveWhereExpression(table, expr));
+      const nodes = expression.and.map((expr) => this._resolveWhereExpression(table, expr, true));
       conditions.push(...nodes);
     }
 
     if ("or" in expression && Array.isArray(expression["or"])) {
-      const nodes = expression.or.map((expr) => this._resolveWhereExpression(table, expr));
+      const nodes = expression.or.map((expr) => this._resolveWhereExpression(table, expr, true));
       conditions.push(or([...nodes]));
     }
 
     if ("not" in expression && expression.not) {
-      const node = this._resolveWhereExpression(table, expression.not as WhereExpression);
+      const node = this._resolveWhereExpression(table, expression.not as WhereExpression, true);
       conditions.push(not(node));
     }
 
@@ -269,7 +288,7 @@ export class OperationFactory {
       }
     }
 
-    return and([...conditions]);
+    return wrap ? sql.wrap(and([...conditions])) : and([...conditions]);
   }
 
   private _resolveOrderExpression(
@@ -348,8 +367,8 @@ export class OperationFactory {
 
   public createSelect<TTable extends AnyTable>(
     table: TTable,
-    config: OperationOptions<SelectArgs<TTable>>
-  ): SelectOperation<TTable, SelectArgs<TTable>, RecordOf<TTable>> {
+    config: OperationOptions<SelectArgs<this["__type"], TTable>>
+  ): Prettify<SelectOperation<TTable, SelectArgs<this["__type"], TTable>, RecordOf<TTable>>> {
     const { name, args } = config;
 
     const fields = this._resolveFields(table, args.select);

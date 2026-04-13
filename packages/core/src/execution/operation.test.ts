@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { QueryDialect } from "./dialect.js";
-import { OperationFactory } from "./operation.js";
-import { ExecutionContext, ExecutionContextOptions } from "./context.js";
+import { ExecutionContext } from "./context.js";
 import { TableDefinition } from "../definition/table.js";
 import { ColumnDefinition } from "../definition/column.js";
-import { Table } from "./table.js";
+import { RelationsDefinition } from "../definition/relations.js";
+import { RELATION_TYPE } from "../definition/index.js";
+import { SchemaRegistry } from "./schema.js";
+import { Session } from "../driver/session.js";
 
-const dialect = new QueryDialect();
-const factory = new OperationFactory(new ExecutionContext({ dialect } as ExecutionContextOptions));
-
-const definition = new TableDefinition("users", {
+const users = new TableDefinition("users", {
   columns: {
     id: new ColumnDefinition("id").primaryKey(),
     name: new ColumnDefinition("name").notNull(),
@@ -17,11 +16,55 @@ const definition = new TableDefinition("users", {
   },
 });
 
-const table = new Table(definition);
+const posts = new TableDefinition("posts", {
+  columns: {
+    id: new ColumnDefinition("id").primaryKey(),
+    title: new ColumnDefinition("title").notNull(),
+    content: new ColumnDefinition("content").notNull(),
+    authorId: new ColumnDefinition("authorId").notNull(),
+  },
+});
+
+const usersRelations = new RelationsDefinition("users", {
+  table: users,
+  relations: {
+    posts: {
+      type: RELATION_TYPE.HAS_MANY,
+      target: posts,
+      from: [users["_columns"].id],
+      to: [posts["_columns"].authorId],
+    },
+  },
+});
+
+const postRelations = new RelationsDefinition("posts", {
+  table: posts,
+  relations: {
+    author: {
+      type: RELATION_TYPE.BELONGS_TO,
+      target: users,
+      from: [posts["_columns"].authorId],
+      to: [users["_columns"].id],
+    },
+  },
+});
+
+const schema = {
+  users,
+  posts,
+  usersRelations,
+  postRelations,
+};
+
+const dialect = new QueryDialect();
+const registry = new SchemaRegistry(schema);
+const ctx = new ExecutionContext({ schema: registry, dialect, session: {} as Session });
 
 describe("OperationFactory", () => {
   it("should create a SelectOperation with the correct query", () => {
-    const { query } = factory.createSelect(table, {
+    const { users } = registry.getTables();
+
+    const { query } = ctx.operations.createSelect(users, {
       name: "selectUsers",
       args: {
         select: { id: true, name: true },
@@ -39,7 +82,9 @@ describe("OperationFactory", () => {
   });
 
   it("should create an InsertOperation with the correct name and args", () => {
-    const { query } = factory.createInsert(table, {
+    const { users } = registry.getTables();
+
+    const { query } = ctx.operations.createInsert(users, {
       name: "insertUser",
       args: {
         data: { id: "1", name: "Alice", email: null },
@@ -54,7 +99,8 @@ describe("OperationFactory", () => {
   });
 
   it("should create an UpdateOperation with the correct name and args", () => {
-    const { query } = factory.createUpdate(table, {
+    const { users } = registry.getTables();
+    const { query } = ctx.operations.createUpdate(users, {
       name: "updateUser",
       args: {
         set: { name: "Bob" },
@@ -70,7 +116,9 @@ describe("OperationFactory", () => {
   });
 
   it("should create a DeleteOperation with the correct name and args", () => {
-    const { query } = factory.createDelete(table, {
+    const { users } = registry.getTables();
+
+    const { query } = ctx.operations.createDelete(users, {
       name: "deleteUser",
       args: {
         where: { id: { eq: 1 } },
@@ -80,5 +128,29 @@ describe("OperationFactory", () => {
 
     expect(query.text).toBe(`DELETE FROM "users" WHERE "users"."id" = $1 RETURNING "users"."id"`);
     expect(query.params).toEqual([1]);
+  });
+
+  it("should create a SelectOperation with join", () => {
+    const { users } = registry.getTables();
+
+    const { query } = ctx.operations.createSelect(users, {
+      name: "selectUsersWithPosts",
+      args: {
+        select: { id: true, name: true },
+        where: { id: { eq: 1 } },
+        join: {
+          posts: {
+            select: { title: true },
+            where: { title: { like: "%test%" } },
+          },
+        },
+      },
+    });
+
+    expect(query.text).toBe(
+      `SELECT "users"."id", "users"."name", "posts"."title" FROM "users" LEFT JOIN "posts" ON "users"."id" = "posts"."authorId" WHERE "users"."id" = $1 AND "posts"."title" LIKE $2`
+    );
+
+    expect(query.params).toEqual([1, "%test%"]);
   });
 });

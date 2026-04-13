@@ -5,10 +5,36 @@ import { TableConfig, TableDefinition } from "../definition/table.js";
 import { SQLContext, SQLNode, SQLStatement } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
 import { AnyColumn, Column } from "./column.js";
+import { Relation } from "../definition/relations.js";
 
-export type AnyTable = Table<string, TableConfig>;
+export type AnyTable = Table<
+  string,
+  TableConfig,
+  | Record<
+      string,
+      Relation<TableDefinition<string, TableConfig>, TableDefinition<string, TableConfig>>
+    >
+  | undefined
+>;
 
-export type SchemaNameOf<T extends TableConfig> = T extends { schema: infer S }
+export type WithRelations<
+  T extends TableConfig,
+  TRelations extends
+    | Record<
+        string,
+        Relation<TableDefinition<string, TableConfig>, TableDefinition<string, TableConfig>>
+      >
+    | undefined,
+> = T & {
+  relations: TRelations extends Record<
+    string,
+    Relation<TableDefinition<string, TableConfig>, TableDefinition<string, TableConfig>>
+  >
+    ? TRelations
+    : never;
+};
+
+export type SchemaNameOf<T extends AnyTable> = T["__type"] extends { schema: infer S }
   ? S extends SchemaDefinition<infer SN>
     ? SN
     : never
@@ -46,19 +72,26 @@ export type RecordOf<T extends AnyTable> = T["__type"] extends { columns: infer 
     : never
   : never;
 
-export class Table<TName extends string, TConfig extends TableConfig>
+export class Table<
+  TName extends string,
+  TConfig extends TableConfig,
+  TRelations extends Record<string, Relation<TableDefinition<TName, TConfig>>> | undefined =
+    undefined,
+>
   implements SQLNode, TypedObject<TConfig>
 {
-  declare readonly __type: TConfig;
+  declare readonly __type: WithRelations<TConfig, TRelations>;
 
-  readonly schema: SchemaNameOf<TConfig>;
-  readonly columns: ColumsOf<this>;
   readonly name: TName;
+  readonly schema: SchemaNameOf<this>;
+  readonly columns: ColumsOf<this>;
+  readonly relations: TRelations;
 
-  constructor(definition: TableDefinition<TName, TConfig>) {
-    this.schema = definition["_schema"]?.name as SchemaNameOf<TConfig>;
+  constructor(definition: TableDefinition<TName, TConfig>, relations?: TRelations) {
+    this.schema = definition["_schema"]?.name as SchemaNameOf<this>;
     this.name = definition.name;
     this.columns = this._buildColumns(definition);
+    this.relations = relations as TRelations;
   }
 
   private _buildColumns(definition: TableDefinition<TName, TConfig>): ColumsOf<this> {

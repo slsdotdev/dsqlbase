@@ -1,9 +1,11 @@
 import { SQLStatement } from "@dsqlbase/core/sql";
 import { Session } from "@dsqlbase/core/driver";
-import { ExecutionContext, QueryDialect, SchemaRegistry } from "@dsqlbase/core/execution";
+import { ExecutionContext, QueryDialect, Schema, SchemaRegistry } from "@dsqlbase/core/execution";
 import { PGlite } from "@electric-sql/pglite";
 
-import { schema } from "../schema/index.js";
+import { schema, applyMigrations } from "../schema/index.js";
+
+const TABLE_NAMES = ["tasks", "team_members", "projects", "users", "teams"] as const;
 
 class MockSession implements Session {
   private _client: PGlite;
@@ -18,8 +20,11 @@ class MockSession implements Session {
   }
 }
 
+export type ClientSchema = Schema<typeof schema>;
+
 export const createClient = async () => {
   const pg = new PGlite("memory://", { debug: 0 });
+  await applyMigrations(pg);
 
   const session = new MockSession(pg);
   const registry = new SchemaRegistry(schema);
@@ -31,10 +36,17 @@ export const createClient = async () => {
   });
 
   return {
+    pg,
     context,
+    session,
     tables: registry.getTables(),
+    reset: async () => {
+      return await pg.exec(TABLE_NAMES.map((t) => `TRUNCATE TABLE "${t}" CASCADE`).join("; "));
+    },
     close: async () => {
       await pg.close();
     },
   };
 };
+
+export type TestClient = Awaited<ReturnType<typeof createClient>>;
