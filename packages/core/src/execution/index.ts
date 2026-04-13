@@ -24,8 +24,6 @@ export {
   type UpdateRecordOf,
   type OperationType,
   type OrderDirection,
-  type SelectColumnsOf,
-  type WhereExpression,
 } from "./operation.js";
 export { SchemaRegistry, type TableNameOf } from "./schema.js";
 export {

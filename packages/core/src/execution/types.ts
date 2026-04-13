@@ -1,8 +1,13 @@
 import { DefinitionNode } from "../definition/base.js";
-import { ColumnDefinitionType } from "../definition/column.js";
-import { RelationsConfig, RelationsDefinition } from "../definition/index.js";
-import { AnyTableDefinition, TableDefinition } from "../definition/table.js";
-import { Prettify } from "../types/prettify.js";
+import {
+  AnyColumnDefinition,
+  Relation,
+  RelationsConfig,
+  RelationsDefinition,
+} from "../definition/index.js";
+import { AnyTableRelations } from "../definition/relations.js";
+import { AnyTableDefinition } from "../definition/table.js";
+import { Prettify, UnionToIntersection } from "../types/prettify.js";
 import { AnyTable, Table } from "./table.js";
 
 export type TableNameOf<TSchema extends Record<string, DefinitionNode>> = {
@@ -23,7 +28,9 @@ export type TableRelations<
   TSchema extends Record<string, infer Def>
     ? Def extends RelationsDefinition<TTableName, infer R>
       ? R extends RelationsConfig
-        ? R["relations"]
+        ? R["relations"] extends Record<string, Relation<AnyTableDefinition, AnyTableDefinition>>
+          ? { [K in keyof R["relations"]]: R["relations"][K] }
+          : never
         : never
       : never
     : never;
@@ -35,31 +42,36 @@ export type TableByName<TSchema extends AnySchema, TTableName extends string> = 
     : never;
 }[keyof TSchema["tables"]];
 
+export type SchemaTables<TSchema extends Record<string, DefinitionNode>> = {
+  [K in keyof TSchema]: TSchema[K] extends AnyTableDefinition ? TSchema[K] : never;
+};
+
+export type SchemaRelations<T extends Record<string, DefinitionNode>> = {
+  [K in RelationNameOf<T>]: UnionToIntersection<TableRelations<T, K>>;
+};
+
 export type Schema<T extends Record<string, DefinitionNode>> = Prettify<{
-  tables: {
-    [K in TableNameOf<T>]: T[K] extends TableDefinition<infer TName, infer TConfig>
-      ? Table<TName, TConfig, TableRelations<T, TName>>
-      : never;
-  };
-  relations: {
-    [K in RelationNameOf<T>]: TableRelations<T, K>;
-  };
+  tables: SchemaTables<T>;
+  relations: SchemaRelations<T>;
 }>;
+
+export type SchemaRelationsOf<S extends AnySchema, T extends string> =
+  S["relations"] extends Record<T, infer R> ? (R extends AnyTableRelations ? R : never) : never;
 
 export type AnySchema = Schema<Record<string, DefinitionNode>>;
 
-export type ColumnValueOf<T extends ColumnDefinitionType> = T["__type"]["notNull"] extends true
+export type ColumnValueOf<T extends AnyColumnDefinition> = T["__type"]["notNull"] extends true
   ? string
   : string | null | undefined;
 
 export type CreateRecordOf<TTable extends AnyTable> = {
-  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends ColumnDefinitionType
+  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends AnyColumnDefinition
     ? ColumnValueOf<TTable["__type"]["columns"][K]>
     : never;
 };
 
 export type SelectColumnsOf<TTable extends AnyTable> = {
-  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends ColumnDefinitionType
+  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends AnyColumnDefinition
     ? boolean | null | undefined
     : never;
 };

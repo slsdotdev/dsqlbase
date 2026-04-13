@@ -1,11 +1,11 @@
 import { DefinitionNode, Kind } from "./base.js";
-import { ColumnDefinitionType } from "./column.js";
+import { AnyColumnDefinition } from "./column.js";
 import { IndexConfig, IndexDefinition } from "./indexes.js";
 import { SchemaDefinition } from "./schema.js";
 
 export interface TableConfig<
   TSchema extends SchemaDefinition = SchemaDefinition,
-  TColumns extends Record<string, ColumnDefinitionType> = Record<string, ColumnDefinitionType>,
+  TColumns extends Record<string, AnyColumnDefinition> = Record<string, AnyColumnDefinition>,
 > {
   schema?: TSchema;
   columns: TColumns;

@@ -29,6 +29,10 @@ export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDef
   relations: Record<string, Relation<TTable>>;
 }
 
+export type AnyRelation = Relation<AnyTableDefinition, AnyTableDefinition>;
+export type AnyTableRelations = Record<string, AnyRelation>;
+export type AnyRelationDefinition = RelationsDefinition<string, RelationsConfig>;
+
 export class RelationsDefinition<
   TTableName extends string,
   TConfig extends RelationsConfig<TableDefinition<TTableName, TableConfig>>,

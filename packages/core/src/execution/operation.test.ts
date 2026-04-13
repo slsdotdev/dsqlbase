@@ -7,6 +7,7 @@ import { RelationsDefinition } from "../definition/relations.js";
 import { RELATION_TYPE } from "../definition/index.js";
 import { SchemaRegistry } from "./schema.js";
 import { Session } from "../driver/session.js";
+import { Schema } from "./types.js";
 
 const users = new TableDefinition("users", {
   columns: {
@@ -49,12 +50,27 @@ const postRelations = new RelationsDefinition("posts", {
   },
 });
 
+export const usersDislikedPosts = new RelationsDefinition("users", {
+  table: users,
+  relations: {
+    dislikedPosts: {
+      type: RELATION_TYPE.HAS_MANY,
+      target: posts,
+      from: [users["_columns"].id],
+      to: [posts["_columns"].id],
+    },
+  },
+});
+
 const schema = {
   users,
   posts,
   usersRelations,
   postRelations,
+  usersDislikedPosts,
 };
+
+export type ParsedSchema = Schema<typeof schema>;
 
 const dialect = new QueryDialect();
 const registry = new SchemaRegistry(schema);
@@ -138,6 +154,7 @@ describe("OperationFactory", () => {
       args: {
         select: { id: true, name: true },
         where: { id: { eq: 1 } },
+
         join: {
           posts: {
             select: { title: true },

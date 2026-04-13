@@ -10,7 +10,7 @@ export interface ColumnConfig {
   unique: boolean;
 }
 
-export type ColumnDefinitionType = ColumnDefinition<string, ColumnConfig>;
+export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
 
 export class ColumnDefinition<
   TName extends string,

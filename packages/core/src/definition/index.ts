@@ -6,7 +6,7 @@ export {
   type RelationType,
   type SerializedNode,
 } from "./base.js";
-export { ColumnDefinition, type ColumnDefinitionType, type ColumnConfig } from "./column.js";
+export { ColumnDefinition, type AnyColumnDefinition, type ColumnConfig } from "./column.js";
 export { DomainDefinition, type DomainConfig } from "./domain.js";
 export { IndexDefinition, type IndexConfig } from "./indexes.js";
 export { SchemaDefinition } from "./schema.js";
