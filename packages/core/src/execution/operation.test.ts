@@ -21,7 +21,7 @@ const posts = new TableDefinition("posts", {
   columns: {
     id: new ColumnDefinition("id").primaryKey(),
     title: new ColumnDefinition("title").notNull(),
-    content: new ColumnDefinition("content").notNull(),
+    content: new ColumnDefinition("content"),
     authorId: new ColumnDefinition("authorId").notNull(),
   },
 });
@@ -82,12 +82,16 @@ describe("OperationFactory", () => {
 
     const { query } = ctx.operations.createSelect(users, {
       name: "selectUsers",
+      mode: "many",
       args: {
         select: { id: true, name: true },
         where: { id: { eq: 1 } },
         orderBy: { name: "asc" },
         limit: 10,
         offset: 0,
+        join: {
+          dislikedPosts: true,
+        },
       },
     });
 
@@ -102,6 +106,7 @@ describe("OperationFactory", () => {
 
     const { query } = ctx.operations.createInsert(users, {
       name: "insertUser",
+      mode: "one",
       args: {
         data: { id: "1", name: "Alice", email: null },
         return: { id: true },
@@ -118,6 +123,7 @@ describe("OperationFactory", () => {
     const { users } = registry.getTables();
     const { query } = ctx.operations.createUpdate(users, {
       name: "updateUser",
+      mode: "one",
       args: {
         set: { name: "Bob" },
         where: { id: { eq: 1 } },
@@ -136,6 +142,7 @@ describe("OperationFactory", () => {
 
     const { query } = ctx.operations.createDelete(users, {
       name: "deleteUser",
+      mode: "one",
       args: {
         where: { id: { eq: 1 } },
         return: { id: true },
@@ -151,6 +158,7 @@ describe("OperationFactory", () => {
 
     const { query } = ctx.operations.createSelect(users, {
       name: "selectUsersWithPosts",
+      mode: "one",
       args: {
         select: { id: true, name: true },
         where: { id: { eq: 1 } },

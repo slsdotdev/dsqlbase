@@ -17,6 +17,8 @@ describe("CRUD Operations", () => {
 
   it("should perform a select operation", async () => {
     const operation = client.context.operations.createSelect(client.tables.projects, {
+      mode: "many",
+      name: "selectProjects",
       args: {
         select: {
           id: true,
@@ -57,9 +59,10 @@ describe("CRUD Operations", () => {
     });
 
     const results = await client.context.session.execute(operation.query);
+    const result = operation.resolve(results);
 
-    expect(results).toBeInstanceOf(Array);
-    expect(results).toHaveLength(1);
+    expect(result).toBeInstanceOf(Array);
+    expect(result).toHaveLength(1);
   });
 
   it("should run a join raw query", async () => {
@@ -87,14 +90,16 @@ describe("CRUD Operations", () => {
   it("should run a select operation with join", async () => {
     const { users } = client.context.schema.getTables();
 
-    const { query } = client.context.operations.createSelect(users, {
+    const operation = client.context.operations.createSelect(users, {
+      mode: "one",
+      name: "selectUserWithTasks",
       args: {
         select: { id: true, name: true },
         where: { id: { eq: data.users[1].id } },
         join: {
           tasks: {
             select: { title: true, dueDate: true },
-            where: { completedAt: { isNull: true } },
+            where: { completedAt: { isNull: true }, not: { dueDate: { isNull: true } } },
             join: {
               project: {
                 select: { name: true },
@@ -105,7 +110,9 @@ describe("CRUD Operations", () => {
       },
     });
 
-    const results = await client.context.session.execute(query);
+    const results = await client.context.session.execute(operation.query);
+
+    console.dir(results[0], { depth: 10 });
 
     expect(results).toBeInstanceOf(Array);
     expect(results).toHaveLength(1);

@@ -21,9 +21,6 @@ export const RELATION_TYPE = Object.freeze({
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof RELATION_TYPE)[keyof typeof RELATION_TYPE];
 
-export type SerializedNode<T extends DefinitionNode<string>> =
-  T extends DefinitionNode<string> ? ReturnType<T["toJSON"]> : never;
-
 export abstract class DefinitionNode<
   TName extends string = string,
   TConfig extends object = object,

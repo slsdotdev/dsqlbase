@@ -6,6 +6,7 @@ export {
   type SelectParams,
   type DeleteParams,
   type UpdateParams,
+  type JoinParams,
 } from "./dialect.js";
 export {
   OperationFactory,
@@ -24,8 +25,24 @@ export {
   type UpdateRecordOf,
   type OperationType,
   type OrderDirection,
+  type ColumnSelectionOf,
+  type ColumnValueOf,
+  type OperationResult,
+  type SelectResult,
+  type JoinExpressionOf,
+  type OperationMode,
+  type OrderByExpressionOf,
+  type RelationTargetTable,
+  type SelectionOf,
+  type WhereExpressionOf,
 } from "./operation.js";
-export { SchemaRegistry, type TableNameOf } from "./schema.js";
+export {
+  SchemaRegistry,
+  type TableNameOf,
+  type FieldRelationOf,
+  type RelationDefinitionsOf,
+  type TableRelationsFields,
+} from "./schema.js";
 export {
   Table,
   type AnyTable,
@@ -33,5 +50,18 @@ export {
   type ColumsOf,
   type RecordOf,
   type SchemaNameOf,
+  type WithRelations,
 } from "./table.js";
-export type { Schema, TableByName } from "./types.js";
+export type {
+  Schema,
+  TableByName,
+  AnySchema,
+  CreateParams,
+  CreateRecordOf,
+  RelationNameOf,
+  SchemaRelations,
+  SchemaRelationsOf,
+  SchemaTables,
+  SelectColumnsOf,
+  TableRelations,
+} from "./types.js";

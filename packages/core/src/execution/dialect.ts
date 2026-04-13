@@ -60,17 +60,36 @@ export class QueryDialect {
   }
 
   /**
-   * SELECT "id", "title", "description", "__rel_assignee"."data" AS "assignee" FROM "tasks" 
-      LEFT JOIN LATERAL (
-        SELECT row_to_json("__t".*) AS "data" 
-        FROM (
-          SELECT "id", "name", "email" 
-          FROM "users" 
-          WHERE "users"."id" = "tasks"."assignee_id"
-        ) AS "__t"
-      ) AS "__rel_assignee" 
-      ON true
-   */
+   * @example
+   * Given a `tasks` table with a relation to an `assignee` in the `users` table, the following join definition:
+   * ```ts
+   * {
+   *   alias: "assignee",
+   *   type: "one",
+   *   from: sql`${tasks}."assignee_id"`,
+   *   to: sql`${users}."id"`,
+   *   params: {
+   *     table: users,
+   *     select: [users.columns.id, users.columns.name, users.columns.email],
+   *     where: { id: { eq: sql`${tasks}."assignee_id"` } },
+   *   },
+   * }
+   * ```
+   * would produce the following SQL:
+   *
+   * ```sql
+   * SELECT "id", "title", "description", "__rel_assignee"."data" AS "assignee" FROM "tasks"
+   *  LEFT JOIN LATERAL (
+   *    SELECT row_to_json("__t".*) AS "data"
+   *      FROM (
+   *        SELECT "id", "name", "email"
+   *        FROM "users"
+   *        WHERE "users"."id" = "tasks"."assignee_id"
+   *      ) AS "__t"
+   *  ) AS "__rel_assignee"
+   * ON true
+   * ```
+   **/
   private _buildLateralJoin(join: JoinParams): SQLNode {
     const alias = sql.identifier(`__join_${join.alias}`);
 

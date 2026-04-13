@@ -1,11 +1,4 @@
-export {
-  DefinitionNode,
-  Kind,
-  RELATION_TYPE,
-  type NodeKind,
-  type RelationType,
-  type SerializedNode,
-} from "./base.js";
+export { DefinitionNode, Kind, RELATION_TYPE, type NodeKind, type RelationType } from "./base.js";
 export { ColumnDefinition, type AnyColumnDefinition, type ColumnConfig } from "./column.js";
 export { DomainDefinition, type DomainConfig } from "./domain.js";
 export { IndexDefinition, type IndexConfig } from "./indexes.js";

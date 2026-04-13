@@ -1,5 +1,6 @@
 import { DefinitionNode } from "../definition/base.js";
 import {
+  AnyRelation,
   AnyRelationDefinition,
   AnyTableRelations,
   RelationsConfig,
@@ -14,17 +15,39 @@ export type TableNameOf<TDefinition extends Record<string, DefinitionNode>> = {
   [K in keyof TDefinition]: TDefinition[K] extends AnyTableDefinition ? K : never;
 }[keyof TDefinition];
 
-export type RelationDefinitionsOf<
+export type FieldRelationOf<
+  TDefinition extends Record<string, DefinitionNode>,
+  TTableName extends string,
+  K extends string,
+> =
+  TDefinition extends Record<string, infer Def>
+    ? Def extends RelationsDefinition<TTableName, infer R>
+      ? R extends RelationsConfig
+        ? R["relations"][K] extends AnyRelation
+          ? R["relations"][K]
+          : never
+        : never
+      : never
+    : never;
+
+export type TableRelationsFields<
   TDefinition extends Record<string, DefinitionNode>,
   TTableName extends string,
 > =
   TDefinition extends Record<string, infer Def>
     ? Def extends RelationsDefinition<TTableName, infer R>
       ? R extends RelationsConfig
-        ? R["relations"]
+        ? keyof R["relations"]
         : never
       : never
     : never;
+
+export type RelationDefinitionsOf<
+  TDefinition extends Record<string, DefinitionNode>,
+  TTableName extends string,
+> = {
+  [K in TableRelationsFields<TDefinition, TTableName>]: FieldRelationOf<TDefinition, TTableName, K>;
+};
 
 type NeverKeys<T> = { [K in keyof T]: T[K] extends never ? K : never }[keyof T];
 
