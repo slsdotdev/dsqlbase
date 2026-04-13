@@ -2,6 +2,14 @@ import { SQLNode, SQLQuery } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
 import { AnyTable } from "./table.js";
 
+export interface JoinParams {
+  alias: string;
+  type: "one" | "many";
+  from: SQLNode;
+  to: SQLNode;
+  params: SelectParams;
+}
+
 export interface SelectParams {
   table: AnyTable;
   select: SQLNode[];
@@ -10,6 +18,7 @@ export interface SelectParams {
   limit?: number;
   offset?: number;
   distinct?: boolean;
+  join?: JoinParams[];
 }
 
 export interface InsertParams {
@@ -33,16 +42,56 @@ export interface DeleteParams {
 }
 
 export class QueryDialect {
-  private _getSelection(columns: SQLNode[]): SQLNode {
-    if (columns.length === 0) {
+  private _getSelection(columns: SQLNode[], joinFields: string[]): SQLNode {
+    const selection: SQLNode[] = [...columns];
+
+    if (columns.length === 0 && joinFields.length === 0) {
       return sql`*`;
-    } else {
-      return sql.join(columns, ", ");
     }
+
+    for (const field of joinFields) {
+      const alias = sql.identifier(`__join_${field}`);
+      const node = sql`${alias}.${sql.identifier("data")} AS ${sql.identifier(field)}`;
+
+      selection.push(node);
+    }
+
+    return sql.join(selection, ", ");
+  }
+
+  /**
+   * SELECT "id", "title", "description", "__rel_assignee"."data" AS "assignee" FROM "tasks" 
+      LEFT JOIN LATERAL (
+        SELECT row_to_json("__t".*) AS "data" 
+        FROM (
+          SELECT "id", "name", "email" 
+          FROM "users" 
+          WHERE "users"."id" = "tasks"."assignee_id"
+        ) AS "__t"
+      ) AS "__rel_assignee" 
+      ON true
+   */
+  private _buildLateralJoin(join: JoinParams): SQLNode {
+    const alias = sql.identifier(`__join_${join.alias}`);
+
+    const innerAlias = sql.identifier(`__t`);
+    const innerQuery = this.buildSelectQuery(join.params);
+
+    const subquery = sql`SELECT`;
+
+    if (join.type === "many") {
+      subquery.append(sql` COALESCE(json_agg(row_to_json(${innerAlias}.*)), '[]'::json)`);
+    } else {
+      subquery.append(sql` row_to_json(${innerAlias}.*)`);
+    }
+
+    subquery.append(sql` AS ${sql.identifier("data")} FROM (${innerQuery}) AS ${innerAlias}`);
+
+    return sql`LEFT JOIN LATERAL (${subquery}) AS ${alias} ON true`;
   }
 
   buildSelectQuery(params: SelectParams): SQLQuery {
-    const { table, select, distinct, where, order, limit, offset } = params;
+    const { table, select, distinct, where, order, limit, offset, join } = params;
 
     const query = sql`SELECT`;
 
@@ -50,8 +99,15 @@ export class QueryDialect {
       query.append(sql` DISTINCT`);
     }
 
-    const selection = this._getSelection(select);
+    const selection = this._getSelection(select, join?.map(({ alias }) => alias) ?? []);
     query.append(sql` ${selection} FROM ${table}`);
+
+    if (join) {
+      for (const joinEntry of join) {
+        const joinNode = this._buildLateralJoin(joinEntry);
+        query.append(sql` ${joinNode}`);
+      }
+    }
 
     if (where) {
       query.append(sql` WHERE ${where}`);

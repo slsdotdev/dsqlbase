@@ -94,6 +94,12 @@ const userRelations = new RelationsDefinition("users", {
       from: [users["_columns"].id],
       to: [members["_columns"].userId],
     },
+    tasks: {
+      target: tasks,
+      type: RELATION_TYPE.HAS_MANY,
+      from: [users["_columns"].id],
+      to: [tasks["_columns"].assigneeId],
+    },
   },
 });
 

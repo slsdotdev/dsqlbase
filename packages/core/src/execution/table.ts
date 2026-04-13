@@ -116,6 +116,18 @@ export class Table<
     return Object.values<AnyColumn>(this.columns).find((col) => col.name === name);
   }
 
+  public hasRelation(fieldName: string): boolean {
+    return this.relations ? Object.hasOwn(this.relations, fieldName) : false;
+  }
+
+  public getRelation(fieldName: string) {
+    if (!this.relations || !this.relations[fieldName]) {
+      return undefined;
+    }
+
+    return this.relations[fieldName];
+  }
+
   public toSQL(ctx: SQLContext): SQLStatement {
     if (this.schema) {
       return sql.join([sql.identifier(this.schema), sql.identifier(this.name)], ".").toSQL(ctx);

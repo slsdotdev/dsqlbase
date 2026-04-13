@@ -23,6 +23,7 @@ import { TypedObject } from "../types/object.js";
 import { Prettify, UnionToIntersection } from "../types/prettify.js";
 import { AnyColumn } from "./column.js";
 import { ExecutionContext } from "./context.js";
+import { JoinParams, SelectParams } from "./dialect.js";
 import { AnyTable, RecordOf, Table } from "./table.js";
 import { AnySchema, SchemaRelationsOf } from "./types.js";
 
@@ -108,10 +109,10 @@ export interface SelectArgs<T extends AnyTable, TSchema extends AnySchema = AnyS
   select: ColumnSelectionOf<T>;
   where?: WhereExpressionOf<T>;
   orderBy?: OrderByExpressionOf<T>;
+  join?: JoinExpressionOf<T, TSchema>;
   distinct?: boolean;
   limit?: number;
   offset?: number;
-  join?: JoinExpressionOf<T, TSchema>;
 }
 
 export interface InsertArgs<T extends AnyTable = AnyTable> {
@@ -387,15 +388,107 @@ export class OperationFactory<
     return entries;
   }
 
+  private _resolveSelectParams<T extends AnyTable>(table: T, args: SelectArgs<T>): SelectParams {
+    const fields = this._resolveFields(table, args.select);
+    const where = args.where ? this._resolveWhereExpression(table, args.where) : undefined;
+    const order = args.orderBy ? this._resolveOrderExpression(table, args.orderBy) : undefined;
+    const join = args.join ? this._resolveJoinEntries(table, args.join) : undefined;
+
+    return {
+      table,
+      select: fields.map(({ column }) => column),
+      distinct: args.distinct,
+      where,
+      order,
+      limit: args.limit,
+      offset: args.offset,
+      join,
+    };
+  }
+
+  // private _excludeRelationKeys<T extends AnyTable, TExpression extends WhereExpressionOf<T>>(
+  //   expression: TExpression,
+  //   column: AnyColumn
+  // ): TExpression {
+  //   const sanitised = {} as TExpression;
+
+  //   for (const [key, value] of Object.entries(expression)) {
+  //     if (key === column.name) {
+  //       continue;
+  //     }
+
+  //     if (key === "and" && Array.isArray(value)) {
+  //       sanitised["and" as keyof typeof sanitised] = value.map((expr) =>
+  //         this._excludeRelationKeys(expr, column)
+  //       );
+  //     }
+  //   }
+  // }
+
   private _resolveJoinEntries<T extends AnyTable>(
     table: T,
     join?: JoinExpressionOf<T, this["__type"]>
-  ): SQLNode[] {
+  ): JoinParams[] {
+    const joins: JoinParams[] = [];
+
     if (!join || Object.keys(join).length === 0) {
-      return [];
+      return joins;
     }
 
-    return [];
+    for (const [key, value] of Object.entries(
+      join as Record<string, boolean | SelectArgs<AnyTable, this["__type"]>>
+    )) {
+      const relation = table.getRelation(key);
+
+      if (!relation) {
+        throw new Error(`Relation "${key}" does not exist on table "${table.name}"`);
+      }
+
+      const targetTable = this._ctx.schema.getRelationTarget(table.name, key);
+
+      if (!targetTable) {
+        throw new Error(
+          `Target table for relation "${key}" on table "${table.name}" not found in schema`
+        );
+      }
+
+      const fromColumn = table.getColumn(relation.from[0].name);
+      const toColumn = targetTable.getColumn(relation.to[0].name);
+
+      if (!fromColumn || !toColumn) {
+        throw new Error(
+          `Invalid relation "${key}" on table "${table.name}": missing columns "${relation.from[0].name}" or "${relation.to[0].name}"`
+        );
+      }
+
+      let params: SelectParams | undefined = undefined;
+
+      if (typeof value === "boolean" && value === true) {
+        params = {
+          table: targetTable,
+          select: [],
+        };
+      } else if (typeof value === "object") {
+        params = this._resolveSelectParams(targetTable, value);
+      }
+
+      if (params) {
+        joins.push({
+          alias: key,
+          type: relation.type === "has_many" ? "many" : "one",
+          from: fromColumn,
+          to: toColumn,
+          params: {
+            ...params,
+            where: params.where
+              ? and([equals(toColumn, fromColumn), params.where])
+              : equals(toColumn, fromColumn),
+          },
+        });
+      }
+    }
+
+    return joins;
   }
 
   public createSelect<TTable extends AnyTable, TArgs extends SelectArgs<TTable, this["__type"]>>(
@@ -404,19 +497,9 @@ export class OperationFactory<
   ): SelectOperation<TTable, SelectArgs<TTable>, RecordOf<TTable>> {
     const { name, args } = config;
 
-    const fields = this._resolveFields(table, args.select);
-    const where = args.where ? this._resolveWhereExpression(table, args.where) : undefined;
-    const order = args.orderBy ? this._resolveOrderExpression(table, args.orderBy) : undefined;
+    const params = this._resolveSelectParams(table, args);
 
-    const query = this._ctx.dialect.buildSelectQuery({
-      table,
-      select: fields.map(({ column }) => column),
-      distinct: args.distinct,
-      where,
-      order: order,
-      limit: args.limit,
-      offset: args.offset,
-    });
+    const query = this._ctx.dialect.buildSelectQuery(params);
 
     return {
       type: "select",

@@ -4,10 +4,11 @@ import { sql } from "@dsqlbase/core";
 
 describe("CRUD Operations", () => {
   let client: TestClient;
+  let data: Awaited<ReturnType<typeof seedData>>;
 
   beforeAll(async () => {
     client = await createClient();
-    await seedData(client.pg);
+    data = await seedData(client.pg);
   });
 
   afterAll(async () => {
@@ -81,5 +82,47 @@ describe("CRUD Operations", () => {
 
     expect(results).toHaveLength(6);
     expect(taskWithAssignee).toHaveLength(5);
+  });
+
+  it("should run a select operation with join", async () => {
+    const { users } = client.context.schema.getTables();
+
+    const { query } = client.context.operations.createSelect(users, {
+      args: {
+        select: { id: true, name: true },
+        where: { id: { eq: data.users[1].id } },
+        join: {
+          tasks: {
+            select: { title: true, dueDate: true },
+            where: { completedAt: { isNull: true } },
+            join: {
+              project: {
+                select: { name: true },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const results = await client.context.session.execute(query);
+
+    expect(results).toBeInstanceOf(Array);
+    expect(results).toHaveLength(1);
+
+    const result = results[0];
+
+    expect(result).toMatchObject({
+      id: data.users[1].id,
+      name: data.users[1].name,
+      tasks: expect.arrayContaining([
+        expect.objectContaining({
+          title: expect.any(String),
+          project: expect.objectContaining({
+            name: expect.any(String),
+          }),
+        }),
+      ]),
+    });
   });
 });

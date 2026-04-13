@@ -154,7 +154,6 @@ describe("OperationFactory", () => {
       args: {
         select: { id: true, name: true },
         where: { id: { eq: 1 } },
-
         join: {
           posts: {
             select: { title: true },
@@ -165,9 +164,9 @@ describe("OperationFactory", () => {
     });
 
     expect(query.text).toBe(
-      `SELECT "users"."id", "users"."name", "posts"."title" FROM "users" LEFT JOIN "posts" ON "users"."id" = "posts"."authorId" WHERE "users"."id" = $1 AND "posts"."title" LIKE $2`
+      `SELECT "users"."id", "users"."name", "__join_posts"."data" AS "posts" FROM "users" LEFT JOIN LATERAL (SELECT COALESCE(json_agg(row_to_json("__t".*)), '[]'::json) AS "data" FROM (SELECT "posts"."title" FROM "posts" WHERE "posts"."authorId" = "users"."id" AND "posts"."title" LIKE $1) AS "__t") AS "__join_posts" ON true WHERE "users"."id" = $2`
     );
 
-    expect(query.params).toEqual([1, "%test%"]);
+    expect(query.params).toEqual(["%test%", 1]);
   });
 });
