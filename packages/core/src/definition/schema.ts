@@ -1,4 +1,4 @@
-import { WithSchema } from "../types/object.js";
+import { WithSchema } from "../index.js";
 import { DefinitionNode, Kind } from "./base.js";
 import { TableConfig, TableDefinition } from "./table.js";
 

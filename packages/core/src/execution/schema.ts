@@ -8,6 +8,7 @@ import {
 } from "../definition/relations.js";
 import { AnyTableDefinition, TableDefinition } from "../definition/table.js";
 import { TypedObject } from "../types/object.js";
+import { Prettify } from "../types/prettify.js";
 import { AnyTable, Table } from "./table.js";
 import { RelationNameOf, Schema, SchemaRelations, SchemaTables } from "./types.js";
 
@@ -30,7 +31,7 @@ export type FieldRelationOf<
       : never
     : never;
 
-export type TableRelationsFields<
+export type TableRelationFields<
   TDefinition extends Record<string, DefinitionNode>,
   TTableName extends string,
 > =
@@ -46,12 +47,14 @@ export type RelationDefinitionsOf<
   TDefinition extends Record<string, DefinitionNode>,
   TTableName extends string,
 > = {
-  [K in TableRelationsFields<TDefinition, TTableName>]: FieldRelationOf<TDefinition, TTableName, K>;
+  [K in TableRelationFields<TDefinition, TTableName>]: FieldRelationOf<TDefinition, TTableName, K>;
 };
 
-type NeverKeys<T> = { [K in keyof T]: T[K] extends never ? K : never }[keyof T];
-
-type OmitNevers<T> = Omit<T, NeverKeys<T>>;
+export type RuntimeTables<TDefinition extends Record<string, DefinitionNode>> = {
+  [K in TableNameOf<TDefinition>]: TDefinition[K] extends TableDefinition<infer Name, infer Config>
+    ? Table<Name, Config, RelationDefinitionsOf<TDefinition, Name>>
+    : never;
+};
 
 export class SchemaRegistry<
   TDefinition extends Record<string, DefinitionNode> = Record<string, DefinitionNode>,
@@ -165,16 +168,8 @@ export class SchemaRegistry<
     return this._tables.has(aliasOrName);
   }
 
-  public getTables(): OmitNevers<{
-    [K in keyof TDefinition]: TDefinition[K] extends TableDefinition<infer Name, infer Config>
-      ? Table<Name, Config, RelationDefinitionsOf<TDefinition, Name>>
-      : never;
-  }> {
-    return Object.fromEntries(this._tables.entries()) as {
-      [K in keyof TDefinition]: TDefinition[K] extends TableDefinition<infer Name, infer Config>
-        ? Table<Name, Config, RelationDefinitionsOf<TDefinition, Name>>
-        : never;
-    };
+  public getTables(): Prettify<RuntimeTables<TDefinition>> {
+    return Object.fromEntries(this._tables.entries()) as RuntimeTables<TDefinition>;
   }
 
   public hasRelations(tableNameOrAlias: string): boolean {

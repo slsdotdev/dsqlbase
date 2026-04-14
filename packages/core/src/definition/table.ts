@@ -22,7 +22,7 @@ export class TableDefinition<
 
   protected _schema?: SchemaDefinition;
   protected _columns: TConfig["columns"];
-  protected _indexes: IndexDefinition<string, IndexConfig, this>[] = [];
+  protected _indexes: IndexDefinition<string, IndexConfig>[] = [];
 
   constructor(name: TName, config: TConfig) {
     super(name);
@@ -33,9 +33,9 @@ export class TableDefinition<
 
   public index<TIdxName extends string, TIdxConfig extends IndexConfig>(
     name: TIdxName,
-    config?: Partial<TIdxConfig>
-  ): IndexDefinition<TIdxName, IndexConfig, this> {
-    const idx = new IndexDefinition(name, config, this);
+    config?: Partial<Omit<TIdxConfig, "table">>
+  ): IndexDefinition<TIdxName, IndexConfig> {
+    const idx = new IndexDefinition(name, { ...config, table: this });
     this._indexes.push(idx);
 
     return idx;

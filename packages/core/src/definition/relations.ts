@@ -1,7 +1,7 @@
 import { DefinitionNode, Kind, RelationType } from "./base.js";
 import { AnyTableDefinition, TableConfig, TableDefinition } from "./table.js";
 
-export interface Relation<
+export interface FieldRelation<
   TSource extends TableDefinition<string, TableConfig>,
   TTarget extends TableDefinition<string, TableConfig> = TableDefinition<string, TableConfig>,
 > {
@@ -26,11 +26,11 @@ export interface Relation<
 
 export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> {
   table: TTable;
-  relations: Record<string, Relation<TTable>>;
+  relations: Record<string, FieldRelation<TTable>>;
 }
 
-export type AnyRelation = Relation<AnyTableDefinition, AnyTableDefinition>;
-export type AnyTableRelations = Record<string, AnyRelation>;
+export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyTableDefinition>;
+export type AnyTableRelations = Record<string, AnyFieldRelation>;
 export type AnyRelationDefinition = RelationsDefinition<string, RelationsConfig>;
 
 export class RelationsDefinition<

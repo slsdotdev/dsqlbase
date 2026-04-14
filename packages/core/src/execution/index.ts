@@ -41,7 +41,7 @@ export {
   type TableNameOf,
   type FieldRelationOf,
   type RelationDefinitionsOf,
-  type TableRelationsFields,
+  type TableRelationFields,
 } from "./schema.js";
 export {
   Table,

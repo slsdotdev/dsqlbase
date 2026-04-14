@@ -1,4 +1,4 @@
-import { TypedObject } from "../types/object.js";
+import { TypedObject } from "../utils/types.js";
 
 export const Kind = Object.freeze({
   SCHEMA: "SCHEMA",
@@ -12,14 +12,28 @@ export const Kind = Object.freeze({
   RELATIONS: "RELATIONS",
 } as const);
 
-export const RELATION_TYPE = Object.freeze({
+export const Relation = Object.freeze({
   HAS_ONE: "has_one",
   HAS_MANY: "has_many",
   BELONGS_TO: "belongs_to",
 } as const);
 
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
-export type RelationType = (typeof RELATION_TYPE)[keyof typeof RELATION_TYPE];
+export type RelationType = (typeof Relation)[keyof typeof Relation];
+
+export interface ColumnCodec<TRaw, TValue> {
+  encode(value: TValue): TRaw;
+  decode(raw: TRaw): TValue;
+}
+
+export const defaultCodec: ColumnCodec<unknown, unknown> = {
+  encode(value) {
+    return value;
+  },
+  decode(raw) {
+    return raw;
+  },
+};
 
 export abstract class DefinitionNode<
   TName extends string = string,

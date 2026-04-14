@@ -1,9 +1,10 @@
 {
   "name": "@dsqlbase/tests",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Tests for dsqlbase",
   "sideEffects": false,
   "type": "module",
+  "private": true,
   "scripts": {
     "test:e2e": "vitest run"
   },

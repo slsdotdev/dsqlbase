@@ -3,7 +3,7 @@ import { ColumnDefinition } from "./column.js";
 
 describe("ColumnDefinition", () => {
   it("should create a ColumnDefinition with the correct name and config", () => {
-    const node = new ColumnDefinition("username", {}).$type<Date>().primaryKey();
+    const node = new ColumnDefinition("username").$type<string>().primaryKey();
 
     expect(node.name).toBe("username");
   });

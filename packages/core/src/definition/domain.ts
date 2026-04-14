@@ -1,4 +1,4 @@
-import { NotNull } from "../types/object.js";
+import { NotNull } from "../utils/types.js";
 import { DefinitionNode, Kind } from "./base.js";
 
 export interface DomainConfig {
@@ -6,6 +6,8 @@ export interface DomainConfig {
   notNull: boolean;
   constraintName?: string;
 }
+
+export type AnyDomainDefinition = DomainDefinition<string, DomainConfig>;
 
 export class DomainDefinition<
   TName extends string,
