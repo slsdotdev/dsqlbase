@@ -1,4 +1,3 @@
-import { DEFAULT_ENCODER, type ValueEncoder } from "../driver/index.js";
 import { counter, escapeIdentifier, escapeValue, type ParamIndexCounter } from "./utils.js";
 
 export interface SQLStatement {
@@ -12,6 +11,10 @@ export interface SQLContext {
   escapeValue(str: string): string;
   escapeIdentifier(str: string): string;
 }
+
+export type SQLValue = string | number | boolean | bigint | null | object;
+
+export type ValueSerializer<T extends SQLValue> = (value: T) => unknown;
 
 export interface SQLNode {
   toSQL(ctx: SQLContext): SQLStatement;
@@ -38,19 +41,18 @@ export class SQLRaw implements SQLNode {
   }
 }
 
-export class SQLParam<TValue = unknown> implements SQLNode {
-  private readonly _value: TValue;
-  private readonly _encoder: ValueEncoder<TValue>;
+export type AnySQLParam = SQLParam<SQLValue>;
 
-  constructor(
-    value: TValue,
-    encoder: ValueEncoder<TValue> = DEFAULT_ENCODER as ValueEncoder<TValue>
-  ) {
+export class SQLParam<TValue extends SQLValue> implements SQLNode {
+  private readonly _value: TValue;
+  private readonly _serialize: ValueSerializer<SQLValue>;
+
+  constructor(value: TValue, serializer: ValueSerializer<TValue> = (value) => value) {
     this._value = value;
-    this._encoder = encoder;
+    this._serialize = serializer as ValueSerializer<SQLValue>;
   }
 
-  private _serializeInlineParam(value: TValue, ctx: SQLContext): string {
+  private _serializeInlineParam(value: unknown, ctx: SQLContext): string {
     if (value === null) return "null";
 
     if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
@@ -72,7 +74,7 @@ export class SQLParam<TValue = unknown> implements SQLNode {
   }
 
   toSQL(ctx: SQLContext): SQLStatement {
-    const encodedValue = this._value === null ? this._value : this._encoder.encode(this._value);
+    const encodedValue = this._value === null ? this._value : this._serialize(this._value);
 
     if (isSQLNode(encodedValue)) {
       return encodedValue.toSQL(ctx);
@@ -105,14 +107,14 @@ export class SQLWrapper implements SQLNode {
 }
 
 export class SQLIdentifier implements SQLNode {
-  private readonly _name: string;
+  readonly name: string;
 
   constructor(name: string) {
-    this._name = name;
+    this.name = name;
   }
 
-  toSQL(): SQLStatement {
-    return { text: escapeIdentifier(this._name), params: [] };
+  toSQL(ctx: SQLContext): SQLStatement {
+    return { text: ctx.escapeIdentifier(this.name), params: [] };
   }
 }
 

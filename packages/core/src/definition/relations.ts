@@ -1,5 +1,12 @@
 import { DefinitionNode, Kind, RelationType } from "./base.js";
+import { AnyColumnDefinition } from "./column.js";
 import { AnyTableDefinition, TableConfig, TableDefinition } from "./table.js";
+
+export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
+  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends AnyColumnDefinition
+    ? TTable["__type"]["columns"][K]
+    : never;
+}[keyof TTable["__type"]["columns"]];
 
 export interface FieldRelation<
   TSource extends TableDefinition<string, TableConfig>,
@@ -8,20 +15,8 @@ export interface FieldRelation<
   target: TTarget;
   type: RelationType;
 
-  from: TSource extends AnyTableDefinition
-    ? TSource["__type"] extends TableConfig
-      ? TSource["__type"]["columns"] extends Record<string, infer CDef>
-        ? CDef[]
-        : never
-      : never
-    : never;
-  to: TTarget extends AnyTableDefinition
-    ? TTarget["__type"] extends TableConfig
-      ? TTarget["__type"]["columns"] extends Record<string, infer CDef>
-        ? CDef[]
-        : never
-      : never
-    : never;
+  from: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource>[] : never;
+  to: TTarget extends AnyTableDefinition ? TableDefinitionColumn<TTarget>[] : never;
 }
 
 export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> {

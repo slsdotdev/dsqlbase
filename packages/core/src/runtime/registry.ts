@@ -1,63 +1,46 @@
-import { DefinitionNode } from "../definition/base.js";
+import { TypedObject, Prettify } from "../utils/index.js";
 import {
-  AnyRelation,
   AnyRelationDefinition,
   AnyTableRelations,
-  RelationsConfig,
+  DefinitionSchema,
   RelationsDefinition,
-} from "../definition/relations.js";
-import { AnyTableDefinition, TableDefinition } from "../definition/table.js";
-import { TypedObject } from "../types/object.js";
-import { Prettify } from "../types/prettify.js";
+  TableDefinition,
+} from "../definition/index.js";
+import {
+  AnySchema,
+  DefinitionRelationsTableName,
+  DefinitionTableName,
+  Schema,
+  SchemaRelationDefinitions,
+  SchemaTableDefinitions,
+  TableRelationDefinitions,
+} from "./base.js";
 import { AnyTable, Table } from "./table.js";
-import { RelationNameOf, Schema, SchemaRelations, SchemaTables } from "./types.js";
 
-export type TableNameOf<TDefinition extends Record<string, DefinitionNode>> = {
-  [K in keyof TDefinition]: TDefinition[K] extends AnyTableDefinition ? K : never;
-}[keyof TDefinition];
-
-export type FieldRelationOf<
-  TDefinition extends Record<string, DefinitionNode>,
-  TTableName extends string,
-  K extends string,
-> =
-  TDefinition extends Record<string, infer Def>
-    ? Def extends RelationsDefinition<TTableName, infer R>
-      ? R extends RelationsConfig
-        ? R["relations"][K] extends AnyRelation
-          ? R["relations"][K]
-          : never
-        : never
-      : never
-    : never;
-
-export type TableRelationFields<
-  TDefinition extends Record<string, DefinitionNode>,
-  TTableName extends string,
-> =
-  TDefinition extends Record<string, infer Def>
-    ? Def extends RelationsDefinition<TTableName, infer R>
-      ? R extends RelationsConfig
-        ? keyof R["relations"]
-        : never
-      : never
-    : never;
-
-export type RelationDefinitionsOf<
-  TDefinition extends Record<string, DefinitionNode>,
-  TTableName extends string,
-> = {
-  [K in TableRelationFields<TDefinition, TTableName>]: FieldRelationOf<TDefinition, TTableName, K>;
-};
-
-export type RuntimeTables<TDefinition extends Record<string, DefinitionNode>> = {
-  [K in TableNameOf<TDefinition>]: TDefinition[K] extends TableDefinition<infer Name, infer Config>
-    ? Table<Name, Config, RelationDefinitionsOf<TDefinition, Name>>
+export type RuntimeTables<TSchema extends AnySchema> = {
+  [K in keyof TSchema["tables"]]: TSchema["tables"][K] extends TableDefinition<
+    infer Name,
+    infer Config
+  >
+    ? Table<Name, Config, TableRelationDefinitions<TSchema, Name>>
     : never;
 };
+
+export type TableByNameOrAlias<TSchema extends AnySchema, TName extends string> = {
+  [K in keyof TSchema["tables"]]: TSchema["tables"][K] extends TableDefinition<
+    infer Name,
+    infer Config
+  >
+    ? Name extends TName
+      ? Table<Name, Config, TableRelationDefinitions<TSchema, Name>>
+      : never
+    : TSchema["tables"][K] extends TableDefinition<infer TName, infer Config>
+      ? Table<TName, Config, TableRelationDefinitions<TSchema, TName>>
+      : never;
+}[keyof TSchema["tables"]];
 
 export class SchemaRegistry<
-  TDefinition extends Record<string, DefinitionNode> = Record<string, DefinitionNode>,
+  TDefinition extends DefinitionSchema = DefinitionSchema,
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
 
@@ -87,32 +70,32 @@ export class SchemaRegistry<
   }
 
   private _validateAndTransformSchema(schema: TDefinition): Schema<TDefinition> {
-    const relations = {} as SchemaRelations<TDefinition>;
-    const tables = {} as SchemaTables<TDefinition>;
+    const relations = {} as SchemaRelationDefinitions<TDefinition>;
+    const tables = {} as SchemaTableDefinitions<TDefinition>;
 
     for (const [name, node] of Object.entries(schema)) {
       if (node instanceof RelationsDefinition) {
-        const tableName = node["_table"].name as RelationNameOf<TDefinition>;
+        const tableName = node["_table"].name as DefinitionRelationsTableName<TDefinition>;
 
         if (relations[tableName]) {
           relations[tableName] = this._mergeTableRelations(
             relations[tableName],
             node["_relations"]
-          ) as SchemaRelations<TDefinition>[RelationNameOf<TDefinition>];
+          ) as SchemaRelationDefinitions<TDefinition>[DefinitionRelationsTableName<TDefinition>];
 
           continue;
         }
 
         relations[tableName] = node[
           "_relations"
-        ] as SchemaRelations<TDefinition>[RelationNameOf<TDefinition>];
+        ] as SchemaRelationDefinitions<TDefinition>[DefinitionRelationsTableName<TDefinition>];
 
         continue;
       }
 
       if (node instanceof TableDefinition) {
-        tables[name as TableNameOf<TDefinition>] =
-          node as SchemaTables<TDefinition>[TableNameOf<TDefinition>];
+        tables[name as DefinitionTableName<TDefinition>] =
+          node as SchemaTableDefinitions<TDefinition>[DefinitionTableName<TDefinition>];
         continue;
       }
     }
@@ -125,7 +108,7 @@ export class SchemaRegistry<
 
     for (const [key, def] of Object.entries(schema.tables)) {
       if (def instanceof TableDefinition) {
-        const relations = schema.relations[def.name as RelationNameOf<TDefinition>];
+        const relations = schema.relations[def.name as DefinitionRelationsTableName<TDefinition>];
         const table = new Table(def, relations as AnyTableRelations);
 
         tables.set(def.name, table);
@@ -154,7 +137,7 @@ export class SchemaRegistry<
     return map;
   }
 
-  public getTable(aliasOrName: string) {
+  public getTable<TName extends string>(aliasOrName: TName) {
     const table = this._tables.get(aliasOrName);
 
     if (!table) {
@@ -168,11 +151,15 @@ export class SchemaRegistry<
     return this._tables.has(aliasOrName);
   }
 
-  public getTables(): Prettify<RuntimeTables<TDefinition>> {
-    return Object.fromEntries(this._tables.entries()) as RuntimeTables<TDefinition>;
+  public getTables(): Prettify<RuntimeTables<this["__type"]>> {
+    return Object.fromEntries(this._tables.entries()) as RuntimeTables<this["__type"]>;
   }
 
   public hasRelations(tableNameOrAlias: string): boolean {
+    if (!this.hasTable(tableNameOrAlias)) {
+      return false;
+    }
+
     const table = this.getTable(tableNameOrAlias);
     return this._relations.has(table.name);
   }

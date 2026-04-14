@@ -5,7 +5,7 @@ import {
   TypedObject,
   Unique,
   WithValueType,
-} from "../utils/types.js";
+} from "../utils/index.js";
 import { ColumnCodec, DefinitionNode, Kind } from "./base.js";
 
 export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKey: true }
@@ -57,9 +57,6 @@ export class ColumnDefinition<
     return this as NotNull<this>;
   }
 
-  /**
-   *
-   */
   public primaryKey(): PrimaryKey<this> {
     this._primaryKey = true;
     this._notNull = true;

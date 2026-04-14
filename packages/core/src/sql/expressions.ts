@@ -1,7 +1,7 @@
-import { isSQLNode, SQLNode, SQLParam } from "./nodes.js";
+import { isSQLNode, SQLNode, SQLParam, SQLValue } from "./nodes.js";
 import { sql } from "./tag.js";
 
-export const asNode = (value: unknown): SQLNode => {
+export const asNode = (value: SQLValue): SQLNode => {
   if (isSQLNode(value)) {
     return value;
   } else {
@@ -9,27 +9,27 @@ export const asNode = (value: unknown): SQLNode => {
   }
 };
 
-export const equals = (left: SQLNode, right: unknown): SQLNode => {
+export const equals = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw("="), asNode(right)]);
 };
 
-export const notEquals = (left: SQLNode, right: unknown): SQLNode => {
+export const notEquals = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw("<>"), asNode(right)]);
 };
 
-export const greaterThan = (left: SQLNode, right: unknown): SQLNode => {
+export const greaterThan = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw(">"), asNode(right)]);
 };
 
-export const lessThan = (left: SQLNode, right: unknown): SQLNode => {
+export const lessThan = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw("<"), asNode(right)]);
 };
 
-export const greaterThanOrEquals = (left: SQLNode, right: unknown): SQLNode => {
+export const greaterThanOrEquals = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw(">="), asNode(right)]);
 };
 
-export const lessThanOrEquals = (left: SQLNode, right: unknown): SQLNode => {
+export const lessThanOrEquals = (left: SQLNode, right: SQLValue): SQLNode => {
   return sql.join([left, sql.raw("<="), asNode(right)]);
 };
 
@@ -53,32 +53,32 @@ export const isNotNull = (node: SQLNode): SQLNode => {
   return sql.join([node, sql.raw("IS NOT NULL")]);
 };
 
-export const like = (node: SQLNode, pattern: unknown): SQLNode => {
+export const like = (node: SQLNode, pattern: SQLValue): SQLNode => {
   return sql.join([node, sql.raw("LIKE"), asNode(pattern)]);
 };
 
-export const notLike = (node: SQLNode, pattern: unknown): SQLNode => {
+export const notLike = (node: SQLNode, pattern: SQLValue): SQLNode => {
   return sql.join([node, sql.raw("NOT LIKE"), asNode(pattern)]);
 };
 
-export const iLike = (node: SQLNode, pattern: unknown): SQLNode => {
+export const iLike = (node: SQLNode, pattern: SQLValue): SQLNode => {
   return sql.join([node, sql.raw("ILIKE"), asNode(pattern)]);
 };
 
-export const notILike = (node: SQLNode, pattern: unknown): SQLNode => {
+export const notILike = (node: SQLNode, pattern: SQLValue): SQLNode => {
   return sql.join([node, sql.raw("NOT ILIKE"), asNode(pattern)]);
 };
 
-export const between = (node: SQLNode, lower: unknown, upper: unknown): SQLNode => {
+export const between = (node: SQLNode, lower: SQLValue, upper: SQLValue): SQLNode => {
   return sql.join([node, sql.raw("BETWEEN"), asNode(lower), sql.raw("AND"), asNode(upper)]);
 };
 
-export const inList = (node: SQLNode, values: unknown[]): SQLNode => {
+export const inList = (node: SQLNode, values: SQLValue[]): SQLNode => {
   const valueNodes = values.map(asNode);
   return sql.join([node, sql.raw("IN"), sql.join(valueNodes, sql.raw(", "))]);
 };
 
-export const notInList = (node: SQLNode, values: unknown[]): SQLNode => {
+export const notInList = (node: SQLNode, values: SQLValue[]): SQLNode => {
   const valueNodes = values.map(asNode);
   return sql.join([node, sql.raw("NOT IN"), sql.join(valueNodes, sql.raw(", "))]);
 };

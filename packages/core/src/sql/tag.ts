@@ -1,4 +1,3 @@
-import { type ValueEncoder } from "../driver/index.js";
 import {
   type SQLNode,
   SQLRaw,
@@ -7,6 +6,7 @@ import {
   isSQLNode,
   SQLIdentifier,
   SQLWrapper,
+  SQLValue,
 } from "./nodes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,7 +27,8 @@ function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {
 }
 
 sql.raw = (text: string) => new SQLRaw(text);
-sql.param = <TValue>(value: TValue, encoder?: ValueEncoder<TValue>) => new SQLParam(value, encoder);
+sql.param = <TValue extends SQLValue>(value: TValue, serialize?: (value: TValue) => SQLValue) =>
+  new SQLParam<TValue>(value, serialize);
 sql.identifier = (name: string) => new SQLIdentifier(name);
 sql.wrap = (node: SQLNode) => new SQLWrapper(node);
 

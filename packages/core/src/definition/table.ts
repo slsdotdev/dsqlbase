@@ -11,12 +11,11 @@ export interface TableConfig<
   columns: TColumns;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyTableDefinition = TableDefinition<any, any>;
+export type AnyTableDefinition = TableDefinition<string, TableConfig>;
 
 export class TableDefinition<
   TName extends string,
-  out TConfig extends TableConfig,
+  TConfig extends TableConfig,
 > extends DefinitionNode<TName, TConfig> {
   readonly kind = Kind.TABLE;
 

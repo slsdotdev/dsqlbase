@@ -1,4 +1,4 @@
-import { TypedObject } from "../utils/types.js";
+import { TypedObject } from "../utils/index.js";
 
 export const Kind = Object.freeze({
   SCHEMA: "SCHEMA",
@@ -34,6 +34,8 @@ export const defaultCodec: ColumnCodec<unknown, unknown> = {
     return raw;
   },
 };
+
+export type DefinitionSchema = Record<string, DefinitionNode>;
 
 export abstract class DefinitionNode<
   TName extends string = string,

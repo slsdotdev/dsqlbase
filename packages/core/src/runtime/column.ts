@@ -1,5 +1,5 @@
-import { TypedObject } from "../types/object.js";
-import { ColumnConfig, ColumnDefinition } from "../definition/column.js";
+import { TypedObject } from "../utils/index.js";
+import { ColumnConfig, ColumnDefinition } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
 

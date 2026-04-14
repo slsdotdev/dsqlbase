@@ -1,4 +1,4 @@
-import { NotNull } from "../utils/types.js";
+import { NotNull } from "../utils/index.js";
 import { DefinitionNode, Kind } from "./base.js";
 
 export interface DomainConfig {

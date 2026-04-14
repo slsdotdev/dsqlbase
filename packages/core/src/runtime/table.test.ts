@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Table } from "./table.js";
-import { TableDefinition } from "../definition/table.js";
-import { ColumnDefinition } from "../definition/column.js";
 import { Column } from "./column.js";
-import { SchemaDefinition } from "../definition/schema.js";
 import { sql } from "../sql/index.js";
-import { RelationsDefinition } from "../definition/relations.js";
-import { RELATION_TYPE } from "../definition/base.js";
+import {
+  ColumnDefinition,
+  Relation,
+  RelationsDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from "../definition/index.js";
 
 describe("Table", () => {
   const definition = new TableDefinition("users", {
@@ -87,7 +89,7 @@ describe("Table", () => {
       relations: {
         posts: {
           target: posts,
-          type: RELATION_TYPE.HAS_MANY,
+          type: Relation.HAS_MANY,
           from: [users["_columns"].id],
           to: [posts["_columns"].userId],
         },
@@ -99,7 +101,7 @@ describe("Table", () => {
       relations: {
         authored: {
           target: posts,
-          type: RELATION_TYPE.HAS_MANY,
+          type: Relation.HAS_MANY,
           from: [users["_columns"].id],
           to: [posts["_columns"].authorId],
         },

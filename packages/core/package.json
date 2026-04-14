@@ -11,17 +11,37 @@
       "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./*": {
-      "default": "./dist/*/index.js",
-      "types": "./dist/*/index.d.ts"
+    "./definition": {
+      "default": "./dist/definition/index.js",
+      "types": "./dist/definition/index.d.ts"
     },
-    "./types": {
-      "default": "./dist/types/index.js",
-      "types": "./dist/types/index.d.ts"
+    "./definition/*": {
+      "default": "./dist/definition/*.js",
+      "types": "./dist/definition/*.d.ts"
     },
-    "./types/*": {
-      "default": "./dist/types/*.js",
-      "types": "./dist/types/*.d.ts"
+    "./runtime": {
+      "default": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
+    },
+    "./runtime/*": {
+      "default": "./dist/runtime/*.js",
+      "types": "./dist/runtime/*.d.ts"
+    },
+    "./sql": {
+      "default": "./dist/sql/index.js",
+      "types": "./dist/sql/index.d.ts"
+    },
+    "./sql/*": {
+      "default": "./dist/sql/*.js",
+      "types": "./dist/sql/*.d.ts"
+    },
+    "./utils": {
+      "default": "./dist/utils/index.js",
+      "types": "./dist/utils/index.d.ts"
+    },
+    "./utils/*": {
+      "default": "./dist/utils/*.js",
+      "types": "./dist/utils/*.d.ts"
     }
   },
   "scripts": {
