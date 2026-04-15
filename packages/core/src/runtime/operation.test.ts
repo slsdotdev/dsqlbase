@@ -9,6 +9,7 @@ import { sql, SQLParam } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
+import { QueryBuilder } from "./query.js";
 
 const users = new TableDefinition("users", {
   columns: {
@@ -42,12 +43,7 @@ const usersRelations = new RelationsDefinition("users", {
 
 const registry = new SchemaRegistry({ users, posts, usersRelations });
 
-const mockDialect = {
-  buildInsertQuery: vi.fn(),
-  buildSelectQuery: vi.fn(),
-  buildUpdateQuery: vi.fn(),
-  buildDeleteQuery: vi.fn(),
-};
+const mockDialect = vi.mockObject(new QueryBuilder());
 
 const mockSession = {
   execute: vi.fn(),
@@ -107,6 +103,8 @@ describe("OperationFactory", () => {
   });
 
   it("should resolve insert operation results", () => {
+    mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
+
     const users = registry.getTable("users");
 
     const operation = factory.createInsertOperation<{ id: string }>(users, {
@@ -155,6 +153,7 @@ describe("OperationFactory", () => {
   });
 
   it("should resolve select operation results", () => {
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
     const users = registry.getTable("users");
 
     const operation = factory.createSelectOperation<{ id: string }, "one">(users, {
@@ -174,6 +173,7 @@ describe("OperationFactory", () => {
   });
 
   it("should resolve many select operation results", () => {
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
     const users = registry.getTable("users");
 
     const operation = factory.createSelectOperation<{ id: string }, "many">(users, {
@@ -238,6 +238,7 @@ describe("OperationFactory", () => {
   });
 
   it("should resolve update operation results", () => {
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
     const users = registry.getTable("users");
 
     const operation = factory.createUpdateOperation<{ id: string }, "one">(users, {

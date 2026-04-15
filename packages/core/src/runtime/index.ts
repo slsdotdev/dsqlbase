@@ -8,19 +8,10 @@ export type {
   SchemaRelationDefinitions,
   SchemaTableDefinitions,
   SchemaTableRelations,
-  TableRelationDefinitions,
   TableRelationFieldName,
 } from "./base.js";
 export { Column, type AnyColumn } from "./column.js";
 export { ExecutionContext, type ExecutionContextOptions } from "./context.js";
-export type {
-  DeleteParams,
-  InsertParams,
-  JoinParams,
-  QueryBuilder,
-  SelectParams,
-  UpdateParams,
-} from "./dialect.js";
 export {
   OperationsFactory,
   type DeleteOperation,
@@ -40,6 +31,20 @@ export {
   type UpdateOperation,
   type UpdateOperationArgs,
 } from "./operation.js";
-export { SchemaRegistry, type RuntimeTables, type TableByNameOrAlias } from "./registry.js";
+export {
+  QueryBuilder,
+  type DeleteParams,
+  type InsertParams,
+  type JoinParams,
+  type SelectParams,
+  type UpdateParams,
+} from "./query.js";
+export {
+  SchemaRegistry,
+  type RuntimeTables,
+  type TableByAlias,
+  type TableByName,
+  type TableByNameOrAlias,
+} from "./registry.js";
 export type { Session, TransactionSession } from "./session.js";
 export { Table, type AnyTable } from "./table.js";

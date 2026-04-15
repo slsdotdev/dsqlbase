@@ -13,7 +13,7 @@ import {
   Schema,
   SchemaRelationDefinitions,
   SchemaTableDefinitions,
-  TableRelationDefinitions,
+  SchemaTableRelations,
 } from "./base.js";
 import { AnyTable, Table } from "./table.js";
 
@@ -22,22 +22,34 @@ export type RuntimeTables<TSchema extends AnySchema> = {
     infer Name,
     infer Config
   >
-    ? Table<Name, Config, TableRelationDefinitions<TSchema, Name>>
+    ? Table<Name, Config, SchemaTableRelations<TSchema, Name>>
     : never;
 };
 
-export type TableByNameOrAlias<TSchema extends AnySchema, TName extends string> = {
-  [K in keyof TSchema["tables"]]: TSchema["tables"][K] extends TableDefinition<
-    infer Name,
-    infer Config
-  >
-    ? Name extends TName
-      ? Table<Name, Config, TableRelationDefinitions<TSchema, Name>>
+export type TableByAlias<
+  TSchema extends AnySchema,
+  TAlias extends string,
+> = TAlias extends keyof TSchema["tables"]
+  ? TSchema["tables"][TAlias] extends TableDefinition<infer Name, infer Config>
+    ? Table<Name, Config, SchemaTableRelations<TSchema, Name>>
+    : never
+  : never;
+
+export type TableByName<TSchema extends AnySchema, TName extends string> =
+  TSchema["tables"] extends Record<string, infer Def>
+    ? Def extends TableDefinition<TName, infer Config>
+      ? Table<TName, Config, SchemaTableRelations<TSchema, TName>>
       : never
-    : TSchema["tables"][K] extends TableDefinition<infer TName, infer Config>
-      ? Table<TName, Config, TableRelationDefinitions<TSchema, TName>>
-      : never;
-}[keyof TSchema["tables"]];
+    : never;
+
+export type TableByNameOrAlias<
+  TSchema extends AnySchema,
+  TName extends string,
+> = keyof TSchema["tables"] extends never
+  ? AnyTable
+  : TableByAlias<TSchema, TName> extends never
+    ? TableByName<TSchema, TName>
+    : TableByAlias<TSchema, TName>;
 
 export class SchemaRegistry<
   TDefinition extends DefinitionSchema = DefinitionSchema,
@@ -137,14 +149,16 @@ export class SchemaRegistry<
     return map;
   }
 
-  public getTable<TName extends string>(aliasOrName: TName) {
+  public getTable<TName extends string>(
+    aliasOrName: TName
+  ): TableByNameOrAlias<this["__type"], TName> {
     const table = this._tables.get(aliasOrName);
 
     if (!table) {
       throw new Error(`Table not found: ${aliasOrName}`);
     }
 
-    return table;
+    return table as TableByNameOrAlias<this["__type"], TName>;
   }
 
   public hasTable(aliasOrName: string): boolean {

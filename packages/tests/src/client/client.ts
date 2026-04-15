@@ -1,6 +1,6 @@
-import { SQLStatement } from "@dsqlbase/core/sql";
-import { Session } from "@dsqlbase/core/driver";
-import { ExecutionContext, QueryDialect, Schema, SchemaRegistry } from "@dsqlbase/core/execution";
+import { SQLStatement } from "@dsqlbase/core";
+import { Session } from "@dsqlbase/core/runtime";
+import { ExecutionContext, QueryDialect, Schema, SchemaRegistry } from "@dsqlbase/core/runtime";
 import { PGlite } from "@electric-sql/pglite";
 
 import { schema, applyMigrations } from "../schema/index.js";

@@ -35,7 +35,7 @@ export type TableColumns<T extends AnyTable> = {
   readonly [K in TableColumnName<T>]: T["__type"] extends { columns: infer C }
     ? C extends Record<K, infer CD>
       ? CD extends ColumnDefinition<infer CName, infer CConfig>
-        ? Column<T, CName, CConfig>
+        ? Column<CName, CConfig, T>
         : never
       : never
     : never;

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import {
+  AnyFieldRelation,
   AnyTableDefinition,
   AnyTableRelations,
   DefinitionSchema,
@@ -30,11 +31,8 @@ export type DefinitionTableRelations<
   TDefinition extends Record<string, infer Def>
     ? Def extends RelationsDefinition<TTableName, infer R>
       ? R extends RelationsConfig
-        ? R["relations"] extends Record<
-            string,
-            FieldRelation<AnyTableDefinition, AnyTableDefinition>
-          >
-          ? { [K in keyof R["relations"]]: R["relations"][K] }
+        ? R["relations"] extends AnyTableRelations
+          ? R["relations"]
           : never
         : never
       : never
@@ -92,7 +90,3 @@ export type FieldRelationConfig<
       : never
     : never
   : never;
-
-export type TableRelationDefinitions<TSchema extends AnySchema, TTableName extends string> = {
-  [K in TableRelationFieldName<TSchema, TTableName>]: FieldRelationConfig<TSchema, TTableName, K>;
-};

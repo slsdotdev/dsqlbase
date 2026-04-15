@@ -3,9 +3,9 @@ import { Relation } from "../definition/index.js";
 import { SQLIdentifier, SQLNode, SQLStatement, AnySQLParam } from "../sql/index.js";
 import { AnySchema } from "./base.js";
 import { ExecutionContext } from "./context.js";
-import { JoinParams, SelectParams } from "./dialect.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
+import { JoinParams, SelectParams } from "./query.js";
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 export type OperationMode = "one" | "many";

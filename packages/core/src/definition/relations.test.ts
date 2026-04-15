@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TableDefinition } from "./table.js";
 import { ColumnDefinition } from "./column.js";
 import { RelationsDefinition } from "./relations.js";
+import { Relation } from "./base.js";
 
 // #region Tables
 
@@ -124,14 +125,14 @@ describe("RelationsDefinition", () => {
         // user hasMany posts
         posts: {
           target: posts,
-          type: "has_many",
+          type: Relation.HAS_MANY,
           from: [users["_columns"].id],
           to: [posts["_columns"].authorId],
         },
         // user hasOne publications
         publication: {
           target: publications,
-          type: "has_one",
+          type: Relation.HAS_ONE,
           from: [users["_columns"].id],
           to: [publications["_columns"].ownerId],
         },

@@ -3,9 +3,9 @@ import { ColumnConfig, ColumnDefinition } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
 
-export type AnyColumn = Column<AnyTable, string, ColumnConfig>;
+export type AnyColumn = Column<string, ColumnConfig, AnyTable>;
 
-export class Column<TTable extends AnyTable, TName extends string, TConfig extends ColumnConfig>
+export class Column<TName extends string, TConfig extends ColumnConfig, TTable extends AnyTable>
   implements SQLNode, TypedObject<TConfig>
 {
   declare readonly __type: TConfig;

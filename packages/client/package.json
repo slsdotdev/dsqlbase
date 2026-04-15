@@ -1,0 +1,17 @@
+{
+  "name": "@dsqlbase/client",
+  "version": "0.0.1",
+  "description": "Query client for DSQLBase",
+  "sideEffects": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@dsqlbase/core": "^0.0.1"
+  }
+}

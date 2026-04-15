@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { DefinitionSchema } from "../definition/index.js";
-import { QueryBuilder } from "./dialect.js";
+import { QueryBuilder } from "./query.js";
 import { Schema } from "./base.js";
 import { Session } from "./session.js";
 import { SchemaRegistry } from "./registry.js";
