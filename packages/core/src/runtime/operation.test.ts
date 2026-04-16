@@ -29,15 +29,12 @@ const posts = new TableDefinition("posts", {
   },
 });
 
-const usersRelations = new RelationsDefinition("users", {
-  table: users,
-  relations: {
-    posts: {
-      type: Relation.HAS_MANY,
-      target: posts,
-      from: [users["_columns"].id],
-      to: [posts["_columns"].authorId],
-    },
+const usersRelations = new RelationsDefinition(users, {
+  posts: {
+    type: Relation.HAS_MANY,
+    target: posts,
+    from: [users.columns.id],
+    to: [posts.columns.authorId],
   },
 });
 

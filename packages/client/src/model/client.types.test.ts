@@ -21,27 +21,21 @@ const contacts = table("contacts", {
   value: text("value").notNull(),
 });
 
-const userRelations = new RelationsDefinition("users", {
-  table: users,
-  relations: {
-    contacts: {
-      target: contacts,
-      type: "has_many",
-      from: [users["_columns"].id],
-      to: [contacts["_columns"].userId],
-    },
+const userRelations = new RelationsDefinition(users, {
+  contacts: {
+    target: contacts,
+    type: "has_many",
+    from: [users.columns.id],
+    to: [contacts.columns.userId],
   },
 });
 
-const contactsRelations = new RelationsDefinition("contacts", {
-  table: contacts,
-  relations: {
-    owner: {
-      target: users,
-      type: "belongs_to",
-      from: [contacts["_columns"].userId],
-      to: [users["_columns"].id],
-    },
+const contactsRelations = new RelationsDefinition(contacts, {
+  owner: {
+    target: users,
+    type: "belongs_to",
+    from: [contacts.columns.userId],
+    to: [users.columns.id],
   },
 });
 

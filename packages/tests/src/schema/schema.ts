@@ -1,4 +1,3 @@
-import { Relation, RelationsDefinition } from "@dsqlbase/core/definition";
 import {
   boolean,
   date,
@@ -10,7 +9,16 @@ import {
   varchar,
   int,
   duration,
+  relations,
+  hasOne,
+  hasMany,
+  belongsTo,
 } from "@dsqlbase/schema";
+
+export interface ProjectSettings {
+  notificationsEnabled: boolean;
+  theme: "light" | "dark";
+}
 
 const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -44,11 +52,6 @@ const users = table("users", {
 });
 
 users.index("users_email_idx", { unique: true });
-
-export interface ProjectSettings {
-  notificationsEnabled: boolean;
-  theme: "light" | "dark";
-}
 
 const projects = table("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -87,94 +90,59 @@ tasks.index("tasks_assignee_idx");
 tasks.index("tasks_status_idx");
 tasks.index("tasks_due_data_idx");
 
-const userRelations = new RelationsDefinition("users", {
-  table: users,
-  relations: {
-    membership: {
-      target: members,
-      type: Relation.HAS_ONE,
-      from: [users["_columns"].id],
-      to: [members["_columns"].userId],
-    },
-    tasks: {
-      target: tasks,
-      type: Relation.HAS_MANY,
-      from: [users["_columns"].id],
-      to: [tasks["_columns"].assigneeId],
-    },
-  },
+const userRelations = relations(users, {
+  membership: hasOne(members, {
+    from: [users.columns.id],
+    to: [members.columns.userId],
+  }),
+  tasks: hasMany(tasks, {
+    from: [users.columns.id],
+    to: [tasks.columns.assigneeId],
+  }),
 });
 
-const memberRelations = new RelationsDefinition("team_members", {
-  table: members,
-  relations: {
-    user: {
-      target: users,
-      type: Relation.BELONGS_TO,
-      from: [members["_columns"].userId],
-      to: [users["_columns"].id],
-    },
-    team: {
-      target: teams,
-      type: Relation.BELONGS_TO,
-      from: [members["_columns"].teamId],
-      to: [teams["_columns"].id],
-    },
-  },
+const memberRelations = relations(members, {
+  user: belongsTo(users, {
+    from: [members.columns.userId],
+    to: [users.columns.id],
+  }),
+  team: belongsTo(teams, {
+    from: [members.columns.teamId],
+    to: [teams.columns.id],
+  }),
 });
 
-const teamRelations = new RelationsDefinition("teams", {
-  table: teams,
-  relations: {
-    members: {
-      target: members,
-      type: Relation.HAS_MANY,
-      from: [teams["_columns"].id],
-      to: [members["_columns"].teamId],
-    },
-    projects: {
-      target: projects,
-      type: Relation.HAS_MANY,
-      from: [teams["_columns"].id],
-      to: [projects["_columns"].teamId],
-    },
-  },
+const teamRelations = relations(teams, {
+  members: hasMany(members, {
+    from: [teams.columns.id],
+    to: [members.columns.teamId],
+  }),
+  projects: hasMany(projects, {
+    from: [teams.columns.id],
+    to: [projects.columns.teamId],
+  }),
 });
 
-const projectRelations = new RelationsDefinition("projects", {
-  table: projects,
-  relations: {
-    team: {
-      target: teams,
-      type: Relation.BELONGS_TO,
-      from: [projects["_columns"].teamId],
-      to: [teams["_columns"].id],
-    },
-    tasks: {
-      target: tasks,
-      type: Relation.HAS_MANY,
-      from: [projects["_columns"].id],
-      to: [tasks["_columns"].projectId],
-    },
-  },
+const projectRelations = relations(projects, {
+  team: belongsTo(teams, {
+    from: [projects.columns.teamId],
+    to: [teams.columns.id],
+  }),
+  tasks: hasMany(tasks, {
+    from: [projects.columns.id],
+    to: [tasks.columns.projectId],
+  }),
 });
 
-const taskRelations = new RelationsDefinition("tasks", {
-  table: tasks,
-  relations: {
-    project: {
-      target: projects,
-      type: Relation.BELONGS_TO,
-      from: [tasks["_columns"].projectId],
-      to: [projects["_columns"].id],
-    },
-    assignee: {
-      target: users,
-      type: Relation.BELONGS_TO,
-      from: [tasks["_columns"].assigneeId],
-      to: [users["_columns"].id],
-    },
-  },
+const taskRelations = relations(tasks, {
+  project: belongsTo(projects, {
+    from: [tasks.columns.projectId],
+    to: [projects.columns.id],
+  }),
+  assignee: belongsTo(users, {
+    from: [tasks.columns.assigneeId],
+    to: [users.columns.id],
+  }),
 });
 
 export {

@@ -26,39 +26,30 @@ const posts = new TableDefinition("posts", {
   },
 });
 
-const usersRelations = new RelationsDefinition("users", {
-  table: users,
-  relations: {
-    posts: {
-      type: Relation.HAS_MANY,
-      target: posts,
-      from: [users["_columns"].id],
-      to: [posts["_columns"].authorId],
-    },
+const usersRelations = new RelationsDefinition(users, {
+  posts: {
+    type: Relation.HAS_MANY,
+    target: posts,
+    from: [users.columns.id],
+    to: [posts.columns.authorId],
   },
 });
 
-const postsRelations = new RelationsDefinition("posts", {
-  table: posts,
-  relations: {
-    author: {
-      type: Relation.BELONGS_TO,
-      target: users,
-      from: [posts["_columns"].authorId],
-      to: [users["_columns"].id],
-    },
+const postsRelations = new RelationsDefinition(posts, {
+  author: {
+    type: Relation.BELONGS_TO,
+    target: users,
+    from: [posts.columns.authorId],
+    to: [users.columns.id],
   },
 });
 
-export const usersDislikedPosts = new RelationsDefinition("users", {
-  table: users,
-  relations: {
-    dislikedPosts: {
-      type: Relation.HAS_MANY,
-      target: posts,
-      from: [users["_columns"].id],
-      to: [posts["_columns"].id],
-    },
+export const usersDislikedPosts = new RelationsDefinition(users, {
+  dislikedPosts: {
+    type: Relation.HAS_MANY,
+    target: posts,
+    from: [users.columns.id],
+    to: [posts.columns.id],
   },
 });
 

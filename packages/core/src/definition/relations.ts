@@ -1,11 +1,8 @@
 import { DefinitionNode, Kind, RelationType } from "./base.js";
-import { AnyColumnDefinition } from "./column.js";
 import { AnyTableDefinition, TableConfig, TableDefinition } from "./table.js";
 
 export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
-  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K] extends AnyColumnDefinition
-    ? TTable["__type"]["columns"][K]
-    : never;
+  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K];
 }[keyof TTable["__type"]["columns"]];
 
 export interface FieldRelation<
@@ -14,7 +11,6 @@ export interface FieldRelation<
 > {
   target: TTarget;
   type: RelationType;
-
   from: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource>[] : never;
   to: TTarget extends AnyTableDefinition ? TableDefinitionColumn<TTarget>[] : never;
 }
@@ -26,22 +22,22 @@ export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDef
 
 export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyTableDefinition>;
 export type AnyTableRelations = Record<string, AnyFieldRelation>;
-export type AnyRelationDefinition = RelationsDefinition<string, RelationsConfig>;
+export type AnyRelationDefinition = RelationsDefinition<AnyTableDefinition, AnyTableRelations>;
 
 export class RelationsDefinition<
-  TTableName extends string,
-  TConfig extends RelationsConfig<TableDefinition<TTableName, TableConfig>>,
-> extends DefinitionNode<`${TTableName}_relations`, TConfig> {
+  TTable extends AnyTableDefinition,
+  TRelations extends Record<string, FieldRelation<TTable>>,
+> extends DefinitionNode<`${TTable["name"]}_relations`, { table: TTable; relations: TRelations }> {
   public readonly kind = Kind.RELATIONS;
 
-  private _table: TConfig["table"];
-  private _relations: TConfig["relations"];
+  readonly table: TTable;
+  readonly relations: TRelations;
 
-  constructor(tableName: TTableName, config: TConfig) {
-    super(`${tableName}_relations`);
+  constructor(table: TTable, relations: TRelations) {
+    super(`${table.name}_relations`);
 
-    this._table = config.table;
-    this._relations = config.relations;
+    this.table = table;
+    this.relations = relations;
   }
 
   public toJSON() {
@@ -49,11 +45,11 @@ export class RelationsDefinition<
       kind: this.kind,
       name: this.name,
       table: {
-        kind: this._table.kind,
-        name: this._table.name,
+        kind: this.table.kind,
+        name: this.table.name,
       },
       relations: Object.fromEntries(
-        Object.entries(this._relations).map(([name, relation]) => [
+        Object.entries(this.relations).map(([name, relation]) => [
           name,
           {
             type: relation.type,

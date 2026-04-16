@@ -20,14 +20,15 @@ export class TableDefinition<
   readonly kind = Kind.TABLE;
 
   protected _schema?: SchemaDefinition;
-  protected _columns: TConfig["columns"];
   protected _indexes: IndexDefinition<string, IndexConfig>[] = [];
+
+  readonly columns: TConfig["columns"];
 
   constructor(name: TName, config: TConfig) {
     super(name);
 
     this._schema = config.schema;
-    this._columns = config.columns ?? {};
+    this.columns = config.columns as Readonly<TConfig["columns"]>;
   }
 
   public index<TIdxName extends string, TIdxConfig extends IndexConfig>(
@@ -46,7 +47,7 @@ export class TableDefinition<
       name: this.name,
       schema: this._schema?.toJSON(),
       columns: Object.fromEntries(
-        Object.entries(this._columns).map(([name, column]) => [name, column.toJSON()])
+        Object.entries(this.columns).map(([name, column]) => [name, column.toJSON()])
       ),
       indexes: this._indexes.map((idx) => idx.toJSON()),
     } as const;

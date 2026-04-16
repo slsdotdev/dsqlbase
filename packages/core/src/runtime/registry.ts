@@ -87,20 +87,18 @@ export class SchemaRegistry<
 
     for (const [name, node] of Object.entries(schema)) {
       if (node instanceof RelationsDefinition) {
-        const tableName = node["_table"].name as DefinitionRelationsTableName<TDefinition>;
+        const tableName = node.table.name as DefinitionRelationsTableName<TDefinition>;
 
         if (relations[tableName]) {
           relations[tableName] = this._mergeTableRelations(
             relations[tableName],
-            node["_relations"]
+            node.relations
           ) as SchemaRelationDefinitions<TDefinition>[DefinitionRelationsTableName<TDefinition>];
 
           continue;
         }
 
-        relations[tableName] = node[
-          "_relations"
-        ] as SchemaRelationDefinitions<TDefinition>[DefinitionRelationsTableName<TDefinition>];
+        relations[tableName] = node.relations;
 
         continue;
       }

@@ -6,6 +6,8 @@ import {
   DefinitionSchema,
   RelationsConfig,
   RelationsDefinition,
+  TableConfig,
+  TableDefinition,
 } from "../definition/index.js";
 
 /**
@@ -17,8 +19,13 @@ export type DefinitionTableName<TDefinition extends DefinitionSchema> = {
 }[keyof TDefinition];
 
 export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> = {
-  [K in keyof TDefinition]: TDefinition[K] extends RelationsDefinition<infer TableName, infer _>
-    ? TableName
+  [K in keyof TDefinition]: TDefinition[K] extends RelationsDefinition<
+    infer TableDefinition,
+    infer _
+  >
+    ? TableDefinition extends AnyTableDefinition
+      ? TableDefinition["name"]
+      : never
     : never;
 }[keyof TDefinition];
 
@@ -27,10 +34,10 @@ export type DefinitionTableRelations<
   TTableName extends string,
 > =
   TDefinition extends Record<string, infer Def>
-    ? Def extends RelationsDefinition<TTableName, infer R>
-      ? R extends RelationsConfig
-        ? R["relations"] extends AnyTableRelations
-          ? R["relations"]
+    ? Def extends RelationsDefinition<infer TTable, infer R>
+      ? TTable extends TableDefinition<TTableName, infer _>
+        ? R extends AnyTableRelations
+          ? R
           : never
         : never
       : never
@@ -68,10 +75,8 @@ export type TableRelationFieldName<
   TSchema extends AnySchema,
   TTableName extends string,
 > = TTableName extends keyof TSchema["relations"]
-  ? TSchema["relations"][TTableName] extends RelationsDefinition<TTableName, infer RelConfig>
-    ? RelConfig extends RelationsConfig
-      ? keyof RelConfig["relations"]
-      : never
+  ? TSchema["relations"][TTableName] extends AnyTableRelations
+    ? keyof TSchema["relations"][TTableName]
     : never
   : never;
 
@@ -80,11 +85,9 @@ export type FieldRelationConfig<
   TTableName extends string,
   TFieldName extends string,
 > = TTableName extends keyof TSchema["relations"]
-  ? TSchema["relations"][TTableName] extends RelationsDefinition<TTableName, infer RelConfig>
-    ? RelConfig extends RelationsConfig
-      ? TFieldName extends keyof RelConfig["relations"]
-        ? RelConfig["relations"][TFieldName]
-        : never
+  ? TSchema["relations"][TTableName] extends AnyTableRelations
+    ? TFieldName extends keyof TSchema["relations"][TTableName]
+      ? TSchema["relations"][TTableName][TFieldName]
       : never
     : never
   : never;

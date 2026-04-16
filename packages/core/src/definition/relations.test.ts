@@ -119,23 +119,20 @@ const publications = new TableDefinition("publications", {
 
 describe("RelationsDefinition", () => {
   it("should serialize user relations to JSON", () => {
-    const userRelations = new RelationsDefinition(users.name, {
-      table: users,
-      relations: {
-        // user hasMany posts
-        posts: {
-          target: posts,
-          type: Relation.HAS_MANY,
-          from: [users["_columns"].id],
-          to: [posts["_columns"].authorId],
-        },
-        // user hasOne publications
-        publication: {
-          target: publications,
-          type: Relation.HAS_ONE,
-          from: [users["_columns"].id],
-          to: [publications["_columns"].ownerId],
-        },
+    const userRelations = new RelationsDefinition(users, {
+      // user hasMany posts
+      posts: {
+        target: posts,
+        type: Relation.HAS_MANY,
+        from: [users.columns.id],
+        to: [posts.columns.authorId],
+      },
+      // user hasOne publications
+      publication: {
+        target: publications,
+        type: Relation.HAS_ONE,
+        from: [users.columns.id],
+        to: [publications.columns.ownerId],
       },
     });
 

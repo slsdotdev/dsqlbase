@@ -65,7 +65,7 @@ export class Table<
   private _buildColumns(definition: TableDefinition<TName, TConfig>): TableColumns<this> {
     const columns = {} as Record<string, AnyColumn>;
 
-    for (const [name, def] of Object.entries(definition["_columns"])) {
+    for (const [name, def] of Object.entries(definition.columns)) {
       columns[name] = new Column(this, def);
     }
 

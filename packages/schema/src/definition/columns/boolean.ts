@@ -16,3 +16,5 @@ export function boolean<const TName extends string>(name: TName) {
     },
   });
 }
+
+export { boolean as bool };

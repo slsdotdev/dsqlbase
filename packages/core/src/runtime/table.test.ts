@@ -84,34 +84,28 @@ describe("Table", () => {
       },
     });
 
-    const userRelations = new RelationsDefinition("users", {
-      table: users,
-      relations: {
-        posts: {
-          target: posts,
-          type: Relation.HAS_MANY,
-          from: [users["_columns"].id],
-          to: [posts["_columns"].userId],
-        },
+    const userRelations = new RelationsDefinition(users, {
+      posts: {
+        target: posts,
+        type: Relation.HAS_MANY,
+        from: [users.columns.id],
+        to: [posts.columns.userId],
       },
     });
 
-    const secondUserRelations = new RelationsDefinition("users", {
-      table: users,
-      relations: {
-        authored: {
-          target: posts,
-          type: Relation.HAS_MANY,
-          from: [users["_columns"].id],
-          to: [posts["_columns"].authorId],
-        },
+    const secondUserRelations = new RelationsDefinition(users, {
+      authored: {
+        target: posts,
+        type: Relation.HAS_MANY,
+        from: [users.columns.id],
+        to: [posts.columns.authorId],
       },
     });
 
     it("should create a Table object with the correct relations", () => {
       const table = new Table(definition, {
-        ...userRelations["_relations"],
-        ...secondUserRelations["_relations"],
+        ...userRelations.relations,
+        ...secondUserRelations.relations,
       });
 
       expect(table.name).toBe("users");

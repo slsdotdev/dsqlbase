@@ -1,9 +1,9 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
 
 /**
- * Defines a `json` type column.
+ * Defines a `json` *runtime data type* column.
  *
- * ### Important Notes
+ * #### Important Notes
  *
  * The column data type will be `text` in the database, and queries will use pg JSON functions to handle JSON data.
  *
