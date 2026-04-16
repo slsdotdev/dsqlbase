@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import {
-  AnyFieldRelation,
   AnyTableDefinition,
   AnyTableRelations,
   DefinitionSchema,
-  FieldRelation,
   RelationsConfig,
   RelationsDefinition,
 } from "../definition/index.js";

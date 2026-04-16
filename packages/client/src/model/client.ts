@@ -1,5 +1,5 @@
 import { AnyTable, ExecutionContext, OperationResult, Schema } from "@dsqlbase/core/runtime";
-import { TypedObject } from "@dsqlbase/core/utils";
+import { Prettify, TypedObject } from "@dsqlbase/core/utils";
 import {
   CreateArgs,
   DeleteArgs,
@@ -32,7 +32,7 @@ export class ModelClient<
     throw new Error("Not implemented", { cause: args });
   }
 
-  public findMany<TArgs extends FindManyArgs<TTable, this["__type"]>>(
+  public findMany<TArgs extends Prettify<FindManyArgs<TTable, this["__type"]>>>(
     args: TArgs
   ): OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>> {
     throw new Error("Not implemented", { cause: args });

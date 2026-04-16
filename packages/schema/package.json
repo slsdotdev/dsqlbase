@@ -1,0 +1,25 @@
+{
+  "name": "@dsqlbase/schema",
+  "version": "0.0.1",
+  "description": "Schema definition and migration tools for DSQLBase",
+  "sideEffects": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest dev",
+    "lint": "eslint src --ext .ts",
+    "dev": "vitest watch"
+  },
+  "dependencies": {
+    "@dsqlbase/core": "^0.0.1"
+  }
+}

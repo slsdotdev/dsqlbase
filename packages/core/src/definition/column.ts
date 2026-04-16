@@ -6,7 +6,7 @@ import {
   Unique,
   WithValueType,
 } from "../utils/index.js";
-import { ColumnCodec, DefinitionNode, Kind } from "./base.js";
+import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
 
 export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKey: true }
   ? never
@@ -35,7 +35,7 @@ export class ColumnDefinition<
   protected _unique: boolean;
   protected _dataType: string;
   protected _defaultValue?: this["__type"]["valueType"];
-  protected _codec?: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
+  protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["valueType"];
   protected _onUpdate?: () => this["__type"]["valueType"];
 
@@ -46,7 +46,7 @@ export class ColumnDefinition<
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
-    this._codec = config.codec;
+    this._codec = config.codec ?? defaultCodec;
   }
 
   /**

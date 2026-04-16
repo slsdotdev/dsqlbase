@@ -35,6 +35,13 @@ export type ColumnTypeOf<T extends AnyTable, K extends FieldNamesOf<T>> =
       : never
     : never;
 
+export type FieldRelationOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> =
+  T["__type"]["relations"] extends Record<K, infer R>
+    ? R extends AnyFieldRelation
+      ? R
+      : never
+    : never;
+
 export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
     ? T["valueType"]
@@ -58,19 +65,15 @@ export type RequiredFieldsOf<T extends AnyTable> = {
     : never;
 }[FieldNamesOf<T>];
 
-export type RelationTypeOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> =
-  T["__type"]["relations"] extends Record<K, infer R>
-    ? R extends AnyFieldRelation
-      ? R["type"]
-      : never
-    : never;
+export type RelationTypeOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> = FieldRelationOf<
+  T,
+  K
+>["type"];
 
-export type RelationTargetOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> =
-  T["__type"]["relations"] extends Record<K, infer R>
-    ? R extends AnyFieldRelation
-      ? R["target"]
-      : never
-    : never;
+export type RelationTargetOf<
+  T extends AnyTable,
+  K extends RelationFieldNamesOf<T>,
+> = FieldRelationOf<T, K>["target"];
 
 export type OptionalFieldsOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
@@ -122,6 +125,29 @@ export type DeleteArgs<TTable extends AnyTable> = Prettify<{
 
 export interface QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> {
   select?: FieldSelectionOf<TTable>;
+  /**
+   * Join related records based on the relations defined in the schema. The value can be a boolean or a nested query object for more complex queries.
+   *
+   * @example
+   * ```ts
+   * client.findOne({
+   *   where: { id: "123" },
+   *   select: {
+   *     id: true,
+   *     firstName: true,
+   *   },
+   *   join: {
+   *     posts: {
+   *       where: { published: true },
+   *       select: {
+   *         title: true,
+   *       },
+   *     },
+   *     profile: true,
+   *   },
+   * })
+   * ```
+   */
   join?: Prettify<JoinExpressionOf<TTable, TSchema>>;
 }
 
@@ -148,14 +174,10 @@ export type RelationQueryOf<
   S extends AnySchema,
   K extends RelationFieldNamesOf<T>,
 > =
-  T["__type"]["relations"] extends Record<K, infer R>
-    ? R extends AnyFieldRelation
-      ? R["target"] extends TableDefinition<infer TName, infer TConfig>
-        ? R["type"] extends "has_many"
-          ? FindManyArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>
-          : QueryArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>
-        : never
-      : never
+  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TConfig>
+    ? RelationTypeOf<T, K> extends "has_many"
+      ? FindManyArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>
+      : QueryArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>
     : never;
 
 export type SelectionResultOf<
@@ -238,7 +260,7 @@ export interface FilterCondition<Value = unknown> {
 
 export type WhereExpressionOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
-    ? FilterCondition<ValueTypeOf<ColumnTypeOf<T, K>>>
+    ? FilterCondition<ValueTypeOf<ColumnTypeOf<T, K>>> | ValueTypeOf<ColumnTypeOf<T, K>>
     : never;
 } & {
   and?: WhereExpressionOf<T>[];

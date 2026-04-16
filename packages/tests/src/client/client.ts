@@ -1,6 +1,6 @@
 import { SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import { ExecutionContext, QueryDialect, Schema, SchemaRegistry } from "@dsqlbase/core/runtime";
+import { ExecutionContext, QueryBuilder, Schema, SchemaRegistry } from "@dsqlbase/core";
 import { PGlite } from "@electric-sql/pglite";
 
 import { schema, applyMigrations } from "../schema/index.js";
@@ -31,7 +31,7 @@ export const createClient = async () => {
 
   const context = new ExecutionContext({
     session,
-    dialect: new QueryDialect(),
+    dialect: new QueryBuilder(),
     schema: registry,
   });
 

@@ -8,10 +8,13 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --typecheck",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@dsqlbase/core": "^0.0.1"
+  },
+  "devDependencies": {
+    "@dsqlbase/schema": "*"
   }
 }

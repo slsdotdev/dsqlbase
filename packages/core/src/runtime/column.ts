@@ -10,6 +10,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
 {
   declare readonly __type: TConfig;
 
+  readonly codec: ColumnDefinition<TName, TConfig>["_codec"];
+
   readonly table: TTable;
   readonly name: TName;
   readonly notNull: TConfig["notNull"];
@@ -22,11 +24,12 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];
+
+    this.codec = definition["_codec"];
   }
 
-  public resolve(value: unknown): TConfig["valueType"] {
-    // In a real implementation, this would include type checking and conversion logic
-    return value as TConfig["valueType"];
+  public resolve(value: TConfig["rawType"]): TConfig["valueType"] {
+    return this.codec.decode(value);
   }
 
   toSQL(ctx: SQLContext): SQLStatement {
