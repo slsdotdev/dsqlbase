@@ -56,10 +56,7 @@ describe("ColumnDefinition", () => {
   });
 
   it("should set constraint name", () => {
-    const column = new ColumnDefinition("status")
-      .constraint("chk_status")
-      .toJSON();
-
+    const column = new ColumnDefinition("status").constraint("chk_status").toJSON();
     expect(column.constraint).toBe("chk_status");
   });
 

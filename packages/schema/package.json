@@ -10,6 +10,22 @@
     ".": {
       "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./migrations": {
+      "default": "./dist/migrations/index.js",
+      "types": "./dist/migrations/index.d.ts"
+    },
+    "./migrations/*": {
+      "default": "./dist/migrations/*.js",
+      "types": "./dist/migrations/*.d.ts"
+    },
+    "./definition": {
+      "default": "./dist/definition/index.js",
+      "types": "./dist/definition/index.d.ts"
+    },
+    "./definition/*": {
+      "default": "./dist/definition/*.js",
+      "types": "./dist/definition/*.d.ts"
     }
   },
   "scripts": {

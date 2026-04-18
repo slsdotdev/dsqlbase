@@ -1,1 +1,1 @@
-export {};
+export { introspectionQuery } from "./introspection.js";
