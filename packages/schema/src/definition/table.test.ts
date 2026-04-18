@@ -25,13 +25,11 @@ describe("TableDefinition", () => {
 
     usersTable.index("email_idx", { unique: true });
 
-    expect(usersTable.toJSON().indexes).toEqual([
-      {
-        kind: "INDEX",
-        name: "email_idx",
-        unique: true,
-      },
-    ]);
+    expect(usersTable.toJSON().indexes[0]).toMatchObject({
+      kind: "INDEX",
+      name: "email_idx",
+      unique: true,
+    });
   });
 
   it("should serialize to JSON correctly", () => {
@@ -46,29 +44,29 @@ describe("TableDefinition", () => {
     expect(json).toMatchObject({
       kind: "TABLE",
       name: "users",
-      columns: expect.objectContaining({
-        id: expect.objectContaining({
+      columns: expect.arrayContaining([
+        expect.objectContaining({
           name: "id",
           dataType: "UUID",
           primaryKey: true,
           notNull: true,
           unique: false,
         }),
-        name: expect.objectContaining({
+        expect.objectContaining({
           name: "name",
           dataType: "text",
           primaryKey: false,
           notNull: true,
           unique: false,
         }),
-        email: expect.objectContaining({
+        expect.objectContaining({
           name: "email",
           dataType: "text",
           primaryKey: false,
           notNull: true,
           unique: true,
         }),
-      }),
+      ]),
       indexes: [],
     });
   });

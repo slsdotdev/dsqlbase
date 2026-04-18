@@ -54,4 +54,27 @@ describe("ColumnDefinition", () => {
     expect(column.dataType).toBe("positive_int");
     expect(column.domain?.text).toEqual('"positive_int"');
   });
+
+  it("should set constraint name", () => {
+    const column = new ColumnDefinition("status")
+      .constraint("chk_status")
+      .toJSON();
+
+    expect(column.constraint).toBe("chk_status");
+  });
+
+  it("should set check with named constraint", () => {
+    const column = new ColumnDefinition("age")
+      .$type<number>()
+      .constraint("chk_age_positive")
+      .check((self) => sql`${self} > 0`)
+      .toJSON();
+
+    expect(column.constraint).toBe("chk_age_positive");
+    expect(column.check).toEqual({
+      kind: "SQL",
+      text: '"age" > 0',
+      params: [],
+    });
+  });
 });

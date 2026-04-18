@@ -53,8 +53,8 @@ export class DomainDefinition<
     return this;
   }
 
-  public constraint(constraint: string): this {
-    this._constraint = constraint;
+  public constraint(name: string): this {
+    this._constraint = name;
     return this;
   }
 
