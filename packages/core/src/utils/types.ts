@@ -31,3 +31,7 @@ export type WithValueType<T extends TypedObject, TValue> = T & {
 export type WithSchema<T extends TypedObject, TSchema extends TypedObject> = T & {
   __type: { schema: TSchema };
 };
+
+export type WithDomain<T extends TypedObject, TDomain extends TypedObject> = T & {
+  __type: { domain: TDomain };
+};

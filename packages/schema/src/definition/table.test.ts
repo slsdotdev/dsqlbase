@@ -42,24 +42,28 @@ describe("TableDefinition", () => {
     });
 
     const json = usersTable.toJSON();
+
     expect(json).toMatchObject({
       kind: "TABLE",
       name: "users",
       columns: expect.objectContaining({
         id: expect.objectContaining({
           name: "id",
+          dataType: "UUID",
           primaryKey: true,
           notNull: true,
           unique: false,
         }),
         name: expect.objectContaining({
           name: "name",
+          dataType: "text",
           primaryKey: false,
           notNull: true,
           unique: false,
         }),
         email: expect.objectContaining({
           name: "email",
+          dataType: "text",
           primaryKey: false,
           notNull: true,
           unique: true,

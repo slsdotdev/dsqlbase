@@ -1,4 +1,4 @@
-import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
+import { ColumnConfig, ColumnDefinition, sql } from "@dsqlbase/core";
 import { HasDefault } from "@dsqlbase/core/utils";
 
 export class UUIDColumnDefinition<
@@ -10,7 +10,7 @@ export class UUIDColumnDefinition<
    * @returns *`this`*
    */
   public defaultRandom(): HasDefault<this> {
-    this._defaultValue = "gen_random_uuid()";
+    this._defaultValue = sql.raw("gen_random_uuid()");
     return this as HasDefault<this>;
   }
 }

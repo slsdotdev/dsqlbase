@@ -12,6 +12,7 @@ export type {
 } from "./base.js";
 export { Column, type AnyColumn } from "./column.js";
 export { ExecutionContext, type ExecutionContextOptions } from "./context.js";
+export { ExecutableQuery } from "./executor.js";
 export {
   OperationsFactory,
   type DeleteOperation,

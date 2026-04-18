@@ -33,6 +33,7 @@ export {
 export {
   Column,
   ExecutionContext,
+  ExecutableQuery,
   OperationsFactory,
   QueryBuilder,
   SchemaRegistry,
@@ -87,6 +88,5 @@ export {
   type SQLNode,
   type SQLStatement,
   type SQLContext,
-  type AnySQLParam,
   type SQLValue,
 } from "./sql/index.js";

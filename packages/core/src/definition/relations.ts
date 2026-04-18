@@ -8,9 +8,10 @@ export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
 export interface FieldRelation<
   TSource extends TableDefinition<string, TableConfig>,
   TTarget extends TableDefinition<string, TableConfig> = TableDefinition<string, TableConfig>,
+  TType extends RelationType = RelationType,
 > {
   target: TTarget;
-  type: RelationType;
+  type: TType;
   from: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource>[] : never;
   to: TTarget extends AnyTableDefinition ? TableDefinitionColumn<TTarget>[] : never;
 }

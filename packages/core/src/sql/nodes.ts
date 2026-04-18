@@ -1,3 +1,4 @@
+import { Kind, NodeKind } from "../definition/base.js";
 import { counter, escapeIdentifier, escapeValue, type ParamIndexCounter } from "./utils.js";
 
 export interface SQLStatement {
@@ -14,7 +15,7 @@ export interface SQLContext {
 
 export type SQLValue = string | number | boolean | bigint | null | object;
 
-export type ValueSerializer<T extends SQLValue> = (value: T) => unknown;
+export type ValueSerializer<T> = (value: T) => unknown;
 
 export interface SQLNode {
   toSQL(ctx: SQLContext): SQLStatement;
@@ -41,15 +42,13 @@ export class SQLRaw implements SQLNode {
   }
 }
 
-export type AnySQLParam = SQLParam<SQLValue>;
-
-export class SQLParam<TValue extends SQLValue> implements SQLNode {
+export class SQLParam<TValue> implements SQLNode {
   private readonly _value: TValue;
-  private readonly _serialize: ValueSerializer<SQLValue>;
+  private readonly _serialize: ValueSerializer<TValue>;
 
   constructor(value: TValue, serializer: ValueSerializer<TValue> = (value) => value) {
     this._value = value;
-    this._serialize = serializer as ValueSerializer<SQLValue>;
+    this._serialize = serializer as ValueSerializer<TValue>;
   }
 
   private _serializeInlineParam(value: unknown, ctx: SQLContext): string {
@@ -119,9 +118,15 @@ export class SQLIdentifier implements SQLNode {
 }
 
 export class SQLQuery<T = unknown> implements SQLNode {
-  private _nodes: SQLNode[] = [];
+  readonly kind: NodeKind = Kind.SQL;
 
   declare __type: T;
+
+  private readonly _nodes: SQLNode[] = [];
+
+  constructor(nodes: SQLNode | SQLNode[] = []) {
+    this._nodes = Array.isArray(nodes) ? nodes : [nodes];
+  }
 
   private _mergeChunks(chunks: SQLStatement[]): SQLStatement {
     const text = chunks.map((chunk) => chunk.text).join("");
@@ -147,5 +152,15 @@ export class SQLQuery<T = unknown> implements SQLNode {
   public toSQL(ctx: SQLContext): SQLStatement {
     const chunks: SQLStatement[] = this._nodes.map((node) => node.toSQL(ctx));
     return this._mergeChunks(chunks);
+  }
+
+  public toJSON() {
+    const query = this.toQuery({ inlineParams: true });
+
+    return {
+      kind: this.kind,
+      text: query.text,
+      params: query.params,
+    };
   }
 }

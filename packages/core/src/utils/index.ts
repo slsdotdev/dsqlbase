@@ -1,12 +1,13 @@
 export { Thenable } from "./thenable.js";
 export type {
-  TypedObject,
-  Prettify,
   HasDefault,
   NotNull,
   Optional,
+  Prettify,
   PrimaryKey,
+  TypedObject,
   Unique,
+  WithDomain,
   WithSchema,
   WithValueType,
 } from "./types.js";

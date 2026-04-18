@@ -30,7 +30,7 @@ const teams = table("teams", {
   updatedAt: datetime("updated_at", { mode: "iso" }).notNull(),
 });
 
-teams.index("teams_slug_idx", { unique: true });
+teams.index("teams_slug_idx", { unique: true }).columns((c) => [c.slug]);
 
 const members = table("team_members", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -41,7 +41,11 @@ const members = table("team_members", {
   updatedAt: datetime("updated_at").notNull(),
 });
 
-members.index("team_members_team_user_idx", { unique: true });
+members.unique((c) => [c.teamId, c.userId]);
+members
+  .index("team_members_team_user_idx")
+  .columns((c) => [c.teamId, c.userId])
+  .unique();
 
 const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),

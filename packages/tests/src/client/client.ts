@@ -39,6 +39,7 @@ export const createClient = async () => {
     pg,
     context,
     session,
+    schema,
     tables: registry.getTables(),
     reset: async () => {
       return await pg.exec(TABLE_NAMES.map((t) => `TRUNCATE TABLE "${t}" CASCADE`).join("; "));

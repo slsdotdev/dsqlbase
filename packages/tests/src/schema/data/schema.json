@@ -1,0 +1,474 @@
+[
+  {
+    "kind": "TABLE",
+    "name": "teams",
+    "columns": {
+      "id": {
+        "kind": "COLUMN",
+        "name": "id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": true,
+        "unique": false
+      },
+      "name": {
+        "kind": "COLUMN",
+        "name": "name",
+        "dataType": "varchar(100)",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "slug": {
+        "kind": "COLUMN",
+        "name": "slug",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": true
+      },
+      "description": {
+        "kind": "COLUMN",
+        "name": "description",
+        "dataType": "varchar(500)",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "isActive": {
+        "kind": "COLUMN",
+        "name": "is_active",
+        "dataType": "boolean",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "createdAt": {
+        "kind": "COLUMN",
+        "name": "created_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "updatedAt": {
+        "kind": "COLUMN",
+        "name": "updated_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      }
+    },
+    "indexes": [{ "kind": "INDEX", "name": "teams_slug_idx", "unique": true }]
+  },
+  {
+    "kind": "TABLE",
+    "name": "team_members",
+    "columns": {
+      "id": {
+        "kind": "COLUMN",
+        "name": "id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": true,
+        "unique": false
+      },
+      "teamId": {
+        "kind": "COLUMN",
+        "name": "team_id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "userId": {
+        "kind": "COLUMN",
+        "name": "user_id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "role": {
+        "kind": "COLUMN",
+        "name": "role",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "createdAt": {
+        "kind": "COLUMN",
+        "name": "created_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "updatedAt": {
+        "kind": "COLUMN",
+        "name": "updated_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      }
+    },
+    "indexes": [
+      {
+        "kind": "INDEX",
+        "name": "team_members_team_user_idx",
+        "unique": true
+      }
+    ]
+  },
+  {
+    "kind": "TABLE",
+    "name": "users",
+    "columns": {
+      "id": {
+        "kind": "COLUMN",
+        "name": "id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": true,
+        "unique": false
+      },
+      "name": {
+        "kind": "COLUMN",
+        "name": "name",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "email": {
+        "kind": "COLUMN",
+        "name": "email",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": true
+      },
+      "createdAt": {
+        "kind": "COLUMN",
+        "name": "created_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "updatedAt": {
+        "kind": "COLUMN",
+        "name": "updated_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      }
+    },
+    "indexes": [{ "kind": "INDEX", "name": "users_email_idx", "unique": true }]
+  },
+  {
+    "kind": "TABLE",
+    "name": "projects",
+    "columns": {
+      "id": {
+        "kind": "COLUMN",
+        "name": "id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": true,
+        "unique": false
+      },
+      "teamId": {
+        "kind": "COLUMN",
+        "name": "team_id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "name": {
+        "kind": "COLUMN",
+        "name": "name",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "key": {
+        "kind": "COLUMN",
+        "name": "key",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "description": {
+        "kind": "COLUMN",
+        "name": "description",
+        "dataType": "varchar(5000)",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "isArchived": {
+        "kind": "COLUMN",
+        "name": "is_archived",
+        "dataType": "boolean",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "budgetHours": {
+        "kind": "COLUMN",
+        "name": "budget_hours",
+        "dataType": "interval",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "settings": {
+        "kind": "COLUMN",
+        "name": "settings",
+        "dataType": "text",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "createdAt": {
+        "kind": "COLUMN",
+        "name": "created_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "updatedAt": {
+        "kind": "COLUMN",
+        "name": "updated_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      }
+    },
+    "indexes": [
+      { "kind": "INDEX", "name": "projects_team_key_idx", "unique": true },
+      { "kind": "INDEX", "name": "projects_team_idx", "unique": true }
+    ]
+  },
+  {
+    "kind": "TABLE",
+    "name": "tasks",
+    "columns": {
+      "id": {
+        "kind": "COLUMN",
+        "name": "id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": true,
+        "unique": false
+      },
+      "projectId": {
+        "kind": "COLUMN",
+        "name": "project_id",
+        "dataType": "UUID",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "assigneeId": {
+        "kind": "COLUMN",
+        "name": "assignee_id",
+        "dataType": "UUID",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "taskNumber": {
+        "kind": "COLUMN",
+        "name": "task_number",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "title": {
+        "kind": "COLUMN",
+        "name": "title",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "description": {
+        "kind": "COLUMN",
+        "name": "description",
+        "dataType": "varchar(5000)",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "status": {
+        "kind": "COLUMN",
+        "name": "status",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "priority": {
+        "kind": "COLUMN",
+        "name": "priority",
+        "dataType": "int",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "dueDate": {
+        "kind": "COLUMN",
+        "name": "due_date",
+        "dataType": "date",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "completedAt": {
+        "kind": "COLUMN",
+        "name": "completed_at",
+        "dataType": "timestamp",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "deletedAt": {
+        "kind": "COLUMN",
+        "name": "deleted_at",
+        "dataType": "timestamp",
+        "notNull": false,
+        "primaryKey": false,
+        "unique": false
+      },
+      "createdAt": {
+        "kind": "COLUMN",
+        "name": "created_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      },
+      "updatedAt": {
+        "kind": "COLUMN",
+        "name": "updated_at",
+        "dataType": "timestamp",
+        "notNull": true,
+        "primaryKey": false,
+        "unique": false
+      }
+    },
+    "indexes": [
+      { "kind": "INDEX", "name": "tasks_project_idx", "unique": false },
+      { "kind": "INDEX", "name": "tasks_assignee_idx", "unique": false },
+      { "kind": "INDEX", "name": "tasks_status_idx", "unique": false },
+      { "kind": "INDEX", "name": "tasks_due_data_idx", "unique": false }
+    ]
+  },
+  {
+    "kind": "RELATIONS",
+    "name": "users_relations",
+    "table": { "kind": "TABLE", "name": "users" },
+    "relations": {
+      "membership": {
+        "type": "has_one",
+        "target": { "kind": "TABLE", "name": "team_members" },
+        "from": [{ "kind": "COLUMN", "name": "id" }],
+        "to": [{ "kind": "COLUMN", "name": "user_id" }]
+      },
+      "tasks": {
+        "type": "has_many",
+        "target": { "kind": "TABLE", "name": "tasks" },
+        "from": [{ "kind": "COLUMN", "name": "id" }],
+        "to": [{ "kind": "COLUMN", "name": "assignee_id" }]
+      }
+    }
+  },
+  {
+    "kind": "RELATIONS",
+    "name": "team_members_relations",
+    "table": { "kind": "TABLE", "name": "team_members" },
+    "relations": {
+      "user": {
+        "type": "belongs_to",
+        "target": { "kind": "TABLE", "name": "users" },
+        "from": [{ "kind": "COLUMN", "name": "user_id" }],
+        "to": [{ "kind": "COLUMN", "name": "id" }]
+      },
+      "team": {
+        "type": "belongs_to",
+        "target": { "kind": "TABLE", "name": "teams" },
+        "from": [{ "kind": "COLUMN", "name": "team_id" }],
+        "to": [{ "kind": "COLUMN", "name": "id" }]
+      }
+    }
+  },
+  {
+    "kind": "RELATIONS",
+    "name": "teams_relations",
+    "table": { "kind": "TABLE", "name": "teams" },
+    "relations": {
+      "members": {
+        "type": "has_many",
+        "target": { "kind": "TABLE", "name": "team_members" },
+        "from": [{ "kind": "COLUMN", "name": "id" }],
+        "to": [{ "kind": "COLUMN", "name": "team_id" }]
+      },
+      "projects": {
+        "type": "has_many",
+        "target": { "kind": "TABLE", "name": "projects" },
+        "from": [{ "kind": "COLUMN", "name": "id" }],
+        "to": [{ "kind": "COLUMN", "name": "team_id" }]
+      }
+    }
+  },
+  {
+    "kind": "RELATIONS",
+    "name": "projects_relations",
+    "table": { "kind": "TABLE", "name": "projects" },
+    "relations": {
+      "team": {
+        "type": "belongs_to",
+        "target": { "kind": "TABLE", "name": "teams" },
+        "from": [{ "kind": "COLUMN", "name": "team_id" }],
+        "to": [{ "kind": "COLUMN", "name": "id" }]
+      },
+      "tasks": {
+        "type": "has_many",
+        "target": { "kind": "TABLE", "name": "tasks" },
+        "from": [{ "kind": "COLUMN", "name": "id" }],
+        "to": [{ "kind": "COLUMN", "name": "project_id" }]
+      }
+    }
+  },
+  {
+    "kind": "RELATIONS",
+    "name": "tasks_relations",
+    "table": { "kind": "TABLE", "name": "tasks" },
+    "relations": {
+      "project": {
+        "type": "belongs_to",
+        "target": { "kind": "TABLE", "name": "projects" },
+        "from": [{ "kind": "COLUMN", "name": "project_id" }],
+        "to": [{ "kind": "COLUMN", "name": "id" }]
+      },
+      "assignee": {
+        "type": "belongs_to",
+        "target": { "kind": "TABLE", "name": "users" },
+        "from": [{ "kind": "COLUMN", "name": "assignee_id" }],
+        "to": [{ "kind": "COLUMN", "name": "id" }]
+      }
+    }
+  }
+]

@@ -4,9 +4,7 @@ import {
   AnyTableDefinition,
   AnyTableRelations,
   DefinitionSchema,
-  RelationsConfig,
   RelationsDefinition,
-  TableConfig,
   TableDefinition,
 } from "../definition/index.js";
 

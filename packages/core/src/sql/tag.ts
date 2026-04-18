@@ -27,7 +27,7 @@ function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {
 }
 
 sql.raw = (text: string) => new SQLRaw(text);
-sql.param = <TValue extends SQLValue>(value: TValue, serialize?: (value: TValue) => SQLValue) =>
+sql.param = <TValue extends SQLValue>(value: TValue, serialize?: (value: TValue) => TValue) =>
   new SQLParam<TValue>(value, serialize);
 sql.identifier = (name: string) => new SQLIdentifier(name);
 sql.wrap = (node: SQLNode) => new SQLWrapper(node);
@@ -44,6 +44,17 @@ sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
   }
 
   return node;
+};
+
+sql.in = (name: string | SQLIdentifier, values: SQLValue[]) => {
+  const identifier = typeof name === "string" ? new SQLIdentifier(name) : name;
+
+  return sql`${identifier} IN ${sql.wrap(
+    sql.join(
+      values.map((value) => sql.param(value)),
+      ", "
+    )
+  )}`;
 };
 
 export { sql };

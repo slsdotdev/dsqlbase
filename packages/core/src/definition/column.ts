@@ -1,3 +1,4 @@
+import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
 import {
   HasDefault,
   NotNull,
@@ -7,6 +8,7 @@ import {
   WithValueType,
 } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
+import { AnyDomainDefinition } from "./domain.js";
 
 export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKey: true }
   ? never
@@ -20,6 +22,7 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   primaryKey: boolean;
   unique: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
+  domain: AnyDomainDefinition | undefined;
 }
 
 export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
@@ -30,11 +33,15 @@ export class ColumnDefinition<
 > extends DefinitionNode<TName, TConfig> {
   readonly kind = Kind.COLUMN;
 
+  protected _dataType: string;
   protected _notNull: boolean;
   protected _primaryKey: boolean;
   protected _unique: boolean;
-  protected _dataType: string;
-  protected _defaultValue?: this["__type"]["valueType"];
+  protected _defaultValue?: SQLNode;
+  protected _domain?: this["__type"]["domain"];
+  protected _constraint?: string;
+  protected _check?: SQLNode;
+
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["valueType"];
   protected _onUpdate?: () => this["__type"]["valueType"];
@@ -42,11 +49,12 @@ export class ColumnDefinition<
   constructor(name: TName, config: Partial<TConfig> = {}) {
     super(name);
 
-    this._dataType = config.dataType ?? "text";
+    this._dataType = config.domain?.name ?? config.dataType ?? "text";
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
     this._codec = config.codec ?? defaultCodec;
+    this._domain = config.domain ?? undefined;
   }
 
   /**
@@ -69,8 +77,24 @@ export class ColumnDefinition<
   }
 
   public default(value: this["__type"]["valueType"]): HasDefault<this> {
-    this._defaultValue = value;
+    this._defaultValue = new SQLParam(value, this._codec.encode);
     return this as HasDefault<this>;
+  }
+
+  public check(cb: (self: SQLIdentifier) => SQLNode): this {
+    this._check = cb(new SQLIdentifier(this.name));
+    return this;
+  }
+
+  /**
+   * Sets a constraint name for the column. `CONSTRAINT constraint_name`
+   *
+   * @param name The name of the constraint to apply to the column.
+   */
+
+  public constraint(name: string): this {
+    this._constraint = name;
+    return this;
   }
 
   public $type<T>(): WithValueType<this, T> {
@@ -91,14 +115,6 @@ export class ColumnDefinition<
     return this as UpdateGuard<this>;
   }
 
-  // public $validate(cb: (value: this["__type"]["valueType"]) => boolean): this {
-  //   return this;
-  // }
-
-  // public $parse<T>(cb: (value: this["__type"]["valueType"]) => T): ValueType<this, T> {
-  //   return this as ValueType<this, T>;
-  // }
-
   toJSON() {
     return {
       kind: this.kind,
@@ -107,6 +123,12 @@ export class ColumnDefinition<
       notNull: this._notNull,
       primaryKey: this._primaryKey,
       unique: this._unique,
+      defaultValue: this._defaultValue ? new SQLQuery(this._defaultValue).toJSON() : undefined,
+      check: this._check ? new SQLQuery(this._check).toJSON() : undefined,
+      constraint: this._constraint,
+      domain: this._domain
+        ? new SQLQuery(new SQLIdentifier(this._domain.name)).toJSON()
+        : undefined,
     } as const;
   }
 }

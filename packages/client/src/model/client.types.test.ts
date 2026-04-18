@@ -1,9 +1,12 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
-import { RelationsDefinition } from "@dsqlbase/core/definition";
-import { ExecutionContext, SchemaRegistry } from "@dsqlbase/core/runtime";
-import { QueryBuilder } from "@dsqlbase/core";
+import {
+  ExecutionContext,
+  SchemaRegistry,
+  QueryBuilder,
+  ExecutableQuery,
+} from "@dsqlbase/core/runtime";
+import { belongsTo, hasMany, relations, table, text, uuid } from "@dsqlbase/schema";
 import { ModelClient } from "./client.js";
-import { table, text, uuid } from "@dsqlbase/schema";
 
 const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -21,22 +24,18 @@ const contacts = table("contacts", {
   value: text("value").notNull(),
 });
 
-const userRelations = new RelationsDefinition(users, {
-  contacts: {
-    target: contacts,
-    type: "has_many",
+const userRelations = relations(users, {
+  contacts: hasMany(contacts, {
     from: [users.columns.id],
     to: [contacts.columns.userId],
-  },
+  }),
 });
 
-const contactsRelations = new RelationsDefinition(contacts, {
-  owner: {
-    target: users,
-    type: "belongs_to",
+const contactsRelations = relations(contacts, {
+  owner: belongsTo(users, {
     from: [contacts.columns.userId],
     to: [users.columns.id],
-  },
+  }),
 });
 
 const schema = {
@@ -119,7 +118,12 @@ describe("ModelClient", () => {
           firstName: true,
         },
       })
-    ).toEqualTypeOf<{ id: string; firstName: string } | null>();
+    ).toEqualTypeOf<
+      ExecutableQuery<{
+        id: string;
+        firstName: string;
+      } | null>
+    >();
   });
 
   it("should infer args type for findMany", async () => {
@@ -139,28 +143,43 @@ describe("ModelClient", () => {
   });
 
   it("should infer joined relations", async () => {
-    expectTypeOf(
-      client.findOne({
-        where: { id: "123" },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-        },
-        join: {
-          contacts: {
-            where: { type: { eq: "email" } },
-            select: {
-              value: true,
-            },
+    const query = client.findOne({
+      where: { id: "123" },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+      },
+      join: {
+        contacts: {
+          where: { type: { eq: "email" } },
+          select: {
+            type: true,
+            value: true,
+          },
+          join: {
+            owner: true,
           },
         },
-      })
-    ).toEqualTypeOf<{
+      },
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{
       id: string;
       firstName: string;
       lastName: string;
-      contacts: { value: string }[];
+      contacts: {
+        type: string;
+        value: string;
+        owner: {
+          id: string;
+          firstName: string;
+          lastName: string;
+          emailAddress: string;
+          phoneNumber: string | null;
+          address: string | null;
+        } | null;
+      }[];
     } | null>();
   });
 });

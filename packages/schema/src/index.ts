@@ -31,6 +31,7 @@ export {
   hasMany,
   belongsTo,
   hasOne,
+  domain,
   type DateValueType,
   type IntervalColumnOptions,
   type DateColumnOptions,

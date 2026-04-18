@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { Relation } from "../definition/index.js";
-import { SQLIdentifier, SQLNode, SQLStatement, AnySQLParam } from "../sql/index.js";
+import { SQLIdentifier, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnySchema } from "./base.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
@@ -29,6 +29,8 @@ export interface Operation<
   resolve: (rows: unknown[]) => OperationResult<TMode, TResult>;
 }
 
+export type AnyOperation = Operation<OperationMode, AnyTable, object, unknown>;
+
 export interface OperationRequest<
   TArgs extends object,
   TMode extends OperationMode = OperationMode,
@@ -43,7 +45,7 @@ export type FieldSelection = [
   column: AnyColumn | SQLIdentifier | FieldSelection[],
 ];
 
-export type FieldMutation = [column: string | AnyColumn | SQLIdentifier, value: AnySQLParam];
+export type FieldMutation = [column: string | AnyColumn | SQLIdentifier, value: SQLNode];
 
 export type FieldResolver = [fieldName: string, resolver: AnyColumn | FieldResolver[]];
 

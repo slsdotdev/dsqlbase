@@ -12,10 +12,8 @@ describe("Table", () => {
       },
     });
 
-    const node = usersTable.toJSON();
-
     expect(usersTable.name).toBe("users");
-    expect(node.columns).toHaveProperty("id");
-    expect(node.columns).toHaveProperty("name");
+    expect(usersTable.columns).toHaveProperty("id");
+    expect(usersTable.columns).toHaveProperty("name");
   });
 });

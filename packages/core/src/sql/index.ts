@@ -8,7 +8,6 @@ export {
   SQLQuery,
   SQLWrapper,
   isSQLNode,
-  type AnySQLParam,
   type SQLValue,
   type ValueSerializer,
 } from "./nodes.js";

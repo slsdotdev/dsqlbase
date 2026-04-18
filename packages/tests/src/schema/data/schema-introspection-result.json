@@ -1,0 +1,437 @@
+{
+  "rows": [
+    {
+      "rows": [
+        {
+          "name": "public",
+          "tables": [
+            {
+              "name": "teams",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": true,
+                  "unique": false,
+                  "constraints": null
+                },
+                {
+                  "name": "name",
+                  "type": "character varying(100)",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "slug",
+                  "type": "character varying(100)",
+                  "not_null": true,
+                  "primary_key": false,
+                  "unique": true,
+                  "constraints": null
+                },
+                {
+                  "name": "description",
+                  "type": "text",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "is_active",
+                  "type": "boolean",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "created_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "updated_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "teams_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true
+                },
+                {
+                  "name": "teams_slug_key",
+                  "columns": [
+                    "slug"
+                  ],
+                  "unique": true
+                }
+              ],
+              "relationships": null
+            },
+            {
+              "name": "team_members",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": true,
+                  "unique": false,
+                  "constraints": null
+                },
+                {
+                  "name": "team_id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "user_id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "role",
+                  "type": "text",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "created_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "updated_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "team_members_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true
+                }
+              ],
+              "relationships": null
+            },
+            {
+              "name": "users",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": true,
+                  "unique": false,
+                  "constraints": null
+                },
+                {
+                  "name": "name",
+                  "type": "character varying(100)",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "email",
+                  "type": "character varying(255)",
+                  "not_null": true,
+                  "primary_key": false,
+                  "unique": true,
+                  "constraints": null
+                },
+                {
+                  "name": "created_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "updated_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "users_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true
+                },
+                {
+                  "name": "users_email_key",
+                  "columns": [
+                    "email"
+                  ],
+                  "unique": true
+                }
+              ],
+              "relationships": null
+            },
+            {
+              "name": "projects",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": true,
+                  "unique": false,
+                  "constraints": null
+                },
+                {
+                  "name": "team_id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "name",
+                  "type": "character varying(200)",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "key",
+                  "type": "character varying(10)",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "description",
+                  "type": "text",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "is_archived",
+                  "type": "boolean",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "budget_hours",
+                  "type": "real",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "settings",
+                  "type": "text",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "created_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "updated_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "projects_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true
+                }
+              ],
+              "relationships": null
+            },
+            {
+              "name": "tasks",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": true,
+                  "unique": false,
+                  "constraints": null
+                },
+                {
+                  "name": "project_id",
+                  "type": "uuid",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "assignee_id",
+                  "type": "uuid",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "task_number",
+                  "type": "integer",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "title",
+                  "type": "character varying(500)",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "description",
+                  "type": "text",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "status",
+                  "type": "text",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "priority",
+                  "type": "text",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "due_date",
+                  "type": "date",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "completed_at",
+                  "type": "timestamp with time zone",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "deleted_at",
+                  "type": "timestamp with time zone",
+                  "not_null": false,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "created_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                },
+                {
+                  "name": "updated_at",
+                  "type": "timestamp with time zone",
+                  "not_null": true,
+                  "primary_key": null,
+                  "unique": null,
+                  "constraints": null
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "tasks_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true
+                }
+              ],
+              "relationships": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "name": "rows",
+      "dataTypeID": 114
+    }
+  ],
+  "affectedRows": 0
+}

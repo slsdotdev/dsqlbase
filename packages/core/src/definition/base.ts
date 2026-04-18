@@ -10,6 +10,8 @@ export const Kind = Object.freeze({
   VIEW: "VIEW",
   FUNCTION: "FUNCTION",
   RELATIONS: "RELATIONS",
+  INDEX_COLUMN: "INDEX_COLUMN",
+  SQL: "SQL",
 } as const);
 
 export const Relation = Object.freeze({
