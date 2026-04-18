@@ -55,7 +55,7 @@ const users = table("users", {
   updatedAt: datetime("updated_at").notNull(),
 });
 
-users.index("users_email_idx", { unique: true });
+users.index("users_email_idx", { unique: true }).columns((c) => [c.email]);
 
 const projects = table("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -70,8 +70,10 @@ const projects = table("projects", {
   updatedAt: datetime("updated_at").notNull(),
 });
 
-projects.index("projects_team_key_idx", { unique: true });
-projects.index("projects_team_idx", { unique: true });
+projects
+  .index("projects_team_key_idx", { unique: true })
+  .columns((c) => [c.teamId, c.key]);
+projects.index("projects_team_idx").columns((c) => [c.teamId]);
 
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -89,10 +91,10 @@ const tasks = table("tasks", {
   updatedAt: datetime("updated_at").notNull(),
 });
 
-tasks.index("tasks_project_idx");
-tasks.index("tasks_assignee_idx");
-tasks.index("tasks_status_idx");
-tasks.index("tasks_due_data_idx");
+tasks.index("tasks_project_idx").columns((c) => [c.projectId]);
+tasks.index("tasks_assignee_idx").columns((c) => [c.assigneeId]);
+tasks.index("tasks_status_idx").columns((c) => [c.status]);
+tasks.index("tasks_due_date_idx").columns((c) => [c.dueDate]);
 
 const userRelations = relations(users, {
   membership: hasOne(members, {
