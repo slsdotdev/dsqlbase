@@ -11,7 +11,6 @@ describe("DomainDefinition", () => {
     expect(json.name).toBe("status");
     expect(json.dataType).toBe("text");
     expect(json.notNull).toBe(false);
-    expect(json.constraint).toBeUndefined();
     expect(json.defaultValue).toBeUndefined();
     expect(json.check).toBeUndefined();
   });
@@ -32,10 +31,7 @@ describe("DomainDefinition", () => {
   it("should set default value", () => {
     const json = new DomainDefinition("status", {}).default("active").toJSON();
 
-    expect(json.defaultValue).toMatchObject({
-      kind: "SQL",
-      text: "'active'",
-    });
+    expect(json.defaultValue).toBe("'active'");
   });
 
   it("should set check constraint", () => {
@@ -44,16 +40,18 @@ describe("DomainDefinition", () => {
       .toJSON();
 
     expect(json.check).toMatchObject({
-      kind: "SQL",
-      text: '"priority" >= 1 AND "priority" <= 5',
+      kind: "CHECK_CONSTRAINT",
+      name: "priority_check",
+      expression: '"priority" >= 1 AND "priority" <= 5',
     });
   });
 
   it("should set constraint name", () => {
     const json = new DomainDefinition("status", {})
-      .constraint("chk_status")
+      .check((id) => sql.in(id, ["active", "disabled"]), "chk_status")
       .toJSON();
 
-    expect(json.constraint).toBe("chk_status");
+    expect(json.check?.name).toBe("chk_status");
+    expect(json.check?.expression).toBe("\"status\" IN ('active', 'disabled')");
   });
 });

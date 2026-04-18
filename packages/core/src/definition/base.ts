@@ -11,7 +11,8 @@ export const Kind = Object.freeze({
   FUNCTION: "FUNCTION",
   RELATIONS: "RELATIONS",
   INDEX_COLUMN: "INDEX_COLUMN",
-  SQL: "SQL",
+  CHECK_CONSTRAINT: "CHECK_CONSTRAINT",
+  REFERENCE: "REFERENCE",
 } as const);
 
 export const Relation = Object.freeze({
@@ -58,5 +59,16 @@ export abstract class DefinitionNode<
       kind: this.kind,
       name: this.name,
     };
+  }
+}
+
+export class NodeRef<TNode extends DefinitionNode> extends DefinitionNode<
+  TNode["name"],
+  TNode["__type"]
+> {
+  public readonly kind = Kind.REFERENCE;
+
+  constructor(public readonly target: TNode) {
+    super(target.name);
   }
 }

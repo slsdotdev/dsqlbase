@@ -1,6 +1,7 @@
 import { SQLIdentifier, SQLNode, SQLQuery } from "../sql/nodes.js";
-import { DefinitionNode, Kind } from "./base.js";
+import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
+import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { SchemaDefinition } from "./schema.js";
 
@@ -14,9 +15,15 @@ export interface TableConfig<
 
 export type AnyTableDefinition = TableDefinition<string, TableConfig>;
 
-export type ColumnRefs<TTable extends AnyTableDefinition> = Readonly<{
-  readonly [K in keyof TTable["columns"]]: SQLIdentifier;
+export type ColumnIndentifiers<TColumns extends Record<string, AnyColumnDefinition>> = Readonly<{
+  readonly [K in keyof TColumns]: SQLIdentifier;
 }>;
+
+export type ColumnRefs<
+  TColumns extends Record<string, AnyColumnDefinition> = Record<string, AnyColumnDefinition>,
+> = {
+  readonly [K in keyof TColumns]: TColumns[K];
+}[keyof TColumns];
 
 export class TableDefinition<
   TName extends string,
@@ -26,8 +33,8 @@ export class TableDefinition<
 
   protected _schema?: SchemaDefinition;
   protected _indexes: AnyIndexDefinition[] = [];
-  protected _checks?: SQLNode[];
-  protected _unique?: SQLIdentifier[][];
+  protected _checks?: AnyCheckConstraintDefinition[];
+  protected _unique?: ColumnRefs[][];
 
   readonly columns: TConfig["columns"];
 
@@ -39,10 +46,10 @@ export class TableDefinition<
   }
 
   /** @internal */
-  _getColumnRefs(): ColumnRefs<this> {
+  _getColumnIdefs(): ColumnIndentifiers<this["columns"]> {
     return Object.fromEntries(
       Object.entries(this.columns).map(([field, column]) => [field, new SQLIdentifier(column.name)])
-    ) as ColumnRefs<this>;
+    ) as ColumnIndentifiers<this["columns"]>;
   }
 
   public index<TIdxName extends string, TIdxConfig extends IndexConfig<this>>(
@@ -55,16 +62,17 @@ export class TableDefinition<
     return idx as IndexDefinition<TIdxName, this>;
   }
 
-  public check(cb: (columns: ColumnRefs<this>) => SQLNode): this {
+  public check(cb: (columns: ColumnIndentifiers<this["columns"]>) => SQLNode, name?: string): this {
     this._checks = this._checks ?? [];
-    this._checks.push(cb(this._getColumnRefs()));
+    const expression = new SQLQuery(cb(this._getColumnIdefs()));
+    this._checks.push(new CheckConstraintDefinition(name ?? `${this.name}_check`, { expression }));
 
     return this;
   }
 
-  public unique(cb: (columns: ColumnRefs<this>) => SQLIdentifier[]): this {
+  public unique(cb: (columns: this["columns"]) => ColumnRefs[]): this {
     this._unique = this._unique ?? [];
-    this._unique.push(cb(this._getColumnRefs()));
+    this._unique.push(cb(this.columns));
 
     return this;
   }
@@ -76,9 +84,9 @@ export class TableDefinition<
       schema: this._schema?.toJSON(),
       columns: Object.values(this.columns).map((col) => col.toJSON()),
       indexes: this._indexes.map((idx) => idx.toJSON()),
-      checks: this._checks ? this._checks.map((chk) => new SQLQuery(chk).toJSON()) : undefined,
+      checks: this._checks ? this._checks.map((check) => check.toJSON()) : undefined,
       unique: this._unique
-        ? this._unique.map((cols) => cols.map((col) => new SQLQuery(col).toJSON()))
+        ? this._unique.map((cols) => cols.map((col) => new NodeRef(col).toJSON()))
         : undefined,
     } as const;
   }

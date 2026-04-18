@@ -7,7 +7,8 @@ import {
   Unique,
   WithValueType,
 } from "../utils/index.js";
-import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
+import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
+import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
 
 export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKey: true }
@@ -22,7 +23,7 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   primaryKey: boolean;
   unique: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
-  domain: AnyDomainDefinition | undefined;
+  domain: AnyDomainDefinition;
 }
 
 export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
@@ -38,9 +39,8 @@ export class ColumnDefinition<
   protected _primaryKey: boolean;
   protected _unique: boolean;
   protected _defaultValue?: SQLNode;
-  protected _domain?: this["__type"]["domain"];
-  protected _constraint?: string;
-  protected _check?: SQLNode;
+  protected _domain?: NodeRef<AnyDomainDefinition>;
+  protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["valueType"];
@@ -54,7 +54,7 @@ export class ColumnDefinition<
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
     this._codec = config.codec ?? defaultCodec;
-    this._domain = config.domain ?? undefined;
+    this._domain = config.domain ? new NodeRef(config.domain) : undefined;
   }
 
   /**
@@ -81,19 +81,25 @@ export class ColumnDefinition<
     return this as HasDefault<this>;
   }
 
-  public check(cb: (self: SQLIdentifier) => SQLNode): this {
-    this._check = cb(new SQLIdentifier(this.name));
-    return this;
-  }
-
   /**
-   * Sets a constraint name for the column. `CONSTRAINT constraint_name`
+   * Adds a check constraint to the column.
    *
-   * @param name The name of the constraint to apply to the column.
+   * The callback receives the column name as a sql indetifier that can be used to build the check expression.
+   *
+   * @example
+   * ```ts
+   * column.check((col) => sql`${col} > 0`, "positive_check");
+   * ```
+   *
+   * @param cb a callback that can takes the colun identifier.
+   * @param name Constraint name. If not provided, it will be generated as `${columnName}_check`.
+   * @returns
    */
 
-  public constraint(name: string): this {
-    this._constraint = name;
+  public check(cb: (self: SQLIdentifier) => SQLNode, name?: string): this {
+    const sql = new SQLQuery(cb(new SQLIdentifier(this.name)));
+    this._check = new CheckConstraintDefinition(name ?? `${this.name}_check`, { expression: sql });
+
     return this;
   }
 
@@ -123,12 +129,11 @@ export class ColumnDefinition<
       notNull: this._notNull,
       primaryKey: this._primaryKey,
       unique: this._unique,
-      defaultValue: this._defaultValue ? new SQLQuery(this._defaultValue).toJSON() : undefined,
-      check: this._check ? new SQLQuery(this._check).toJSON() : undefined,
-      constraint: this._constraint,
-      domain: this._domain
-        ? new SQLQuery(new SQLIdentifier(this._domain.name)).toJSON()
+      defaultValue: this._defaultValue
+        ? new SQLQuery(this._defaultValue).toQuery({ inlineParams: true }).text
         : undefined,
+      check: this._check?.toJSON(),
+      domain: this._domain?.toJSON(),
     } as const;
   }
 }

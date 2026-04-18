@@ -44,8 +44,8 @@ describe("Table", () => {
     expect(json.checks).toBeDefined();
     expect(json.checks).toHaveLength(1);
     expect(json.checks?.[0]).toMatchObject({
-      kind: "SQL",
-      text: '"start_date" < "end_date"',
+      kind: "CHECK_CONSTRAINT",
+      expression: '"start_date" < "end_date"',
     });
   });
 
@@ -64,8 +64,8 @@ describe("Table", () => {
     expect(json.unique).toBeDefined();
     expect(json.unique).toHaveLength(1);
     expect(json.unique?.[0]).toHaveLength(2);
-    expect(json.unique?.[0][0]).toMatchObject({ text: '"team_id"' });
-    expect(json.unique?.[0][1]).toMatchObject({ text: '"user_id"' });
+    expect(json.unique?.[0][0].name).toBe("team_id");
+    expect(json.unique?.[0][1].name).toBe("user_id");
   });
 
   it("should serialize index with columns", () => {
@@ -77,10 +77,9 @@ describe("Table", () => {
       },
     });
 
-    tasks.index("tasks_project_status_idx", { unique: true }).columns((c) => [
-      c.projectId,
-      c.status,
-    ]);
+    tasks
+      .index("tasks_project_status_idx", { unique: true })
+      .columns((c) => [c.projectId, c.status]);
 
     const json = tasks.toJSON();
 
@@ -88,7 +87,7 @@ describe("Table", () => {
     expect(json.indexes[0].name).toBe("tasks_project_status_idx");
     expect(json.indexes[0].unique).toBe(true);
     expect(json.indexes[0].columns).toHaveLength(2);
-    expect(json.indexes[0].columns[0].column.text).toBe('"project_id"');
-    expect(json.indexes[0].columns[1].column.text).toBe('"status"');
+    expect(json.indexes[0].columns[0].column.name).toBe("project_id");
+    expect(json.indexes[0].columns[1].column.name).toBe("status");
   });
 });

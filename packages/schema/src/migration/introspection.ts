@@ -1,6 +1,8 @@
 import { sql } from "@dsqlbase/core";
 
-export const schemas = sql`
+export const SYSTEM_SCHEMAS = ["pg_catalog", "pg_toast", "information_schema", "sys"];
+
+const schemas = sql`
   schema_defs AS (
     SELECT json_build_object(
       'kind', 'SCHEMA',
@@ -12,7 +14,7 @@ export const schemas = sql`
   )
 `;
 
-export const tables = sql`
+const tables = sql`
   table_defs AS (
     SELECT json_build_object(
       'kind', 'TABLE',
@@ -130,7 +132,7 @@ export const tables = sql`
   )
 `;
 
-export const domains = sql`
+const domains = sql`
   domain_defs AS (
     SELECT json_build_object(
       'kind', 'DOMAIN',
@@ -158,7 +160,7 @@ export const domains = sql`
   )
 `;
 
-export const sequences = sql`
+const sequences = sql`
   sequence_defs AS (
     SELECT json_build_object(
       'kind', 'SEQUENCE',
@@ -178,7 +180,7 @@ export const sequences = sql`
   )
 `;
 
-export const views = sql`
+const views = sql`
   view_defs AS (
     SELECT json_build_object(
       'kind', 'VIEW',
@@ -191,7 +193,7 @@ export const views = sql`
   )
 `;
 
-export const functions = sql`
+const functions = sql`
   function_defs AS (
     SELECT json_build_object(
       'kind', 'FUNCTION',
@@ -204,7 +206,7 @@ export const functions = sql`
   )
 `;
 
-export const introspectionQuery = sql`
+export const introspection = sql`
   WITH schemas AS (
     SELECT n.oid, n.nspname AS name
     FROM pg_namespace n

@@ -60,7 +60,9 @@ export class SequenceDefinition<TName extends string> extends DefinitionNode<TNa
       minValue: this._minValue,
       maxValue: this._maxValue,
       startValue: this._startValue,
-      ownedBy: this._ownedBy ? new SQLQuery(this._ownedBy).toJSON() : undefined,
+      ownedBy: this._ownedBy
+        ? new SQLQuery(this._ownedBy).toQuery({ inlineParams: true }).text
+        : undefined,
     } as const;
   }
 }

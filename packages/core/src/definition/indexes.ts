@@ -1,6 +1,5 @@
-import { SQLIdentifier, SQLQuery } from "../sql/nodes.js";
 import { Unique } from "../utils/index.js";
-import { DefinitionNode, Kind } from "./base.js";
+import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
 import { AnyTableDefinition, ColumnRefs } from "./table.js";
 
@@ -32,7 +31,7 @@ export class IndexDefinition<
   protected _table: TTable;
   protected _unique: boolean;
   protected _columns: ColumnConfigType<TName, TTable>[] = [];
-  protected _include?: SQLIdentifier[];
+  protected _include?: ColumnRefs<TTable["columns"]>[];
   protected _nullsDistinct?: boolean;
 
   constructor(name: TName, config: IndexConfig<TTable>) {
@@ -63,8 +62,8 @@ export class IndexDefinition<
     return this;
   }
 
-  public include(cb: (columns: ColumnRefs<TTable>) => SQLIdentifier[]): this {
-    this._include = cb(this._table._getColumnRefs());
+  public include(cb: (columns: TTable["columns"]) => ColumnRefs<TTable["columns"]>[]): this {
+    this._include = cb(this._table.columns);
     return this;
   }
 
@@ -85,7 +84,7 @@ export class IndexDefinition<
       unique: this._unique,
       nullsDistinct: this._nullsDistinct,
       columns: this._columns.map((col) => col.toJSON()),
-      include: this._include ? this._include.map((col) => new SQLQuery(col).toJSON()) : undefined,
+      include: this._include ? this._include.map((col) => new NodeRef(col).toJSON()) : undefined,
     } as const;
   }
 }
@@ -96,13 +95,13 @@ export class IndexColumnDefinition<
 > extends DefinitionNode<`${TIdxName}_column_${TColumn["name"]}`> {
   public readonly kind = Kind.INDEX_COLUMN;
 
-  protected _column: SQLIdentifier;
+  protected _column: NodeRef<TColumn>;
   protected _nulls?: "FIRST" | "LAST";
 
   constructor(index: TIdxName, column: TColumn) {
     super(`${index}_column_${column.name}`);
 
-    this._column = new SQLIdentifier(column.name);
+    this._column = new NodeRef(column);
   }
 
   nullsFirst(): this {
@@ -119,7 +118,7 @@ export class IndexColumnDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      column: new SQLQuery(this._column).toJSON(),
+      column: this._column.toJSON(),
       nulls: this._nulls,
     } as const;
   }

@@ -20,23 +20,7 @@ describe("ColumnDefinition", () => {
       .default(new Date("2024-01-01T00:00:00Z"))
       .toJSON();
 
-    expect(column.defaultValue).toMatchObject({
-      text: `'${new Date("2024-01-01T00:00:00Z").toString()}'`,
-      params: [],
-    });
-  });
-
-  it("should set check constraint correctly", () => {
-    const column = new ColumnDefinition("age")
-      .$type<number>()
-      .check((self) => sql`${self} > 0`)
-      .toJSON();
-
-    expect(column.check).toEqual({
-      kind: "SQL",
-      text: '"age" > 0',
-      params: [],
-    });
+    expect(column.defaultValue).toEqual(`'${new Date("2024-01-01T00:00:00Z").toString()}'`);
   });
 
   it("should set domain correctly", () => {
@@ -52,26 +36,19 @@ describe("ColumnDefinition", () => {
       .toJSON();
 
     expect(column.dataType).toBe("positive_int");
-    expect(column.domain?.text).toEqual('"positive_int"');
-  });
-
-  it("should set constraint name", () => {
-    const column = new ColumnDefinition("status").constraint("chk_status").toJSON();
-    expect(column.constraint).toBe("chk_status");
+    expect(column.domain?.name).toEqual("positive_int");
   });
 
   it("should set check with named constraint", () => {
     const column = new ColumnDefinition("age")
       .$type<number>()
-      .constraint("chk_age_positive")
-      .check((self) => sql`${self} > 0`)
+      .check((self) => sql`${self} > 0`, "chk_age_positive")
       .toJSON();
 
-    expect(column.constraint).toBe("chk_age_positive");
     expect(column.check).toEqual({
-      kind: "SQL",
-      text: '"age" > 0',
-      params: [],
+      kind: "CHECK_CONSTRAINT",
+      name: "chk_age_positive",
+      expression: '"age" > 0',
     });
   });
 });

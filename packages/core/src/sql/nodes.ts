@@ -1,4 +1,3 @@
-import { Kind, NodeKind } from "../definition/base.js";
 import { counter, escapeIdentifier, escapeValue, type ParamIndexCounter } from "./utils.js";
 
 export interface SQLStatement {
@@ -118,8 +117,6 @@ export class SQLIdentifier implements SQLNode {
 }
 
 export class SQLQuery<T = unknown> implements SQLNode {
-  readonly kind: NodeKind = Kind.SQL;
-
   declare __type: T;
 
   private readonly _nodes: SQLNode[] = [];
@@ -152,15 +149,5 @@ export class SQLQuery<T = unknown> implements SQLNode {
   public toSQL(ctx: SQLContext): SQLStatement {
     const chunks: SQLStatement[] = this._nodes.map((node) => node.toSQL(ctx));
     return this._mergeChunks(chunks);
-  }
-
-  public toJSON() {
-    const query = this.toQuery({ inlineParams: true });
-
-    return {
-      kind: this.kind,
-      text: query.text,
-      params: query.params,
-    };
   }
 }

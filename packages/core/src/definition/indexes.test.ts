@@ -36,10 +36,7 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.columns).toHaveLength(1);
-    expect(json.columns[0].column).toMatchObject({
-      kind: "SQL",
-      text: '"project_id"',
-    });
+    expect(json.columns[0].column.name).toBe("project_id");
   });
 
   it("should add multiple columns", () => {
@@ -49,8 +46,8 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.columns).toHaveLength(2);
-    expect(json.columns[0].column.text).toBe('"project_id"');
-    expect(json.columns[1].column.text).toBe('"status"');
+    expect(json.columns[0].column.name).toBe("project_id");
+    expect(json.columns[1].column.name).toBe("status");
   });
 
   it("should add columns with nulls first", () => {
@@ -79,10 +76,7 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.include).toHaveLength(1);
-    expect(json.include?.[0]).toMatchObject({
-      kind: "SQL",
-      text: '"status"',
-    });
+    expect(json.include?.[0].name).toBe("status");
   });
 
   it("should set nulls distinct", () => {

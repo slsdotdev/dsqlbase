@@ -1,154 +1,622 @@
 [
-  { "kind": "SCHEMA", "name": "test", "schema_name": "test" },
   {
     "kind": "TABLE",
-    "name": "cart_items",
-    "schema_name": "public",
+    "name": "teams",
+    "schema": "public",
     "columns": [
       {
         "attnum": 1,
         "name": "id",
-        "type": "uuid",
-        "not_null": true,
-        "primary_key": true,
-        "is_unique": false,
-        "default_value": "gen_random_uuid()",
-        "check_expr": null,
-        "check_name": null
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": true,
+        "isUnique": false,
+        "defaultValue": "gen_random_uuid()",
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 2,
-        "name": "cart_id",
-        "type": "uuid",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "name",
+        "dataType": "character varying(100)",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 3,
-        "name": "variant_id",
-        "type": "uuid",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "slug",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": true,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 4,
-        "name": "quantity",
-        "type": "integer",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "description",
+        "dataType": "character varying(500)",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 5,
-        "name": "unit_price",
-        "type": "text",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "is_active",
+        "dataType": "boolean",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": "true",
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 6,
-        "name": "notes",
-        "type": "text",
-        "not_null": false,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "created_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 7,
-        "name": "created_at",
-        "type": "timestamp without time zone",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
-      },
-      {
-        "attnum": 8,
         "name": "updated_at",
-        "type": "timestamp without time zone",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       }
     ],
-    "indexes": null,
-    "unique_constraints": null,
-    "check_constraints": null
+    "indexes": [
+      {
+        "name": "teams_slug_idx",
+        "isUnique": true,
+        "columns": [
+          "slug"
+        ]
+      }
+    ],
+    "unique": null,
+    "checks": null
   },
   {
     "kind": "TABLE",
-    "name": "hello_world",
-    "schema_name": "test",
+    "name": "team_members",
+    "schema": "public",
     "columns": [
       {
         "attnum": 1,
         "name": "id",
-        "type": "uuid",
-        "not_null": true,
-        "primary_key": true,
-        "is_unique": false,
-        "default_value": "gen_random_uuid()",
-        "check_expr": null,
-        "check_name": null
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": true,
+        "isUnique": false,
+        "defaultValue": "gen_random_uuid()",
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 2,
-        "name": "message",
-        "type": "character varying(255)",
-        "not_null": true,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": null,
-        "check_expr": null,
-        "check_name": null
+        "name": "team_id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       },
       {
         "attnum": 3,
+        "name": "user_id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 4,
+        "name": "role",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 5,
         "name": "created_at",
-        "type": "timestamp without time zone",
-        "not_null": false,
-        "primary_key": false,
-        "is_unique": false,
-        "default_value": "CURRENT_TIMESTAMP",
-        "check_expr": null,
-        "check_name": null
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 6,
+        "name": "updated_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
       }
     ],
-    "indexes": null,
-    "unique_constraints": null,
-    "check_constraints": null
+    "indexes": [
+      {
+        "name": "team_members_team_user_idx",
+        "isUnique": true,
+        "columns": [
+          "team_id",
+          "user_id"
+        ]
+      }
+    ],
+    "unique": [
+      {
+        "columns": [
+          "team_id",
+          "user_id"
+        ]
+      }
+    ],
+    "checks": null
+  },
+  {
+    "kind": "TABLE",
+    "name": "users",
+    "schema": "public",
+    "columns": [
+      {
+        "attnum": 1,
+        "name": "id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": true,
+        "isUnique": false,
+        "defaultValue": "gen_random_uuid()",
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 2,
+        "name": "name",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 3,
+        "name": "email",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": true,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 4,
+        "name": "created_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 5,
+        "name": "updated_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      }
+    ],
+    "indexes": [
+      {
+        "name": "users_email_idx",
+        "isUnique": true,
+        "columns": [
+          "email"
+        ]
+      }
+    ],
+    "unique": null,
+    "checks": null
+  },
+  {
+    "kind": "TABLE",
+    "name": "projects",
+    "schema": "public",
+    "columns": [
+      {
+        "attnum": 1,
+        "name": "id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": true,
+        "isUnique": false,
+        "defaultValue": "gen_random_uuid()",
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 2,
+        "name": "team_id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 3,
+        "name": "name",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 4,
+        "name": "key",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 5,
+        "name": "description",
+        "dataType": "character varying(5000)",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 6,
+        "name": "is_archived",
+        "dataType": "boolean",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 7,
+        "name": "budget_hours",
+        "dataType": "interval",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 8,
+        "name": "settings",
+        "dataType": "text",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 9,
+        "name": "created_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 10,
+        "name": "updated_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      }
+    ],
+    "indexes": [
+      {
+        "name": "projects_team_idx",
+        "isUnique": false,
+        "columns": [
+          "team_id"
+        ]
+      },
+      {
+        "name": "projects_team_key_idx",
+        "isUnique": true,
+        "columns": [
+          "team_id",
+          "key"
+        ]
+      }
+    ],
+    "unique": null,
+    "checks": null
+  },
+  {
+    "kind": "TABLE",
+    "name": "tasks",
+    "schema": "public",
+    "columns": [
+      {
+        "attnum": 1,
+        "name": "id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": true,
+        "isUnique": false,
+        "defaultValue": "gen_random_uuid()",
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 2,
+        "name": "project_id",
+        "dataType": "uuid",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 3,
+        "name": "assignee_id",
+        "dataType": "uuid",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 4,
+        "name": "task_number",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 5,
+        "name": "title",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 6,
+        "name": "description",
+        "dataType": "character varying(5000)",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 7,
+        "name": "status",
+        "dataType": "text",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 8,
+        "name": "priority",
+        "dataType": "integer",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 9,
+        "name": "due_date",
+        "dataType": "date",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 10,
+        "name": "completed_at",
+        "dataType": "timestamp without time zone",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 11,
+        "name": "deleted_at",
+        "dataType": "timestamp without time zone",
+        "notNull": false,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 12,
+        "name": "created_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      },
+      {
+        "attnum": 13,
+        "name": "updated_at",
+        "dataType": "timestamp without time zone",
+        "notNull": true,
+        "primaryKey": false,
+        "isUnique": false,
+        "defaultValue": null,
+        "check": null,
+        "constraint": null
+      }
+    ],
+    "indexes": [
+      {
+        "name": "tasks_assignee_idx",
+        "isUnique": false,
+        "columns": [
+          "assignee_id"
+        ]
+      },
+      {
+        "name": "tasks_due_date_idx",
+        "isUnique": false,
+        "columns": [
+          "due_date"
+        ]
+      },
+      {
+        "name": "tasks_project_idx",
+        "isUnique": false,
+        "columns": [
+          "project_id"
+        ]
+      },
+      {
+        "name": "tasks_status_idx",
+        "isUnique": false,
+        "columns": [
+          "status"
+        ]
+      }
+    ],
+    "unique": null,
+    "checks": null
   },
   {
     "kind": "DOMAIN",
-    "name": "access_scope_enum",
-    "schema_name": "public",
-    "data_type": "text",
-    "not_null": false,
-    "default_value": null,
-    "check_expr": "CHECK ((VALUE = ANY (ARRAY['ADMIN'::text, 'VENDOR'::text, 'SHOP'::text])))",
-    "constraint_name": "access_scope_enum_check"
+    "name": "task_status",
+    "schema": "public",
+    "dataType": "text",
+    "notNull": true,
+    "defaultValue": null,
+    "check": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'cancelled'::text]))",
+    "constraint": "chk_task_status"
+  },
+  {
+    "kind": "DOMAIN",
+    "name": "priority_level",
+    "schema": "public",
+    "dataType": "integer",
+    "notNull": true,
+    "defaultValue": "0",
+    "check": null,
+    "constraint": null
+  },
+  {
+    "kind": "SEQUENCE",
+    "name": "task_number_seq",
+    "schema": "public",
+    "dataType": "bigint",
+    "startValue": "1",
+    "minValue": "1",
+    "maxValue": "9223372036854775807",
+    "increment": "1",
+    "cycle": false,
+    "cache": "1"
+  },
+  {
+    "kind": "VIEW",
+    "name": "active_teams",
+    "schema": "public"
+  },
+  {
+    "kind": "FUNCTION",
+    "name": "project_count",
+    "schema": "public"
   }
 ]

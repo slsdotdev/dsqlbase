@@ -1,5 +1,6 @@
 export {
   DefinitionNode,
+  NodeRef,
   Kind,
   Relation,
   defaultCodec,
@@ -15,11 +16,29 @@ export {
   type UpdateGuard,
 } from "./column.js";
 export { DomainDefinition, type DomainConfig, type AnyDomainDefinition } from "./domain.js";
-export { IndexDefinition, type IndexConfig, type AnyIndexDefinition } from "./indexes.js";
+export {
+  IndexDefinition,
+  IndexColumnDefinition,
+  type IndexConfig,
+  type AnyIndexDefinition,
+  type ColumnConfigRefs,
+  type ColumnConfigType,
+} from "./indexes.js";
 export { SchemaDefinition } from "./schema.js";
 export { SequenceDefinition } from "./sequence.js";
-export { TableDefinition, type TableConfig, type AnyTableDefinition } from "./table.js";
+export {
+  TableDefinition,
+  type TableConfig,
+  type AnyTableDefinition,
+  type ColumnIndentifiers,
+  type ColumnRefs,
+} from "./table.js";
 export { ViewDefinition } from "./view.js";
+export {
+  CheckConstraintDefinition,
+  type AnyCheckConstraintDefinition,
+  type ConstraintConfig,
+} from "./constraint.js";
 export {
   RelationsDefinition,
   type RelationsConfig,

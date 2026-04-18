@@ -8,13 +8,14 @@ A declarative, introspection-based schema migrator for Aurora DSQL. Instead of m
 
 - **One DDL per transaction** — no multi-statement DDL transactions, no DDL+DML mixing
 - **ALTER TABLE is limited** — only `ADD COLUMN`, identity column changes, `RENAME`, `SET SCHEMA`; no `DROP COLUMN`, no `ALTER COLUMN TYPE`, no `ADD/DROP CONSTRAINT`
-- **Indexes are async** — `CREATE INDEX ASYNC` returns a `job_id`; must poll/wait via `sys.wait_for_job(job_id)` 
+- **Indexes are async** — `CREATE INDEX ASYNC` returns a `job_id`; must poll/wait via `sys.wait_for_job(job_id)`
 - **No foreign keys** — relations are application-level only (LEFT JOIN LATERAL)
 - **OCC retries** — DDL triggers catalog version bumps; subsequent sessions get `SQLSTATE 40001` / `OC001`; the transaction client handles retries with backoff
 
 ### MVP Scope
 
 **Supported operations:**
+
 1. `CREATE TABLE` — tables in local schema not in DB
 2. `DROP TABLE` — tables in DB not in local schema
 3. `ADD COLUMN` — columns in local table not in DB table
@@ -22,6 +23,7 @@ A declarative, introspection-based schema migrator for Aurora DSQL. Instead of m
 5. `DROP INDEX` — indexes in DB not in local schema
 
 **Deferred (post-MVP):**
+
 - Column type changes (requires table recreate)
 - Drop column (DSQL doesn't support it)
 - Constraint changes on existing columns
@@ -58,8 +60,8 @@ These types represent the **normalized** view of both local and DB schemas, used
 ```typescript
 /** Canonical column representation for diffing */
 interface SchemaColumn {
-  name: string;           // DB column name (snake_case)
-  dataType: string;       // Canonical type (see type normalizer)
+  name: string; // DB column name (snake_case)
+  dataType: string; // Canonical type (see type normalizer)
   notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
@@ -68,7 +70,7 @@ interface SchemaColumn {
 /** Canonical index representation for diffing */
 interface SchemaIndex {
   name: string;
-  columns: string[];      // Column names the index covers
+  columns: string[]; // Column names the index covers
   unique: boolean;
 }
 
@@ -172,40 +174,40 @@ This returns a single JSON object. We parse it and build the `DatabaseSchema` ma
 
 PostgreSQL returns canonical type names from `pg_catalog.format_type()` that differ from what users write in schema definitions. We need a mapping:
 
-| `format_type()` output | Canonical form | Schema definition source |
-|---|---|---|
-| `uuid` | `uuid` | `uuid()` |
-| `text` | `text` | `text()` |
-| `boolean` | `boolean` | `boolean()` |
-| `integer` | `integer` | `int()` |
-| `bigint` | `bigint` | `bigint()` |
-| `smallint` | `smallint` | `smallint()` |
-| `real` | `real` | `real()` |
-| `double precision` | `double precision` | `double()` |
-| `numeric` | `numeric` | `numeric()` |
-| `date` | `date` | `date()` |
-| `character varying(N)` | `varchar(N)` | `varchar(name, N)` |
-| `character(N)` | `char(N)` | `char(name, N)` |
-| `timestamp with time zone` | `timestamptz` | `datetime()` |
-| `timestamp without time zone` | `timestamp` | `timestamp()` |
-| `bytea` | `bytea` | `bytea()` |
-| `interval` | `interval` | `duration()` |
-| `jsonb` | `jsonb` | `json()` |
+| `format_type()` output        | Canonical form     | Schema definition source |
+| ----------------------------- | ------------------ | ------------------------ |
+| `uuid`                        | `uuid`             | `uuid()`                 |
+| `text`                        | `text`             | `text()`                 |
+| `boolean`                     | `boolean`          | `boolean()`              |
+| `integer`                     | `integer`          | `int()`                  |
+| `bigint`                      | `bigint`           | `bigint()`               |
+| `smallint`                    | `smallint`         | `smallint()`             |
+| `real`                        | `real`             | `real()`                 |
+| `double precision`            | `double precision` | `double()`               |
+| `numeric`                     | `numeric`          | `numeric()`              |
+| `date`                        | `date`             | `date()`                 |
+| `character varying(N)`        | `varchar(N)`       | `varchar(name, N)`       |
+| `character(N)`                | `char(N)`          | `char(name, N)`          |
+| `timestamp with time zone`    | `timestamptz`      | `datetime()`             |
+| `timestamp without time zone` | `timestamp`        | `timestamp()`            |
+| `bytea`                       | `bytea`            | `bytea()`                |
+| `interval`                    | `interval`         | `duration()`             |
+| `jsonb`                       | `jsonb`            | `json()`                 |
 
 The normalizer is a function: `normalizeType(pgType: string): string` that handles these mappings. Both the introspection result and the local schema column types get normalized before comparison.
 
 **For the local schema side**, we also need a mapping from the `dataType` stored in `ColumnDefinition.toJSON()` to the same canonical form. Looking at the serialized output in `schema.json`, columns store their `dataType` as-is (e.g., `"UUID"`, `"varchar(100)"`, `"timestamp"`, `"int"`). So the local normalizer lowercases and maps aliases:
 
 | Local `dataType` | Canonical form |
-|---|---|
-| `UUID` | `uuid` |
-| `varchar(N)` | `varchar(N)` |
-| `text` | `text` |
-| `boolean` | `boolean` |
-| `int` | `integer` |
-| `timestamp` | `timestamptz` |
-| `date` | `date` |
-| `interval` | `interval` |
+| ---------------- | -------------- |
+| `UUID`           | `uuid`         |
+| `varchar(N)`     | `varchar(N)`   |
+| `text`           | `text`         |
+| `boolean`        | `boolean`      |
+| `int`            | `integer`      |
+| `timestamp`      | `timestamptz`  |
+| `date`           | `date`         |
+| `interval`       | `interval`     |
 
 This is a single `normalizeLocalType(dataType: string): string` function.
 
@@ -217,9 +219,9 @@ The core diffing logic using the consume-and-mark approach.
 
 ### Algorithm
 
-```
+```ts
 function diff(local: SerializedSchema, db: DatabaseSchema): MigrationPlan
-  
+
   // Build a mutable copy of DB state
   dbTables = new Map(db)  // clone so we can mutate
   operations = []
@@ -229,14 +231,14 @@ function diff(local: SerializedSchema, db: DatabaseSchema): MigrationPlan
   for each entry in local where kind === "TABLE":
     localTable = parseLocalTable(entry)  // normalize to SchemaTable
     dbTable = dbTables.get(localTable.name)
-    
+
     if dbTable is undefined:
       // New table — CREATE TABLE
       operations.push({ type: "create_table", table: localTable })
     else:
       // Existing table — reconcile columns and indexes
       dbTables.delete(localTable.name)  // mark as seen
-      
+
       // Diff columns
       dbColumns = new Map(dbTable.columns)  // clone for consume
       for each [colAlias, localCol] of localTable.columns:
@@ -249,11 +251,11 @@ function diff(local: SerializedSchema, db: DatabaseSchema): MigrationPlan
           // Compare normalized types
           if localCol differs from dbCol:
             warnings.push("Column ${table}.${col} changed but ALTER COLUMN is not supported in DSQL")
-      
+
       // Remaining dbColumns = columns in DB but not in local
       for each remaining dbCol:
         warnings.push("Column ${table}.${col} exists in DB but not in local schema. DROP COLUMN is not supported in DSQL")
-      
+
       // Diff indexes (same consume-and-mark pattern)
       dbIndexes = new Map(dbTable.indexes)
       for each localIndex of localTable.indexes:
@@ -266,7 +268,7 @@ function diff(local: SerializedSchema, db: DatabaseSchema): MigrationPlan
             // index definition changed — drop and recreate
             operations.push({ type: "drop_index", indexName: localIndex.name })
             operations.push({ type: "create_index", tableName: localTable.name, index: localIndex })
-      
+
       for each remaining dbIdx:
         operations.push({ type: "drop_index", indexName: dbIdx.name })
 
@@ -303,7 +305,7 @@ The introspection query excludes primary key indexes (`NOT ix.indisprimary`). Th
 Converts `MigrationOp[]` into executable SQL strings.
 
 ```typescript
-function generateDDL(op: MigrationOp): string
+function generateDDL(op: MigrationOp): string;
 ```
 
 ### CREATE TABLE
@@ -336,6 +338,7 @@ ALTER TABLE "table_name" ADD COLUMN IF NOT EXISTS "col_name" data_type [NOT NULL
 ```
 
 **Important DSQL caveat**: When adding a `NOT NULL` column to an existing table with data, there's no `DEFAULT` support in the `ADD COLUMN` action. This means:
+
 - Adding a nullable column: always safe
 - Adding a NOT NULL column to an empty table: safe
 - Adding a NOT NULL column to a table with existing rows: will fail
@@ -405,7 +408,7 @@ interface MigrateOptions {
   /** Session with OCC retry logic */
   session: Session;
   /** The serialized local schema (array of toJSON() outputs) */
-  schema: unknown[];  // the JSON array from schema serialization
+  schema: unknown[]; // the JSON array from schema serialization
   /** If true, only return the plan without executing */
   dryRun?: boolean;
 }
@@ -419,37 +422,37 @@ interface MigrateResult {
   indexJobs: { indexName: string; jobId: string; status: string }[];
 }
 
-async function migrate(options: MigrateOptions): Promise<MigrateResult>
+async function migrate(options: MigrateOptions): Promise<MigrateResult>;
 ```
 
 ### Execution flow
 
-```
+```ts
 async function migrate({ session, schema, dryRun }):
-  
+
   // 1. Introspect current DB state
   dbSchema = await introspect(session)
-  
+
   // 2. Diff local vs DB
   plan = diff(schema, dbSchema)
-  
+
   // 3. Log warnings
   for warning of plan.warnings:
     console.warn("[migrate]", warning)
-  
+
   if dryRun:
     return { operations: plan.operations, warnings: plan.warnings, indexJobs: [] }
-  
+
   // 4. Execute DDL operations one-per-transaction
   indexJobs = []
   for op of plan.operations:
     sql = generateDDL(op)
     result = await session.execute({ text: sql, params: [] })
-    
+
     // CREATE INDEX ASYNC returns a job_id
     if op.type === "create_index" and result has job_id:
       indexJobs.push({ indexName: op.index.name, jobId: result.job_id, status: "submitted" })
-  
+
   // 5. Wait for all async index jobs
   for job of indexJobs:
     await session.execute({
@@ -462,7 +465,7 @@ async function migrate({ session, schema, dryRun }):
       params: [job.jobId]
     })
     job.status = statusResult[0]?.status ?? "unknown"
-    
+
     if job.status === "failed":
       // Drop the invalid index
       await session.execute({
@@ -470,7 +473,7 @@ async function migrate({ session, schema, dryRun }):
         params: []
       })
       throw new Error(`Index creation failed for ${job.indexName}: ${statusResult[0]?.details}`)
-  
+
   return { operations: plan.operations, warnings: plan.warnings, indexJobs }
 ```
 
@@ -490,8 +493,8 @@ For integration testing against a real DSQL instance, we'd use the migrator dire
 
 ```typescript
 const result = await migrate({
-  session: dsqlSession,  // real DSQL session with retry logic
-  schema: Object.values(schema).map(def => def.toJSON()),
+  session: dsqlSession, // real DSQL session with retry logic
+  schema: Object.values(schema).map((def) => def.toJSON()),
 });
 ```
 

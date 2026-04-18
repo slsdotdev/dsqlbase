@@ -1,13 +1,13 @@
 import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
 import { HasDefault, NotNull, WithValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
+import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 
 export interface DomainConfig<TValueType = unknown, TRawType = unknown> {
   valueType: TValueType;
   rawType: TRawType;
   dataType: string;
   notNull: boolean;
-  constraint: string;
   codec: ColumnCodec<TRawType, TValueType>;
 }
 
@@ -24,8 +24,7 @@ export class DomainDefinition<
   protected _dataType: TConfig["dataType"];
   protected _notNull: TConfig["notNull"];
   protected _defaultValue?: SQLNode;
-  protected _constraint?: TConfig["constraint"];
-  protected _check?: SQLNode;
+  protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
 
@@ -34,7 +33,6 @@ export class DomainDefinition<
 
     this._dataType = config.dataType ?? "text";
     this._notNull = config.notNull ?? false;
-    this._constraint = config.constraint;
     this._codec = config.codec ?? defaultCodec;
   }
 
@@ -48,13 +46,12 @@ export class DomainDefinition<
     return this as HasDefault<this>;
   }
 
-  public check(cb: (self: SQLIdentifier) => SQLNode): this {
-    this._check = cb(new SQLIdentifier(this.name));
-    return this;
-  }
+  public check<T extends string>(cb: (self: SQLIdentifier) => SQLNode, name?: T): this {
+    const expression = new SQLQuery(cb(new SQLIdentifier(this.name)));
+    this._check = new CheckConstraintDefinition(name ?? `${this.name}_check`, {
+      expression,
+    });
 
-  public constraint(name: string): this {
-    this._constraint = name;
     return this;
   }
 
@@ -68,9 +65,10 @@ export class DomainDefinition<
       name: this.name,
       dataType: this._dataType,
       notNull: this._notNull,
-      constraint: this._constraint,
-      defaultValue: this._defaultValue ? new SQLQuery(this._defaultValue).toJSON() : undefined,
-      check: this._check ? new SQLQuery(this._check).toJSON() : undefined,
+      defaultValue: this._defaultValue
+        ? new SQLQuery(this._defaultValue).toQuery({ inlineParams: true }).text
+        : undefined,
+      check: this._check?.toJSON(),
     } as const;
   }
 }
