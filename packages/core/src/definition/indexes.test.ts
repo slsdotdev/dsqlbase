@@ -20,7 +20,7 @@ describe("IndexDefinition", () => {
     expect(json.name).toBe("tasks_default_idx");
     expect(json.unique).toBe(false);
     expect(json.columns).toEqual([]);
-    expect(json.nullsDistinct).toBeUndefined();
+    expect(json.distinctNulls).toBe(true);
     expect(json.include).toBeUndefined();
   });
 
@@ -80,7 +80,7 @@ describe("IndexDefinition", () => {
   });
 
   it("should set nulls distinct", () => {
-    const json = tasks.index("tasks_nd_idx").nullsDistinct(false).toJSON();
-    expect(json.nullsDistinct).toBe(false);
+    const json = tasks.index("tasks_nd_idx").distinctNulls(false).toJSON();
+    expect(json.distinctNulls).toBe(false);
   });
 });

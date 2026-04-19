@@ -1,4 +1,4 @@
-CREATE DOMAIN "task_status" AS text NOT NULL
+CREATE DOMAIN "task_status" AS text
   CONSTRAINT "chk_task_status" CHECK (VALUE IN ('todo', 'in_progress', 'done', 'cancelled'));
 --> statement-breakpoint
 CREATE DOMAIN "priority_level" AS integer NOT NULL DEFAULT 0;
@@ -63,7 +63,7 @@ CREATE TABLE "tasks" (
   "task_number" text NOT NULL,
   "title" text NOT NULL,
   "description" varchar(5000),
-  "status" text NOT NULL,
+  "status" task_status NOT NULL,
   "priority" integer NOT NULL,
   "due_date" date,
   "completed_at" timestamp,
@@ -78,7 +78,7 @@ CREATE INDEX "tasks_assignee_idx" ON "tasks" ("assignee_id");
 --> statement-breakpoint
 CREATE INDEX "tasks_status_idx" ON "tasks" ("status");
 --> statement-breakpoint
-CREATE INDEX "tasks_due_date_idx" ON "tasks" ("due_date");
+CREATE INDEX "tasks_due_date_idx" ON "tasks" ("due_date") INCLUDE ("status");
 --> statement-breakpoint
 CREATE VIEW "active_teams" AS SELECT "id", "name", "slug" FROM "teams" WHERE "is_active" = true;
 --> statement-breakpoint

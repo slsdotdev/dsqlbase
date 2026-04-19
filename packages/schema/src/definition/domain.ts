@@ -11,24 +11,45 @@ export function domain<TName extends string>(name: TName) {
     },
   });
 
-  function factory<TColumnName extends string, TDomain extends typeof definition>(
-    name: TColumnName
-  ): WithDomain<
-    ColumnDefinition<
-      TColumnName,
-      ColumnConfig<TDomain["__type"]["valueType"], TDomain["__type"]["rawType"]>
-    >,
-    TDomain
-  > {
-    return new ColumnDefinition<TColumnName, ColumnConfig<string, string>>(name, {
-      domain: definition,
-      dataType: definition.name,
-      codec: {
-        encode: (value) => value,
-        decode: (value) => value,
-      },
-    }) as WithDomain<ColumnDefinition<TColumnName, ColumnConfig<string, string>>, TDomain>;
-  }
+  const factory = Object.assign(
+    <TColumnName extends string>(
+      name: TColumnName
+    ): WithDomain<
+      ColumnDefinition<
+        TColumnName,
+        ColumnConfig<
+          (typeof definition)["__type"]["valueType"],
+          (typeof definition)["__type"]["rawType"]
+        >
+      >,
+      typeof definition
+    > => {
+      return new ColumnDefinition<
+        TColumnName,
+        ColumnConfig<
+          (typeof definition)["__type"]["valueType"],
+          (typeof definition)["__type"]["rawType"]
+        >
+      >(name, {
+        domain: definition,
+        dataType: definition.name,
+        codec: {
+          encode: (value) => value,
+          decode: (value) => value,
+        },
+      }) as WithDomain<
+        ColumnDefinition<
+          TColumnName,
+          ColumnConfig<
+            (typeof definition)["__type"]["valueType"],
+            (typeof definition)["__type"]["rawType"]
+          >
+        >,
+        typeof definition
+      >;
+    },
+    definition
+  );
 
-  return Object.assign(factory, definition);
+  return factory;
 }

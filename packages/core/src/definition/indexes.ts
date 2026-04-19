@@ -32,13 +32,14 @@ export class IndexDefinition<
   protected _unique: boolean;
   protected _columns: ColumnConfigType<TName, TTable>[] = [];
   protected _include?: ColumnRefs<TTable["columns"]>[];
-  protected _nullsDistinct?: boolean;
+  protected _distinctNulls?: boolean;
 
   constructor(name: TName, config: IndexConfig<TTable>) {
     super(name);
 
     this._table = config.table;
     this._unique = config.unique ?? false;
+    this._distinctNulls = true;
   }
 
   private _getColumnConfigRefs(): ColumnConfigRefs<TName, TTable> {
@@ -70,10 +71,11 @@ export class IndexDefinition<
   /**
    * Set nulls distinct behavior for the index.
    * `NULLS [NOT] DISTINCT` specifies whether NULL values are treated as distinct for the purposes of index uniqueness.
+   * @default
    */
 
-  public nullsDistinct(distinct = true): this {
-    this._nullsDistinct = distinct;
+  public distinctNulls(distinct = true): this {
+    this._distinctNulls = distinct;
     return this;
   }
 
@@ -82,9 +84,9 @@ export class IndexDefinition<
       kind: this.kind,
       name: this.name,
       unique: this._unique,
-      nullsDistinct: this._nullsDistinct,
+      distinctNulls: this._distinctNulls,
       columns: this._columns.map((col) => col.toJSON()),
-      include: this._include ? this._include.map((col) => new NodeRef(col).toJSON()) : undefined,
+      include: this._include ? this._include.map((col) => new NodeRef(col).toJSON()) : null,
     } as const;
   }
 }
@@ -96,12 +98,18 @@ export class IndexColumnDefinition<
   public readonly kind = Kind.INDEX_COLUMN;
 
   protected _column: NodeRef<TColumn>;
-  protected _nulls?: "FIRST" | "LAST";
+  protected _sortDirection: "ASC" | "DESC" = "ASC";
+  protected _nulls: "FIRST" | "LAST" = "LAST";
 
   constructor(index: TIdxName, column: TColumn) {
     super(`${index}_column_${column.name}`);
 
     this._column = new NodeRef(column);
+  }
+
+  sort(direction: "ASC" | "DESC" = "ASC"): this {
+    this._sortDirection = direction;
+    return this;
   }
 
   nullsFirst(): this {
@@ -118,8 +126,9 @@ export class IndexColumnDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      column: this._column.toJSON(),
+      sortDirection: this._sortDirection,
       nulls: this._nulls,
+      column: this._column.toJSON(),
     } as const;
   }
 }

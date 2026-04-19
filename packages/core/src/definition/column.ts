@@ -39,7 +39,7 @@ export class ColumnDefinition<
   protected _primaryKey: boolean;
   protected _unique: boolean;
   protected _defaultValue?: SQLNode;
-  protected _domain?: NodeRef<AnyDomainDefinition>;
+  protected _domain?: NodeRef<TConfig["domain"]>;
   protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
@@ -131,9 +131,9 @@ export class ColumnDefinition<
       unique: this._unique,
       defaultValue: this._defaultValue
         ? new SQLQuery(this._defaultValue).toQuery({ inlineParams: true }).text
-        : undefined,
-      check: this._check?.toJSON(),
-      domain: this._domain?.toJSON(),
+        : null,
+      check: this._check?.toJSON() ?? null,
+      domain: this._domain?.toJSON() ?? null,
     } as const;
   }
 }

@@ -26,6 +26,6 @@ import {
 export function table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
   name: TName,
   columns: TColumns
-): TableDefinition<TName, TableConfig<SchemaDefinition, TColumns>> {
+): TableDefinition<TName, TableConfig<TColumns, SchemaDefinition>> {
   return new TableDefinition(name, { columns });
 }

@@ -5,90 +5,102 @@
     "schema": "public",
     "columns": [
       {
-        "attnum": 1,
+        "kind": "COLUMN",
         "name": "id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": true,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "gen_random_uuid()",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 2,
+        "kind": "COLUMN",
         "name": "name",
         "dataType": "character varying(100)",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 3,
+        "kind": "COLUMN",
         "name": "slug",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": true,
+        "unique": true,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 4,
+        "kind": "COLUMN",
         "name": "description",
         "dataType": "character varying(500)",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 5,
+        "kind": "COLUMN",
         "name": "is_active",
         "dataType": "boolean",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "true",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 6,
+        "kind": "COLUMN",
         "name": "created_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 7,
+        "kind": "COLUMN",
         "name": "updated_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       }
     ],
     "indexes": [
       {
+        "kind": "INDEX",
         "name": "teams_slug_idx",
-        "isUnique": true,
+        "unique": true,
+        "distinctNulls": true,
+        "statement": "CREATE UNIQUE INDEX teams_slug_idx ON public.teams USING btree (slug)",
         "columns": [
-          "slug"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "slug"
+            }
+          }
+        ],
+        "include": null
       }
     ],
     "unique": null,
@@ -100,87 +112,114 @@
     "schema": "public",
     "columns": [
       {
-        "attnum": 1,
+        "kind": "COLUMN",
         "name": "id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": true,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "gen_random_uuid()",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 2,
+        "kind": "COLUMN",
         "name": "team_id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 3,
+        "kind": "COLUMN",
         "name": "user_id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 4,
+        "kind": "COLUMN",
         "name": "role",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 5,
+        "kind": "COLUMN",
         "name": "created_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 6,
+        "kind": "COLUMN",
         "name": "updated_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       }
     ],
     "indexes": [
       {
+        "kind": "INDEX",
         "name": "team_members_team_user_idx",
-        "isUnique": true,
+        "unique": true,
+        "distinctNulls": true,
+        "statement": "CREATE UNIQUE INDEX team_members_team_user_idx ON public.team_members USING btree (team_id, user_id)",
         "columns": [
-          "team_id",
-          "user_id"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "team_id"
+            }
+          },
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "user_id"
+            }
+          }
+        ],
+        "include": null
       }
     ],
     "unique": [
       {
+        "name": "team_members_team_id_user_id_key",
         "columns": [
-          "team_id",
-          "user_id"
+          {
+            "kind": "REFERENCE",
+            "name": "team_id"
+          },
+          {
+            "kind": "REFERENCE",
+            "name": "user_id"
+          }
         ]
       }
     ],
@@ -192,68 +231,80 @@
     "schema": "public",
     "columns": [
       {
-        "attnum": 1,
+        "kind": "COLUMN",
         "name": "id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": true,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "gen_random_uuid()",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 2,
+        "kind": "COLUMN",
         "name": "name",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 3,
+        "kind": "COLUMN",
         "name": "email",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": true,
+        "unique": true,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 4,
+        "kind": "COLUMN",
         "name": "created_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 5,
+        "kind": "COLUMN",
         "name": "updated_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       }
     ],
     "indexes": [
       {
+        "kind": "INDEX",
         "name": "users_email_idx",
-        "isUnique": true,
+        "unique": true,
+        "distinctNulls": true,
+        "statement": "CREATE UNIQUE INDEX users_email_idx ON public.users USING btree (email)",
         "columns": [
-          "email"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "email"
+            }
+          }
+        ],
+        "include": null
       }
     ],
     "unique": null,
@@ -265,131 +316,163 @@
     "schema": "public",
     "columns": [
       {
-        "attnum": 1,
+        "kind": "COLUMN",
         "name": "id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": true,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "gen_random_uuid()",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 2,
+        "kind": "COLUMN",
         "name": "team_id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 3,
+        "kind": "COLUMN",
         "name": "name",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 4,
+        "kind": "COLUMN",
         "name": "key",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 5,
+        "kind": "COLUMN",
         "name": "description",
         "dataType": "character varying(5000)",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 6,
+        "kind": "COLUMN",
         "name": "is_archived",
         "dataType": "boolean",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 7,
+        "kind": "COLUMN",
         "name": "budget_hours",
         "dataType": "interval",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 8,
+        "kind": "COLUMN",
         "name": "settings",
         "dataType": "text",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 9,
+        "kind": "COLUMN",
         "name": "created_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 10,
+        "kind": "COLUMN",
         "name": "updated_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       }
     ],
     "indexes": [
       {
+        "kind": "INDEX",
         "name": "projects_team_idx",
-        "isUnique": false,
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX projects_team_idx ON public.projects USING btree (team_id)",
         "columns": [
-          "team_id"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "team_id"
+            }
+          }
+        ],
+        "include": null
       },
       {
+        "kind": "INDEX",
         "name": "projects_team_key_idx",
-        "isUnique": true,
+        "unique": true,
+        "distinctNulls": true,
+        "statement": "CREATE UNIQUE INDEX projects_team_key_idx ON public.projects USING btree (team_id, key)",
         "columns": [
-          "team_id",
-          "key"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "team_id"
+            }
+          },
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "key"
+            }
+          }
+        ],
+        "include": null
       }
     ],
     "unique": null,
@@ -401,177 +484,233 @@
     "schema": "public",
     "columns": [
       {
-        "attnum": 1,
+        "kind": "COLUMN",
         "name": "id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": true,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": "gen_random_uuid()",
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 2,
+        "kind": "COLUMN",
         "name": "project_id",
         "dataType": "uuid",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 3,
+        "kind": "COLUMN",
         "name": "assignee_id",
         "dataType": "uuid",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 4,
+        "kind": "COLUMN",
         "name": "task_number",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 5,
+        "kind": "COLUMN",
         "name": "title",
         "dataType": "text",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 6,
+        "kind": "COLUMN",
         "name": "description",
         "dataType": "character varying(5000)",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 7,
+        "kind": "COLUMN",
         "name": "status",
-        "dataType": "text",
+        "dataType": "task_status",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": {
+          "kind": "REFERENCE",
+          "name": "task_status"
+        }
       },
       {
-        "attnum": 8,
+        "kind": "COLUMN",
         "name": "priority",
         "dataType": "integer",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 9,
+        "kind": "COLUMN",
         "name": "due_date",
         "dataType": "date",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 10,
+        "kind": "COLUMN",
         "name": "completed_at",
         "dataType": "timestamp without time zone",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 11,
+        "kind": "COLUMN",
         "name": "deleted_at",
         "dataType": "timestamp without time zone",
         "notNull": false,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 12,
+        "kind": "COLUMN",
         "name": "created_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       },
       {
-        "attnum": 13,
+        "kind": "COLUMN",
         "name": "updated_at",
         "dataType": "timestamp without time zone",
         "notNull": true,
         "primaryKey": false,
-        "isUnique": false,
+        "unique": false,
         "defaultValue": null,
         "check": null,
-        "constraint": null
+        "domain": null
       }
     ],
     "indexes": [
       {
-        "name": "tasks_assignee_idx",
-        "isUnique": false,
-        "columns": [
-          "assignee_id"
-        ]
-      },
-      {
-        "name": "tasks_due_date_idx",
-        "isUnique": false,
-        "columns": [
-          "due_date"
-        ]
-      },
-      {
+        "kind": "INDEX",
         "name": "tasks_project_idx",
-        "isUnique": false,
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_project_idx ON public.tasks USING btree (project_id)",
         "columns": [
-          "project_id"
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "project_id"
+            }
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_status_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_status_idx ON public.tasks USING btree (status)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "status"
+            }
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_due_date_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_due_date_idx ON public.tasks USING btree (due_date) INCLUDE (status)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "due_date"
+            }
+          }
+        ],
+        "include": [
+          {
+            "kind": "REFERENCE",
+            "name": "status"
+          }
         ]
       },
       {
-        "name": "tasks_status_idx",
-        "isUnique": false,
+        "kind": "INDEX",
+        "name": "tasks_assignee_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_assignee_idx ON public.tasks USING btree (assignee_id)",
         "columns": [
-          "status"
-        ]
+          {
+            "kind": "INDEX_COLUMN",
+            "sortDirection": "ASC",
+            "nulls": "LAST",
+            "column": {
+              "kind": "REFERENCE",
+              "name": "assignee_id"
+            }
+          }
+        ],
+        "include": null
       }
     ],
     "unique": null,
@@ -582,10 +721,13 @@
     "name": "task_status",
     "schema": "public",
     "dataType": "text",
-    "notNull": true,
+    "notNull": false,
     "defaultValue": null,
-    "check": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'cancelled'::text]))",
-    "constraint": "chk_task_status"
+    "check": {
+      "kind": "CHECK_CONSTRAINT",
+      "name": "chk_task_status",
+      "expression": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'cancelled'::text]))"
+    }
   },
   {
     "kind": "DOMAIN",
@@ -594,8 +736,7 @@
     "dataType": "integer",
     "notNull": true,
     "defaultValue": "0",
-    "check": null,
-    "constraint": null
+    "check": null
   },
   {
     "kind": "SEQUENCE",

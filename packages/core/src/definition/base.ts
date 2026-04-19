@@ -71,4 +71,11 @@ export class NodeRef<TNode extends DefinitionNode> extends DefinitionNode<
   constructor(public readonly target: TNode) {
     super(target.name);
   }
+
+  toJSON() {
+    return {
+      kind: this.kind,
+      name: this.name,
+    } as const;
+  }
 }

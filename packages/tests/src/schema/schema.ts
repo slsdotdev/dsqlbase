@@ -1,3 +1,4 @@
+import { ColumnDefinition, DomainDefinition, sql } from "@dsqlbase/core";
 import {
   boolean,
   date,
@@ -70,10 +71,16 @@ const projects = table("projects", {
   updatedAt: datetime("updated_at").notNull(),
 });
 
-projects
-  .index("projects_team_key_idx", { unique: true })
-  .columns((c) => [c.teamId, c.key]);
+projects.index("projects_team_key_idx", { unique: true }).columns((c) => [c.teamId, c.key]);
 projects.index("projects_team_idx").columns((c) => [c.teamId]);
+
+const TASK_STATUS = ["open", "in_progress", "completed", "archived"] as const;
+
+const taskStatus = new DomainDefinition("task_status", {
+  dataType: "text",
+})
+  .check((c) => sql.in(c, [...TASK_STATUS]), "chk_task_status")
+  .$type<(typeof TASK_STATUS)[number]>();
 
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -82,7 +89,9 @@ const tasks = table("tasks", {
   taskNumber: text("task_number").notNull(),
   title: text("title").notNull(),
   description: varchar("description", 5000),
-  status: text("status").notNull(),
+  status: new ColumnDefinition("status", { domain: taskStatus })
+    .notNull()
+    .$type<(typeof TASK_STATUS)[number]>(),
   priority: int("priority").notNull(),
   dueDate: date("due_date"),
   completedAt: datetime("completed_at"),
@@ -94,7 +103,10 @@ const tasks = table("tasks", {
 tasks.index("tasks_project_idx").columns((c) => [c.projectId]);
 tasks.index("tasks_assignee_idx").columns((c) => [c.assigneeId]);
 tasks.index("tasks_status_idx").columns((c) => [c.status]);
-tasks.index("tasks_due_date_idx").columns((c) => [c.dueDate]);
+tasks
+  .index("tasks_due_date_idx")
+  .columns((c) => [c.dueDate])
+  .include((c) => [c.status]);
 
 const userRelations = relations(users, {
   membership: hasOne(members, {
@@ -157,6 +169,7 @@ export {
   users,
   projects,
   tasks,
+  taskStatus,
   userRelations,
   memberRelations,
   teamRelations,

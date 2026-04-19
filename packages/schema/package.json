@@ -11,13 +11,13 @@
       "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./migrations": {
-      "default": "./dist/migrations/index.js",
-      "types": "./dist/migrations/index.d.ts"
+    "./migration": {
+      "default": "./dist/migration/index.js",
+      "types": "./dist/migration/index.d.ts"
     },
-    "./migrations/*": {
-      "default": "./dist/migrations/*.js",
-      "types": "./dist/migrations/*.d.ts"
+    "./migration/*": {
+      "default": "./dist/migration/*.js",
+      "types": "./dist/migration/*.d.ts"
     },
     "./definition": {
       "default": "./dist/definition/index.js",
@@ -30,10 +30,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest dev",
+    "dev": "tsc --watch",
     "lint": "eslint src --ext .ts",
-    "dev": "vitest watch"
+    "test": "vitest run",
+    "test:watch": "vitest dev"
   },
   "dependencies": {
     "@dsqlbase/core": "^0.0.1"

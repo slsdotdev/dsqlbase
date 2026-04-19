@@ -14,109 +14,147 @@ const schemas = sql`
   )
 `;
 
+const columns = sql`
+  SELECT json_agg(json_build_object(
+    'kind', 'COLUMN',
+    'name', a.attname,
+    'dataType', pg_catalog.format_type(a.atttypid, a.atttypmod),
+    'notNull', a.attnotnull,
+    'primaryKey', COALESCE((
+      SELECT true
+      FROM pg_constraint con
+      WHERE con.conrelid = c.oid
+        AND con.contype = 'p'
+        AND a.attnum = ANY(con.conkey)
+    ), false),
+    'unique', COALESCE((
+      SELECT true
+      FROM pg_constraint con
+      WHERE con.conrelid = c.oid
+        AND con.contype = 'u'
+        AND con.conkey = ARRAY[a.attnum]::smallint[]
+    ), false),
+    'defaultValue', (
+      SELECT pg_get_expr(d.adbin, d.adrelid)
+      FROM pg_attrdef d
+      WHERE d.adrelid = c.oid AND d.adnum = a.attnum
+    ),
+    'check', (
+      SELECT json_build_object(
+        'kind', 'CHECK_CONSTRAINT',
+        'name', con.conname,
+        'expression', pg_get_constraintdef(con.oid, true)
+      )
+      FROM pg_constraint con
+      WHERE con.conrelid = c.oid
+      AND con.contype = 'c'
+      AND con.conkey = ARRAY[a.attnum]::smallint[]
+    ),
+    'domain', (
+      SELECT json_build_object(
+        'kind', 'REFERENCE',
+        'name', t.typname
+      )
+      FROM pg_type t
+      WHERE t.oid = a.atttypid AND t.typtype = 'd'
+    )
+  ))
+  FROM pg_attribute a
+  WHERE a.attrelid = c.oid
+    AND a.attnum > 0
+    AND NOT a.attisdropped
+`;
+
+const indexes = sql`
+  SELECT json_agg(json_build_object(
+    'kind', 'INDEX',
+    'name', ic.relname,
+    'unique', ix.indisunique,
+    'distinctNulls', NOT ix.indnullsnotdistinct,
+    'statement', pg_get_indexdef(ic.relname::regclass),
+    'columns', (
+      SELECT json_agg(
+        json_build_object(
+          'kind', 'INDEX_COLUMN',
+          'sortDirection', CASE
+            WHEN (ix.indoption[col_pos] & 1) = 1 THEN 'DESC'
+            ELSE 'ASC'
+          END,
+          'nulls', CASE
+            WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
+            ELSE 'LAST'
+          END,
+          'column', json_build_object(
+            'kind', 'REFERENCE',
+            'name', pa.attname
+          )
+        )
+        ORDER BY col_pos
+      )
+      FROM LATERAL unnest(ix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
+      JOIN pg_attribute pa
+        ON pa.attrelid = c.oid
+       AND pa.attnum = u.attnum
+      WHERE col_pos <= ix.indnkeyatts
+    ),
+    'include', (
+      SELECT json_agg(
+        json_build_object(
+          'kind', 'REFERENCE',
+          'name', pa.attname
+        )
+        ORDER BY col_pos
+      )
+      FROM LATERAL unnest(ix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
+      JOIN pg_attribute pa
+        ON pa.attrelid = c.oid
+       AND pa.attnum = u.attnum
+      WHERE col_pos > ix.indnkeyatts
+    )
+  ))
+  FROM pg_index ix
+  JOIN pg_class ic ON ic.oid = ix.indexrelid
+  WHERE ix.indrelid = c.oid
+    AND NOT ix.indisprimary
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint con
+      WHERE con.conindid = ix.indexrelid
+        AND con.contype = 'u'
+    )
+`;
+
 const tables = sql`
   table_defs AS (
     SELECT json_build_object(
       'kind', 'TABLE',
       'name', c.relname,
       'schema', s.name,
-      -- Columns with their properties and constraints
-      'columns', (
-        SELECT json_agg(col ORDER BY col.attnum)
-        FROM (
-          SELECT
-            a.attnum,
-            a.attname AS "name",
-            pg_catalog.format_type(a.atttypid, a.atttypmod) AS "dataType",
-            a.attnotnull AS "notNull",
-            -- Primary key
-            COALESCE((
-              SELECT true
-              FROM pg_constraint con
-              WHERE con.conrelid = c.oid
-                AND con.contype = 'p'
-                AND a.attnum = ANY(con.conkey)
-            ), false) AS "primaryKey",
-            -- Unique constraint (single-column unique constraints)
-            COALESCE((
-              SELECT true
-              FROM pg_constraint con
-              WHERE con.conrelid = c.oid
-                AND con.contype = 'u'
-                AND con.conkey = ARRAY[a.attnum]::smallint[]
-            ), false) AS "isUnique",
-            -- Default value
-            (
-              SELECT pg_get_expr(d.adbin, d.adrelid)
-              FROM pg_attrdef d
-              WHERE d.adrelid = c.oid AND d.adnum = a.attnum
-            ) AS "defaultValue",
-            -- Check constraint (single-column check constraints)
-            (
-              SELECT pg_get_constraintdef(con.oid, true)
-              FROM pg_constraint con
-              WHERE con.conrelid = c.oid
-                AND con.contype = 'c'
-                AND con.conkey = ARRAY[a.attnum]::smallint[]
-            ) AS "check",
-            -- Check constraint name
-            (
-              SELECT con.conname
-              FROM pg_constraint con
-              WHERE con.conrelid = c.oid
-                AND con.contype = 'c'
-                AND con.conkey = ARRAY[a.attnum]::smallint[]
-            ) AS "constraint"
-          FROM pg_attribute a
-          WHERE a.attrelid = c.oid
-            AND a.attnum > 0
-            AND NOT a.attisdropped
-        ) col
-      ),
-      -- Indexes (excluding primary keys and unique constraints, which are handled separately)
-      'indexes', (
-        SELECT json_agg(idx ORDER BY idx.name)
-        FROM (
-          SELECT
-            ic.relname AS "name",
-            ix.indisunique AS "isUnique",
-            (
-              SELECT json_agg(pa.attname ORDER BY array_position(ix.indkey, pa.attnum))
-              FROM pg_attribute pa
-              WHERE pa.attrelid = c.oid
-                AND pa.attnum = ANY(ix.indkey)
-            ) AS "columns"
-          FROM pg_index ix
-          JOIN pg_class ic ON ic.oid = ix.indexrelid
-          WHERE ix.indrelid = c.oid
-            AND NOT ix.indisprimary
-            AND NOT EXISTS (
-              SELECT 1 FROM pg_constraint con
-              WHERE con.conindid = ix.indexrelid
-                AND con.contype = 'u'
-            )
-        ) idx
-      ),
+      'columns', (${columns}),
+      'indexes', (${indexes}),
       -- Unique constraints (multi-column unique constraints that are not represented as separate indexes)
       'unique', (
-        SELECT json_agg(uc)
-        FROM (
-          SELECT
-            (
-              SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
-              FROM pg_attribute a
-              WHERE a.attrelid = con.conrelid
-                AND a.attnum = ANY(con.conkey)
-            ) AS columns
-          FROM pg_constraint con
-          WHERE con.conrelid = c.oid
-            AND con.contype = 'u'
-            AND array_length(con.conkey, 1) > 1
-        ) uc
+        SELECT json_agg(json_build_object(
+          'name', con.conname,
+          'columns', (
+            -- SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
+            SELECT json_agg(json_build_object(
+              'kind', 'REFERENCE',
+              'name', a.attname
+            ))
+            FROM pg_attribute a
+            WHERE a.attrelid = con.conrelid
+              AND a.attnum = ANY(con.conkey)
+          )
+        ))
+        FROM pg_constraint con
+        WHERE con.conrelid = c.oid
+          AND con.contype = 'u'
+          AND array_length(con.conkey, 1) > 1
       ),
       -- Check constraints
       'checks', (
         SELECT json_agg(json_build_object(
+          'kind', 'CHECK_CONSTRAINT',
           'constraint', con.conname,
           'check', pg_get_constraintdef(con.oid, true)
         ))
@@ -142,13 +180,11 @@ const domains = sql`
       'notNull', t.typnotnull,
       'defaultValue', t.typdefault,
       'check', (
-        SELECT pg_get_constraintdef(con.oid, true)
-        FROM pg_constraint con
-        WHERE con.contypid = t.oid AND con.contype = 'c'
-        LIMIT 1
-      ),
-      'constraint', (
-        SELECT con.conname
+        SELECT json_build_object(
+          'kind', 'CHECK_CONSTRAINT',
+          'name', con.conname,
+          'expression', pg_get_constraintdef(con.oid, true)
+        )
         FROM pg_constraint con
         WHERE con.contypid = t.oid AND con.contype = 'c'
         LIMIT 1

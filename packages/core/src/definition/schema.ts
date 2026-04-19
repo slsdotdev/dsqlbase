@@ -11,4 +11,11 @@ export class SchemaDefinition<TName extends string = string> extends DefinitionN
   ): WithSchema<TableDefinition<TName, TConfig>, this> {
     return new TableDefinition(name, { ...config, schema: this });
   }
+
+  public toJSON() {
+    return {
+      kind: this.kind,
+      name: this.name,
+    } as const;
+  }
 }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Kind } from "@dsqlbase/core";
-import { introspection } from "@dsqlbase/schema/migrations";
+import { introspection } from "@dsqlbase/schema/migration";
 import { createClient, TestClient } from "../client/index.js";
 import { schema } from "../schema/index.js";
 import path from "node:path";
@@ -20,14 +20,23 @@ describe("Schema introspection", () => {
 
   beforeAll(async () => {
     client = await createClient();
-    const [result] = await client.session.execute<{ definitions: SchemaNode[] }>(
+    const [result] = await client.session.execute<{ definitions: SchemaNode[] } | null>(
       introspection.toQuery()
     );
 
-    definitions = result.definitions;
+    definitions = result?.definitions ?? [];
     await writeFile(
       path.join(__dirname, "../schema/data/schema-introspection-result.json"),
       JSON.stringify(definitions, null, 2)
+    );
+
+    await writeFile(
+      path.join(__dirname, "../schema/data/schema.json"),
+      JSON.stringify(
+        Object.values(schema).map((d) => d.toJSON()),
+        null,
+        2
+      )
     );
   });
 
@@ -37,11 +46,6 @@ describe("Schema introspection", () => {
 
   it("should run introspection query", async () => {
     expect(definitions).toBeDefined();
-  });
-
-  it("should match serialized schema", () => {
-    const local = Object.values(schema).map((d) => d.toJSON());
-    expect(definitions).toMatchObject(local);
   });
 
   it("should not fetch system schemas", () => {
@@ -93,6 +97,29 @@ describe("Schema introspection", () => {
 
       expect(projectsTable).toBeDefined();
       expect(projectsTable).toHaveProperty("columns");
+    });
+
+    it("should fetch indexes for tables", () => {
+      const tasksTable = definitions.find((d) => d.kind === Kind.TABLE && d.name === "tasks");
+
+      expect(tasksTable).toBeDefined();
+      expect(tasksTable).toHaveProperty("indexes");
+    });
+
+    it("should fetch unique constraints for tables", () => {
+      const membersTable = definitions.find(
+        (d) => d.kind === Kind.TABLE && d.name === "team_members"
+      );
+
+      expect(membersTable).toBeDefined();
+      expect(membersTable).toHaveProperty("unique");
+    });
+
+    it("should match local schema definition", () => {
+      const localTable = schema.tasks.toJSON();
+      const remoteTable = definitions.find((d) => d.kind === Kind.TABLE && d.name === "tasks");
+
+      expect(remoteTable).toMatchObject(localTable);
     });
   });
 

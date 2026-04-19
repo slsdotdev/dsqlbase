@@ -6,8 +6,8 @@ import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { SchemaDefinition } from "./schema.js";
 
 export interface TableConfig<
-  TSchema extends SchemaDefinition = SchemaDefinition,
   TColumns extends Record<string, AnyColumnDefinition> = Record<string, AnyColumnDefinition>,
+  TSchema extends SchemaDefinition = SchemaDefinition,
 > {
   schema?: TSchema;
   columns: TColumns;
@@ -81,13 +81,13 @@ export class TableDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      schema: this._schema?.toJSON(),
+      schema: this._schema?.toJSON() ?? "public",
       columns: Object.values(this.columns).map((col) => col.toJSON()),
       indexes: this._indexes.map((idx) => idx.toJSON()),
-      checks: this._checks ? this._checks.map((check) => check.toJSON()) : undefined,
+      checks: this._checks ? this._checks.map((check) => check.toJSON()) : null,
       unique: this._unique
         ? this._unique.map((cols) => cols.map((col) => new NodeRef(col).toJSON()))
-        : undefined,
+        : null,
     } as const;
   }
 }

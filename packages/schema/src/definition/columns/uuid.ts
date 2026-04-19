@@ -24,7 +24,7 @@ export class UUIDColumnDefinition<
 
 export function uuid<TName extends string>(name: TName) {
   return new UUIDColumnDefinition<TName, ColumnConfig<string, string>>(name, {
-    dataType: "UUID",
+    dataType: "uuid",
     codec: {
       encode: (value) => value,
       decode: (value) => value,

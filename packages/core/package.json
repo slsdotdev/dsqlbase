@@ -46,8 +46,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch",
     "test": "vitest run",
-    "lint": "eslint src --ext .ts",
-    "dev": "vitest watch"
+    "lint": "eslint src --ext .ts"
   }
 }

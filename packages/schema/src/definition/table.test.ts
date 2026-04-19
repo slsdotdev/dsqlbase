@@ -47,7 +47,7 @@ describe("TableDefinition", () => {
       columns: expect.arrayContaining([
         expect.objectContaining({
           name: "id",
-          dataType: "UUID",
+          dataType: "uuid",
           primaryKey: true,
           notNull: true,
           unique: false,
