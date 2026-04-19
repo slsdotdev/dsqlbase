@@ -1,6 +1,7 @@
 import {
   AnyDomainDefinition,
   AnyTableDefinition,
+  DefinitionNode,
   SchemaDefinition,
   SequenceDefinition,
   ViewDefinition,
@@ -13,8 +14,7 @@ export type DefinitionObject =
   | SequenceDefinition<string>
   | ViewDefinition<string>;
 
-export type DefinitionSchema<T extends DefinitionObject[]> = T extends (infer U)[]
-  ? U extends DefinitionObject
-    ? ReturnType<U["toJSON"]>
-    : never
-  : never;
+export type SerializedObject<T extends DefinitionNode> = ReturnType<T["toJSON"]>;
+
+export type SerializedSchema<T extends DefinitionObject[] = DefinitionObject[]> =
+  (T extends (infer U)[] ? (U extends DefinitionObject ? SerializedObject<U> : never) : never)[];
