@@ -28,8 +28,8 @@ export type WithValueType<T extends TypedObject, TValue> = T & {
   __type: { valueType: TValue };
 };
 
-export type WithSchema<T extends TypedObject, TSchema extends TypedObject> = T & {
-  __type: { schema: TSchema };
+export type WithNamespace<T extends TypedObject, TSchema extends TypedObject> = T & {
+  __type: { namespace: TSchema };
 };
 
 export type WithDomain<T extends TypedObject, TDomain extends TypedObject> = T & {

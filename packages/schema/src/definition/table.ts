@@ -1,5 +1,8 @@
-import { AnyColumnDefinition, TableDefinition } from "@dsqlbase/core/definition";
-import { AnySchemaDefinition } from "@dsqlbase/core/definition/schema";
+import {
+  TableDefinition,
+  AnyColumnDefinition,
+  AnyNamespaceDefinition,
+} from "@dsqlbase/core/definition";
 
 /**
  * Defines a table schema with specified columns and optional schema association.
@@ -22,6 +25,6 @@ import { AnySchemaDefinition } from "@dsqlbase/core/definition/schema";
 export function table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
   name: TName,
   columns: TColumns
-): TableDefinition<TName, TColumns, AnySchemaDefinition> {
+): TableDefinition<TName, TColumns, AnyNamespaceDefinition> {
   return new TableDefinition(name, { columns });
 }

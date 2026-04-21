@@ -4,27 +4,27 @@ import {
   AnyTableRelations,
   ColumnConfig,
   ColumnDefinition,
-  SchemaDefinition,
+  AnyNamespaceDefinition,
   TableConfig,
   TableDefinition,
+  NamespaceDefinition,
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { Column } from "./column.js";
-import { AnySchemaDefinition } from "../definition/schema.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
 
 export type WithRelations<
   TColumns extends Record<string, AnyColumnDefinition>,
-  TSchema extends AnySchemaDefinition,
+  TNamespace extends AnyNamespaceDefinition,
   TRelations extends AnyTableRelations | undefined,
-> = TableConfig<TColumns, TSchema> & {
+> = TableConfig<TColumns, TNamespace> & {
   relations: TRelations extends AnyTableRelations ? TRelations : never;
 };
 
 export type TableSchemaName<T extends AnyTable> = T["__type"] extends { schema: infer S }
-  ? S extends SchemaDefinition<infer SN>
+  ? S extends NamespaceDefinition<infer SN>
     ? SN
     : never
   : undefined;
@@ -48,26 +48,28 @@ export type TableColumns<T extends AnyTable> = {
 export class Table<
   TName extends string,
   TColumns extends Record<string, AnyColumnDefinition>,
-  TSchema extends AnySchemaDefinition,
+  TNamespace extends AnyNamespaceDefinition,
   TRelations extends AnyTableRelations,
 >
-  implements SQLNode, TypedObject<TableConfig<TColumns, TSchema>>
+  implements SQLNode, TypedObject<TableConfig<TColumns, TNamespace>>
 {
-  declare readonly __type: WithRelations<TColumns, TSchema, TRelations>;
+  declare readonly __type: WithRelations<TColumns, TNamespace, TRelations>;
 
   readonly name: TName;
   readonly schema: TableSchemaName<this>;
   readonly columns: TableColumns<this>;
   readonly relations: TRelations;
 
-  constructor(definition: TableDefinition<TName, TColumns, TSchema>, relations?: TRelations) {
-    this.schema = definition["_schema"]?.name as TableSchemaName<this>;
+  constructor(definition: TableDefinition<TName, TColumns, TNamespace>, relations?: TRelations) {
+    this.schema = definition["_namespace"]?.name as TableSchemaName<this>;
     this.name = definition.name;
     this.columns = this._buildColumns(definition);
     this.relations = relations as TRelations;
   }
 
-  private _buildColumns(definition: TableDefinition<TName, TColumns, TSchema>): TableColumns<this> {
+  private _buildColumns(
+    definition: TableDefinition<TName, TColumns, TNamespace>
+  ): TableColumns<this> {
     const columns = {} as Record<string, Column<string, ColumnConfig, this>>;
 
     for (const [name, def] of Object.entries(definition.columns)) {

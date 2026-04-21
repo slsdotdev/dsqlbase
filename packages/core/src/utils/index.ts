@@ -8,6 +8,6 @@ export type {
   TypedObject,
   Unique,
   WithDomain,
-  WithSchema,
+  WithNamespace,
   WithValueType,
 } from "./types.js";

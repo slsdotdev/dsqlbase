@@ -1,6 +1,7 @@
 import {
   AnyDomainDefinition,
   AnyTableDefinition,
+  AnyNamespaceDefinition,
   DefinitionNode,
   NodeKind,
   SequenceDefinition,
@@ -8,7 +9,6 @@ import {
 } from "@dsqlbase/core";
 import { DDLStatement, TableConstraintExpression } from "./ddl/ast.js";
 import { ddl } from "./ddl/factory.js";
-import { AnySchemaDefinition } from "@dsqlbase/core/definition/schema";
 
 export const SCHEMA_OBJECT_ORDER: NodeKind[] = [
   "SCHEMA",
@@ -19,7 +19,7 @@ export const SCHEMA_OBJECT_ORDER: NodeKind[] = [
 ] as const;
 
 export type SchemaObjectType =
-  | AnySchemaDefinition
+  | AnyNamespaceDefinition
   | AnyDomainDefinition
   | AnyTableDefinition
   | SequenceDefinition<string>

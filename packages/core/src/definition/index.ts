@@ -24,7 +24,7 @@ export {
   type ColumnConfigRefs,
   type ColumnConfigType,
 } from "./indexes.js";
-export { SchemaDefinition } from "./schema.js";
+export { NamespaceDefinition, type AnyNamespaceDefinition } from "./namespace.js";
 export { SequenceDefinition } from "./sequence.js";
 export {
   TableDefinition,

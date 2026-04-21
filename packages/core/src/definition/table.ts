@@ -8,11 +8,11 @@ import {
   UniqueConstraintDefinition,
 } from "./constraint.js";
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
-import { AnySchemaDefinition } from "./schema.js";
+import { AnyNamespaceDefinition } from "./namespace.js";
 
 export interface TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
-  TSchema extends AnySchemaDefinition,
+  TSchema extends AnyNamespaceDefinition,
 > {
   schema?: TSchema;
   columns: TColumns;
@@ -28,11 +28,11 @@ export type ColumnRefs<TColumns extends Record<string, AnyColumnDefinition>> = {
 export class TableDefinition<
   TName extends string,
   TColumns extends Record<string, AnyColumnDefinition>,
-  TSchema extends AnySchemaDefinition,
+  TSchema extends AnyNamespaceDefinition,
 > extends DefinitionNode<TName, TableConfig<TColumns, TSchema>> {
   readonly kind = Kind.TABLE;
 
-  protected _schema?: AnySchemaDefinition;
+  protected _namespace?: AnyNamespaceDefinition;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
 
@@ -41,7 +41,7 @@ export class TableDefinition<
   constructor(name: TName, config: TableConfig<TColumns, TSchema>) {
     super(name);
 
-    this._schema = config.schema;
+    this._namespace = config.schema;
     this.columns = config.columns as Readonly<TColumns>;
   }
 
@@ -108,7 +108,7 @@ export class TableDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      schema: this._schema?.toJSON() ?? "public",
+      namespace: this._namespace?.toJSON() ?? "public",
       columns: Object.values(this.columns).map((col) => col.toJSON()),
       indexes: this._indexes.map((idx) => idx.toJSON()),
       constraints: this._constraints?.map((constraint) => constraint.toJSON()),

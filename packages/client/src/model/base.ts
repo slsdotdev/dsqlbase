@@ -1,11 +1,11 @@
 import {
   AnyColumnDefinition,
+  AnyNamespaceDefinition,
   AnyFieldRelation,
   AnyTableRelations,
   ColumnConfig,
   TableDefinition,
 } from "@dsqlbase/core/definition";
-import { AnySchemaDefinition } from "@dsqlbase/core/definition/schema";
 import { AnySchema, AnyTable, SchemaTableRelations, Table } from "@dsqlbase/core/runtime";
 import { Prettify } from "@dsqlbase/core/utils";
 
@@ -319,7 +319,7 @@ export type RelationJoinResultOf<
   TRelationField extends RelationFieldNamesOf<TTable>,
   TTargetName extends string,
   TTargetCols extends Record<string, AnyColumnDefinition>,
-  TTargetSchema extends AnySchemaDefinition,
+  TTargetSchema extends AnyNamespaceDefinition,
 > =
   RelationTypeOf<TTable, TRelationField> extends "has_many"
     ? QueryResultOf<

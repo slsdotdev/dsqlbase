@@ -6,7 +6,7 @@ import {
   ColumnDefinition,
   Relation,
   RelationsDefinition,
-  SchemaDefinition,
+  NamespaceDefinition,
   TableDefinition,
 } from "../definition/index.js";
 
@@ -48,7 +48,7 @@ describe("Table", () => {
 
   describe("with schema", () => {
     const withSchema = new TableDefinition("users", {
-      schema: new SchemaDefinition("test"),
+      schema: new NamespaceDefinition("test"),
       columns: {
         id: new ColumnDefinition("id").primaryKey(),
       },
