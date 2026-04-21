@@ -3,7 +3,8 @@ import { ColumnConfig, ColumnDefinition } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLStatement, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
 
-export type AnyColumn = Column<string, ColumnConfig, AnyTable>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyColumn = Column<any, any, any>;
 
 export class Column<TName extends string, TConfig extends ColumnConfig, TTable extends AnyTable>
   implements SQLNode, TypedObject<TConfig>

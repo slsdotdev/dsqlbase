@@ -11,7 +11,8 @@ export interface DomainConfig<TValueType = unknown, TRawType = unknown> {
   codec: ColumnCodec<TRawType, TValueType>;
 }
 
-export type AnyDomainDefinition = DomainDefinition<string, DomainConfig>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyDomainDefinition = DomainDefinition<any, any>;
 
 export class DomainDefinition<
   TName extends string,

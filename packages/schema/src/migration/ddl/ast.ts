@@ -3,7 +3,6 @@ export type DDLCommand =
   | "ALTER_TABLE"
   | "DROP_TABLE"
   | "CREATE_SCHEMA"
-  | "ALTER_SCHEMA"
   | "DROP_SCHEMA"
   | "CREATE_DOMAIN"
   | "ALTER_DOMAIN"
@@ -28,11 +27,14 @@ export type DDLAction =
   | "ALTER_COLUMN"
   | "RENAME_COLUMN"
   | "RENAME_CONSTRAINT"
-  | "ADD_CONSTRAINT"
-  | "DROP_CONSTRAINT"
   | "SET_SCHEMA";
 
-export type DDLExpression = "COLUMN_DEFINITION" | "CHECK_CONSTRAINT";
+export type DDLExpression =
+  | "COLUMN_DEFINITION"
+  | "CHECK_CONSTRAINT"
+  | "PRIMARY_KEY_CONSTRAINT"
+  | "UNIQUE_CONSTRAINT"
+  | "INDEX_COLUMN";
 
 export type DDLKind = DDLCommand | DDLAction | DDLExpression;
 
@@ -46,6 +48,28 @@ export interface CheckConstraintExpression extends DDLStatement {
   expression: string;
 }
 
+export interface PrimaryKeyConstraintExpression extends DDLStatement {
+  __kind: "PRIMARY_KEY_CONSTRAINT";
+  name?: string;
+  columns: string[];
+  include?: string[] | null;
+}
+
+export interface UniqueConstraintExpression extends DDLStatement {
+  __kind: "UNIQUE_CONSTRAINT";
+  name?: string;
+  columns: string[];
+  include?: string[] | null;
+  nullsDistinct?: boolean | null;
+}
+
+export interface IndexColumnExpression extends DDLStatement {
+  __kind: "INDEX_COLUMN";
+  columnName: string;
+  sortDirection?: "ASC" | "DESC";
+  nulls?: "FIRST" | "LAST";
+}
+
 export interface ColumnDefinitionExpression extends DDLStatement {
   __kind: "COLUMN_DEFINITION";
   name: string;
@@ -57,21 +81,73 @@ export interface ColumnDefinitionExpression extends DDLStatement {
   check?: CheckConstraintExpression;
 }
 
+export type TableConstraintExpression =
+  | PrimaryKeyConstraintExpression
+  | UniqueConstraintExpression
+  | CheckConstraintExpression;
+
 export interface CreateTableCommand extends DDLStatement {
   __kind: "CREATE_TABLE";
   name: string;
   ifNotExists?: boolean;
   columns?: ColumnDefinitionExpression[];
+  constraints?: TableConstraintExpression[];
+}
+
+export interface DropTableCommand extends DDLStatement {
+  __kind: "DROP_TABLE";
+  name: string;
+  ifExists?: boolean;
+}
+
+export interface AddColumnAction extends DDLStatement {
+  __kind: "ADD_COLUMN";
+  column: ColumnDefinitionExpression;
+  ifNotExists?: boolean;
+}
+
+export type AnyAlterTableAction = AddColumnAction;
+
+export interface AlterTableCommand extends DDLStatement {
+  __kind: "ALTER_TABLE";
+  name: string;
+  actions: AnyAlterTableAction[];
+}
+
+export interface CreateIndexCommand extends DDLStatement {
+  __kind: "CREATE_INDEX";
+  name: string;
+  tableName: string;
+  columns: IndexColumnExpression[];
+  unique?: boolean;
+  async?: boolean;
+  ifNotExists?: boolean;
+  include?: string[];
+  nullsDistinct?: boolean;
+}
+
+export interface DropIndexCommand extends DDLStatement {
+  __kind: "DROP_INDEX";
+  name: string;
+  ifExists?: boolean;
 }
 
 export type AnyDDLStatement =
   | CreateTableCommand
+  | DropTableCommand
+  | AlterTableCommand
+  | CreateIndexCommand
+  | DropIndexCommand
+  | AddColumnAction
   | ColumnDefinitionExpression
-  | CheckConstraintExpression;
+  | CheckConstraintExpression
+  | PrimaryKeyConstraintExpression
+  | UniqueConstraintExpression
+  | IndexColumnExpression;
 
 export const isStatement = (obj: unknown): obj is DDLStatement => {
   if (obj == null) return false;
   if (typeof obj !== "object") return false;
   if (Array.isArray(obj)) return obj.some((c) => isStatement(c));
-  return "_operation" in obj && typeof obj._operation === "string";
+  return "__kind" in obj && typeof obj.__kind === "string";
 };

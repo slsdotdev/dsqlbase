@@ -41,9 +41,9 @@ describe("Table", () => {
 
     const json = orders.toJSON();
 
-    expect(json.checks).toBeDefined();
-    expect(json.checks).toHaveLength(1);
-    expect(json.checks?.[0]).toMatchObject({
+    expect(json.constraints).toBeDefined();
+    expect(json.constraints).toHaveLength(1);
+    expect(json.constraints?.[0]).toMatchObject({
       kind: "CHECK_CONSTRAINT",
       expression: '"start_date" < "end_date"',
     });
@@ -61,11 +61,12 @@ describe("Table", () => {
 
     const json = members.toJSON();
 
-    expect(json.unique).toBeDefined();
-    expect(json.unique).toHaveLength(1);
-    expect(json.unique?.[0]).toHaveLength(2);
-    expect(json.unique?.[0][0].name).toBe("team_id");
-    expect(json.unique?.[0][1].name).toBe("user_id");
+    expect(json.constraints).toBeDefined();
+    expect(json.constraints).toHaveLength(1);
+    expect(json.constraints?.[0]).toMatchObject({
+      kind: "UNIQUE_CONSTRAINT",
+      columns: ["team_id", "user_id"],
+    });
   });
 
   it("should serialize index with columns", () => {
@@ -87,7 +88,7 @@ describe("Table", () => {
     expect(json.indexes[0].name).toBe("tasks_project_status_idx");
     expect(json.indexes[0].unique).toBe(true);
     expect(json.indexes[0].columns).toHaveLength(2);
-    expect(json.indexes[0].columns[0].column.name).toBe("project_id");
-    expect(json.indexes[0].columns[1].column.name).toBe("status");
+    expect(json.indexes[0].columns[0].column).toBe("project_id");
+    expect(json.indexes[0].columns[1].column).toBe("status");
   });
 });

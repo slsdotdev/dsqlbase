@@ -94,17 +94,13 @@
             "name": "teams_slug_idx_column_slug",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "slug"
-            }
+            "column": "slug"
           }
         ],
         "include": null
       }
     ],
-    "checks": null,
-    "unique": null
+    "constraints": []
   },
   {
     "kind": "TABLE",
@@ -190,37 +186,30 @@
             "name": "team_members_team_user_idx_column_team_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "column": "team_id"
           },
           {
             "kind": "INDEX_COLUMN",
             "name": "team_members_team_user_idx_column_user_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "user_id"
-            }
+            "column": "user_id"
           }
         ],
         "include": null
       }
     ],
-    "checks": null,
-    "unique": [
-      [
-        {
-          "kind": "REFERENCE",
-          "name": "team_id"
-        },
-        {
-          "kind": "REFERENCE",
-          "name": "user_id"
-        }
-      ]
+    "constraints": [
+      {
+        "kind": "UNIQUE_CONSTRAINT",
+        "name": "team_members_unique",
+        "columns": [
+          "team_id",
+          "user_id"
+        ],
+        "include": null,
+        "distinctNulls": true
+      }
     ]
   },
   {
@@ -296,17 +285,13 @@
             "name": "users_email_idx_column_email",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "email"
-            }
+            "column": "email"
           }
         ],
         "include": null
       }
     ],
-    "checks": null,
-    "unique": null
+    "constraints": []
   },
   {
     "kind": "TABLE",
@@ -436,20 +421,14 @@
             "name": "projects_team_key_idx_column_team_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "column": "team_id"
           },
           {
             "kind": "INDEX_COLUMN",
             "name": "projects_team_key_idx_column_key",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "key"
-            }
+            "column": "key"
           }
         ],
         "include": null
@@ -465,17 +444,13 @@
             "name": "projects_team_idx_column_team_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "column": "team_id"
           }
         ],
         "include": null
       }
     ],
-    "checks": null,
-    "unique": null
+    "constraints": []
   },
   {
     "kind": "TABLE",
@@ -557,10 +532,7 @@
         "unique": false,
         "defaultValue": null,
         "check": null,
-        "domain": {
-          "kind": "REFERENCE",
-          "name": "task_status"
-        }
+        "domain": "task_status"
       },
       {
         "kind": "COLUMN",
@@ -641,10 +613,7 @@
             "name": "tasks_project_idx_column_project_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "project_id"
-            }
+            "column": "project_id"
           }
         ],
         "include": null
@@ -660,10 +629,7 @@
             "name": "tasks_assignee_idx_column_assignee_id",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "assignee_id"
-            }
+            "column": "assignee_id"
           }
         ],
         "include": null
@@ -679,10 +645,7 @@
             "name": "tasks_status_idx_column_status",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "status"
-            }
+            "column": "status"
           }
         ],
         "include": null
@@ -698,22 +661,15 @@
             "name": "tasks_due_date_idx_column_due_date",
             "sortDirection": "ASC",
             "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "due_date"
-            }
+            "column": "due_date"
           }
         ],
         "include": [
-          {
-            "kind": "REFERENCE",
-            "name": "status"
-          }
+          "status"
         ]
       }
     ],
-    "checks": null,
-    "unique": null
+    "constraints": []
   },
   {
     "kind": "DOMAIN",

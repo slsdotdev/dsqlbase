@@ -3,9 +3,9 @@ import {
   AnyFieldRelation,
   AnyTableRelations,
   ColumnConfig,
-  TableConfig,
   TableDefinition,
 } from "@dsqlbase/core/definition";
+import { AnySchemaDefinition } from "@dsqlbase/core/definition/schema";
 import { AnySchema, AnyTable, SchemaTableRelations, Table } from "@dsqlbase/core/runtime";
 import { Prettify } from "@dsqlbase/core/utils";
 
@@ -290,10 +290,13 @@ export type RelationQueryOf<
   S extends AnySchema,
   K extends RelationFieldNamesOf<T>,
 > =
-  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TConfig>
+  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TCols, infer TSchema>
     ? RelationTypeOf<T, K> extends "has_many"
-      ? QueryArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>
-      : Pick<QueryArgs<Table<TName, TConfig, SchemaTableRelations<S, TName>>, S>, "select" | "join">
+      ? QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>
+      : Pick<
+          QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>,
+          "select" | "join"
+        >
     : never;
 
 export type SelectionResultOf<
@@ -315,16 +318,17 @@ export type RelationJoinResultOf<
   TArgs extends QueryArgs<TTable, TSchema>,
   TRelationField extends RelationFieldNamesOf<TTable>,
   TTargetName extends string,
-  TTargetConfig extends TableConfig,
+  TTargetCols extends Record<string, AnyColumnDefinition>,
+  TTargetSchema extends AnySchemaDefinition,
 > =
   RelationTypeOf<TTable, TRelationField> extends "has_many"
     ? QueryResultOf<
-        Table<TTargetName, TTargetConfig, SchemaTableRelations<TSchema, TTargetName>>,
+        Table<TTargetName, TTargetCols, TTargetSchema, SchemaTableRelations<TSchema, TTargetName>>,
         TSchema,
         TArgs
       >[]
     : QueryResultOf<
-        Table<TTargetName, TTargetConfig, SchemaTableRelations<TSchema, TTargetName>>,
+        Table<TTargetName, TTargetCols, TTargetSchema, SchemaTableRelations<TSchema, TTargetName>>,
         TSchema,
         TArgs
       > | null;
@@ -336,21 +340,29 @@ export type QueryResultOf<
 > = Prettify<
   SelectionResultOf<TTable, TSchema, TArgs> & {
     [K in keyof TArgs["join"]]: K extends RelationFieldNamesOf<TTable>
-      ? RelationTargetOf<TTable, K> extends TableDefinition<infer TName, infer TConfig>
+      ? RelationTargetOf<TTable, K> extends TableDefinition<
+          infer TName,
+          infer TCols,
+          infer TNamespace
+        >
         ? TArgs["join"][K] extends QueryArgs<
-            Table<TName, TConfig, SchemaTableRelations<TSchema, TName>>,
+            Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
             TSchema
           >
-          ? RelationJoinResultOf<TTable, TSchema, TArgs["join"][K], K, TName, TConfig>
+          ? RelationJoinResultOf<TTable, TSchema, TArgs["join"][K], K, TName, TCols, TNamespace>
           : TArgs["join"][K] extends boolean
             ? TArgs["join"][K] extends true
               ? RelationJoinResultOf<
                   TTable,
                   TSchema,
-                  QueryArgs<Table<TName, TConfig, SchemaTableRelations<TSchema, TName>>, TSchema>,
+                  QueryArgs<
+                    Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+                    TSchema
+                  >,
                   K,
                   TName,
-                  TConfig
+                  TCols,
+                  TNamespace
                 >
               : never
             : never

@@ -26,7 +26,8 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   domain: AnyDomainDefinition;
 }
 
-export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyColumnDefinition = ColumnDefinition<any, any>;
 
 export class ColumnDefinition<
   TName extends string,

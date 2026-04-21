@@ -1,15 +1,22 @@
 import { WithSchema } from "../utils/index.js";
 import { DefinitionNode, Kind } from "./base.js";
-import { TableConfig, TableDefinition } from "./table.js";
+import { AnyColumnDefinition } from "./column.js";
+import { TableDefinition } from "./table.js";
 
-export class SchemaDefinition<TName extends string = string> extends DefinitionNode<TName> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnySchemaDefinition = SchemaDefinition<any>;
+
+export class SchemaDefinition<TName extends string> extends DefinitionNode<TName> {
   public readonly kind = Kind.SCHEMA;
 
-  public table<TName extends string, TConfig extends TableConfig>(
+  public table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
     name: TName,
-    config: TConfig
-  ): WithSchema<TableDefinition<TName, TConfig>, this> {
-    return new TableDefinition(name, { ...config, schema: this });
+    columns: TColumns
+  ): WithSchema<TableDefinition<TName, TColumns, this>, this> {
+    return new TableDefinition(name, { columns, schema: this }) as WithSchema<
+      TableDefinition<TName, TColumns, this>,
+      this
+    >;
   }
 
   public toJSON() {

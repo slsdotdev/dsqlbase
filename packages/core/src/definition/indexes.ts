@@ -3,12 +3,13 @@ import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
 import { AnyTableDefinition, ColumnRefs } from "./table.js";
 
-export interface IndexConfig<TTable extends AnyTableDefinition = AnyTableDefinition> {
+export interface IndexConfig {
   unique?: boolean;
-  table: TTable;
+  table: AnyTableDefinition;
 }
 
-export type AnyIndexDefinition = IndexDefinition<string, AnyTableDefinition>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyIndexDefinition = IndexDefinition<any, any>;
 
 export type ColumnConfigRefs<
   TIndexName extends string,
@@ -25,26 +26,26 @@ export type ColumnConfigType<
 export class IndexDefinition<
   TName extends string,
   TTable extends AnyTableDefinition,
-> extends DefinitionNode<TName, IndexConfig<TTable>> {
+> extends DefinitionNode<TName, IndexConfig> {
   public readonly kind = Kind.INDEX;
 
   protected _table: TTable;
   protected _unique: boolean;
   protected _columns: ColumnConfigType<TName, TTable>[] = [];
-  protected _include?: ColumnRefs<TTable["columns"]>[];
+  protected _include?: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
   protected _distinctNulls?: boolean;
 
-  constructor(name: TName, config: IndexConfig<TTable>) {
+  constructor(name: TName, config: IndexConfig) {
     super(name);
 
-    this._table = config.table;
+    this._table = config.table as TTable;
     this._unique = config.unique ?? false;
     this._distinctNulls = true;
   }
 
   private _getColumnConfigRefs(): ColumnConfigRefs<TName, TTable> {
     return Object.fromEntries(
-      Object.entries(this._table.columns).map(([field, column]) => [
+      Object.entries<AnyColumnDefinition>(this._table.columns).map(([field, column]) => [
         field,
         new IndexColumnDefinition(this.name, column),
       ])
@@ -63,8 +64,12 @@ export class IndexDefinition<
     return this;
   }
 
-  public include(cb: (columns: TTable["columns"]) => ColumnRefs<TTable["columns"]>[]): this {
-    this._include = cb(this._table.columns);
+  public include(
+    cb: (
+      columns: ColumnRefs<TTable["columns"]>
+    ) => ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][]
+  ): this {
+    this._include = cb(this._table._getColumnRefs());
     return this;
   }
 
@@ -86,7 +91,7 @@ export class IndexDefinition<
       unique: this._unique,
       distinctNulls: this._distinctNulls,
       columns: this._columns.map((col) => col.toJSON()),
-      include: this._include ? this._include.map((col) => new NodeRef(col).toJSON()) : null,
+      include: this._include ? this._include.map((col) => col.toJSON()) : null,
     } as const;
   }
 }

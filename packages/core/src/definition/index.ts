@@ -30,14 +30,20 @@ export {
   TableDefinition,
   type TableConfig,
   type AnyTableDefinition,
-  type ColumnIndentifiers,
   type ColumnRefs,
 } from "./table.js";
 export { ViewDefinition } from "./view.js";
 export {
   CheckConstraintDefinition,
+  PrimaryKeyConstraintDefinition,
+  UniqueConstraintDefinition,
+  type AnyConstraintDefinition,
   type AnyCheckConstraintDefinition,
-  type ConstraintConfig,
+  type AnyUniqueConstraintDefinition,
+  type AnyPrimaryKeyConstraintDefinition,
+  type CheckConstraintConfig,
+  type UniqueConstraintConfig,
+  type PrimaryKeyConstraintConfig,
 } from "./constraint.js";
 export {
   RelationsDefinition,

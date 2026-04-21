@@ -2,20 +2,24 @@ import { TypedObject } from "../utils/index.js";
 import {
   AnyColumnDefinition,
   AnyTableRelations,
+  ColumnConfig,
   ColumnDefinition,
   SchemaDefinition,
   TableConfig,
   TableDefinition,
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
-import { AnyColumn, Column } from "./column.js";
+import { Column } from "./column.js";
+import { AnySchemaDefinition } from "../definition/schema.js";
 
-export type AnyTable = Table<string, TableConfig, AnyTableRelations | undefined>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyTable = Table<any, any, any, any>;
 
 export type WithRelations<
-  T extends TableConfig,
+  TColumns extends Record<string, AnyColumnDefinition>,
+  TSchema extends AnySchemaDefinition,
   TRelations extends AnyTableRelations | undefined,
-> = T & {
+> = TableConfig<TColumns, TSchema> & {
   relations: TRelations extends AnyTableRelations ? TRelations : never;
 };
 
@@ -43,27 +47,28 @@ export type TableColumns<T extends AnyTable> = {
 
 export class Table<
   TName extends string,
-  TConfig extends TableConfig,
-  TRelations extends AnyTableRelations | undefined = undefined,
+  TColumns extends Record<string, AnyColumnDefinition>,
+  TSchema extends AnySchemaDefinition,
+  TRelations extends AnyTableRelations,
 >
-  implements SQLNode, TypedObject<TConfig>
+  implements SQLNode, TypedObject<TableConfig<TColumns, TSchema>>
 {
-  declare readonly __type: WithRelations<TConfig, TRelations>;
+  declare readonly __type: WithRelations<TColumns, TSchema, TRelations>;
 
   readonly name: TName;
   readonly schema: TableSchemaName<this>;
   readonly columns: TableColumns<this>;
   readonly relations: TRelations;
 
-  constructor(definition: TableDefinition<TName, TConfig>, relations?: TRelations) {
+  constructor(definition: TableDefinition<TName, TColumns, TSchema>, relations?: TRelations) {
     this.schema = definition["_schema"]?.name as TableSchemaName<this>;
     this.name = definition.name;
     this.columns = this._buildColumns(definition);
     this.relations = relations as TRelations;
   }
 
-  private _buildColumns(definition: TableDefinition<TName, TConfig>): TableColumns<this> {
-    const columns = {} as Record<string, AnyColumn>;
+  private _buildColumns(definition: TableDefinition<TName, TColumns, TSchema>): TableColumns<this> {
+    const columns = {} as Record<string, Column<string, ColumnConfig, this>>;
 
     for (const [name, def] of Object.entries(definition.columns)) {
       columns[name] = new Column(this, def);
@@ -81,7 +86,9 @@ export class Table<
       return this.columns[name as TableColumnName<this>];
     }
 
-    return Object.values<AnyColumn>(this.columns).find((col) => col.name === name);
+    return Object.values<Column<string, ColumnConfig, this>>(this.columns).find(
+      (col) => col.name === name
+    );
   }
 
   public hasRelation(fieldName: string): boolean {

@@ -36,7 +36,7 @@ describe("ColumnDefinition", () => {
       .toJSON();
 
     expect(column.dataType).toBe("positive_int");
-    expect(column.domain?.name).toEqual("positive_int");
+    expect(column.domain).toEqual("positive_int");
   });
 
   it("should set check with named constraint", () => {

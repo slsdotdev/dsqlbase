@@ -1,13 +1,13 @@
 import { DefinitionNode, Kind, RelationType } from "./base.js";
-import { AnyTableDefinition, TableConfig, TableDefinition } from "./table.js";
+import { AnyTableDefinition } from "./table.js";
 
 export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
   [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K];
 }[keyof TTable["__type"]["columns"]];
 
 export interface FieldRelation<
-  TSource extends TableDefinition<string, TableConfig>,
-  TTarget extends TableDefinition<string, TableConfig> = TableDefinition<string, TableConfig>,
+  TSource extends AnyTableDefinition,
+  TTarget extends AnyTableDefinition = AnyTableDefinition,
   TType extends RelationType = RelationType,
 > {
   target: TTarget;
@@ -18,16 +18,16 @@ export interface FieldRelation<
 
 export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> {
   table: TTable;
-  relations: Record<string, FieldRelation<TTable>>;
+  relations: Record<string, FieldRelation<TTable, AnyTableDefinition, RelationType>>;
 }
 
-export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyTableDefinition>;
+export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyTableDefinition, RelationType>;
 export type AnyTableRelations = Record<string, AnyFieldRelation>;
 export type AnyRelationDefinition = RelationsDefinition<AnyTableDefinition, AnyTableRelations>;
 
 export class RelationsDefinition<
   TTable extends AnyTableDefinition,
-  TRelations extends Record<string, FieldRelation<TTable>>,
+  TRelations extends Record<string, FieldRelation<TTable, AnyTableDefinition, RelationType>>,
 > extends DefinitionNode<`${TTable["name"]}_relations`, { table: TTable; relations: TRelations }> {
   public readonly kind = Kind.RELATIONS;
 

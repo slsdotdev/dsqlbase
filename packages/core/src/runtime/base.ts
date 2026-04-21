@@ -33,7 +33,7 @@ export type DefinitionTableRelations<
 > =
   TDefinition extends Record<string, infer Def>
     ? Def extends RelationsDefinition<infer TTable, infer R>
-      ? TTable extends TableDefinition<TTableName, infer _>
+      ? TTable extends TableDefinition<TTableName, infer _, infer __>
         ? R extends AnyTableRelations
           ? R
           : never

@@ -1,3 +1,4 @@
+import { SQLIdentifier } from "../sql/nodes.js";
 import { TypedObject } from "../utils/index.js";
 
 export const Kind = Object.freeze({
@@ -11,8 +12,10 @@ export const Kind = Object.freeze({
   FUNCTION: "FUNCTION",
   RELATIONS: "RELATIONS",
   INDEX_COLUMN: "INDEX_COLUMN",
-  CHECK_CONSTRAINT: "CHECK_CONSTRAINT",
   REFERENCE: "REFERENCE",
+  CHECK_CONSTRAINT: "CHECK_CONSTRAINT",
+  UNIQUE_CONSTRAINT: "UNIQUE_CONSTRAINT",
+  PRIMARY_KEY_CONSTRAINT: "PRIMARY_KEY_CONSTRAINT",
 } as const);
 
 export const Relation = Object.freeze({
@@ -62,20 +65,19 @@ export abstract class DefinitionNode<
   }
 }
 
-export class NodeRef<TNode extends DefinitionNode> extends DefinitionNode<
-  TNode["name"],
-  TNode["__type"]
-> {
+export class NodeRef<TNode extends DefinitionNode>
+  extends SQLIdentifier
+  implements TypedObject<TNode["__type"]>
+{
   public readonly kind = Kind.REFERENCE;
+
+  declare readonly __type: TNode["__type"];
 
   constructor(public readonly target: TNode) {
     super(target.name);
   }
 
-  toJSON() {
-    return {
-      kind: this.kind,
-      name: this.name,
-    } as const;
+  toJSON(): TNode["name"] {
+    return this.target.name;
   }
 }

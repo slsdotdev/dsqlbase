@@ -64,7 +64,7 @@ describe("OperationFactory", () => {
     mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
     const users = registry.getTable("users");
 
-    const { query } = factory.createInsertOperation<{ id: string }>(users, {
+    const { query } = factory.createInsertOperation(users, {
       name: "insert_user",
       mode: "one",
       args: {
@@ -104,7 +104,7 @@ describe("OperationFactory", () => {
 
     const users = registry.getTable("users");
 
-    const operation = factory.createInsertOperation<{ id: string }>(users, {
+    const operation = factory.createInsertOperation(users, {
       name: "insert_user",
       mode: "one",
       args: {
@@ -128,7 +128,7 @@ describe("OperationFactory", () => {
     const users = registry.getTable("users");
     const whereClause = sql`${users.columns.name} = ${sql.param("Alice")}`;
 
-    const { query } = factory.createSelectOperation<{ id: string }>(users, {
+    const { query } = factory.createSelectOperation(users, {
       name: "select_user",
       mode: "one",
       args: {
@@ -153,7 +153,7 @@ describe("OperationFactory", () => {
     mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
     const users = registry.getTable("users");
 
-    const operation = factory.createSelectOperation<{ id: string }, "one">(users, {
+    const operation = factory.createSelectOperation(users, {
       name: "select_user",
       mode: "one",
       args: {
@@ -173,7 +173,7 @@ describe("OperationFactory", () => {
     mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
     const users = registry.getTable("users");
 
-    const operation = factory.createSelectOperation<{ id: string }, "many">(users, {
+    const operation = factory.createSelectOperation(users, {
       name: "select_users",
       mode: "many",
       args: {
@@ -200,7 +200,7 @@ describe("OperationFactory", () => {
     mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
     const users = registry.getTable("users");
 
-    const { query } = factory.createUpdateOperation<{ id: string }>(users, {
+    const { query } = factory.createUpdateOperation(users, {
       name: "update_user",
       mode: "one",
       args: {
@@ -238,7 +238,7 @@ describe("OperationFactory", () => {
     mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
     const users = registry.getTable("users");
 
-    const operation = factory.createUpdateOperation<{ id: string }, "one">(users, {
+    const operation = factory.createUpdateOperation(users, {
       name: "update_user",
       mode: "one",
       args: {

@@ -21,7 +21,7 @@ describe("IndexDefinition", () => {
     expect(json.unique).toBe(false);
     expect(json.columns).toEqual([]);
     expect(json.distinctNulls).toBe(true);
-    expect(json.include).toBeUndefined();
+    expect(json.include).toBeNull();
   });
 
   it("should set unique", () => {
@@ -36,7 +36,7 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.columns).toHaveLength(1);
-    expect(json.columns[0].column.name).toBe("project_id");
+    expect(json.columns[0].column).toBe("project_id");
   });
 
   it("should add multiple columns", () => {
@@ -46,8 +46,8 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.columns).toHaveLength(2);
-    expect(json.columns[0].column.name).toBe("project_id");
-    expect(json.columns[1].column.name).toBe("status");
+    expect(json.columns[0].column).toBe("project_id");
+    expect(json.columns[1].column).toBe("status");
   });
 
   it("should add columns with nulls first", () => {
@@ -76,7 +76,7 @@ describe("IndexDefinition", () => {
       .toJSON();
 
     expect(json.include).toHaveLength(1);
-    expect(json.include?.[0].name).toBe("status");
+    expect(json.include?.[0]).toBe("status");
   });
 
   it("should set nulls distinct", () => {

@@ -1,11 +1,11 @@
 import { TypedObject } from "../utils/index.js";
 import { Relation } from "../definition/index.js";
 import { SQLIdentifier, SQLNode, SQLStatement } from "../sql/index.js";
-import { AnySchema } from "./base.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
 import { JoinParams, SelectParams } from "./query.js";
+import { AnySchema } from "./base.js";
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 export type OperationMode = "one" | "many";
@@ -137,12 +137,12 @@ export class OperationsFactory<
     return order;
   }
 
-  private _resolveFields(table: AnyTable, selection?: FieldSelection[]) {
+  private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
     const columns: AnyColumn[] = [];
     const resolvers: FieldResolver[] = [];
 
     if (!selection || selection.length === 0) {
-      for (const [key, column] of Object.entries(table.columns)) {
+      for (const [key, column] of Object.entries<AnyColumn>(table.columns)) {
         columns.push(column);
         resolvers.push([key, column]);
       }
@@ -152,7 +152,7 @@ export class OperationsFactory<
 
     for (const [key, selected] of selection) {
       if (selected) {
-        const column = table.columns[key];
+        const column = table.columns[key as keyof typeof table.columns];
 
         if (!column) {
           throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
@@ -365,8 +365,8 @@ export class OperationsFactory<
 
   public createSelectOperation<
     TResult extends object,
+    TTable extends AnyTable,
     TMode extends OperationMode = OperationMode,
-    TTable extends AnyTable = AnyTable,
     TArgs extends SelectOperationArgs = SelectOperationArgs,
   >(
     table: TTable,
@@ -390,9 +390,9 @@ export class OperationsFactory<
 
   public createInsertOperation<
     TResult extends object,
-    TMode extends OperationMode = OperationMode,
-    TTable extends AnyTable = AnyTable,
-    TArgs extends InsertOperationArgs = InsertOperationArgs,
+    TTable extends AnyTable,
+    TMode extends OperationMode,
+    TArgs extends InsertOperationArgs,
   >(
     table: TTable,
     config: OperationRequest<TArgs, TMode>

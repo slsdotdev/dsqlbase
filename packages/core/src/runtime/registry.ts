@@ -20,9 +20,10 @@ import { AnyTable, Table } from "./table.js";
 export type RuntimeTables<TSchema extends AnySchema> = {
   [K in keyof TSchema["tables"]]: TSchema["tables"][K] extends TableDefinition<
     infer Name,
-    infer Config
+    infer Columns,
+    infer Schema
   >
-    ? Table<Name, Config, SchemaTableRelations<TSchema, Name>>
+    ? Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>
     : never;
 };
 
@@ -30,15 +31,15 @@ export type TableByAlias<
   TSchema extends AnySchema,
   TAlias extends string,
 > = TAlias extends keyof TSchema["tables"]
-  ? TSchema["tables"][TAlias] extends TableDefinition<infer Name, infer Config>
-    ? Table<Name, Config, SchemaTableRelations<TSchema, Name>>
+  ? TSchema["tables"][TAlias] extends TableDefinition<infer Name, infer Columns, infer Schema>
+    ? Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>
     : never
   : never;
 
 export type TableByName<TSchema extends AnySchema, TName extends string> =
   TSchema["tables"] extends Record<string, infer Def>
-    ? Def extends TableDefinition<TName, infer Config>
-      ? Table<TName, Config, SchemaTableRelations<TSchema, TName>>
+    ? Def extends TableDefinition<TName, infer Columns, infer Schema>
+      ? Table<TName, Columns, Schema, SchemaTableRelations<TSchema, TName>>
       : never
     : never;
 

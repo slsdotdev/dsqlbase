@@ -76,6 +76,7 @@ const indexes = sql`
       SELECT json_agg(
         json_build_object(
           'kind', 'INDEX_COLUMN',
+          'column', pa.attname,
           'sortDirection', CASE
             WHEN (ix.indoption[col_pos] & 1) = 1 THEN 'DESC'
             ELSE 'ASC'
@@ -84,10 +85,6 @@ const indexes = sql`
             WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
             ELSE 'LAST'
           END,
-          'column', json_build_object(
-            'kind', 'REFERENCE',
-            'name', pa.attname
-          )
         )
         ORDER BY col_pos
       )
@@ -99,10 +96,7 @@ const indexes = sql`
     ),
     'include', (
       SELECT json_agg(
-        json_build_object(
-          'kind', 'REFERENCE',
-          'name', pa.attname
-        )
+        pa.attname
         ORDER BY col_pos
       )
       FROM LATERAL unnest(ix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
@@ -137,10 +131,7 @@ const tables = sql`
           'name', con.conname,
           'columns', (
             -- SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
-            SELECT json_agg(json_build_object(
-              'kind', 'REFERENCE',
-              'name', a.attname
-            ))
+            SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
             FROM pg_attribute a
             WHERE a.attrelid = con.conrelid
               AND a.attnum = ANY(con.conkey)
