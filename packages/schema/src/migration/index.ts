@@ -1,2 +1,18 @@
+export {
+  ORDERED_SCHEMA_OBJECTS,
+  getSerializedSchemaObjects,
+  isDefinitionInstance,
+  isSchemaObjectKind,
+  sortSchemaObjects,
+  type SchemaObjectType,
+  type SerializedObject,
+  type SerializedSchema,
+} from "./base.js";
 export { introspection } from "./introspection.js";
-export { createPrinter, ddl } from "./ddl/index.js";
+export {
+  createPrinter,
+  printSchemaForCreate,
+  ddl,
+  STATEMENT_BREAKPOINT,
+  type PrintSchemaOptions,
+} from "./ddl/index.js";

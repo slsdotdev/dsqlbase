@@ -2,7 +2,7 @@
   {
     "kind": "TABLE",
     "name": "teams",
-    "schema": "public",
+    "namespace": "public",
     "columns": [
       {
         "kind": "COLUMN",
@@ -105,7 +105,7 @@
   {
     "kind": "TABLE",
     "name": "team_members",
-    "schema": "public",
+    "namespace": "public",
     "columns": [
       {
         "kind": "COLUMN",
@@ -215,7 +215,7 @@
   {
     "kind": "TABLE",
     "name": "users",
-    "schema": "public",
+    "namespace": "public",
     "columns": [
       {
         "kind": "COLUMN",
@@ -296,7 +296,7 @@
   {
     "kind": "TABLE",
     "name": "projects",
-    "schema": "public",
+    "namespace": "public",
     "columns": [
       {
         "kind": "COLUMN",
@@ -455,7 +455,7 @@
   {
     "kind": "TABLE",
     "name": "tasks",
-    "schema": "public",
+    "namespace": "public",
     "columns": [
       {
         "kind": "COLUMN",

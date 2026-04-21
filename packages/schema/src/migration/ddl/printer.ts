@@ -45,33 +45,44 @@ const identifierList = (names: string[]): SQLNode =>
     sql.raw(", ")
   );
 
+const qualifiedName = (schema: string | undefined, name: string): SQLNode =>
+  schema ? sql`${sql.identifier(schema)}.${sql.identifier(name)}` : sql.identifier(name);
+
 const printReducer = {
   CREATE_TABLE: (node) => {
     const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
     const items: SQLNode[] = [...(node.columns ?? []), ...(node.constraints ?? [])];
     const body = sql.join(items, sql.raw(",\n  "));
 
-    return sql`CREATE TABLE ${ifNotExists}${sql.identifier(node.name)} (\n  ${body}\n)`;
+    return sql`CREATE TABLE ${ifNotExists}${qualifiedName(node.schema, node.name)} (\n  ${body}\n)`;
   },
   DROP_TABLE: (node) => {
     const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
-    return sql`DROP TABLE ${ifExists}${sql.identifier(node.name)}`;
+    const out = sql`DROP TABLE ${ifExists}${qualifiedName(node.schema, node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
   },
   ALTER_TABLE: (node) => {
     const actions = sql.join(node.actions ?? [], sql.raw(", "));
-    return sql`ALTER TABLE ${sql.identifier(node.name)} ${actions}`;
+    return sql`ALTER TABLE ${qualifiedName(node.schema, node.name)} ${actions}`;
   },
   ADD_COLUMN: (node) => {
     const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
     return sql`ADD COLUMN ${ifNotExists}${node.column}`;
   },
+  RENAME: (node) => sql`RENAME TO ${sql.identifier(node.newName)}`,
+  RENAME_COLUMN: (node) =>
+    sql`RENAME COLUMN ${sql.identifier(node.columnName)} TO ${sql.identifier(node.newName)}`,
+  RENAME_CONSTRAINT: (node) =>
+    sql`RENAME CONSTRAINT ${sql.identifier(node.constraintName)} TO ${sql.identifier(node.newName)}`,
+  SET_SCHEMA: (node) => sql`SET SCHEMA ${sql.identifier(node.schemaName)}`,
   CREATE_INDEX: (node) => {
     const unique = node.unique ? sql.raw("UNIQUE ") : sql.raw("");
     const async = node.async ? sql.raw("ASYNC ") : sql.raw("");
     const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
     const cols = sql.join(node.columns ?? [], sql.raw(", "));
 
-    const out = sql`CREATE ${unique}INDEX ${async}${ifNotExists}${sql.identifier(node.name)} ON ${sql.identifier(node.tableName)} (${cols})`;
+    const out = sql`CREATE ${unique}INDEX ${async}${ifNotExists}${sql.identifier(node.name)} ON ${qualifiedName(node.tableSchema, node.tableName)} (${cols})`;
 
     if (node.include && node.include.length > 0) {
       out.append(sql` INCLUDE (${identifierList(node.include)})`);
@@ -87,7 +98,82 @@ const printReducer = {
   },
   DROP_INDEX: (node) => {
     const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
-    return sql`DROP INDEX ${ifExists}${sql.identifier(node.name)}`;
+    const out = sql`DROP INDEX ${ifExists}${qualifiedName(node.schema, node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
+  },
+  ALTER_INDEX: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    return sql`ALTER INDEX ${ifExists}${qualifiedName(node.schema, node.name)} ${node.action}`;
+  },
+  CREATE_SCHEMA: (node) => {
+    const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
+    return sql`CREATE SCHEMA ${ifNotExists}${sql.identifier(node.name)}`;
+  },
+  DROP_SCHEMA: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    const out = sql`DROP SCHEMA ${ifExists}${sql.identifier(node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
+  },
+  SEQUENCE_OPTIONS: (node) => {
+    const parts: SQLNode[] = [];
+    if (node.dataType !== undefined) parts.push(sql`AS ${sql.raw(node.dataType)}`);
+    if (node.incrementBy !== undefined) parts.push(sql.raw(`INCREMENT BY ${node.incrementBy}`));
+    if (node.minValue !== undefined) parts.push(sql.raw(`MINVALUE ${node.minValue}`));
+    if (node.maxValue !== undefined) parts.push(sql.raw(`MAXVALUE ${node.maxValue}`));
+    if (node.startValue !== undefined) parts.push(sql.raw(`START WITH ${node.startValue}`));
+    if (node.cache !== undefined) parts.push(sql.raw(`CACHE ${node.cache}`));
+    if (node.cycle === true) parts.push(sql.raw("CYCLE"));
+    else if (node.cycle === false) parts.push(sql.raw("NO CYCLE"));
+    if (node.ownedBy !== undefined) parts.push(sql`OWNED BY ${sql.raw(node.ownedBy)}`);
+    return sql.join(parts, sql.raw(" "));
+  },
+  CREATE_SEQUENCE: (node) => {
+    const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
+    const out = sql`CREATE SEQUENCE ${ifNotExists}${qualifiedName(node.schema, node.name)}`;
+    if (node.options) out.append(sql` ${node.options}`);
+    return out;
+  },
+  DROP_SEQUENCE: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    const out = sql`DROP SEQUENCE ${ifExists}${qualifiedName(node.schema, node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
+  },
+  ALTER_SEQUENCE: (node) => {
+    const out = sql`ALTER SEQUENCE ${qualifiedName(node.schema, node.name)}`;
+    if (node.options) out.append(sql` ${node.options}`);
+    if (node.restart) {
+      out.append(
+        node.restart.with !== undefined
+          ? sql.raw(` RESTART WITH ${node.restart.with}`)
+          : sql.raw(" RESTART")
+      );
+    }
+    return out;
+  },
+  CREATE_DOMAIN: (node) => {
+    const out = sql`CREATE DOMAIN ${qualifiedName(node.schema, node.name)} AS ${sql.raw(node.dataType)}`;
+    if (node.notNull) out.append(sql.raw(" NOT NULL"));
+    if (node.defaultValue !== undefined) out.append(sql` DEFAULT ${sql.raw(node.defaultValue)}`);
+    if (node.check) out.append(sql` ${node.check}`);
+    return out;
+  },
+  DROP_DOMAIN: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    const out = sql`DROP DOMAIN ${ifExists}${qualifiedName(node.schema, node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
+  },
+  IDENTITY_CONSTRAINT: (node) => {
+    const mode = node.mode === "ALWAYS" ? "ALWAYS" : "BY DEFAULT";
+    const out = sql`${sql.raw(`GENERATED ${mode} AS IDENTITY`)}`;
+    if (node.options) out.append(sql` (${node.options})`);
+    return out;
+  },
+  GENERATED_EXPRESSION: (node) => {
+    return sql`GENERATED ALWAYS AS (${sql.raw(node.expression)}) STORED`;
   },
   INDEX_COLUMN: (node) => {
     const out = new SQLQuery(sql.identifier(node.columnName));
@@ -98,6 +184,8 @@ const printReducer = {
   COLUMN_DEFINITION: (node) => {
     const exp = sql`${sql.identifier(node.name)} ${sql.raw(node.dataType)}`;
 
+    if (node.identity) exp.append(sql` ${node.identity}`);
+    if (node.generated) exp.append(sql` ${node.generated}`);
     if (node.notNull) exp.append(sql.raw(" NOT NULL"));
     if (node.unique) exp.append(sql.raw(" UNIQUE"));
     if (node.isPrimaryKey) exp.append(sql.raw(" PRIMARY KEY"));
@@ -136,6 +224,40 @@ const printReducer = {
 
     return out;
   },
+  SET_NOT_NULL: () => sql.raw("SET NOT NULL"),
+  DROP_NOT_NULL: () => sql.raw("DROP NOT NULL"),
+  SET_DEFAULT: (node) => sql`SET DEFAULT ${sql.raw(node.expression)}`,
+  DROP_DEFAULT: () => sql.raw("DROP DEFAULT"),
+  SET_DATA_TYPE: (node) => {
+    const out = sql`SET DATA TYPE ${sql.raw(node.dataType)}`;
+    if (node.using !== undefined) out.append(sql` USING ${sql.raw(node.using)}`);
+    return out;
+  },
+  SET_GENERATED: (node) => {
+    const mode = node.mode === "ALWAYS" ? "ALWAYS" : "BY DEFAULT";
+    const out = sql`${sql.raw(`SET GENERATED ${mode}`)}`;
+    if (node.options) out.append(sql` ${node.options}`);
+    return out;
+  },
+  RESTART: (node) =>
+    node.with !== undefined ? sql.raw(`RESTART WITH ${node.with}`) : sql.raw("RESTART"),
+  DROP_IDENTITY: (node) =>
+    node.ifExists ? sql.raw("DROP IDENTITY IF EXISTS") : sql.raw("DROP IDENTITY"),
+  ADD_CONSTRAINT: (node) => sql`ADD ${node.constraint}`,
+  DROP_CONSTRAINT: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    const out = sql`DROP CONSTRAINT ${ifExists}${sql.identifier(node.name)}`;
+    if (node.cascade) out.append(sql.raw(` ${node.cascade}`));
+    return out;
+  },
+  VALIDATE_CONSTRAINT: (node) => sql`VALIDATE CONSTRAINT ${sql.identifier(node.name)}`,
+  ALTER_COLUMN: (node) => {
+    const parts = (node.actions ?? []).map(
+      (action) => sql`ALTER COLUMN ${sql.identifier(node.columnName)} ${action}`
+    );
+    return sql.join(parts, sql.raw(", "));
+  },
+  ALTER_DOMAIN: (node) => sql`ALTER DOMAIN ${qualifiedName(node.schema, node.name)} ${node.action}`,
 } satisfies Partial<Reducer>;
 
 export function printDDL<T extends DDLStatement>(
@@ -181,8 +303,8 @@ export function printDDL<T extends DDLStatement>(
   return resolver(resolved, ctx);
 }
 
-export function createPrinter(reducer?: Partial<Reducer>, context?: Partial<SQLContext>) {
-  return function print(statement: AnyDDLStatement): string {
+export function createPrinter(context?: Partial<SQLContext>, reducer?: Partial<Reducer>) {
+  return function print(statement: DDLStatement): string {
     const query = sql``.append(printDDL(statement, reducer));
     return query.toQuery(context).text;
   };

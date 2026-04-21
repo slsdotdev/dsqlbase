@@ -1,5 +1,4 @@
-CREATE DOMAIN "task_status" AS text
-  CONSTRAINT "chk_task_status" CHECK (VALUE IN ('todo', 'in_progress', 'done', 'cancelled'));
+CREATE DOMAIN "task_status" AS text CHECK (VALUE IN ('todo', 'in_progress', 'done', 'cancelled'));
 --> statement-breakpoint
 CREATE DOMAIN "priority_level" AS integer NOT NULL DEFAULT 0;
 --> statement-breakpoint
@@ -8,11 +7,13 @@ CREATE SEQUENCE "task_number_seq" AS bigint INCREMENT BY 1 START WITH 1 CACHE 1;
 CREATE TABLE "teams" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "name" varchar(100) NOT NULL,
-  "slug" text NOT NULL UNIQUE,
+  "slug" text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
   "description" varchar(500),
   "is_active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL
+  "updated_at" timestamp NOT NULL,
+  CHECK (char_length(name) <= 100 AND char_length(description) <= 500),
+  CHECK (created_at <= updated_at)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "teams_slug_idx" ON "teams" ("slug");

@@ -51,10 +51,7 @@ const columns = sql`
       AND con.conkey = ARRAY[a.attnum]::smallint[]
     ),
     'domain', (
-      SELECT json_build_object(
-        'kind', 'REFERENCE',
-        'name', t.typname
-      )
+      SELECT t.typname
       FROM pg_type t
       WHERE t.oid = a.atttypid AND t.typtype = 'd'
     )
@@ -84,7 +81,7 @@ const indexes = sql`
           'nulls', CASE
             WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
             ELSE 'LAST'
-          END,
+          END
         )
         ORDER BY col_pos
       )
@@ -130,7 +127,6 @@ const tables = sql`
         SELECT json_agg(json_build_object(
           'name', con.conname,
           'columns', (
-            -- SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
             SELECT json_agg(a.attname ORDER BY array_position(con.conkey, a.attnum))
             FROM pg_attribute a
             WHERE a.attrelid = con.conrelid

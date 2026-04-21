@@ -34,7 +34,11 @@
         "primaryKey": false,
         "unique": true,
         "defaultValue": null,
-        "check": null,
+        "check": {
+          "kind": "CHECK_CONSTRAINT",
+          "name": "teams_slug_check",
+          "expression": "CHECK (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text)"
+        },
         "domain": null
       },
       {
@@ -92,19 +96,27 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "slug",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "slug"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": null
       }
     ],
     "unique": null,
-    "checks": null
+    "checks": [
+      {
+        "kind": "CHECK_CONSTRAINT",
+        "constraint": "teams_check",
+        "check": "CHECK (char_length(name::text) <= 100 AND char_length(description::text) <= 500)"
+      },
+      {
+        "kind": "CHECK_CONSTRAINT",
+        "constraint": "teams_check1",
+        "check": "CHECK (created_at <= updated_at)"
+      }
+    ]
   },
   {
     "kind": "TABLE",
@@ -188,21 +200,15 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "team_id",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "nulls": "LAST"
           },
           {
             "kind": "INDEX_COLUMN",
+            "column": "user_id",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "user_id"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": null
@@ -212,14 +218,8 @@
       {
         "name": "team_members_team_id_user_id_key",
         "columns": [
-          {
-            "kind": "REFERENCE",
-            "name": "team_id"
-          },
-          {
-            "kind": "REFERENCE",
-            "name": "user_id"
-          }
+          "team_id",
+          "user_id"
         ]
       }
     ],
@@ -296,12 +296,9 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "email",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "email"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": null
@@ -436,12 +433,9 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "team_id",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": null
@@ -455,21 +449,15 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "team_id",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "team_id"
-            }
+            "nulls": "LAST"
           },
           {
             "kind": "INDEX_COLUMN",
+            "column": "key",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "key"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": null
@@ -558,10 +546,7 @@
         "unique": false,
         "defaultValue": null,
         "check": null,
-        "domain": {
-          "kind": "REFERENCE",
-          "name": "task_status"
-        }
+        "domain": "task_status"
       },
       {
         "kind": "COLUMN",
@@ -633,25 +618,6 @@
     "indexes": [
       {
         "kind": "INDEX",
-        "name": "tasks_project_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX tasks_project_idx ON public.tasks USING btree (project_id)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "project_id"
-            }
-          }
-        ],
-        "include": null
-      },
-      {
-        "kind": "INDEX",
         "name": "tasks_status_idx",
         "unique": false,
         "distinctNulls": true,
@@ -659,12 +625,41 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "status",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "status"
-            }
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_assignee_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_assignee_idx ON public.tasks USING btree (assignee_id)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "assignee_id",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_project_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_project_idx ON public.tasks USING btree (project_id)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "project_id",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
           }
         ],
         "include": null
@@ -678,39 +673,14 @@
         "columns": [
           {
             "kind": "INDEX_COLUMN",
+            "column": "due_date",
             "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "due_date"
-            }
+            "nulls": "LAST"
           }
         ],
         "include": [
-          {
-            "kind": "REFERENCE",
-            "name": "status"
-          }
+          "status"
         ]
-      },
-      {
-        "kind": "INDEX",
-        "name": "tasks_assignee_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX tasks_assignee_idx ON public.tasks USING btree (assignee_id)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "sortDirection": "ASC",
-            "nulls": "LAST",
-            "column": {
-              "kind": "REFERENCE",
-              "name": "assignee_id"
-            }
-          }
-        ],
-        "include": null
       }
     ],
     "unique": null,
@@ -725,7 +695,7 @@
     "defaultValue": null,
     "check": {
       "kind": "CHECK_CONSTRAINT",
-      "name": "chk_task_status",
+      "name": "task_status_check",
       "expression": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'cancelled'::text]))"
     }
   },
