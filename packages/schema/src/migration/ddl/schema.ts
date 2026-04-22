@@ -151,12 +151,6 @@ export interface PrintSchemaOptions {
   asyncIndexes?: boolean;
 
   /**
-   * Whether to insert statement breakpoints between DDL statements. Defaults to `false`.
-   * @default false
-   */
-  breakStatements?: boolean;
-
-  /**
    * Optional SQL context to use when printing the SQL. This can be used to provide additional information or configuration for the SQL generation process, such as quoting identifiers or formatting options.
    */
   sqlContext?: Partial<SQLContext>;
@@ -172,7 +166,6 @@ export function printSchemaForCreate<T extends SerializedSchema>(
   const {
     ifNotExists = true,
     asyncIndexes = false,
-    breakStatements = false,
     sqlContext = { inlineParams: true },
   } = options ?? {};
   const statements: DDLStatement[] = [];
@@ -208,11 +201,5 @@ export function printSchemaForCreate<T extends SerializedSchema>(
     }
   }
 
-  const sqlStatements = statements.map((stmt) => printer(stmt));
-
-  if (breakStatements) {
-    return sqlStatements.join(`;\n${STATEMENT_BREAKPOINT}\n`);
-  }
-
-  return sqlStatements.join(";\n");
+  return statements.map((stmt) => printer(stmt));
 }

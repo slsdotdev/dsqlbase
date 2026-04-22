@@ -1,4 +1,6 @@
-CREATE DOMAIN "task_status" AS text CONSTRAINT "chk_task_status" CHECK ("task_status" IN ('open', 'in_progress', 'completed', 'archived'));
+CREATE DOMAIN "task_status" AS text CONSTRAINT "chk_task_status" CHECK (VALUE IN ('open', 'in_progress', 'completed', 'archived'));
+-- statement breakpoint
+CREATE DOMAIN "priority_level" AS int CONSTRAINT "chk_priority_level" CHECK (VALUE IN (1, 2, 3, 4, 5));
 -- statement breakpoint
 CREATE TABLE IF NOT EXISTS "teams" (
   "id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -59,7 +61,7 @@ CREATE TABLE IF NOT EXISTS "tasks" (
   "title" text NOT NULL,
   "description" varchar(5000),
   "status" task_status NOT NULL,
-  "priority" int NOT NULL,
+  "priority" priority_level NOT NULL,
   "due_date" date,
   "completed_at" timestamp,
   "deleted_at" timestamp,
@@ -73,4 +75,6 @@ CREATE INDEX IF NOT EXISTS "tasks_assignee_idx" ON "tasks" ("assignee_id" ASC NU
 -- statement breakpoint
 CREATE INDEX IF NOT EXISTS "tasks_status_idx" ON "tasks" ("status" ASC NULLS LAST) NULLS DISTINCT;
 -- statement breakpoint
-CREATE INDEX IF NOT EXISTS "tasks_due_date_idx" ON "tasks" ("due_date" ASC NULLS LAST) INCLUDE ("status") NULLS DISTINCT
+CREATE INDEX IF NOT EXISTS "tasks_due_date_idx" ON "tasks" ("due_date" ASC NULLS LAST) INCLUDE ("status") NULLS DISTINCT;
+-- statement breakpoint
+CREATE SEQUENCE IF NOT EXISTS "task_number_seq" INCREMENT BY 1 START WITH 1 CACHE 1 NO CYCLE;

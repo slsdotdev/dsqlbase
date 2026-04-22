@@ -305,7 +305,7 @@ export function printDDL<T extends DDLStatement>(
 
 export function createPrinter(context?: Partial<SQLContext>, reducer?: Partial<Reducer>) {
   return function print(statement: DDLStatement): string {
-    const query = sql``.append(printDDL(statement, reducer));
+    const query = sql`${printDDL(statement, reducer)}`;
     return query.toQuery(context).text;
   };
 }

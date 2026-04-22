@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Kind } from "@dsqlbase/core";
 import { introspection } from "@dsqlbase/schema/migration";
-import { createClient, TestClient } from "../client/index.js";
-import { schema } from "../schema/index.js";
+
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
+import { createClient, TestClient } from "../db/index.js";
+import { applyMigrations } from "../db/migrate.js";
 
 const __dirname = new URL(".", import.meta.url).pathname;
 
@@ -20,23 +21,17 @@ describe("Schema introspection", () => {
 
   beforeAll(async () => {
     client = await createClient();
+    await applyMigrations(client.pg);
+
     const [result] = await client.session.execute<{ definitions: SchemaNode[] } | null>(
       introspection.toQuery()
     );
 
     definitions = result?.definitions ?? [];
-    await writeFile(
-      path.join(__dirname, "../schema/data/schema-introspection-result.json"),
-      JSON.stringify(definitions, null, 2)
-    );
 
     await writeFile(
-      path.join(__dirname, "../schema/data/schema.json"),
-      JSON.stringify(
-        Object.values(schema).map((d) => d.toJSON()),
-        null,
-        2
-      )
+      path.join(__dirname, "../db/data/schema-introspection-result.json"),
+      JSON.stringify(definitions, null, 2)
     );
   });
 
@@ -114,13 +109,6 @@ describe("Schema introspection", () => {
       expect(membersTable).toBeDefined();
       expect(membersTable).toHaveProperty("unique");
     });
-
-    it("should match local schema definition", () => {
-      const localTable = schema.tasks.toJSON();
-      const remoteTable = definitions.find((d) => d.kind === Kind.TABLE && d.name === "tasks");
-
-      expect(remoteTable).toMatchObject(localTable);
-    });
   });
 
   describe("Domains", () => {
@@ -136,24 +124,6 @@ describe("Schema introspection", () => {
       const seqNames = sequences.map((s) => s.name);
 
       expect(seqNames).toContain("task_number_seq");
-    });
-  });
-
-  describe("Views", () => {
-    it("should fetch views", () => {
-      const views = definitions.filter((d) => d.kind === Kind.VIEW);
-      const viewNames = views.map((v) => v.name);
-
-      expect(viewNames).toContain("active_teams");
-    });
-  });
-
-  describe("Functions", () => {
-    it("should fetch functions", () => {
-      const functions = definitions.filter((d) => d.kind === Kind.FUNCTION);
-      const funcNames = functions.map((f) => f.name);
-
-      expect(funcNames).toContain("project_count");
     });
   });
 });

@@ -42,7 +42,7 @@ describe("DomainDefinition", () => {
     expect(json.check).toMatchObject({
       kind: "CHECK_CONSTRAINT",
       name: "priority_check",
-      expression: '"priority" >= 1 AND "priority" <= 5',
+      expression: "VALUE >= 1 AND VALUE <= 5",
     });
   });
 
@@ -52,6 +52,6 @@ describe("DomainDefinition", () => {
       .toJSON();
 
     expect(json.check?.name).toBe("chk_status");
-    expect(json.check?.expression).toBe("\"status\" IN ('active', 'disabled')");
+    expect(json.check?.expression).toBe("VALUE IN ('active', 'disabled')");
   });
 });

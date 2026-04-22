@@ -1,4 +1,4 @@
-import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
+import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
 import { HasDefault, NotNull, WithValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
@@ -47,8 +47,8 @@ export class DomainDefinition<
     return this as HasDefault<this>;
   }
 
-  public check<T extends string>(cb: (self: SQLIdentifier) => SQLNode, name?: T): this {
-    const expression = new SQLQuery(cb(new SQLIdentifier(this.name)));
+  public check<T extends string>(cb: (value: SQLNode) => SQLNode, name?: T): this {
+    const expression = new SQLQuery(cb(new SQLRaw("VALUE")));
     this._check = new CheckConstraintDefinition(name ?? `${this.name}_check`, {
       expression,
     });

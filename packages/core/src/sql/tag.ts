@@ -46,7 +46,7 @@ sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
   return node;
 };
 
-sql.in = (name: string | SQLIdentifier, values: SQLValue[]) => {
+sql.in = (name: string | SQLNode, values: SQLValue[]) => {
   const identifier = typeof name === "string" ? new SQLIdentifier(name) : name;
 
   return sql`${identifier} IN ${sql.wrap(

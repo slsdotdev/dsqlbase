@@ -3,9 +3,7 @@ import { Session } from "@dsqlbase/core/runtime";
 import { ExecutionContext, QueryBuilder, Schema, SchemaRegistry } from "@dsqlbase/core";
 import { PGlite } from "@electric-sql/pglite";
 
-import { schema, applyMigrations } from "../schema/index.js";
-
-const TABLE_NAMES = ["tasks", "team_members", "projects", "users", "teams"] as const;
+import * as schema from "./schema.js";
 
 class MockSession implements Session {
   private _client: PGlite;
@@ -24,7 +22,6 @@ export type ClientSchema = Schema<typeof schema>;
 
 export const createClient = async () => {
   const pg = new PGlite("memory://", { debug: 0 });
-  await applyMigrations(pg);
 
   const session = new MockSession(pg);
   const registry = new SchemaRegistry(schema);
@@ -41,9 +38,6 @@ export const createClient = async () => {
     session,
     schema,
     tables: registry.getTables(),
-    reset: async () => {
-      return await pg.exec(TABLE_NAMES.map((t) => `TRUNCATE TABLE "${t}" CASCADE`).join("; "));
-    },
     close: async () => {
       await pg.close();
     },

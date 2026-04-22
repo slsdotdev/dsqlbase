@@ -1,4 +1,4 @@
-import { ColumnDefinition, DomainDefinition, sql } from "@dsqlbase/core";
+import { ColumnDefinition, DomainDefinition, SequenceDefinition, sql } from "@dsqlbase/core";
 import {
   boolean,
   date,
@@ -8,7 +8,6 @@ import {
   text,
   uuid,
   varchar,
-  int,
   duration,
   relations,
   hasOne,
@@ -82,6 +81,16 @@ const taskStatus = new DomainDefinition("task_status", {
   .check((c) => sql.in(c, [...TASK_STATUS]), "chk_task_status")
   .$type<(typeof TASK_STATUS)[number]>();
 
+const PRIORITY_LEVEL = [1, 2, 3, 4, 5] as const;
+
+const priorityLevel = new DomainDefinition("priority_level", {
+  dataType: "int",
+})
+  .check((c) => sql.in(c, [...PRIORITY_LEVEL]), "chk_priority_level")
+  .$type<(typeof PRIORITY_LEVEL)[number]>();
+
+const taskNumberSeq = new SequenceDefinition("task_number_seq").startWith(1).incrementBy(1);
+
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
@@ -92,7 +101,9 @@ const tasks = table("tasks", {
   status: new ColumnDefinition("status", { domain: taskStatus })
     .notNull()
     .$type<(typeof TASK_STATUS)[number]>(),
-  priority: int("priority").notNull(),
+  priority: new ColumnDefinition("priority", { domain: priorityLevel })
+    .notNull()
+    .$type<(typeof PRIORITY_LEVEL)[number]>(),
   dueDate: date("due_date"),
   completedAt: datetime("completed_at"),
   deletedAt: datetime("deleted_at"),
@@ -170,6 +181,8 @@ export {
   projects,
   tasks,
   taskStatus,
+  priorityLevel,
+  taskNumberSeq,
   userRelations,
   memberRelations,
   teamRelations,

@@ -2,7 +2,7 @@
 // @ts-nocheck - Remove when tests are fixed
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createClient, seedData, type TestClient } from "../client/index.js";
+import { createClient, seedData, type TestClient } from "../db/index.js";
 import { sql } from "@dsqlbase/core";
 
 describe.skip("CRUD Operations", () => {

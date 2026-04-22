@@ -34,11 +34,7 @@
         "primaryKey": false,
         "unique": true,
         "defaultValue": null,
-        "check": {
-          "kind": "CHECK_CONSTRAINT",
-          "name": "teams_slug_check",
-          "expression": "CHECK (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text)"
-        },
+        "check": null,
         "domain": null
       },
       {
@@ -105,18 +101,7 @@
       }
     ],
     "unique": null,
-    "checks": [
-      {
-        "kind": "CHECK_CONSTRAINT",
-        "constraint": "teams_check",
-        "check": "CHECK (char_length(name::text) <= 100 AND char_length(description::text) <= 500)"
-      },
-      {
-        "kind": "CHECK_CONSTRAINT",
-        "constraint": "teams_check1",
-        "check": "CHECK (created_at <= updated_at)"
-      }
-    ]
+    "checks": null
   },
   {
     "kind": "TABLE",
@@ -216,7 +201,7 @@
     ],
     "unique": [
       {
-        "name": "team_members_team_id_user_id_key",
+        "name": "team_members_unique",
         "columns": [
           "team_id",
           "user_id"
@@ -551,13 +536,13 @@
       {
         "kind": "COLUMN",
         "name": "priority",
-        "dataType": "integer",
+        "dataType": "priority_level",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
         "defaultValue": null,
         "check": null,
-        "domain": null
+        "domain": "priority_level"
       },
       {
         "kind": "COLUMN",
@@ -618,22 +603,6 @@
     "indexes": [
       {
         "kind": "INDEX",
-        "name": "tasks_status_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX tasks_status_idx ON public.tasks USING btree (status)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "column": "status",
-            "sortDirection": "ASC",
-            "nulls": "LAST"
-          }
-        ],
-        "include": null
-      },
-      {
-        "kind": "INDEX",
         "name": "tasks_assignee_idx",
         "unique": false,
         "distinctNulls": true,
@@ -681,6 +650,22 @@
         "include": [
           "status"
         ]
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_status_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_status_idx ON public.tasks USING btree (status)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "status",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
       }
     ],
     "unique": null,
@@ -695,8 +680,8 @@
     "defaultValue": null,
     "check": {
       "kind": "CHECK_CONSTRAINT",
-      "name": "task_status_check",
-      "expression": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'cancelled'::text]))"
+      "name": "chk_task_status",
+      "expression": "CHECK (VALUE = ANY (ARRAY['open'::text, 'in_progress'::text, 'completed'::text, 'archived'::text]))"
     }
   },
   {
@@ -704,9 +689,13 @@
     "name": "priority_level",
     "schema": "public",
     "dataType": "integer",
-    "notNull": true,
-    "defaultValue": "0",
-    "check": null
+    "notNull": false,
+    "defaultValue": null,
+    "check": {
+      "kind": "CHECK_CONSTRAINT",
+      "name": "chk_priority_level",
+      "expression": "CHECK (VALUE = ANY (ARRAY[1, 2, 3, 4, 5]))"
+    }
   },
   {
     "kind": "SEQUENCE",
@@ -719,15 +708,5 @@
     "increment": "1",
     "cycle": false,
     "cache": "1"
-  },
-  {
-    "kind": "VIEW",
-    "name": "active_teams",
-    "schema": "public"
-  },
-  {
-    "kind": "FUNCTION",
-    "name": "project_count",
-    "schema": "public"
   }
 ]
