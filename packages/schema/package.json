@@ -4,6 +4,30 @@
   "description": "Schema definition and migration tools for DSQLBase",
   "sideEffects": false,
   "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "sls.dev",
+    "email": "dev@sls.dev",
+    "url": "https://www.sls.dev"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://www.sls.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slsdotdev/dsqlbase.git",
+    "directory": "packages/schema"
+  },
+  "bugs": {
+    "url": "https://github.com/slsdotdev/dsqlbase/issues"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "../../LICENSE"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

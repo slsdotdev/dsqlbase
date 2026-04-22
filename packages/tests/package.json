@@ -9,8 +9,8 @@
     "test:e2e": "vitest run"
   },
   "devDependencies": {
-    "@dsqlbase/core": "*",
-    "@dsqlbase/schema": "*",
+    "@dsqlbase/core": "^0.0.1",
+    "@dsqlbase/schema": "^0.0.1",
     "@electric-sql/pglite": "^0.4.4"
   }
 }

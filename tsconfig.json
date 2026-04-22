@@ -18,6 +18,9 @@
     "strictNullChecks": true,
     "stripInternal": true,
     "target": "esnext",
+    "lib": [
+      "es2022"
+    ],
     "types": [
       "node"
     ]
