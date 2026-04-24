@@ -32,7 +32,7 @@ export class TableDefinition<
 > extends DefinitionNode<TName, TableConfig<TColumns, TSchema>> {
   readonly kind = Kind.TABLE;
 
-  protected _namespace?: AnyNamespaceDefinition;
+  protected _namespace?: TSchema;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
 
@@ -108,7 +108,7 @@ export class TableDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      namespace: this._namespace?.toJSON() ?? "public",
+      namespace: this._namespace?.name ?? "public",
       columns: Object.values(this.columns).map((col) => col.toJSON()),
       indexes: this._indexes.map((idx) => idx.toJSON()),
       constraints: this._constraints?.map((constraint) => constraint.toJSON()),

@@ -44,10 +44,7 @@ export function belongsTo<TSource extends AnyTableDefinition, TTarget extends An
 
 export function hasOne<TSource extends AnyTableDefinition, TTarget extends AnyTableDefinition>(
   target: TTarget,
-  config: {
-    from: FieldRelation<TSource, TTarget, "has_one">["from"];
-    to: FieldRelation<TSource, TTarget, "has_one">["to"];
-  }
+  config: Pick<FieldRelation<TSource, TTarget, "has_one">, "from" | "to">
 ): FieldRelation<TSource, TTarget, "has_one"> {
   return {
     type: Relation.HAS_ONE,

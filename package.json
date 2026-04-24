@@ -1,20 +1,23 @@
 {
   "name": "dsqlbase",
   "version": "1.0.0",
-  "description": "Starter template for TypeScript projects",
-  "main": "turbo.json",
+  "description": "ORM and migration tools for AWS Aurora DSQL",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/slsdotdev/dsqlbase#readme",
+  "author": {
+    "name": "sls.dev",
+    "email": "dev@sls.dev",
+    "url": "https://www.sls.dev"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slsdotdev/dsqlbase.git"
   },
-  "author": "sls.dev",
-  "license": "MIT",
   "bugs": {
     "url": "https://github.com/slsdotdev/dsqlbase/issues"
   },
-  "homepage": "https://github.com/slsdotdev/dsqlbase#readme",
   "packageManager": "npm@11.11.0",
   "engines": {
     "node": ">=24.14.1",
@@ -22,6 +25,7 @@
     "yarn": "use-npm",
     "pnpm": "use-npm"
   },
+  "main": "turbo.json",
   "scripts": {
     "prepare": "husky",
     "test": "turbo run test",

@@ -13,12 +13,6 @@ export interface DateColumnOptions {
   mode?: DateTimeMode;
 }
 
-export type DateValueType<TOptions extends DateColumnOptions> = TOptions["mode"] extends
-  | "iso"
-  | "string"
-  ? string
-  : Date;
-
 /**
  * Defines a `date` type column in the database schema.
  *
@@ -59,3 +53,9 @@ export function date<const TName extends string, const TOptions extends DateColu
     },
   });
 }
+
+export type DateValueType<TOptions extends DateColumnOptions> = TOptions["mode"] extends
+  | "iso"
+  | "string"
+  ? string
+  : Date;

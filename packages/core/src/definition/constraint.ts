@@ -19,9 +19,7 @@ export type InferConstraintName<
   TSource extends NodeRef<DefinitionNode>,
   TColumns extends ColumnRef[],
   TSuffix extends string,
-> = TName extends string
-  ? TName
-  : `${TSource["target"]["name"]}_${JoinColumnNames<TColumns>}_${TSuffix}`;
+> = TName extends string ? TName : `${TSource["name"]}_${JoinColumnNames<TColumns>}_${TSuffix}`;
 
 export interface CheckConstraintConfig {
   expression: SQLQuery;

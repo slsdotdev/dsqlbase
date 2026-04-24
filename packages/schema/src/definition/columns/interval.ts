@@ -18,12 +18,6 @@ export interface IntervalColumnOptions {
   mode?: "iso" | "string" | "object";
 }
 
-export type IntervalValueType<TOptions extends IntervalColumnOptions> = TOptions["mode"] extends
-  | "iso"
-  | "string"
-  ? string
-  : Duration;
-
 /**
  * Defines an `interval` data type column in the database schema.
  * @param name Column name
@@ -68,3 +62,9 @@ export function interval<const TName extends string, const TOptions extends Inte
 }
 
 export { interval as duration };
+
+export type IntervalValueType<TOptions extends IntervalColumnOptions> = TOptions["mode"] extends
+  | "iso"
+  | "string"
+  ? string
+  : Duration;

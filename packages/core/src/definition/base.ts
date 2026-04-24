@@ -73,11 +73,11 @@ export class NodeRef<TNode extends DefinitionNode>
 
   declare readonly __type: TNode["__type"];
 
-  constructor(public readonly target: TNode) {
+  constructor(target: TNode) {
     super(target.name);
   }
 
   toJSON(): TNode["name"] {
-    return this.target.name;
+    return this.name;
   }
 }

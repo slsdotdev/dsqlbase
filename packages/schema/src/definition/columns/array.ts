@@ -1,3 +1,5 @@
+import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
+
 /**
  * Defines an `array` **runtime data type** column.
  * #### Important Notes
@@ -11,8 +13,6 @@
  * @param name Column name in database
  * @returns Serializable column definition for an array column.
  */
-
-import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
 
 export function array<const TName extends string>(name: TName) {
   return new ColumnDefinition<TName, ColumnConfig<string[], string>>(name, {

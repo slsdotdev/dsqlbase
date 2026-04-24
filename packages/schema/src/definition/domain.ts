@@ -1,8 +1,13 @@
-import { ColumnConfig, ColumnDefinition, DomainConfig, DomainDefinition } from "@dsqlbase/core";
+import {
+  AnyNamespaceDefinition,
+  ColumnConfig,
+  ColumnDefinition,
+  DomainDefinition,
+} from "@dsqlbase/core";
 import { WithDomain } from "@dsqlbase/core/utils";
 
 export function domain<TName extends string>(name: TName) {
-  const definition = new DomainDefinition<TName, DomainConfig<string, string>>(name, {
+  const definition = new DomainDefinition<TName, string, string, AnyNamespaceDefinition>(name, {
     notNull: false,
     dataType: "text",
     codec: {

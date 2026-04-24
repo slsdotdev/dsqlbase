@@ -1,9 +1,21 @@
-import { DefinitionNode, Kind } from "./base.js";
+import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { SQLIdentifier, SQLQuery } from "../sql/nodes.js";
+import { AnyNamespaceDefinition } from "./namespace.js";
 
-export class SequenceDefinition<TName extends string> extends DefinitionNode<TName> {
+export interface SequenceConfig<TNamespace extends AnyNamespaceDefinition> {
+  namespace?: NodeRef<TNamespace>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnySequenceDefinition = SequenceDefinition<any, any>;
+
+export class SequenceDefinition<
+  TName extends string,
+  TNamespace extends AnyNamespaceDefinition,
+> extends DefinitionNode<TName, SequenceConfig<TNamespace>> {
   public readonly kind = Kind.SEQUENCE;
 
+  protected _namespace?: NodeRef<TNamespace>;
   protected _dataType = "bigint";
   protected _cache = 1;
   protected _cycle = false;
@@ -12,6 +24,12 @@ export class SequenceDefinition<TName extends string> extends DefinitionNode<TNa
   protected _maxValue?: number;
   protected _startValue?: number;
   protected _ownedBy?: SQLIdentifier;
+
+  constructor(name: TName, config: Partial<SequenceConfig<TNamespace>> = {}) {
+    super(name);
+
+    this._namespace = config.namespace;
+  }
 
   public cache(cache: number): this {
     this._cache = cache;
@@ -53,6 +71,7 @@ export class SequenceDefinition<TName extends string> extends DefinitionNode<TNa
     return {
       kind: this.kind,
       name: this.name,
+      namespace: this._namespace?.toJSON() ?? "public",
       dataType: this._dataType,
       cache: this._cache,
       cycle: this._cycle,

@@ -8,7 +8,7 @@ export {
   type SerializedObject,
   type SerializedSchema,
 } from "./base.js";
-export { introspection } from "./introspection.js";
+export { introspection } from "./introspection/query.js";
 export {
   createPrinter,
   printSchemaForCreate,

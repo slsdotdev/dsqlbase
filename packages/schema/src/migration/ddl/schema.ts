@@ -1,10 +1,10 @@
+import { SQLContext } from "@dsqlbase/core";
 import {
   AnyDomainDefinition,
   AnyNamespaceDefinition,
+  AnySequenceDefinition,
   AnyTableDefinition,
-  SequenceDefinition,
-  SQLContext,
-} from "@dsqlbase/core";
+} from "@dsqlbase/core/definition";
 import { SerializedObject, SerializedSchema, sortSchemaObjects } from "../base.js";
 import { DDLStatement } from "./ast.js";
 import { ddl } from "./factory.js";
@@ -120,7 +120,7 @@ export function createDomainDDL(definition: SerializedObject<AnyDomainDefinition
 }
 
 export function createSequenceDDL(
-  definition: SerializedObject<SequenceDefinition<string>>,
+  definition: SerializedObject<AnySequenceDefinition>,
   ifNotExists = true
 ) {
   return ddl.createSequence({

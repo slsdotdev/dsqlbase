@@ -1,19 +1,18 @@
 import {
   AnyDomainDefinition,
   AnyNamespaceDefinition,
+  AnySequenceDefinition,
   AnyTableDefinition,
   DefinitionNode,
   NodeKind,
-  SequenceDefinition,
-  ViewDefinition,
-} from "@dsqlbase/core";
+} from "@dsqlbase/core/definition";
 
 export type SchemaObjectType =
   | AnyNamespaceDefinition
   | AnyDomainDefinition
   | AnyTableDefinition
-  | SequenceDefinition<string>
-  | ViewDefinition<string>;
+  | AnySequenceDefinition;
+// | ViewDefinition<string>;
 
 export type SerializedObject<T extends SchemaObjectType> = ReturnType<T["toJSON"]>;
 
@@ -29,7 +28,7 @@ export const ORDERED_SCHEMA_OBJECTS: NodeKind[] = [
   "DOMAIN",
   "TABLE",
   "SEQUENCE",
-  "VIEW",
+  // "VIEW",
 ] as const;
 
 export function isSchemaObjectKind(node: DefinitionNode): node is SchemaObjectType {

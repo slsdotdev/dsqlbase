@@ -2,39 +2,50 @@ import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
 import { HasDefault, NotNull, WithValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
+import { AnyNamespaceDefinition } from "./namespace.js";
 
-export interface DomainConfig<TValueType = unknown, TRawType = unknown> {
+export interface DomainConfig<
+  TValueType = unknown,
+  TRawType = unknown,
+  TNamespace extends AnyNamespaceDefinition = AnyNamespaceDefinition,
+> {
   valueType: TValueType;
   rawType: TRawType;
   dataType: string;
   notNull: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
+  namespace?: TNamespace;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDomainDefinition = DomainDefinition<any, any>;
+export type AnyDomainDefinition = DomainDefinition<any, any, any, any>;
 
 export class DomainDefinition<
   TName extends string,
-  TConfig extends DomainConfig,
-> extends DefinitionNode<TName, TConfig> {
+  TValueType,
+  TRawType,
+  TNamespace extends AnyNamespaceDefinition,
+> extends DefinitionNode<TName, DomainConfig<TValueType, TRawType, TNamespace>> {
   readonly kind = Kind.DOMAIN;
 
-  declare readonly __type: TConfig;
+  declare readonly __type: DomainConfig<TValueType, TRawType, TNamespace>;
 
-  protected _dataType: TConfig["dataType"];
-  protected _notNull: TConfig["notNull"];
+  protected _namespace?: TNamespace;
+  protected _dataType: DomainConfig<TValueType, TRawType>["dataType"];
+  protected _notNull: DomainConfig<TValueType, TRawType>["notNull"];
   protected _defaultValue?: SQLNode;
   protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
 
-  constructor(name: TName, config: Partial<TConfig>) {
+  constructor(name: TName, config: Partial<DomainConfig<TValueType, TRawType>> = {}) {
     super(name);
 
     this._dataType = config.dataType ?? "text";
     this._notNull = config.notNull ?? false;
-    this._codec = config.codec ?? defaultCodec;
+    this._codec =
+      config.codec ??
+      (defaultCodec as ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>);
   }
 
   public notNull(): NotNull<this> {
@@ -64,6 +75,7 @@ export class DomainDefinition<
     return {
       kind: this.kind,
       name: this.name,
+      namespace: this._namespace?.name ?? "public",
       dataType: this._dataType,
       notNull: this._notNull,
       defaultValue: this._defaultValue
