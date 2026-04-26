@@ -48,7 +48,7 @@ The split exists so future tooling (e.g. a `dsqlbase inspect` command) can use
 
 ## 1. Diff (`diffs.ts`)
 
-Walks both schemas and emits one entry per *action* that the remote needs to
+Walks both schemas and emits one entry per _action_ that the remote needs to
 take to match local. Object-shape only — does not know about DSQL, operations,
 or rules.
 
@@ -61,9 +61,9 @@ interface Diff<T extends SerializedObject<DefinitionNode>> {
   type: DiffType;
   kind: T["kind"];
   name: T["name"];
-  key?: keyof T;          // for modify: which property changed
-  value?: T[keyof T];     // local value (or full object for add/remove)
-  previousValue?: T[keyof T];   // remote value, for modify
+  key?: keyof T; // for modify: which property changed
+  value?: T[keyof T]; // local value (or full object for add/remove)
+  previousValue?: T[keyof T]; // remote value, for modify
 }
 ```
 
@@ -91,8 +91,8 @@ Semantics:
 ### Per-object diffs
 
 One function per object kind: `diffColumn`, `diffIndex`, `diffConstraint`,
-`diffTable`, `diffSchema`. Each returns `Diff[]` for the differences *within
-that object*. `diffTable` walks columns/indexes/constraints and aggregates;
+`diffTable`, `diffSchema`. Each returns `Diff[]` for the differences _within
+that object_. `diffTable` walks columns/indexes/constraints and aggregates;
 `diffSchema` walks tables and aggregates.
 
 The `Diff<T>` shape is parametric over the object kind, so adding a new
@@ -113,12 +113,12 @@ type OperationCategory = "create" | "drop" | "alter";
 type OperationScope = "schema" | "table" | "column" | "index" | "constraint";
 
 interface ReconciliationOp {
-  id: string;                      // stable, e.g. "create_table:public.users"
-  statement: DDLStatement;         // AST node, rendered later by the printer
+  id: string; // stable, e.g. "create_table:public.users"
+  statement: DDLStatement; // AST node, rendered later by the printer
   category: OperationCategory;
   scope: OperationScope;
-  async: boolean;                  // statement triggers a DSQL async job
-  dependsOn?: string[];            // prerequisite op ids
+  async: boolean; // statement triggers a DSQL async job
+  dependsOn?: string[]; // prerequisite op ids
 }
 ```
 
@@ -136,11 +136,11 @@ column type, drop schema with dependents, etc.), the translator emits a
 
 ```ts
 interface Refusal {
-  action: DiffType;                // what the user (effectively) asked for
-  object: { kind: string; path: string[] };   // what it applied to
+  action: DiffType; // what the user (effectively) asked for
+  object: { kind: string; path: string[] }; // what it applied to
   reason: {
-    code: string;                  // stable, e.g. "DSQL_NO_DROP_COLUMN"
-    message: string;               // human-readable
+    code: string; // stable, e.g. "DSQL_NO_DROP_COLUMN"
+    message: string; // human-readable
   };
   detail?: Record<string, unknown>;
 }
@@ -148,13 +148,13 @@ interface Refusal {
 
 Stable reason codes for MVP:
 
-| Code                        | Triggered by                                          |
-| --------------------------- | ----------------------------------------------------- |
-| `DSQL_NO_DROP_COLUMN`       | column `remove` diff                                  |
-| `DSQL_NO_COLUMN_TYPE_CHANGE`| column `modify` on `dataType`                         |
-| `DSQL_NO_ALTER_NOT_NULL`    | column `modify` on `notNull` (ORM-side enforcement)   |
-| `DSQL_NO_ALTER_DEFAULT`     | column `modify` on `defaultValue` (ORM-side)          |
-| `RENAME_REQUIRES_INTENT`    | matched remove+add pair the differ won't infer (post-MVP) |
+| Code                         | Triggered by                                              |
+| ---------------------------- | --------------------------------------------------------- |
+| `DSQL_NO_DROP_COLUMN`        | column `remove` diff                                      |
+| `DSQL_NO_COLUMN_TYPE_CHANGE` | column `modify` on `dataType`                             |
+| `DSQL_NO_ALTER_NOT_NULL`     | column `modify` on `notNull` (ORM-side enforcement)       |
+| `DSQL_NO_ALTER_DEFAULT`      | column `modify` on `defaultValue` (ORM-side)              |
+| `RENAME_REQUIRES_INTENT`     | matched remove+add pair the differ won't infer (post-MVP) |
 
 Refusals are returned alongside operations, **not mixed into them**. The runner
 surfaces refusals to the user and proceeds with whatever operations are
@@ -179,8 +179,8 @@ that it's worth the error-handling complexity.
 
 ```ts
 interface OrderedPlan {
-  nodes: ReconciliationOp[];       // sorted; safe to execute in array order
-  edges: Array<{ from: string; to: string }>;   // for inspection / debugging
+  nodes: ReconciliationOp[]; // sorted; safe to execute in array order
+  edges: Array<{ from: string; to: string }>; // for inspection / debugging
 }
 
 function plan(operations: ReconciliationOp[]): OrderedPlan;

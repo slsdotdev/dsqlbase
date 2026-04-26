@@ -1,65 +1,21 @@
 import {
+  AnyCheckConstraintDefinition,
   AnyColumnDefinition,
   AnyConstraintDefinition,
   AnyIndexDefinition,
   AnyTableDefinition,
-  DefinitionNode,
 } from "@dsqlbase/core/definition";
-import { SerializedObject } from "../base.js";
-
-export type DiffType = "add" | "remove" | "modify";
-export type DiffValue<
-  TType extends DiffType,
-  TObject extends SerializedObject<DefinitionNode>,
-> = TType extends "modify"
-  ? TObject[keyof TObject] extends (infer V)[]
-    ? V
-    : TObject[keyof TObject]
-  : TObject;
-
-export interface Diff<TType extends DiffType, TObject extends SerializedObject<DefinitionNode>> {
-  type: TType;
-  kind: TObject["kind"];
-  name: TObject["name"];
-  object: TObject;
-  key?: keyof TObject;
-  value?: DiffValue<TType, TObject>;
-  prevValue?: DiffValue<TType, TObject>;
-}
-
-function hasDiff<T extends SerializedObject<DefinitionNode>>(
-  local: T | null | undefined,
-  remote: T | null | undefined,
-  key: keyof T
-): boolean {
-  return local?.[key] !== remote?.[key];
-}
-
-function isSet(value: unknown): boolean {
-  return value !== undefined && value !== null;
-}
-
-function diffType<T extends SerializedObject<DefinitionNode>>(
-  local: T,
-  remote: T,
-  key: keyof T
-): DiffType {
-  if (isSet(local[key]) && !isSet(remote[key])) {
-    return "add";
-  }
-
-  if (!isSet(local[key]) && isSet(remote[key])) {
-    return "remove";
-  }
-
-  return "modify";
-}
+import { SerializedObject } from "../../base.js";
+import { Diff, diffType, DiffType, hasDiff } from "./base.js";
 
 export function diffColumn(
   local: SerializedObject<AnyColumnDefinition>,
   remote: SerializedObject<AnyColumnDefinition>
 ) {
-  const diffs: Diff<DiffType, SerializedObject<AnyColumnDefinition>>[] = [];
+  const diffs: (
+    | Diff<DiffType, SerializedObject<AnyColumnDefinition>>
+    | Diff<DiffType, SerializedObject<AnyCheckConstraintDefinition>>
+  )[] = [];
 
   if (hasDiff(local, remote, "dataType")) {
     diffs.push({
@@ -133,13 +89,44 @@ export function diffColumn(
     });
   }
 
+  if (local.check && !remote.check) {
+    diffs.push({
+      type: "add",
+      kind: local.check.kind,
+      name: local.check.name,
+      object: local.check,
+    });
+  }
+
+  if (!local.check && remote.check) {
+    diffs.push({
+      type: "remove",
+      kind: remote.check.kind,
+      name: remote.check.name,
+      object: remote.check,
+    });
+  }
+
+  if (local.check && remote.check && hasDiff(local.check, remote.check, "name")) {
+    diffs.push({
+      type: diffType(local.check, remote.check, "name"),
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "check",
+      value: local.check,
+      prevValue: remote.check,
+    });
+  }
+
   return diffs;
 }
 
 export type TableDiffType =
   | Diff<DiffType, SerializedObject<AnyColumnDefinition>>
   | Diff<DiffType, SerializedObject<AnyIndexDefinition>>
-  | Diff<DiffType, SerializedObject<AnyConstraintDefinition>>;
+  | Diff<DiffType, SerializedObject<AnyConstraintDefinition>>
+  | Diff<DiffType, SerializedObject<AnyCheckConstraintDefinition>>;
 
 export function diffTable(
   local: SerializedObject<AnyTableDefinition>,
