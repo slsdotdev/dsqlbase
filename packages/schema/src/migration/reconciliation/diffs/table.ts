@@ -7,15 +7,27 @@ import {
 } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
+import { diffCheckConstraint } from "./constraint.js";
 
 export function diffColumn(
   local: SerializedObject<AnyColumnDefinition>,
-  remote: SerializedObject<AnyColumnDefinition>
+  remote?: SerializedObject<AnyColumnDefinition>
 ) {
   const diffs: (
     | Diff<DiffType, SerializedObject<AnyColumnDefinition>>
     | Diff<DiffType, SerializedObject<AnyCheckConstraintDefinition>>
   )[] = [];
+
+  if (!remote) {
+    diffs.push({
+      type: "add",
+      kind: local.kind,
+      name: local.name,
+      object: local,
+    });
+
+    return diffs;
+  }
 
   if (hasDiff(local, remote, "dataType")) {
     diffs.push({
@@ -107,16 +119,8 @@ export function diffColumn(
     });
   }
 
-  if (local.check && remote.check && hasDiff(local.check, remote.check, "name")) {
-    diffs.push({
-      type: diffType(local.check, remote.check, "name"),
-      kind: local.kind,
-      name: local.name,
-      object: local,
-      key: "check",
-      value: local.check,
-      prevValue: remote.check,
-    });
+  if (local.check && remote.check) {
+    diffs.push(...diffCheckConstraint(local.check, remote.check));
   }
 
   return diffs;
@@ -134,34 +138,27 @@ export function diffTable(
 ) {
   const diffs: TableDiffType[] = [];
 
+  const remoteColumns = new Map(
+    remote.columns.map((col: SerializedObject<AnyColumnDefinition>) => [col.name, col])
+  );
+
+  // const remoteIndexes = new Map(remote.indexes.map((idx) => [idx.name, idx]));
+  // const remoteConstraints = new Map(remote.constraints.map((con) => [con.name, con]));
+
   for (const localColumn of local.columns as SerializedObject<AnyColumnDefinition>[]) {
-    const remoteColumn = remote.columns.find((col) => col.name === localColumn.name);
-
-    if (!remoteColumn) {
-      diffs.push({
-        type: "add",
-        kind: "COLUMN",
-        name: localColumn.name,
-        object: localColumn,
-      });
-
-      continue;
-    }
+    const remoteColumn = remoteColumns.get(localColumn.name);
 
     diffs.push(...diffColumn(localColumn, remoteColumn));
+    remoteColumns.delete(localColumn.name);
   }
 
-  for (const remoteColumn of remote.columns as SerializedObject<AnyColumnDefinition>[]) {
-    const localColumn = local.columns.find((col) => col.name === remoteColumn.name);
-
-    if (!localColumn) {
-      diffs.push({
-        type: "remove",
-        kind: "COLUMN",
-        name: remoteColumn.name,
-        object: remoteColumn,
-      });
-    }
+  for (const remoteColumn of remoteColumns.values()) {
+    diffs.push({
+      type: "remove",
+      kind: "COLUMN",
+      name: remoteColumn.name,
+      object: remoteColumn,
+    });
   }
 
   for (const localIndex of local.indexes) {
