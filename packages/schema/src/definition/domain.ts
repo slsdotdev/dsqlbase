@@ -4,7 +4,6 @@ import {
   ColumnDefinition,
   DomainDefinition,
 } from "@dsqlbase/core";
-import { WithDomain } from "@dsqlbase/core/utils";
 
 export function domain<TName extends string>(name: TName) {
   const definition = new DomainDefinition<TName, string, string, AnyNamespaceDefinition>(name, {
@@ -16,45 +15,24 @@ export function domain<TName extends string>(name: TName) {
     },
   });
 
-  const factory = Object.assign(
-    <TColumnName extends string>(
-      name: TColumnName
-    ): WithDomain<
-      ColumnDefinition<
-        TColumnName,
-        ColumnConfig<
-          (typeof definition)["__type"]["valueType"],
-          (typeof definition)["__type"]["rawType"]
-        >
-      >,
-      typeof definition
-    > => {
-      return new ColumnDefinition<
-        TColumnName,
-        ColumnConfig<
-          (typeof definition)["__type"]["valueType"],
-          (typeof definition)["__type"]["rawType"]
-        >
-      >(name, {
-        domain: definition,
-        dataType: definition.name,
-        codec: {
-          encode: (value) => value,
-          decode: (value) => value,
-        },
-      }) as WithDomain<
-        ColumnDefinition<
-          TColumnName,
-          ColumnConfig<
-            (typeof definition)["__type"]["valueType"],
-            (typeof definition)["__type"]["rawType"]
-          >
-        >,
-        typeof definition
-      >;
-    },
-    definition
-  );
+  function factory<TColumnName extends string>(name: TColumnName) {
+    return new ColumnDefinition<
+      TColumnName,
+      ColumnConfig<
+        (typeof definition)["__type"]["valueType"],
+        (typeof definition)["__type"]["rawType"]
+      >
+    >(name, {
+      domain: definition,
+      dataType: definition.name,
+      codec: {
+        encode: (value) => value,
+        decode: (value) => value,
+      },
+    });
+  }
+
+  Object.assign((name: string) => factory(name), definition);
 
   return factory;
 }

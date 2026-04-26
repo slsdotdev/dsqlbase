@@ -254,6 +254,7 @@ export interface CreateDomainCommand extends DDLStatement {
   notNull?: boolean;
   defaultValue?: string;
   check?: CheckConstraintExpression;
+  ifNotExists?: boolean;
 }
 
 export interface DropDomainCommand extends DDLStatement {

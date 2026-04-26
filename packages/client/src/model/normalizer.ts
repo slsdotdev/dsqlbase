@@ -8,8 +8,9 @@ import {
   OperationRequest,
   Schema,
   SelectOperationArgs,
+  SQLNode,
 } from "@dsqlbase/core";
-import { FieldSelectionOf, QueryArgs } from "./base.js";
+import { FieldSelectionOf, QueryArgs, WhereExpressionOf } from "./base.js";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -20,6 +21,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   constructor(context: ExecutionContext) {
     this._ctx = context;
+  }
+
+  private _getWhereExpression<TTable extends AnyTable>(
+    table: TTable,
+    where: WhereExpressionOf<TTable> | null | undefined
+  ): SQLNode[] | undefined {
+    if (!where) {
+      return undefined;
+    }
   }
 
   private _getSelectionEntries<TTable extends AnyTable>(
@@ -53,11 +63,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<SelectOperationArgs, TMode> {
     const selection = this._getSelectionEntries(table, args.select);
+    const where = this._getWhereExpression(table, args.where);
 
     return {
       mode,
       args: {
         select: selection,
+        where,
       },
     };
   }

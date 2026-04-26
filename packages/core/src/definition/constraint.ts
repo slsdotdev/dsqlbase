@@ -61,12 +61,11 @@ export const extractConstrainName = <
   >;
 };
 
+export type AnyCheckConstraintDefinition = CheckConstraintDefinition<string>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyCheckConstraintDefinition = CheckConstraintDefinition<any>;
+export type AnyUniqueConstraintDefinition = UniqueConstraintDefinition<string, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyUniqueConstraintDefinition = UniqueConstraintDefinition<any, any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyPrimaryKeyConstraintDefinition = PrimaryKeyConstraintDefinition<any, any>;
+export type AnyPrimaryKeyConstraintDefinition = PrimaryKeyConstraintDefinition<string, any>;
 
 export type AnyConstraintDefinition =
   | AnyCheckConstraintDefinition
@@ -94,7 +93,7 @@ export class CheckConstraintDefinition<TName extends string> extends DefinitionN
       kind: this.kind,
       name: this.name,
       expression: text,
-    };
+    } as const;
   }
 }
 

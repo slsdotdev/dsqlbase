@@ -1,4 +1,5 @@
 import { DefinitionSchema } from "@dsqlbase/core";
+import { TypedObject } from "@dsqlbase/core/utils";
 import {
   AnyTable,
   ExecutableQuery,
@@ -6,7 +7,6 @@ import {
   OperationResult,
   Schema,
 } from "@dsqlbase/core/runtime";
-import { Prettify, TypedObject } from "@dsqlbase/core/utils";
 import {
   CreateArgs,
   DeleteArgs,
@@ -68,10 +68,13 @@ export class ModelClient<
     return new ExecutableQuery(operation, this._ctx.session);
   }
 
-  public findMany<TArgs extends Prettify<QueryArgs<TTable, this["__type"]>>>(
+  public findMany<TArgs extends QueryArgs<TTable, this["__type"]>>(
     args: TArgs
-  ): OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>> {
-    return args as unknown as OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>;
+  ): ExecutableQuery<OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>> {
+    const request = this._normalizer.normalizeSelect(this._table, args, "many");
+    const operation = this._ctx.operations.createSelectOperation(this._table, request);
+
+    return new ExecutableQuery(operation, this._ctx.session);
   }
 
   public create<TArgs extends CreateArgs<TTable>>(

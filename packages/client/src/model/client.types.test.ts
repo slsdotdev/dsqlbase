@@ -127,19 +127,19 @@ describe("ModelClient", () => {
   });
 
   it("should infer args type for findMany", async () => {
-    expectTypeOf(
-      client.findMany({
-        where: { firstName: { eq: "John" } },
-        distinct: true,
-        select: {
-          id: true,
-          lastName: true,
-        },
-        limit: 10,
-        offset: 20,
-        orderBy: { lastName: "asc" },
-      })
-    ).toEqualTypeOf<{ id: string; lastName: string }[]>();
+    const query = client.findMany({
+      where: { firstName: { eq: "John" } },
+      distinct: true,
+      select: {
+        id: true,
+        lastName: true,
+      },
+      limit: 10,
+      offset: 20,
+      orderBy: { lastName: "asc" },
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; lastName: string }[]>();
   });
 
   it("should infer joined relations", async () => {

@@ -1,6 +1,7 @@
 import { Session } from "@dsqlbase/core";
 import { SerializedSchema } from "./base.js";
 import { validateDefinition } from "./validation/validate.js";
+import { reconcileSchemas } from "./reconciliation/reconcile.js";
 
 export interface MigrationRunnerOptions {
   /**
@@ -32,6 +33,31 @@ export class MigrationRunner {
     return validateDefinition(definition);
   }
 
+  public async getRemoteSchema() {
+    // TBD: Implement the logic to inspect the remote database schema using introspection queries.
+    // This will involve querying the database's information schema or system catalogs to retrieve
+    // the current state of the database schema, including tables, columns, data types, constraints, etc.
+  }
+
+  public async reconcileSchemas(local: SerializedSchema, remote: SerializedSchema) {
+    return reconcileSchemas(local, remote);
+  }
+
+  /**
+   * Runs the migration process based on the provided serialized schema definition.
+   *
+   * This includes:
+   * 1. Validating local definition
+   * 2. Introspect remote schema
+   * 3. Reconciling local and remote definitions
+   * 4. Validating migration plan
+   * 5. Execute DDL statements against the database
+   * 6. Await async operations and verify final state of the database schema
+   *
+   * @param definition The serialized schema definition to migrate to.
+   * @throws Will throw an error if the schema definition is invalid or if the migration fails.
+   */
+
   public async run(definition: SerializedSchema) {
     const validationResult = this.validate(definition);
 
@@ -42,15 +68,6 @@ export class MigrationRunner {
           .join("\n")}`
       );
     }
-    // TBD: Implement the logic to run the migration based on the provided serialized schema definition.
-    // 1. Validate the definition using the validation module.
-    // 2. Inspect remote schema using the introspection module.
-    // 3. Normalize remote shape and data types.
-    // 4. Reconcile local and remote schemas to identify differences.
-    // 5. Determine if operations can be performed
-    // 6. Plan, sort, print, execution order of DDL statements.
-    // 7. Execute DDL statements against the database.
-    // 8. Wait for async operations to complete and verify the final state of the database schema.
   }
 }
 

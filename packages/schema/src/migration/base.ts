@@ -14,7 +14,7 @@ export type SchemaObjectType =
   | AnySequenceDefinition;
 // | ViewDefinition<string>;
 
-export type SerializedObject<T extends SchemaObjectType> = ReturnType<T["toJSON"]>;
+export type SerializedObject<T extends DefinitionNode> = ReturnType<T["toJSON"]>;
 
 export type SerializedSchema<T extends SchemaObjectType[] = SchemaObjectType[]> =
   (T extends (infer U)[] ? (U extends SchemaObjectType ? SerializedObject<U> : never) : never)[];

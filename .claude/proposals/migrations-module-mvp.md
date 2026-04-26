@@ -112,12 +112,12 @@ validate(local):                  ValidationResult
 introspect(session):              Promise<RemoteSchema>       // raw JSON
 normalize(remote):                SerializedSchema            // unified shape
 
-// Reconcile breaks into three pure sub-stages:
-diff(local, remote):              SchemaDiff[]                // structural deltas
-translate(diffs):                 { operations, drift }       // rules → tagged ops
-plan(operations):                 OrderedPlan                 // DAG + layer order
+// Reconcile breaks into three pure sub-stages (see reconciler.md):
+diff(local, remote):              Diff[]                      // structural deltas
+translate(diffs):                 { operations, refusals }    // rules → ops or refusals
+plan(operations):                 OrderedPlan                 // sorted DAG
 // …wrapped together:
-reconcile(local, remote):         ReconciliationResult        // { plan, drift }
+reconcile(local, remote):         ReconciliationResult        // { plan, refusals }
 
 print(statement, context?):       string                      // SQL
 execute(session, statement):      Promise<ExecuteResult>      // single DDL
@@ -141,7 +141,7 @@ interface MigrationRunOptions {
 interface MigrationResult {
   validation: ValidationResult;
   plan: OrderedPlan;                // full DAG, pre-filter
-  drift: DriftNote[];               // unreconcilable state, informational only
+  refusals: Refusal[];              // actions DSQL won't allow, with reason codes
   applied: ReconciliationOp[];      // what actually ran (minus dry-run / filtered)
   sql?: string[];                   // if dryRun
 }
@@ -327,182 +327,26 @@ so string equality is a safe comparison.
 
 ## 5. Reconciler (`reconciler/`)
 
-The reconciler is the one stage big enough to internally split. It runs three
-pure sub-stages — **diff → translate → plan** — each exported independently so
-the runner (or future tooling like `dsqlbase inspect`) can invoke them in
-isolation.
+The reconciler turns `(local, remote)` into a sorted plan of operations plus a
+list of refusals (actions DSQL won't allow). It splits into three pure
+sub-stages — **diff → translate → plan** — each exported independently.
 
-```
-reconciler/
-  index.ts        — exports diff, translate, plan, reconcile
-  diff.ts         — structural comparison
-  translate.ts    — rule engine
-  plan.ts         — DAG + layering
-  rules/          — one function per SchemaDiff.kind
-```
-
-### 5a. Diff (`diff.ts`) — structural comparison
-
-Pure, mechanical, zero policy. Walks both normalized schemas and emits
-structured deltas. Does not know about DSQL, operations, or rules.
-
-```ts
-type TableId = { schema: string; name: string };
-
-type SchemaDiff =
-  | { kind: "schema_missing_remote"; name: string }
-  | { kind: "schema_missing_local";  name: string }
-  | { kind: "table_missing_remote";  table: TableDef }
-  | { kind: "table_missing_local";   table: RemoteTableDef }
-  | { kind: "column_missing_remote"; table: TableId; column: ColumnDef }
-  | { kind: "column_missing_local";  table: TableId; column: RemoteColumnDef }
-  | { kind: "column_type_mismatch";
-      table: TableId; column: string; local: string; remote: string }
-  | { kind: "column_nullability_mismatch";
-      table: TableId; column: string; localNotNull: boolean; remoteNotNull: boolean }
-  | { kind: "column_default_mismatch";
-      table: TableId; column: string; localDefault: string | null; remoteDefault: string | null }
-  | { kind: "index_missing_remote";  table: TableId; index: IndexDef }
-  | { kind: "index_missing_local";   table: TableId; index: RemoteIndexDef }
-  | { kind: "unique_missing_remote"; table: TableId; constraint: UniqueDef }
-  | { kind: "unique_missing_local";  table: TableId; constraint: RemoteUniqueDef };
-
-function diff(local: SerializedSchema, remote: SerializedSchema): SchemaDiff[];
-```
-
-Every difference between the two schemas produces a diff entry, including
-cases the migrator cannot act on (e.g. type mismatches). Filtering and
-classification happen downstream.
-
-The diff phase is what catches "remote state that didn't come from the
-migrator" — a column already present with `NOT NULL`, a table with
-user-added indexes we don't know about, a column with a different dataType.
-These all surface as diff entries; whether they're reconcilable is the
-translate phase's call.
-
-### 5b. Translate (`translate.ts`) — rules that map diffs to operations
-
-Takes `SchemaDiff[]` and applies a registry of rules to produce tagged
-operations plus drift notes.
-
-```ts
-type OperationCategory = "create" | "drop" | "alter";
-type OperationScope = "schema" | "table" | "column" | "index" | "constraint";
-
-interface ReconciliationOp {
-  id: string;                      // deterministic, e.g. "create_table:public.users"
-  statement: DDLStatement;
-  category: OperationCategory;
-  scope: OperationScope;
-  async: boolean;                  // statement triggers a DSQL async job
-  dependsOn?: string[];            // prerequisite op ids
-}
-
-interface DriftNote {
-  code: string;                    // e.g. "COLUMN_TYPE_MISMATCH"
-  path: string[];
-  message: string;
-  detail?: Record<string, unknown>;
-}
-
-type RuleResult =
-  | { kind: "operation"; op: ReconciliationOp }
-  | { kind: "operations"; ops: ReconciliationOp[] }   // multi-output, e.g. unique→index+promote
-  | { kind: "drift";     note: DriftNote }
-  | { kind: "skip" };
-
-type Rule<K extends SchemaDiff["kind"]> = (
-  diff: Extract<SchemaDiff, { kind: K }>,
-  context: TranslateContext,
-) => RuleResult;
-
-function translate(diffs: SchemaDiff[]): {
-  operations: ReconciliationOp[];
-  drift: DriftNote[];
-};
-```
-
-Rules are registered per diff kind in `rules/`. Example mapping:
-
-| Diff kind                      | Rule output                                                                      |
-| ------------------------------ | -------------------------------------------------------------------------------- |
-| `schema_missing_remote`        | op — `CREATE SCHEMA`, `{ category: "create", scope: "schema" }`                  |
-| `schema_missing_local`         | op — `DROP SCHEMA`, `{ category: "drop", scope: "schema" }`                      |
-| `table_missing_remote`         | op — `CREATE TABLE` (PK + types only), `{ category: "create", scope: "table" }`; plus one op per index and two per unique constraint |
-| `table_missing_local`          | op — `DROP TABLE`, `{ category: "drop", scope: "table" }`                        |
-| `column_missing_remote`        | op — `ALTER TABLE ADD COLUMN`, `{ category: "create", scope: "column" }`         |
-| `column_missing_local`         | drift — `COLUMN_UNMANAGED` (DSQL forbids `DROP COLUMN`)                          |
-| `column_type_mismatch`         | drift — `COLUMN_TYPE_MISMATCH` (DSQL forbids type change)                        |
-| `column_nullability_mismatch`  | drift — `COLUMN_NULLABILITY_DIVERGES` (ORM contract takes over)                  |
-| `column_default_mismatch`      | drift — `COLUMN_DEFAULT_DIVERGES` (ORM-side defaults)                            |
-| `index_missing_remote`         | op — `CREATE INDEX ASYNC`, `{ category: "create", scope: "index", async: true }` |
-| `index_missing_local`          | op — `DROP INDEX`, `{ category: "drop", scope: "index" }`                        |
-| `unique_missing_remote`        | two ops — `CREATE UNIQUE INDEX ASYNC` + `ADD CONSTRAINT USING INDEX`, the second with `dependsOn` the first |
-| `unique_missing_local`         | op — `DROP CONSTRAINT` (via `ALTER TABLE`), `{ category: "drop", scope: "constraint" }` |
-
-Properties of the rule registry:
-
-- **Extensible** — new DSQL capability or new diff kind adds a rule, nothing
-  else changes.
-- **Pluggable** (post-MVP) — third-party rule packages can override or extend
-  the defaults.
-- **No policy** — every op the registry *can* produce is produced. Filtering
-  by `category`, `scope`, `async`, etc. is the runner's job.
-
-### 5c. Plan (`plan.ts`) — DAG + layer assignment
-
-Takes unordered `ReconciliationOp[]` and turns it into an ordered DAG with
-layer indices:
-
-```ts
-interface OrderedPlan {
-  nodes: ReconciliationOp[];
-  edges: Array<{ from: string; to: string }>;   // op id → op id dependency
-  layers: string[][];                            // layer index → op ids
-}
-
-function planOperations(operations: ReconciliationOp[]): OrderedPlan;
-```
-
-Layer assignment rules:
-
-- An op's layer is `1 + max(layer of each dependsOn)`. Base layer is 0.
-- Ops in the same layer are independent and *may* run in parallel.
-- Ops across layers are strictly ordered: layer *N* must fully complete
-  before layer *N+1* starts.
-
-Default dependency edges (added beyond user-declared `dependsOn`):
-
-1. `CREATE SCHEMA` → everything in that namespace.
-2. `CREATE TABLE` → any op scoped to that table.
-3. `ADD COLUMN` → any index/constraint that references the column.
-4. `CREATE [UNIQUE] INDEX` → any `ADD CONSTRAINT … UNIQUE USING INDEX` that
-   targets it.
-5. Drop ops are scheduled in reverse: `DROP CONSTRAINT` before `DROP INDEX`
-   before `DROP TABLE` before `DROP SCHEMA`. Drops come after creates within
-   the same plan (so a rename-as-drop+create pair works correctly once renames
-   arrive).
-
-### 5d. `reconcile()` — composition
+Full design lives in [`reconciler.md`](./reconciler.md). The runner only
+needs the public surface:
 
 ```ts
 interface ReconciliationResult {
   plan: OrderedPlan;
-  drift: DriftNote[];
+  refusals: Refusal[];     // actions DSQL won't allow, with reason codes
 }
 
-function reconcile(local, remote): ReconciliationResult {
-  const diffs = diff(local, remote);
-  const { operations, drift } = translate(diffs);
-  const plan = planOperations(operations);
-  return { plan, drift };
-}
+function reconcile(local, remote): ReconciliationResult;
 ```
 
 ### Runner strategy — tag-based filtering
 
-The reconciler returns *every* op the rule registry can produce. The runner
-decides what actually executes via its options:
+The reconciler returns *every* op it can produce. The runner decides what
+actually executes via its options:
 
 ```ts
 function applyStrategy(plan, options): ReconciliationOp[] {
@@ -514,20 +358,8 @@ function applyStrategy(plan, options): ReconciliationOp[] {
 }
 ```
 
-Execution walks layers in order. Within a layer, MVP runs sequentially; a
-future orchestrator can parallelize.
-
-### What the reconciler does NOT do
-
-- **Does not filter by strategy.** Every producible op is in the plan; the
-  runner filters.
-- **Does not execute.** Output is an unexecuted plan.
-- **Does not skip "already-applied" statements.** Idempotency comes from
-  re-introspection; the reconciler is a pure function of (local, remote).
-- **Does not emit DDL DSQL would refuse.** Operations DSQL cannot perform
-  (`DROP COLUMN`, `ALTER COLUMN SET DATA TYPE`) become drift notes, not ops —
-  even `allowDestructive: true` cannot execute them because there's nothing
-  to execute.
+Refusals are surfaced to the user but do not block execution of the operations
+that *are* runnable. Execution walks the sorted plan; MVP is sequential.
 
 ---
 
