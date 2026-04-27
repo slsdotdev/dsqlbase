@@ -9,6 +9,7 @@ import {
   IndexColumnExpression,
   TableConstraintExpression,
 } from "../../ddl/ast.js";
+import { ddl } from "../../ddl/index.js";
 import {
   DDLOperation,
   DDLOperationError,
@@ -17,7 +18,6 @@ import {
   OperationResult,
   qualifiedName,
 } from "./base.js";
-import { ddl } from "../../ddl/index.js";
 
 export function createTableOperation(
   object: SerializedObject<AnyTableDefinition>,

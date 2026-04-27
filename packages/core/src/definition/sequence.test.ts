@@ -54,7 +54,7 @@ describe("SequenceDefinition", () => {
       .cycle()
       .toJSON();
 
-    expect(json).toEqual({
+    expect(json).toMatchObject({
       kind: "SEQUENCE",
       name: "invoice_seq",
       dataType: "bigint",

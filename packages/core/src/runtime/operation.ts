@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { Relation } from "../definition/index.js";
-import { SQLIdentifier, SQLNode, SQLStatement } from "../sql/index.js";
+import { sql, SQLIdentifier, SQLNode, SQLStatement, SQLWrapper } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
@@ -84,7 +84,7 @@ export interface InsertOperation<
 
 export interface UpdateOperationArgs {
   set: FieldMutation[];
-  where: SQLNode | SQLNode[];
+  where?: SQLNode | SQLNode[];
   return?: FieldSelection[];
 }
 
@@ -98,7 +98,7 @@ export interface UpdateOperation<
 }
 
 export interface DeleteOperationArgs {
-  where: SQLNode | SQLNode[];
+  where?: SQLNode | SQLNode[];
   return?: FieldSelection[];
 }
 
@@ -280,39 +280,34 @@ export class OperationsFactory<
         );
       }
 
-      let params: SelectParams | undefined = undefined;
       const joinResolvers: FieldResolver[] = [];
+      const params: SelectParams = this._resolveSelectParams(
+        targetTable,
+        value,
+        relation.type === Relation.HAS_MANY ? "many" : "one",
+        joinResolvers
+      );
 
-      if (typeof value === "boolean" && value === true) {
-        params = this._resolveSelectParams(
-          targetTable,
-          { select: [] },
-          relation.type === Relation.HAS_MANY ? "many" : "one",
-          joinResolvers
-        );
-      } else if (typeof value === "object") {
-        params = this._resolveSelectParams(
-          targetTable,
-          value,
-          relation.type === Relation.HAS_MANY ? "many" : "one",
-          joinResolvers
-        );
-      }
+      const connection =
+        relation.type === Relation.BELONGS_TO
+          ? sql.eq(fromColumn, toColumn)
+          : sql.eq(toColumn, fromColumn);
 
-      if (params) {
-        joins.push({
-          alias: fieldName,
-          type: relation.type === "has_many" ? "many" : "one",
-          from: fromColumn,
-          to: toColumn,
-          params: {
-            ...params,
-            // where: params.where
-            //   ? and([equals(toColumn, fromColumn), params.where])
-            //   : equals(toColumn, fromColumn),
-          },
-        });
-      }
+      joins.push({
+        alias: fieldName,
+        type: relation.type === "has_many" ? "many" : "one",
+        from: fromColumn,
+        to: toColumn,
+        params: {
+          ...params,
+          where: params.where
+            ? sql.and([
+                connection,
+                params.where instanceof SQLWrapper ? params.where : new SQLWrapper(params.where),
+              ])
+            : connection,
+        },
+      });
 
       resolvers.push([fieldName, joinResolvers]);
     }

@@ -33,13 +33,20 @@ export class MigrationRunner {
     return validateDefinition(definition);
   }
 
-  public async getRemoteSchema() {
-    // TBD: Implement the logic to inspect the remote database schema using introspection queries.
-    // This will involve querying the database's information schema or system catalogs to retrieve
-    // the current state of the database schema, including tables, columns, data types, constraints, etc.
+  /**
+   * Introspects the remote database schema.
+   *
+   * This method should be implemented to fetch the current state of the database schema,
+   * including tables, columns, data types, constraints, etc.
+   *
+   * @returns A promise that resolves to the serialized schema of the remote database.
+   */
+
+  public async introspect(): Promise<SerializedSchema> {
+    throw new Error("introspect method is not implemented yet.");
   }
 
-  public async reconcileSchemas(local: SerializedSchema, remote: SerializedSchema) {
+  public reconcileSchemas(local: SerializedSchema, remote: SerializedSchema) {
     return reconcileSchemas(local, remote);
   }
 
@@ -58,7 +65,13 @@ export class MigrationRunner {
    * @throws Will throw an error if the schema definition is invalid or if the migration fails.
    */
 
-  public async run(definition: SerializedSchema) {
+  public async run(
+    definition: SerializedSchema,
+    options: MigrationRunnerOptions = {
+      dryRun: false,
+      destructive: false,
+    }
+  ) {
     const validationResult = this.validate(definition);
 
     if (!validationResult.isValid) {
@@ -67,6 +80,24 @@ export class MigrationRunner {
           .map((error) => error.message)
           .join("\n")}`
       );
+    }
+
+    const remoteSchema = await this.introspect();
+    const { errors } = this.reconcileSchemas(definition, remoteSchema);
+
+    if (errors.length > 0) {
+      throw new Error(
+        `Schema reconciliation failed with errors:\n${errors
+          .map((error) => `- ${error.message}`)
+          .join("\n")}`
+      );
+    }
+
+    if (options.dryRun) {
+      console.log(
+        "Dry run enabled. Migration plan generated successfully, but no changes will be made to the database."
+      );
+      return;
     }
   }
 }

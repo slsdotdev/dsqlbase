@@ -2,15 +2,33 @@ import { TypedObject } from "@dsqlbase/core/utils";
 import {
   AnyTable,
   DefinitionSchema,
+  DeleteOperationArgs,
   ExecutionContext,
+  FieldMutation,
   FieldSelection,
+  InsertOperationArgs,
   OperationMode,
   OperationRequest,
   Schema,
   SelectOperationArgs,
+  sql,
   SQLNode,
+  SQLValue,
+  UpdateOperationArgs,
 } from "@dsqlbase/core";
-import { FieldSelectionOf, QueryArgs, WhereExpressionOf } from "./base.js";
+import {
+  AnyRelationQuery,
+  CreateArgs,
+  DeleteArgs,
+  FieldSelectionOf,
+  isFilterType,
+  JoinExpressionOf,
+  OrderByExpressionOf,
+  QueryArgs,
+  UpdateArgs,
+  UpdateValuesOf,
+  WhereExpressionOf,
+} from "./base.js";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -26,10 +44,111 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   private _getWhereExpression<TTable extends AnyTable>(
     table: TTable,
     where: WhereExpressionOf<TTable> | null | undefined
-  ): SQLNode[] | undefined {
+  ): SQLNode | undefined {
     if (!where) {
       return undefined;
     }
+
+    const expressions: SQLNode[] = [];
+
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (fieldName === "and" && Array.isArray(condition)) {
+        expressions.push(
+          sql.wrap(
+            sql.and(
+              condition
+                .map((expr) => this._getWhereExpression(table, expr))
+                .filter(Boolean) as SQLNode[]
+            )
+          )
+        );
+      }
+
+      if (fieldName === "or" && Array.isArray(condition)) {
+        expressions.push(
+          sql.wrap(
+            sql.join(
+              condition
+                .map((expr) => this._getWhereExpression(table, expr))
+                .filter(Boolean) as SQLNode[],
+              " OR "
+            )
+          )
+        );
+      }
+
+      if (fieldName === "not" && !Array.isArray(condition)) {
+        const expr = this._getWhereExpression(table, condition);
+
+        if (expr) {
+          expressions.push(sql.not(expr));
+        }
+      }
+
+      const column = table.getColumn(fieldName);
+
+      if (!column) {
+        throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
+      }
+
+      if (isFilterType(condition, "eq")) {
+        expressions.push(sql.eq(column, condition.eq));
+      }
+
+      if (isFilterType(condition, "neq")) {
+        expressions.push(sql.ne(column, condition.neq));
+      }
+
+      if (isFilterType(condition, "gt")) {
+        expressions.push(sql.gt(column, condition.gt));
+      }
+
+      if (isFilterType(condition, "gte")) {
+        expressions.push(sql.gte(column, condition.gte));
+      }
+
+      if (isFilterType(condition, "lt")) {
+        expressions.push(sql.lt(column, condition.lt));
+      }
+
+      if (isFilterType(condition, "lte")) {
+        expressions.push(sql.lte(column, condition.lte));
+      }
+
+      if (isFilterType(condition, "in")) {
+        expressions.push(sql`${column} IN ${sql.param(condition.in)}`);
+      }
+
+      if (isFilterType(condition, "between")) {
+        expressions.push(
+          sql`${column} BETWEEN ${sql.param(condition.between[0])} AND ${sql.param(
+            condition.between[1]
+          )}`
+        );
+      }
+
+      if (isFilterType(condition, "exists")) {
+        if (condition.exists) {
+          expressions.push(sql.exists(sql`SELECT 1 FROM ${table} WHERE ${column} IS NOT NULL`));
+        } else {
+          expressions.push(sql.notExists(sql`SELECT 1 FROM ${table} WHERE ${column} IS NOT NULL`));
+        }
+      }
+
+      if (isFilterType(condition, "beginsWith")) {
+        expressions.push(sql.like(column, `${condition.beginsWith}%`));
+      }
+
+      if (isFilterType(condition, "endsWith")) {
+        expressions.push(sql.like(column, `%${condition.endsWith}`));
+      }
+
+      if (isFilterType(condition, "contains")) {
+        expressions.push(sql.like(column, `%${condition.contains}%`));
+      }
+    }
+
+    return sql.and(expressions);
   }
 
   private _getSelectionEntries<TTable extends AnyTable>(
@@ -57,19 +176,162 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return entries;
   }
 
+  private _getOrderByEntries<TTable extends AnyTable>(
+    table: TTable,
+    orderBy: OrderByExpressionOf<TTable> | null | undefined
+  ): SQLNode[] | undefined {
+    if (!orderBy) {
+      return undefined;
+    }
+
+    const entries: SQLNode[] = [];
+
+    for (const [fieldName, direction] of Object.entries(orderBy)) {
+      const column = table.getColumn(fieldName);
+
+      if (!column) {
+        throw new Error(`Invalid field "${fieldName}" in orderBy for table "${table.name}".`);
+      }
+
+      if (direction === "asc") {
+        entries.push(sql`${column} ASC`);
+      } else if (direction === "desc") {
+        entries.push(sql`${column} DESC`);
+      }
+    }
+
+    return entries;
+  }
+
+  private _getJoinEntries<TTable extends AnyTable>(
+    table: TTable,
+    join: JoinExpressionOf<TTable, this["__type"]> | null | undefined
+  ): [string, SelectOperationArgs][] | undefined {
+    const entries: [string, SelectOperationArgs][] = [];
+
+    if (!join || Object.keys(join).length === 0) {
+      return undefined;
+    }
+
+    for (const [fieldName, query] of Object.entries(join as Record<string, AnyRelationQuery>)) {
+      if (query === null || query === undefined || (typeof query === "boolean" && !query)) {
+        continue;
+      }
+
+      const targetTable = this._ctx.schema.getRelationTarget(table.name, fieldName);
+
+      if (!targetTable) {
+        throw new Error(
+          `Relation "${fieldName}" in table "${table.name}" does not have a valid target table.`
+        );
+      }
+
+      const params = this._getSelectArgs(targetTable, query === true ? {} : query);
+      entries.push([fieldName, params]);
+    }
+
+    return entries;
+  }
+
+  private _getMutationEntries<TTable extends AnyTable>(
+    table: TTable,
+    values: UpdateValuesOf<TTable>
+  ): FieldMutation[] {
+    const entries: FieldMutation[] = [];
+
+    for (const [fieldName, value] of Object.entries(values as Record<string, SQLValue>)) {
+      const column = table.getColumn(fieldName);
+
+      if (!column) {
+        throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
+      }
+
+      entries.push([column, sql.param(value)]);
+    }
+
+    return entries;
+  }
+
+  private _getSelectArgs<TTable extends AnyTable>(
+    table: TTable,
+    args: QueryArgs<TTable, this["__type"]>
+  ): SelectOperationArgs {
+    const selection = this._getSelectionEntries(table, args.select);
+    const where = this._getWhereExpression(table, args.where);
+    const join = this._getJoinEntries(table, args.join);
+    const orderBy = this._getOrderByEntries(table, args.orderBy);
+
+    return {
+      select: selection,
+      where,
+      join,
+      orderBy,
+      distinct: args.distinct,
+      limit: args.limit,
+      offset: args.offset,
+    };
+  }
+
   public normalizeSelect<
     TTable extends AnyTable,
     TArgs extends QueryArgs<TTable, this["__type"]>,
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<SelectOperationArgs, TMode> {
-    const selection = this._getSelectionEntries(table, args.select);
-    const where = this._getWhereExpression(table, args.where);
+    return {
+      mode,
+      args: this._getSelectArgs(table, args),
+    };
+  }
+
+  public normalizeInsert<
+    TTable extends AnyTable,
+    TArgs extends CreateArgs<TTable>,
+    TMode extends OperationMode,
+  >(table: TTable, args: TArgs, mode: TMode): OperationRequest<InsertOperationArgs, TMode> {
+    const values = this._getMutationEntries(table, args.data);
+    const returning = this._getSelectionEntries(table, args.return);
 
     return {
       mode,
       args: {
-        select: selection,
+        data: [values],
+        return: returning,
+      },
+    };
+  }
+
+  public normalizeUpdate<
+    TTable extends AnyTable,
+    TArgs extends UpdateArgs<TTable>,
+    TMode extends OperationMode,
+  >(table: TTable, args: TArgs, mode: TMode): OperationRequest<UpdateOperationArgs, TMode> {
+    const values = this._getMutationEntries(table, args.set);
+    const where = this._getWhereExpression(table, args.where);
+    const returning = this._getSelectionEntries(table, args.return);
+
+    return {
+      mode,
+      args: {
+        set: values,
         where,
+        return: returning,
+      },
+    };
+  }
+
+  public normalizeDelete<
+    TTable extends AnyTable,
+    TArgs extends DeleteArgs<TTable>,
+    TMode extends OperationMode,
+  >(table: TTable, args: TArgs, mode: TMode): OperationRequest<DeleteOperationArgs, TMode> {
+    const where = this._getWhereExpression(table, args.where);
+    const returning = this._getSelectionEntries(table, args.return);
+
+    return {
+      mode,
+      args: {
+        where,
+        return: returning,
       },
     };
   }

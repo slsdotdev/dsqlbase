@@ -17,12 +17,14 @@ export function createSequenceOperation(
     schema: object.namespace,
     ifNotExists,
     options: ddl.sequenceOptions({
+      dataType: object.dataType,
       incrementBy: object.increment,
-      minValue: object.minValue,
-      maxValue: object.maxValue,
-      startValue: object.startValue,
       cache: object.cache,
       cycle: object.cycle,
+      startValue: object.startValue,
+      minValue: object.minValue,
+      maxValue: object.maxValue,
+      ownedBy: object.ownedBy,
     }),
   });
 

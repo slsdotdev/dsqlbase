@@ -1,3 +1,4 @@
+import { SQLValue } from "@dsqlbase/core";
 import {
   AnyColumnDefinition,
   AnyNamespaceDefinition,
@@ -114,12 +115,12 @@ export type UpdateValuesOf<T extends AnyTable> = {
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
   set: UpdateValuesOf<TTable>;
-  where: Record<string, unknown>;
+  where: WhereExpressionOf<TTable>;
   return?: FieldSelectionOf<TTable> | boolean | null | undefined;
 }>;
 
 export type DeleteArgs<TTable extends AnyTable> = Prettify<{
-  where: Record<string, unknown>;
+  where: WhereExpressionOf<TTable>;
   return?: FieldSelectionOf<TTable> | boolean | null | undefined;
 }>;
 
@@ -498,3 +499,19 @@ export type OrderByExpressionOf<T extends AnyTable> = Partial<
 export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {
   [K in RelationFieldNamesOf<T>]?: RelationQueryOf<T, S, K> | boolean | null | undefined;
 };
+
+export type AnyRelationQuery =
+  | RelationQueryOf<AnyTable, AnySchema, RelationFieldNamesOf<AnyTable>>
+  | boolean;
+
+export function isFilterType<T extends keyof FilterCondition>(
+  value: unknown,
+  type: T
+): value is Required<Pick<FilterCondition<SQLValue>, T>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    type in value &&
+    value[type as keyof typeof value] !== undefined
+  );
+}

@@ -1,4 +1,4 @@
-import { describe, expectTypeOf, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   ExecutionContext,
   SchemaRegistry,
@@ -60,46 +60,48 @@ const client = new ModelClient(context, tables.users);
 
 describe("ModelClient", () => {
   it("should infer return type based on `return` selection", async () => {
-    expectTypeOf(
-      client.create({
-        data: {
-          id: "123",
-          firstName: "John",
-          lastName: "Doe",
-          emailAddress: "john@email.com",
-          address: "123 Main St",
-        },
-        return: {
-          id: true,
-        },
-      })
-    ).toEqualTypeOf<{ id: string } | null>();
+    const query = client.create({
+      data: {
+        id: "123",
+        firstName: "John",
+        lastName: "Doe",
+        emailAddress: "john@email.com",
+        address: "123 Main St",
+      },
+      return: {
+        id: true,
+      },
+    });
+
+    expect(query).toBeInstanceOf(ExecutableQuery);
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string } | null>();
   });
 
   it("should infer return type as null if no fields are selected", async () => {
-    expectTypeOf(
-      client.create({
-        data: {
-          firstName: "John",
-          lastName: "Doe",
-          emailAddress: "john@email.com",
-        },
-        return: null,
-      })
-    ).toEqualTypeOf<Record<string, never> | null>();
+    const query = client.create({
+      data: {
+        id: "123",
+        firstName: "John",
+        lastName: "Doe",
+        emailAddress: "john@email.com",
+      },
+    });
+
+    expect(query).toBeInstanceOf(ExecutableQuery);
+    expectTypeOf(query.$typeOf).toEqualTypeOf<null>();
   });
 
   it("should infer return type as full record if `return` is true", async () => {
-    expectTypeOf(
-      client.create({
-        data: {
-          firstName: "John",
-          lastName: "Doe",
-          emailAddress: "john@mail.com",
-        },
-        return: true,
-      })
-    ).toEqualTypeOf<{
+    const query = client.create({
+      data: {
+        firstName: "John",
+        lastName: "Doe",
+        emailAddress: "john@mail.com",
+      },
+      return: true,
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{
       id: string;
       firstName: string;
       lastName: string;
