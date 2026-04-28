@@ -70,9 +70,8 @@ describe("OperationFactory", () => {
       args: {
         data: [
           [
-            [users.columns.id, new SQLParam(1)],
-            [users.columns.name, new SQLParam("Alice")],
-            [users.columns.email, new SQLParam(null)],
+            ["id", new SQLParam(1)],
+            ["name", new SQLParam("Alice")],
           ],
         ],
         return: [["id", users.columns.id]],
@@ -90,7 +89,7 @@ describe("OperationFactory", () => {
         expect.arrayContaining([
           expect.objectContaining({ _value: 1 }),
           expect.objectContaining({ _value: "Alice" }),
-          expect.objectContaining({ _value: null }),
+          expect.objectContaining({ _text: "DEFAULT" }),
         ]),
       ]),
       return: [users.columns.id],
@@ -110,9 +109,9 @@ describe("OperationFactory", () => {
       args: {
         data: [
           [
-            [users.columns.id, new SQLParam(1)],
-            [users.columns.name, new SQLParam("Alice")],
-            [users.columns.email, new SQLParam(null)],
+            ["id", new SQLParam(1)],
+            ["name", new SQLParam("Alice")],
+            ["email", new SQLParam(null)],
           ],
         ],
         return: [["id", users.columns.id]],
@@ -205,8 +204,8 @@ describe("OperationFactory", () => {
       mode: "one",
       args: {
         set: [
-          [users.columns.name, sql.param("Alice Updated")],
-          [users.columns.email, sql.param("other@email.com")],
+          ["name", sql.param("Alice Updated")],
+          ["email", sql.param("other@email.com")],
         ],
         where: sql`${users.columns.id} = ${sql.param(1)}`,
         return: [["id", users.columns.id]],
@@ -243,8 +242,8 @@ describe("OperationFactory", () => {
       mode: "one",
       args: {
         set: [
-          [users.columns.name, sql.param("Alice Updated")],
-          [users.columns.email, sql.param("other@email.com")],
+          ["name", sql.param("Alice Updated")],
+          ["email", sql.param("other@email.com")],
         ],
         where: sql`${users.columns.id} = ${sql.param(1)}`,
         return: [["id", users.columns.id]],

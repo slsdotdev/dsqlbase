@@ -62,6 +62,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
             )
           )
         );
+
+        continue;
       }
 
       if (fieldName === "or" && Array.isArray(condition)) {
@@ -75,6 +77,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
             )
           )
         );
+
+        continue;
       }
 
       if (fieldName === "not" && !Array.isArray(condition)) {
@@ -83,6 +87,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         if (expr) {
           expressions.push(sql.not(expr));
         }
+
+        continue;
       }
 
       const column = table.getColumn(fieldName);
@@ -129,9 +135,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (isFilterType(condition, "exists")) {
         if (condition.exists) {
-          expressions.push(sql.exists(sql`SELECT 1 FROM ${table} WHERE ${column} IS NOT NULL`));
+          expressions.push(sql.isNotNull(column));
         } else {
-          expressions.push(sql.notExists(sql`SELECT 1 FROM ${table} WHERE ${column} IS NOT NULL`));
+          expressions.push(sql.isNull(column));
         }
       }
 
@@ -246,7 +252,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
       }
 
-      entries.push([column, sql.param(value)]);
+      entries.push([fieldName, value]);
     }
 
     return entries;

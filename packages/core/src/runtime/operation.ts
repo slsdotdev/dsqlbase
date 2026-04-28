@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { Relation } from "../definition/index.js";
-import { sql, SQLIdentifier, SQLNode, SQLStatement, SQLWrapper } from "../sql/index.js";
+import { sql, SQLIdentifier, SQLNode, SQLStatement, SQLValue, SQLWrapper } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
@@ -45,7 +45,7 @@ export type FieldSelection = [
   column: AnyColumn | SQLIdentifier | FieldSelection[],
 ];
 
-export type FieldMutation = [column: string | AnyColumn | SQLIdentifier, value: SQLNode];
+export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
 
 export type FieldResolver = [fieldName: string, resolver: AnyColumn | FieldResolver[]];
 
@@ -173,17 +173,18 @@ export class OperationsFactory<
     const columns: SQLNode[] = [];
     const rows: SQLNode[][] = [];
 
+    const columnEntries = table.getColumnEntries();
+
+    for (const [, column] of columnEntries) {
+      columns.push(new SQLIdentifier(column.name));
+    }
+
     for (const record of data) {
       const row: SQLNode[] = [];
+      const values = Object.fromEntries(record);
 
-      for (const [key, value] of record) {
-        const column = table.getColumn(typeof key === "string" ? key : key.name);
-
-        if (!column) {
-          throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
-        }
-
-        columns.push(new SQLIdentifier(column.name));
+      for (const [fieldName, column] of columnEntries) {
+        const value = column.getInsertValue(values[fieldName]);
         row.push(value);
       }
 
@@ -200,7 +201,7 @@ export class OperationsFactory<
     const entries: [SQLNode, SQLNode][] = [];
 
     for (const [key, value] of data) {
-      const column = table.getColumn(typeof key === "string" ? key : key.name);
+      const column = table.getColumn(key);
 
       if (!column) {
         throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
@@ -210,7 +211,8 @@ export class OperationsFactory<
         throw new Error(`Cannot update primary key column "${key}"`);
       }
 
-      entries.push([new SQLIdentifier(column.name), value]);
+      const param = column.getUpdateValue(value);
+      entries.push([new SQLIdentifier(column.name), param]);
     }
 
     return entries;

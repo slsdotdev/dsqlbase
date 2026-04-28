@@ -4,8 +4,9 @@ import { introspection } from "@dsqlbase/schema/migration";
 
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
-import { createClient, TestClient } from "../db/index.js";
+
 import { applyMigrations } from "../db/migrate.js";
+import { createTestClient, TestClient } from "../db/index.js";
 
 const __dirname = new URL(".", import.meta.url).pathname;
 
@@ -20,12 +21,10 @@ describe("Schema introspection", () => {
   let definitions: SchemaNode[];
 
   beforeAll(async () => {
-    client = await createClient();
-    await applyMigrations(client.pg);
+    client = createTestClient();
+    await applyMigrations(client);
 
-    const [result] = await client.session.execute<{ definitions: SchemaNode[] } | null>(
-      introspection.toQuery()
-    );
+    const [result] = await client.$raw<{ definitions: SchemaNode[] } | null>(introspection);
 
     definitions = result?.definitions ?? [];
 

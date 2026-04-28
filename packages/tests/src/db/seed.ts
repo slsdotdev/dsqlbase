@@ -1,4 +1,5 @@
-import type { PGlite } from "@electric-sql/pglite";
+import { sql } from "@dsqlbase/core";
+import { TestClient } from "./client.js";
 
 export interface SeededData {
   teams: { id: string; name: string; slug: string }[];
@@ -16,64 +17,77 @@ export interface SeededData {
   }[];
 }
 
-export async function seedTeams(pg: PGlite) {
-  const { rows } = await pg.query<{ id: string; name: string; slug: string }>(`
+export async function seedTeams(client: TestClient) {
+  const query = sql`
     INSERT INTO "teams" ("name", "slug", "description") VALUES
       ('Engineering', 'engineering', 'Core engineering team'),
       ('Design', 'design', 'Product design team'),
       ('Marketing', 'marketing', 'Growth and marketing team')
     RETURNING "id", "name", "slug"
-  `);
-  return rows;
+  `;
+
+  return await client.$raw<{ id: string; name: string; slug: string }>(query);
 }
 
-export async function seedUsers(pg: PGlite) {
-  const { rows } = await pg.query<{ id: string; name: string; email: string }>(`
+export async function seedUsers(client: TestClient) {
+  const query = sql`
     INSERT INTO "users" ("name", "email") VALUES
       ('Alice Johnson', 'alice@example.com'),
       ('Bob Smith', 'bob@example.com'),
       ('Carol Williams', 'carol@example.com'),
       ('Dave Brown', 'dave@example.com')
     RETURNING "id", "name", "email"
-  `);
-  return rows;
+  `;
+
+  return await client.$raw<{ id: string; name: string; email: string }>(query);
 }
 
 export async function seedMembers(
-  pg: PGlite,
+  client: TestClient,
   teams: SeededData["teams"],
   users: SeededData["users"]
 ) {
-  const { rows } = await pg.query<{ id: string; team_id: string; user_id: string; role: string }>(`
+  const query = sql`
     INSERT INTO "team_members" ("team_id", "user_id", "role") VALUES
-      ('${teams[0].id}', '${users[0].id}', 'admin'),
-      ('${teams[0].id}', '${users[1].id}', 'member'),
-      ('${teams[0].id}', '${users[2].id}', 'member'),
-      ('${teams[1].id}', '${users[2].id}', 'admin'),
-      ('${teams[1].id}', '${users[3].id}', 'member'),
-      ('${teams[2].id}', '${users[3].id}', 'admin')
+      (${teams[0].id}, ${users[0].id}, 'admin'),
+      (${teams[0].id}, ${users[1].id}, 'member'),
+      (${teams[0].id}, ${users[2].id}, 'member'),
+      (${teams[1].id}, ${users[2].id}, 'admin'),
+      (${teams[1].id}, ${users[3].id}, 'member'),
+      (${teams[2].id}, ${users[3].id}, 'admin')
     RETURNING "id", "team_id", "user_id", "role"
-  `);
-  return rows.map((r) => ({ id: r.id, teamId: r.team_id, userId: r.user_id, role: r.role }));
+  `;
+  return await client.$raw<{ id: string; teamId: string; userId: string; role: string }>(query);
 }
 
-export async function seedProjects(pg: PGlite, teams: SeededData["teams"]) {
-  const { rows } = await pg.query<{ id: string; team_id: string; name: string; key: string }>(`
+export async function seedProjects(client: TestClient, teams: SeededData["teams"]) {
+  const query = sql`
     INSERT INTO "projects" ("team_id", "name", "key", "description", "is_archived") VALUES
-      ('${teams[0].id}', 'API Platform', 'API', 'Core API services', true),
-      ('${teams[0].id}', 'Web Dashboard', 'WEB', 'Admin dashboard', DEFAULT),
-      ('${teams[1].id}', 'Design System', 'DSN', 'Shared component library', DEFAULT)
+      (${teams[0].id}, 'API Platform', 'API', 'Core API services', ${true}),
+      (${teams[0].id}, 'Web Dashboard', 'WEB', 'Admin dashboard', DEFAULT),
+      (${teams[1].id}, 'Design System', 'DSN', 'Shared component library', DEFAULT)
     RETURNING "id", "team_id", "name", "key"
-  `);
-  return rows.map((r) => ({ id: r.id, teamId: r.team_id, name: r.name, key: r.key }));
+  `;
+  return await client.$raw<{ id: string; teamId: string; name: string; key: string }>(query);
 }
 
 export async function seedTasks(
-  pg: PGlite,
+  client: TestClient,
   projects: SeededData["projects"],
   users: SeededData["users"]
 ) {
-  const { rows } = await pg.query<{
+  const query = sql`
+    INSERT INTO "tasks" ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date") VALUES
+      (${projects[0].id}, ${users[0].id}, 1, 'Setup authentication', 'in_progress', 'high', '2026-05-01'),
+      (${projects[0].id}, ${users[1].id}, 2, 'Implement rate limiting', 'todo', 'medium', NULL),
+      (${projects[0].id}, NULL, 3, 'Write API documentation', 'todo', 'low', '2026-06-01'),
+      (${projects[1].id}, ${users[2].id}, 1, 'Dashboard layout', 'done', 'high', NULL),
+      (${projects[1].id}, ${users[1].id}, 2, 'User settings page', 'in_progress', 'medium', '2026-05-15'),
+      (${projects[2].id}, ${users[3].id}, 1, 'Button component', 'done', 'high', NULL)
+    RETURNING "id", "project_id", "assignee_id", "task_number", "title", "status", "priority"
+  `;
+
+  const rows = await client.$raw<{
     id: string;
     project_id: string;
     assignee_id: string | null;
@@ -81,16 +95,7 @@ export async function seedTasks(
     title: string;
     status: string;
     priority: string;
-  }>(`
-    INSERT INTO "tasks" ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date") VALUES
-      ('${projects[0].id}', '${users[0].id}', 1, 'Setup authentication', 'in_progress', 'high', '2026-05-01'),
-      ('${projects[0].id}', '${users[1].id}', 2, 'Implement rate limiting', 'todo', 'medium', NULL),
-      ('${projects[0].id}', NULL, 3, 'Write API documentation', 'todo', 'low', '2026-06-01'),
-      ('${projects[1].id}', '${users[2].id}', 1, 'Dashboard layout', 'done', 'high', NULL),
-      ('${projects[1].id}', '${users[1].id}', 2, 'User settings page', 'in_progress', 'medium', '2026-05-15'),
-      ('${projects[2].id}', '${users[3].id}', 1, 'Button component', 'done', 'high', NULL)
-    RETURNING "id", "project_id", "assignee_id", "task_number", "title", "status", "priority"
-  `);
+  }>(query);
 
   return rows.map((r) => ({
     id: r.id,
@@ -103,12 +108,12 @@ export async function seedTasks(
   }));
 }
 
-export async function seedData(pg: PGlite): Promise<SeededData> {
-  const teams = await seedTeams(pg);
-  const users = await seedUsers(pg);
-  const members = await seedMembers(pg, teams, users);
-  const projects = await seedProjects(pg, teams);
-  const tasks = await seedTasks(pg, projects, users);
+export async function seedData(client: TestClient): Promise<SeededData> {
+  const teams = await seedTeams(client);
+  const users = await seedUsers(client);
+  const members = await seedMembers(client, teams, users);
+  const projects = await seedProjects(client, teams);
+  const tasks = await seedTasks(client, projects, users);
 
   return { teams, users, members, projects, tasks };
 }

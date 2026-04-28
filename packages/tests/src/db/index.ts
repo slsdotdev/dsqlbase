@@ -1,4 +1,4 @@
-export { createClient, type TestClient } from "./client.js";
+export { createTestClient, type ClientSchema, type TestClient } from "./client.js";
 
 export {
   seedData,

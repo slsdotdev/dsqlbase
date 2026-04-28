@@ -93,6 +93,10 @@ export class Table<
     );
   }
 
+  public getColumnEntries(): [string, Column<string, ColumnConfig, this>][] {
+    return Object.entries(this.columns);
+  }
+
   public hasRelation(fieldName: string): boolean {
     return this.relations ? Object.hasOwn(this.relations, fieldName) : false;
   }

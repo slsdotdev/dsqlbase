@@ -1,6 +1,36 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core/definition";
 import { DateTimeMode, safeParseDate } from "../../utils/date.js";
 import { DateValueType } from "./date.js";
+import { HasDefault } from "@dsqlbase/core/utils";
+import { sql } from "@dsqlbase/core";
+
+export interface TimestampColumnConfig<
+  TValueType = unknown,
+  TRawType = unknown,
+> extends ColumnConfig<TValueType, TRawType> {
+  withTimezone?: boolean;
+}
+
+export class TimestampColumnDefinition<
+  TName extends string,
+  TConfig extends TimestampColumnConfig,
+> extends ColumnDefinition<TName, TConfig> {
+  private _withTimezone: boolean;
+
+  constructor(name: TName, config: Partial<TConfig> = {}) {
+    super(name, config);
+
+    this._withTimezone = config.withTimezone ?? false;
+  }
+
+  public defaultNow(): HasDefault<this> {
+    this._defaultValue = this._withTimezone
+      ? sql.raw("current_timestamp")
+      : sql.raw("localtimestamp");
+
+    return this as HasDefault<this>;
+  }
+}
 
 export interface DateTimeColumnOptions {
   /**
@@ -17,7 +47,7 @@ export interface DateTimeColumnOptions {
    * Whether to include timezone information when encoding/decoding datetime values:
    * - `true`: Column is defined as `timestamp with time zone` and will handle datetime values with timezone information (e.g., 'YYYY-MM-DDTHH:mm:ssZ' or 'YYYY-MM-DDTHH:mm:ss+00:00').
    * - `false`: Column is defined as `timestamp without time zone` and will handle datetime values without timezone information (e.g., 'YYYY-MM-DDTHH:mm:ss').
-   * @default false
+   * @default true
    */
   tz?: boolean;
 }
@@ -34,10 +64,15 @@ export function timestamp<const TName extends string, const TOptions extends Dat
   name: TName,
   options?: TOptions
 ) {
-  const dataType = options?.tz ? "timestamp with time zone" : "timestamp";
+  const withTimezone = options?.tz ?? true;
+  const dataType = withTimezone ? "timestamp with time zone" : "timestamp";
 
-  return new ColumnDefinition<TName, ColumnConfig<DateValueType<TOptions>, string>>(name, {
+  return new TimestampColumnDefinition<
+    TName,
+    TimestampColumnConfig<DateValueType<TOptions>, string>
+  >(name, {
     dataType,
+    withTimezone,
     codec: {
       encode: (value) => {
         const date = safeParseDate(value);

@@ -1,6 +1,6 @@
-CREATE DOMAIN "task_status" AS text CONSTRAINT "chk_task_status" CHECK (VALUE IN ('open', 'in_progress', 'completed', 'archived'));
+CREATE DOMAIN "task_status" AS text CONSTRAINT "chk_task_status" CHECK (VALUE IN ('todo', 'in_progress', 'done', 'archived'));
 -- statement breakpoint
-CREATE DOMAIN "priority_level" AS int CONSTRAINT "chk_priority_level" CHECK (VALUE IN (1, 2, 3, 4, 5));
+CREATE DOMAIN "priority_level" AS text CONSTRAINT "chk_priority_level" CHECK (VALUE IN ('urgent', 'high', 'medium', 'low', 'none'));
 -- statement breakpoint
 CREATE TABLE IF NOT EXISTS "teams" (
   "id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS "teams" (
   "slug" text NOT NULL UNIQUE,
   "description" varchar(500),
   "is_active" boolean NOT NULL DEFAULT true,
-  "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL
+  "created_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT current_timestamp
 );
 -- statement breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "teams_slug_idx" ON "teams" ("slug" ASC NULLS LAST) NULLS DISTINCT;
@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS "team_members" (
   "team_id" uuid NOT NULL,
   "user_id" uuid NOT NULL,
   "role" text NOT NULL,
-  "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL,
+  "created_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
   CONSTRAINT "team_members_unique" UNIQUE NULLS DISTINCT ("team_id", "user_id")
 );
 -- statement breakpoint
@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS "users" (
   "id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
   "name" text NOT NULL,
   "email" text NOT NULL UNIQUE,
-  "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL
+  "created_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT current_timestamp
 );
 -- statement breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "users_email_idx" ON "users" ("email" ASC NULLS LAST) NULLS DISTINCT;
@@ -42,11 +42,11 @@ CREATE TABLE IF NOT EXISTS "projects" (
   "name" text NOT NULL,
   "key" text NOT NULL,
   "description" varchar(5000),
-  "is_archived" boolean NOT NULL,
+  "is_archived" boolean NOT NULL DEFAULT false,
   "budget_hours" interval,
   "settings" text,
-  "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL
+  "created_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT current_timestamp
 );
 -- statement breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "projects_team_key_idx" ON "projects" ("team_id" ASC NULLS LAST, "key" ASC NULLS LAST) NULLS DISTINCT;
@@ -63,10 +63,10 @@ CREATE TABLE IF NOT EXISTS "tasks" (
   "status" task_status NOT NULL,
   "priority" priority_level NOT NULL,
   "due_date" date,
-  "completed_at" timestamp,
-  "deleted_at" timestamp,
-  "created_at" timestamp NOT NULL,
-  "updated_at" timestamp NOT NULL
+  "completed_at" timestamp with time zone,
+  "deleted_at" timestamp with time zone,
+  "created_at" timestamp with time zone NOT NULL DEFAULT current_timestamp,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT current_timestamp
 );
 -- statement breakpoint
 CREATE INDEX IF NOT EXISTS "tasks_project_idx" ON "tasks" ("project_id" ASC NULLS LAST) NULLS DISTINCT;

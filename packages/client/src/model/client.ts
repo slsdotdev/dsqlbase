@@ -22,7 +22,6 @@ export class ModelClient<
   TTable extends AnyTable,
   TDefinition extends DefinitionSchema,
 > implements TypedObject<Schema<TDefinition>> {
-  /** @internal */
   declare readonly __type: Schema<TDefinition>;
 
   private readonly _ctx: ExecutionContext<TDefinition>;

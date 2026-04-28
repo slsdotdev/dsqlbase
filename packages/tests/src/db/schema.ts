@@ -26,8 +26,8 @@ const teams = table("teams", {
   slug: text("slug").notNull().unique(),
   description: varchar("description", 500),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: datetime("created_at", { mode: "iso" }).notNull(),
-  updatedAt: datetime("updated_at", { mode: "iso" }).notNull(),
+  createdAt: datetime("created_at", { mode: "iso" }).notNull().defaultNow(),
+  updatedAt: datetime("updated_at", { mode: "iso" }).notNull().defaultNow(),
 });
 
 teams.index("teams_slug_idx", { unique: true }).columns((c) => [c.slug]);
@@ -37,8 +37,8 @@ const members = table("team_members", {
   teamId: uuid("team_id").notNull(),
   userId: uuid("user_id").notNull(),
   role: text("role").notNull(),
-  createdAt: datetime("created_at").notNull(),
-  updatedAt: datetime("updated_at").notNull(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+  updatedAt: datetime("updated_at").notNull().defaultNow(),
 });
 
 members.unique((c) => [c.teamId, c.userId]);
@@ -51,8 +51,8 @@ const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  createdAt: datetime("created_at").notNull(),
-  updatedAt: datetime("updated_at").notNull(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+  updatedAt: datetime("updated_at").notNull().defaultNow(),
 });
 
 users.index("users_email_idx", { unique: true }).columns((c) => [c.email]);
@@ -63,17 +63,18 @@ const projects = table("projects", {
   name: text("name").notNull(),
   key: text("key").notNull(),
   description: varchar("description", 5000),
-  isArchived: boolean("is_archived").notNull(),
+  isArchived: boolean("is_archived").notNull().default(false),
   budgetHours: duration("budget_hours", { mode: "iso" }),
   settings: json("settings").$type<ProjectSettings>(),
-  createdAt: datetime("created_at").notNull(),
-  updatedAt: datetime("updated_at").notNull(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+  updatedAt: datetime("updated_at").notNull().defaultNow(),
 });
 
 projects.index("projects_team_key_idx", { unique: true }).columns((c) => [c.teamId, c.key]);
 projects.index("projects_team_idx").columns((c) => [c.teamId]);
 
-const TASK_STATUS = ["open", "in_progress", "completed", "archived"] as const;
+const TASK_STATUS = ["todo", "in_progress", "done", "archived"] as const;
+const PRIORITY_LEVEL = ["urgent", "high", "medium", "low", "none"] as const;
 
 const taskStatus = new DomainDefinition("task_status", {
   dataType: "text",
@@ -81,10 +82,8 @@ const taskStatus = new DomainDefinition("task_status", {
   .check((c) => sql.in(c, [...TASK_STATUS]), "chk_task_status")
   .$type<(typeof TASK_STATUS)[number]>();
 
-const PRIORITY_LEVEL = [1, 2, 3, 4, 5] as const;
-
 const priorityLevel = new DomainDefinition("priority_level", {
-  dataType: "int",
+  dataType: "text",
 })
   .check((c) => sql.in(c, [...PRIORITY_LEVEL]), "chk_priority_level")
   .$type<(typeof PRIORITY_LEVEL)[number]>();
@@ -107,8 +106,8 @@ const tasks = table("tasks", {
   dueDate: date("due_date"),
   completedAt: datetime("completed_at"),
   deletedAt: datetime("deleted_at"),
-  createdAt: datetime("created_at").notNull(),
-  updatedAt: datetime("updated_at").notNull(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+  updatedAt: datetime("updated_at").notNull().defaultNow(),
 });
 
 tasks.index("tasks_project_idx").columns((c) => [c.projectId]);

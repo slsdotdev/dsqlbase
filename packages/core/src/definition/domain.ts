@@ -18,7 +18,7 @@ export interface DomainConfig<
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDomainDefinition = DomainDefinition<any, any, any, any>;
+export type AnyDomainDefinition = DomainDefinition<string, any, any, any>;
 
 export class DomainDefinition<
   TName extends string,

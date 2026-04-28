@@ -62,22 +62,22 @@
       {
         "kind": "COLUMN",
         "name": "created_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       },
       {
         "kind": "COLUMN",
         "name": "updated_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       }
@@ -155,22 +155,22 @@
       {
         "kind": "COLUMN",
         "name": "created_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       },
       {
         "kind": "COLUMN",
         "name": "updated_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       }
@@ -251,22 +251,22 @@
       {
         "kind": "COLUMN",
         "name": "created_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       },
       {
         "kind": "COLUMN",
         "name": "updated_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       }
@@ -388,43 +388,27 @@
       {
         "kind": "COLUMN",
         "name": "created_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       },
       {
         "kind": "COLUMN",
         "name": "updated_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       }
     ],
     "indexes": [
-      {
-        "kind": "INDEX",
-        "name": "projects_team_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX projects_team_idx ON public.projects USING btree (team_id)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "column": "team_id",
-            "sortDirection": "ASC",
-            "nulls": "LAST"
-          }
-        ],
-        "include": null
-      },
       {
         "kind": "INDEX",
         "name": "projects_team_key_idx",
@@ -441,6 +425,22 @@
           {
             "kind": "INDEX_COLUMN",
             "column": "key",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "projects_team_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX projects_team_idx ON public.projects USING btree (team_id)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "team_id",
             "sortDirection": "ASC",
             "nulls": "LAST"
           }
@@ -558,7 +558,7 @@
       {
         "kind": "COLUMN",
         "name": "completed_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": false,
         "primaryKey": false,
         "unique": false,
@@ -569,7 +569,7 @@
       {
         "kind": "COLUMN",
         "name": "deleted_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": false,
         "primaryKey": false,
         "unique": false,
@@ -580,43 +580,27 @@
       {
         "kind": "COLUMN",
         "name": "created_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       },
       {
         "kind": "COLUMN",
         "name": "updated_at",
-        "dataType": "timestamp without time zone",
+        "dataType": "timestamp with time zone",
         "notNull": true,
         "primaryKey": false,
         "unique": false,
-        "defaultValue": null,
+        "defaultValue": "CURRENT_TIMESTAMP",
         "check": null,
         "domain": null
       }
     ],
     "indexes": [
-      {
-        "kind": "INDEX",
-        "name": "tasks_assignee_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX tasks_assignee_idx ON public.tasks USING btree (assignee_id)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "column": "assignee_id",
-            "sortDirection": "ASC",
-            "nulls": "LAST"
-          }
-        ],
-        "include": null
-      },
       {
         "kind": "INDEX",
         "name": "tasks_project_idx",
@@ -627,6 +611,38 @@
           {
             "kind": "INDEX_COLUMN",
             "column": "project_id",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_status_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_status_idx ON public.tasks USING btree (status)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "status",
+            "sortDirection": "ASC",
+            "nulls": "LAST"
+          }
+        ],
+        "include": null
+      },
+      {
+        "kind": "INDEX",
+        "name": "tasks_assignee_idx",
+        "unique": false,
+        "distinctNulls": true,
+        "statement": "CREATE INDEX tasks_assignee_idx ON public.tasks USING btree (assignee_id)",
+        "columns": [
+          {
+            "kind": "INDEX_COLUMN",
+            "column": "assignee_id",
             "sortDirection": "ASC",
             "nulls": "LAST"
           }
@@ -650,22 +666,6 @@
         "include": [
           "status"
         ]
-      },
-      {
-        "kind": "INDEX",
-        "name": "tasks_status_idx",
-        "unique": false,
-        "distinctNulls": true,
-        "statement": "CREATE INDEX tasks_status_idx ON public.tasks USING btree (status)",
-        "columns": [
-          {
-            "kind": "INDEX_COLUMN",
-            "column": "status",
-            "sortDirection": "ASC",
-            "nulls": "LAST"
-          }
-        ],
-        "include": null
       }
     ],
     "unique": null,

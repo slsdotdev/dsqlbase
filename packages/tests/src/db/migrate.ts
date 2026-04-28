@@ -3,17 +3,17 @@ import * as schema from "./schema.js";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
-import type { PGlite } from "@electric-sql/pglite";
 import {
   printSchemaForCreate,
   getSerializedSchemaObjects,
   STATEMENT_BREAKPOINT,
 } from "@dsqlbase/schema/migration";
+import { TestClient } from "./client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = resolve(__dirname, "migrations/schema_generated.sql");
 
-async function applyMigrations(pg: PGlite): Promise<void> {
+async function applyMigrations(client: TestClient): Promise<void> {
   const definitions = getSerializedSchemaObjects(Object.values(schema));
   const statements = printSchemaForCreate(definitions);
 
@@ -24,7 +24,7 @@ async function applyMigrations(pg: PGlite): Promise<void> {
   );
 
   for (const statement of statements) {
-    await pg.exec(statement);
+    await client.$execute({ text: statement, params: [] });
   }
 }
 
