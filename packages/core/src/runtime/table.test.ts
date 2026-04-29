@@ -8,6 +8,7 @@ import {
   RelationsDefinition,
   NamespaceDefinition,
   TableDefinition,
+  NodeRef,
 } from "../definition/index.js";
 
 describe("Table", () => {
@@ -48,7 +49,7 @@ describe("Table", () => {
 
   describe("with schema", () => {
     const withSchema = new TableDefinition("users", {
-      schema: new NamespaceDefinition("test"),
+      namespace: new NodeRef(new NamespaceDefinition("test")),
       columns: {
         id: new ColumnDefinition("id").primaryKey(),
       },

@@ -1,45 +1,28 @@
-import {
-  AnyNamespaceDefinition,
-  ColumnConfig,
-  ColumnDefinition,
-  DomainDefinition,
-} from "@dsqlbase/core";
-import { WithDomain } from "@dsqlbase/core/utils";
+import { AnyNamespaceDefinition, DomainDefinition } from "@dsqlbase/core";
+
+/**
+ * Creates a domain definition.
+ * A domain is a user-defined data type that can be used to define columns in tables. It allows you to specify constraints and validation rules for the data stored in the column.
+ * @example
+ * ```ts
+ * const emailDomain = domain("email")
+ *   .check((value) => sql`${value} LIKE '%@%'`, "email_format_check");
+ *
+ * const usersTable = table("users", {
+ *   email: emailDomain.column("email"),
+ * });
+ * ```
+ * @param name The name of the domain.
+ * @returns A new DomainDefinition instance.
+ */
 
 export function domain<TName extends string>(name: TName) {
-  const definition = new DomainDefinition<TName, string, string, AnyNamespaceDefinition>(name, {
+  return new DomainDefinition<TName, string, string, AnyNamespaceDefinition>(name, {
     notNull: false,
     dataType: "text",
     codec: {
       encode: (value) => value,
       decode: (value) => value,
     },
-  });
-
-  function factory<TColumnName extends string>(
-    name: TColumnName
-  ): WithDomain<
-    ColumnDefinition<TColumnName, ColumnConfig<string, string>>,
-    DomainDefinition<TName, string, string, AnyNamespaceDefinition>
-  > {
-    return new ColumnDefinition<TColumnName, ColumnConfig<string, string>>(name, {
-      domain: definition,
-      dataType: definition.name,
-      codec: {
-        encode: (value) => value,
-        decode: (value) => value,
-      },
-    }) as WithDomain<
-      ColumnDefinition<TColumnName, ColumnConfig<string, string>>,
-      DomainDefinition<TName, string, string, AnyNamespaceDefinition>
-    >;
-  }
-
-  return Object.assign(factory, {
-    check: definition.check.bind(definition),
-    notNull: definition.notNull.bind(definition),
-    default: definition.default.bind(definition),
-    toJSON: definition.toJSON.bind(definition),
-    $type: definition.$type.bind(definition),
   });
 }

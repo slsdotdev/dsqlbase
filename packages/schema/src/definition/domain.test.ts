@@ -5,7 +5,7 @@ describe("domain definition factory", () => {
   it("should create a domain and column factory", () => {
     const status = domain("status");
 
-    const activeStatus = status("active_status").notNull().default("active");
+    const activeStatus = status.column("active_status").notNull().default("active");
 
     const json = activeStatus.toJSON();
 

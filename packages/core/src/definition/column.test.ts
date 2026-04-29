@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ColumnDefinition } from "./column.js";
 import { DomainDefinition } from "./domain.js";
 import { sql } from "../sql/tag.js";
+import { NodeRef } from "./base.js";
 
 describe("ColumnDefinition", () => {
   it("should create a ColumnDefinition with the correct name and config", () => {
@@ -30,7 +31,7 @@ describe("ColumnDefinition", () => {
     });
 
     const column = new ColumnDefinition("order", {
-      domain,
+      domain: new NodeRef(domain),
     })
       .$type<string>()
       .toJSON();

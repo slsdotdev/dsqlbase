@@ -58,16 +58,16 @@ export interface Schema<T extends DefinitionSchema> {
 
 export type AnySchema = Schema<DefinitionSchema>;
 
+/**
+ * Table Relation Types
+ */
+
 export type SchemaTableRelations<TSchema extends AnySchema, TTableName extends string> =
   TSchema["relations"] extends Record<TTableName, infer R>
     ? R extends AnyTableRelations
       ? R
       : never
     : never;
-
-/**
- * Table Relation Types
- */
 
 export type TableRelationFieldName<
   TSchema extends AnySchema,

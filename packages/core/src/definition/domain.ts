@@ -1,6 +1,7 @@
 import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
-import { HasDefault, NotNull, WithValueType } from "../utils/index.js";
-import { ColumnCodec, defaultCodec, DefinitionNode, Kind } from "./base.js";
+import { HasDefault, NotNull, WithDomain, WithValueType } from "../utils/index.js";
+import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
+import { ColumnConfig, ColumnDefinition } from "./column.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
@@ -9,12 +10,13 @@ export interface DomainConfig<
   TRawType = unknown,
   TNamespace extends AnyNamespaceDefinition = AnyNamespaceDefinition,
 > {
+  namespace?: NodeRef<TNamespace>;
   valueType: TValueType;
   rawType: TRawType;
   dataType: string;
   notNull: boolean;
+  defaultValue?: SQLNode;
   codec: ColumnCodec<TRawType, TValueType>;
-  namespace?: TNamespace;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,19 +32,21 @@ export class DomainDefinition<
 
   declare readonly __type: DomainConfig<TValueType, TRawType, TNamespace>;
 
-  protected _namespace?: TNamespace;
+  protected _namespace?: NodeRef<TNamespace>;
   protected _dataType: DomainConfig<TValueType, TRawType>["dataType"];
   protected _notNull: DomainConfig<TValueType, TRawType>["notNull"];
-  protected _defaultValue?: SQLNode;
+  protected _defaultValue?: DomainConfig<TValueType, TRawType>["defaultValue"];
   protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
 
-  constructor(name: TName, config: Partial<DomainConfig<TValueType, TRawType>> = {}) {
+  constructor(name: TName, config: Partial<DomainConfig<TValueType, TRawType, TNamespace>> = {}) {
     super(name);
 
     this._dataType = config.dataType ?? "text";
     this._notNull = config.notNull ?? false;
+    this._defaultValue = config.defaultValue;
+    this._namespace = config.namespace;
     this._codec =
       config.codec ??
       (defaultCodec as ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>);
@@ -58,8 +62,8 @@ export class DomainDefinition<
     return this as HasDefault<this>;
   }
 
-  public check<T extends string>(cb: (value: SQLNode) => SQLNode, name?: T): this {
-    const expression = new SQLQuery(cb(new SQLRaw("VALUE")));
+  public check<T extends string>(cb: (value: SQLNode) => SQLQuery, name?: T): this {
+    const expression = cb(new SQLRaw("VALUE"));
     this._check = new CheckConstraintDefinition(name ?? `${this.name}_check`, {
       expression,
     });
@@ -69,6 +73,37 @@ export class DomainDefinition<
 
   public $type<T>(): WithValueType<this, T> {
     return this as WithValueType<this, T>;
+  }
+
+  /**
+   * Creates a new column with the the domain as its data type. The column inherits the properties of the domain, such as `NOT NULL` and `DEFAULT` values.
+   *
+   * @param name The name of the column.
+   * @returns A new column definition with the domain applied.
+   */
+
+  public column<TColumnName extends string>(
+    name: TColumnName
+  ): WithDomain<
+    ColumnDefinition<
+      TColumnName,
+      ColumnConfig<this["__type"]["valueType"], this["__type"]["rawType"]>
+    >,
+    this
+  > {
+    return new ColumnDefinition(name, {
+      dataType: this.name,
+      notNull: this._notNull,
+      defaultValue: this._defaultValue,
+      codec: this._codec,
+      domain: new NodeRef(this),
+    }) as WithDomain<
+      ColumnDefinition<
+        TColumnName,
+        ColumnConfig<this["__type"]["valueType"], this["__type"]["rawType"]>
+      >,
+      this
+    >;
   }
 
   toJSON() {

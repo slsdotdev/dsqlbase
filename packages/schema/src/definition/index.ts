@@ -18,5 +18,7 @@ export { uuid, UUIDColumnDefinition } from "./columns/uuid.js";
 export { varchar } from "./columns/varchar.js";
 
 export { domain } from "./domain.js";
-export { table } from "./table.js";
+export { namespace, schema } from "./namespace.js";
 export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
+export { sequence } from "./sequence.js";
+export { table } from "./table.js";

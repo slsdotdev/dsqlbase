@@ -22,8 +22,9 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
+  defaultValue?: SQLNode;
   codec: ColumnCodec<TRawType, TValueType>;
-  domain: AnyDomainDefinition;
+  domain?: NodeRef<AnyDomainDefinition>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,8 +55,9 @@ export class ColumnDefinition<
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
+    this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
-    this._domain = config.domain ? new NodeRef(config.domain) : undefined;
+    this._domain = config.domain;
   }
 
   /**
@@ -134,7 +136,7 @@ export class ColumnDefinition<
         ? new SQLQuery(this._defaultValue).toQuery({ inlineParams: true }).text
         : null,
       check: this._check?.toJSON() ?? null,
-      domain: (this._domain?.toJSON() ?? null) as this["__type"]["domain"]["name"] | null,
+      domain: this._domain?.toJSON() ?? null,
     } as const;
   }
 }

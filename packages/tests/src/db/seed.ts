@@ -77,7 +77,9 @@ export async function seedTasks(
   users: SeededData["users"]
 ) {
   const query = sql`
-    INSERT INTO "tasks" ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date") VALUES
+    INSERT INTO "tasks" 
+      ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date") 
+    VALUES
       (${projects[0].id}, ${users[0].id}, 1, 'Setup authentication', 'in_progress', 'high', '2026-05-01'),
       (${projects[0].id}, ${users[1].id}, 2, 'Implement rate limiting', 'todo', 'medium', NULL),
       (${projects[0].id}, NULL, 3, 'Write API documentation', 'todo', 'low', '2026-06-01'),

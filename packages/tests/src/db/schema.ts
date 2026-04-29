@@ -1,4 +1,4 @@
-import { ColumnDefinition, DomainDefinition, SequenceDefinition, sql } from "@dsqlbase/core";
+import { sql } from "@dsqlbase/core";
 import {
   boolean,
   date,
@@ -13,7 +13,9 @@ import {
   hasOne,
   hasMany,
   belongsTo,
-} from "@dsqlbase/schema";
+  domain,
+  sequence,
+} from "@dsqlbase/schema/definition";
 
 export interface ProjectSettings {
   notificationsEnabled: boolean;
@@ -76,19 +78,15 @@ projects.index("projects_team_idx").columns((c) => [c.teamId]);
 const TASK_STATUS = ["todo", "in_progress", "done", "archived"] as const;
 const PRIORITY_LEVEL = ["urgent", "high", "medium", "low", "none"] as const;
 
-const taskStatus = new DomainDefinition("task_status", {
-  dataType: "text",
-})
+const taskStatus = domain("task_status")
   .check((c) => sql.in(c, [...TASK_STATUS]), "chk_task_status")
   .$type<(typeof TASK_STATUS)[number]>();
 
-const priorityLevel = new DomainDefinition("priority_level", {
-  dataType: "text",
-})
+const priorityLevel = domain("priority_level")
   .check((c) => sql.in(c, [...PRIORITY_LEVEL]), "chk_priority_level")
   .$type<(typeof PRIORITY_LEVEL)[number]>();
 
-const taskNumberSeq = new SequenceDefinition("task_number_seq").startWith(1).incrementBy(1);
+const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -97,12 +95,8 @@ const tasks = table("tasks", {
   taskNumber: text("task_number").notNull(),
   title: text("title").notNull(),
   description: varchar("description", 5000),
-  status: new ColumnDefinition("status", { domain: taskStatus })
-    .notNull()
-    .$type<(typeof TASK_STATUS)[number]>(),
-  priority: new ColumnDefinition("priority", { domain: priorityLevel })
-    .notNull()
-    .$type<(typeof PRIORITY_LEVEL)[number]>(),
+  status: taskStatus.column("status").notNull(),
+  priority: priorityLevel.column("priority").notNull(),
   dueDate: date("due_date"),
   completedAt: datetime("completed_at"),
   deletedAt: datetime("deleted_at"),

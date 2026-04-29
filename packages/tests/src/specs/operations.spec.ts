@@ -105,8 +105,6 @@ describe("CRUD Operations", () => {
       },
     });
 
-    console.dir(result, { depth: 10 });
-
     expect(result).toMatchObject({
       id: data.users[1].id,
       name: data.users[1].name,

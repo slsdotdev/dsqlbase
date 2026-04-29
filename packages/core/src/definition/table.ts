@@ -14,7 +14,7 @@ export interface TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
   TSchema extends AnyNamespaceDefinition,
 > {
-  schema?: TSchema;
+  namespace?: NodeRef<TSchema>;
   columns: TColumns;
 }
 
@@ -28,20 +28,20 @@ export type ColumnRefs<TColumns extends Record<string, AnyColumnDefinition>> = {
 export class TableDefinition<
   TName extends string,
   TColumns extends Record<string, AnyColumnDefinition>,
-  TSchema extends AnyNamespaceDefinition,
-> extends DefinitionNode<TName, TableConfig<TColumns, TSchema>> {
+  TNamespace extends AnyNamespaceDefinition,
+> extends DefinitionNode<TName, TableConfig<TColumns, TNamespace>> {
   readonly kind = Kind.TABLE;
 
-  protected _namespace?: TSchema;
+  protected _namespace?: NodeRef<TNamespace>;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
 
   readonly columns: Readonly<TColumns>;
 
-  constructor(name: TName, config: TableConfig<TColumns, TSchema>) {
+  constructor(name: TName, config: TableConfig<TColumns, TNamespace>) {
     super(name);
 
-    this._namespace = config.schema;
+    this._namespace = config.namespace;
     this.columns = config.columns as Readonly<TColumns>;
   }
 
