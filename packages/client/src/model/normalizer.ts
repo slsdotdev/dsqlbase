@@ -53,39 +53,38 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     for (const [fieldName, condition] of Object.entries(where)) {
       if (fieldName === "and" && Array.isArray(condition)) {
-        expressions.push(
-          sql.wrap(
-            sql.and(
-              condition
-                .map((expr) => this._getWhereExpression(table, expr))
-                .filter(Boolean) as SQLNode[]
-            )
-          )
+        const exp = sql.and(
+          condition
+            .map((expr) => this._getWhereExpression(table, expr))
+            .filter(Boolean) as SQLNode[]
         );
+        expressions.push(sql.wrap(exp));
 
         continue;
       }
 
       if (fieldName === "or" && Array.isArray(condition)) {
-        expressions.push(
-          sql.wrap(
-            sql.join(
-              condition
-                .map((expr) => this._getWhereExpression(table, expr))
-                .filter(Boolean) as SQLNode[],
-              " OR "
-            )
-          )
+        const exp = sql.or(
+          condition
+            .map((expr) => this._getWhereExpression(table, expr))
+            .filter(Boolean) as SQLNode[]
         );
+        expressions.push(sql.wrap(exp));
 
         continue;
       }
 
-      if (fieldName === "not" && !Array.isArray(condition)) {
+      if (
+        fieldName === "not" &&
+        typeof condition === "object" &&
+        condition !== null &&
+        !Array.isArray(condition)
+      ) {
+        const shouldWrapNot = Object.keys(condition).length > 1;
         const expr = this._getWhereExpression(table, condition);
 
         if (expr) {
-          expressions.push(sql.not(expr));
+          expressions.push(shouldWrapNot ? sql.wrap(sql.not(expr)) : sql.not(expr));
         }
 
         continue;
@@ -99,30 +98,37 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (isFilterType(condition, "eq")) {
         expressions.push(sql.eq(column, condition.eq));
+        continue;
       }
 
       if (isFilterType(condition, "neq")) {
         expressions.push(sql.ne(column, condition.neq));
+        continue;
       }
 
       if (isFilterType(condition, "gt")) {
         expressions.push(sql.gt(column, condition.gt));
+        continue;
       }
 
       if (isFilterType(condition, "gte")) {
         expressions.push(sql.gte(column, condition.gte));
+        continue;
       }
 
       if (isFilterType(condition, "lt")) {
         expressions.push(sql.lt(column, condition.lt));
+        continue;
       }
 
       if (isFilterType(condition, "lte")) {
         expressions.push(sql.lte(column, condition.lte));
+        continue;
       }
 
       if (isFilterType(condition, "in")) {
         expressions.push(sql`${column} IN ${sql.param(condition.in)}`);
+        continue;
       }
 
       if (isFilterType(condition, "between")) {
@@ -131,6 +137,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
             condition.between[1]
           )}`
         );
+        continue;
       }
 
       if (isFilterType(condition, "exists")) {
@@ -139,19 +146,25 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         } else {
           expressions.push(sql.isNull(column));
         }
+        continue;
       }
 
       if (isFilterType(condition, "beginsWith")) {
         expressions.push(sql.like(column, `${condition.beginsWith}%`));
+        continue;
       }
 
       if (isFilterType(condition, "endsWith")) {
         expressions.push(sql.like(column, `%${condition.endsWith}`));
+        continue;
       }
 
       if (isFilterType(condition, "contains")) {
         expressions.push(sql.like(column, `%${condition.contains}%`));
+        continue;
       }
+
+      expressions.push(sql.eq(column, condition as SQLValue));
     }
 
     return sql.and(expressions);

@@ -27,7 +27,7 @@ describe("NamespaceDefinition", () => {
   it("should create a domain within the namespace", () => {
     const namespace = new NamespaceDefinition("test_namespace");
 
-    const domain = namespace.domain("positive_int");
+    const domain = namespace.domain("positive_int").notNull();
     const json = domain.toJSON();
 
     expect(json.name).toBe("positive_int");
