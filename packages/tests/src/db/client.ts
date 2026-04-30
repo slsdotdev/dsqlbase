@@ -18,7 +18,7 @@ class MockSession implements Session {
 }
 
 export const createTestClient = () => {
-  const pg = new PGlite("memory://", { debug: 1 });
+  const pg = new PGlite("memory://", { debug: 0 });
   const dsql = createClient({ schema, session: new MockSession(pg) });
 
   return Object.assign(dsql, { close: () => pg.close() });

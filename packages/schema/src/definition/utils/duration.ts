@@ -9,10 +9,10 @@ export interface Duration {
 }
 
 export const ISO_DURATION_REGEX =
-  /^P(([0-9]+Y)?([0-9]+M)?([0-9]+W)?([0-9]+D)?(T([0-9]+H)?([0-9]+M)?([0-9]+(\.?[0-9]+)?S)?)?)?$/;
+  /^P(?:(?<years>\d+)Y)?(?:(?<months>\d+)M)?(?:(?<weeks>\d+)W)?(?:(?<days>\d+)D)?(?:T(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+)(?:\.(?<fraction>\d+))?S)?)?$/;
 
 export const STRING_DURATION_REGEX =
-  /(?:(\d+)\s*year[s]?)?\s*(?:(\d+)\s*month[s]?)?\s*(?:(\d+)\s*day[s]?)?\s*(?:(\d+)\s*hour[s]?)?\s*(?:(\d+)\s*minute[s]?)?\s*(?:(\d+(?:\.\d+)?)\s*second[s]?)?/i;
+  /^(?:(\d+)\s*year[s]?)?\s*(?:(\d+)\s*month[s]?)?\s*(?:(\d+)\s*day[s]?)?\s*(?:(\d+)\s*hour[s]?)?\s*(?:(\d+)\s*minute[s]?)?\s*(?:(\d+(?:\.\d+)?)\s*second[s]?)?$/i;
 
 /**
  * Formats a Duration object into an ISO 8601 duration string.
@@ -59,20 +59,20 @@ export const formatISODuration = (duration: Partial<Duration>) => {
 export const parseISODuration = (iso: string): Duration => {
   const match = ISO_DURATION_REGEX.exec(iso);
 
-  if (!match) {
+  if (!match?.groups) {
     throw new Error(`Invalid ISO 8601 duration string: ${iso}`);
   }
 
-  const [, years, months, , days, , hours, minutes, seconds] = match;
+  const { years, months, days, hours, minutes, seconds, fraction } = match.groups;
 
   return {
-    years: parseInt(years) || 0,
-    months: parseInt(months) || 0,
-    days: parseInt(days) || 0,
-    hours: parseInt(hours) || 0,
-    minutes: parseInt(minutes) || 0,
-    seconds: parseFloat(seconds) || 0,
-    milliseconds: seconds.includes(".") ? Math.round((parseFloat(seconds) % 1) * 1000) : 0,
+    years: parseInt(years ?? "0") || 0,
+    months: parseInt(months ?? "0") || 0,
+    days: parseInt(days ?? "0") || 0,
+    hours: parseInt(hours ?? "0") || 0,
+    minutes: parseInt(minutes ?? "0") || 0,
+    seconds: parseInt(seconds ?? "0") || 0,
+    milliseconds: fraction ? Math.round(parseFloat(`0.${fraction}`) * 1000) : 0,
   };
 };
 
@@ -126,12 +126,56 @@ export const parseStringDuration = (str: string): Duration => {
   };
 };
 
+export const PG_INTERVAL_REGEX =
+  /^(?:(?<years>-?\d+)\s+years?\s*)?(?:(?<months>-?\d+)\s+mon(?:th)?s?\s*)?(?:(?<days>-?\d+)\s+days?\s*)?(?:(?<timeSign>-)?(?<hours>\d+):(?<minutes>\d{1,2}):(?<seconds>\d{1,2})(?:\.(?<fraction>\d+))?)?$/;
+
+/**
+ * Parses Postgres' default `intervalstyle = 'postgres'` text format into a Duration object.
+ * Supported shapes include:
+ * - "40:00:00" / "12:30:05.5" (time-only, optional fractional seconds)
+ * - "-12:30:05" (signed time)
+ * - "4 days 12:30:05"
+ * - "3 years 6 mons 4 days 12:30:05" (note: PG uses `mons`, not `months`)
+ * - Per-component negatives: "-3 years -6 mons -4 days -12:30:05"
+ *
+ * Each calendar component carries its own sign; the time portion's leading `-` applies to
+ * hours/minutes/seconds/milliseconds together.
+ *
+ * @param str Postgres-formatted interval string
+ * @returns Duration object
+ */
+
+export const parsePGIntervalDuration = (str: string): Duration => {
+  const match = PG_INTERVAL_REGEX.exec(str.trim());
+
+  if (!match?.groups) {
+    throw new Error(`Invalid Postgres interval string: ${str}`);
+  }
+
+  const { years, months, days, timeSign, hours, minutes, seconds, fraction } = match.groups;
+  const sign = timeSign === "-" ? -1 : 1;
+
+  return {
+    years: parseInt(years ?? "0") || 0,
+    months: parseInt(months ?? "0") || 0,
+    days: parseInt(days ?? "0") || 0,
+    hours: hours ? parseInt(hours) * sign : 0,
+    minutes: minutes ? parseInt(minutes) * sign : 0,
+    seconds: seconds ? parseInt(seconds) * sign : 0,
+    milliseconds: fraction ? Math.round(parseFloat(`0.${fraction}`) * 1000) * sign : 0,
+  };
+};
+
 export const safeParseDuration = (value: unknown): Duration => {
   if (typeof value === "string") {
     try {
       return parseISODuration(value);
     } catch {
-      return parseStringDuration(value);
+      try {
+        return parsePGIntervalDuration(value);
+      } catch {
+        return parseStringDuration(value);
+      }
     }
   }
 

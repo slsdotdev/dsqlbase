@@ -6,8 +6,9 @@ The newly-added per-operation specs in `packages/tests/src/specs/{select,insert,
 |---|---|---|---|---|
 | 1 | `select.spec.ts` › filter operators › `` `in` against a domain column `` | `error: syntax error at or near "$1"` | `IN $1` SQL generated for an array param | open |
 | 2 | `insert.spec.ts` › column type round-trips › `` `date` and `datetime` round-trip as Date instances `` | `error: time zone "gmt+0200" not recognized` | Default `datetime` encode used `Date.toString()` | **fixed** — codec rewrite via `formatTimestamp` / `formatDate` / `formatTime` in `packages/schema/src/utils/date.ts` (commit-ready). |
-| 3 | `insert.spec.ts` › column type round-trips › `` `duration` (interval) round-trips as ISO 8601 in iso mode `` | `error: invalid input syntax for type interval: "P"` | `parseISODuration` regex/destructure mismatch + fall-through to `parseStringDuration` | open |
-| 4 | `select.spec.ts` › type round-trips › returns `datetime` (timestamptz) columns as `Date` instances | `expected '2026-…Z' to be an instance of Date` | `datetime` decode returns string instead of Date | **persists after codec rewrite** — root cause is upstream of the codec body (see updated section below). |
+| 3 | `insert.spec.ts` › column type round-trips › `` `duration` (interval) round-trips as ISO 8601 in iso mode `` | `error: invalid input syntax for type interval: "P"` | `parseISODuration` regex/destructure mismatch + fall-through to `parseStringDuration` | **fixed** — named-group rewrite of `ISO_DURATION_REGEX` + anchored `STRING_DURATION_REGEX` in `packages/schema/src/definition/utils/duration.ts`; covered by `duration.test.ts`. |
+| 4 | `select.spec.ts` › type round-trips › returns `datetime` (timestamptz) columns as `Date` instances | `expected '2026-…Z' to be an instance of Date` | `datetime` decode returns string instead of Date | **not a bug** — the test fixture had `mode: "iso"` configured on `created_at` / `updated_at`. With `mode: "iso"`, returning an ISO string is the contract. Removing the option (now done in `packages/tests/src/db/schema.ts`) makes the test pass. |
+| 5 | `insert.spec.ts` › column type round-trips › `` `duration` (interval) round-trips as ISO 8601 in iso mode `` | `Error: Invalid duration string: 40:00:00` | `interval` decode receives Postgres' default `intervalstyle = 'postgres'` text format (`"40:00:00"` / `"3 years 6 mons 4 days 12:30:05"`), which neither `parseISODuration` nor `parseStringDuration` can handle | **fixed** — new `parsePGIntervalDuration` in `packages/schema/src/definition/utils/duration.ts`, wired into `safeParseDuration` between the ISO and wordy branches. Covered by `duration.test.ts`. |
 
 ---
 
@@ -66,9 +67,9 @@ The first option is mechanical and matches existing convention.
 
 ---
 
-## Bug 3 — `parseISODuration` regex destructure is off-by-one and crashes on missing seconds
+## Bug 3 — `parseISODuration` regex destructure is off-by-one and crashes on missing seconds ✅ FIXED
 
-**File:** `packages/schema/src/utils/duration.ts:?` (the `parseISODuration` function)
+**Originally in:** `packages/schema/src/definition/utils/duration.ts` — `parseISODuration`.
 
 The regex captures 9 groups (outer + Y / M / W / D / T-block + H / M / S / fractional) but the destructure pattern targets the wrong indices:
 
@@ -132,39 +133,39 @@ Or use named groups (`/^P(?<years>[0-9]+Y)?…$/`) which are far less brittle an
 
 Also worth: anchor `STRING_DURATION_REGEX` (`^…$`) so an empty match doesn't silently succeed when ISO parsing fails for unrelated reasons.
 
+**Fix shipped:** `ISO_DURATION_REGEX` rewritten with named groups (`years` / `months` / `weeks` / `days` / `hours` / `minutes` / `seconds` / `fraction`); `parseISODuration` reads `match.groups` instead of positional indices; the `seconds` and fractional parts are split at the regex level so the runtime `.includes(".")` probe is gone. `STRING_DURATION_REGEX` is now anchored with `^…$` so genuine garbage no longer silently parses as all-zeros. New unit tests in `packages/schema/src/definition/utils/duration.test.ts` (15 cases, all passing) lock in the regression and cover edge cases (`PT0.5S`, `PT1.123S`, bare `P`, weeks syntax, garbage input).
+
 ---
 
-## Bug 4 — `datetime` decode returns a string instead of a Date
+## Bug 4 — Not a bug ✅
 
-**Status:** persists after the Bug 2 codec rewrite. Root cause is **upstream of the codec body** — the codec source-as-printed (via `Function.prototype.toString` on the built artifact) returns a `Date`, but the codec actually invoked at runtime returns a `string`. So the `_codec` reference visible from the column at runtime is not the codec the factory just minted.
+The reported failure was caused by `mode: "iso"` being configured on `created_at` / `updated_at` in `packages/tests/src/db/schema.ts` (likely leftover debugging). With `mode: "iso"`, decode correctly returns `date.toISOString()` (a string) — that is the documented contract. Removing the option resolved the test. The earlier "narrowed search space" entries here were chasing a misdiagnosis.
 
-**Symptom:** `client.teams.findMany({})` → each row's `createdAt` / `updatedAt` is a string (`"2026-04-30T13:38:57.900Z"`), not a `Date`. Asserting `expect(team.createdAt).toBeInstanceOf(Date)` fails.
+---
 
-**Confirmed:**
+## Bug 5 — `interval` decode does not understand Postgres' default text format ✅ FIXED
 
-1. PGlite returns `timestamp with time zone` columns as `Date` objects from `pg.query(text)` and `pg.query(text, params)`. Same SQL run via `client.$execute(...)` returns `Date` for `created_at`.
-2. The `datetime("created_at")` column resolves to a `TimestampColumnDefinition`. The built `dist/definition/columns/timestamp.js` decode body is the new `case "iso" | case "string" | default: return date;` chain — verified by reading the file.
-3. `safeParseDate(Date)` returns the same `Date`.
-4. Calling `column._codec.decode(new Date())` through `schema.teams.columns.createdAt._codec` at runtime returns a `string` (`typeof === "string"`, `constructor.name === "String"`). Re-implementing the same body inline returns a `Date`.
+**Originally in:** `packages/schema/src/definition/columns/interval.ts:48` — decode fed PG's `intervalstyle = 'postgres'` output (e.g. `"40:00:00"`, `"3 years 6 mons 4 days 12:30:05"`) into `safeParseDuration`, which only knew ISO and wordy formats. Previously masked by the unanchored `STRING_DURATION_REGEX` silently returning all-zeros; surfaced after Bug 3 anchored that regex.
 
-**Narrowed search space (next investigator should start here):**
+**Fix shipped:** new `parsePGIntervalDuration` in `packages/schema/src/definition/utils/duration.ts` handles:
 
-- **`ColumnDefinition` subclass `_codec` assignment order.** `TimestampColumnDefinition` extends `ColumnDefinition`; the parent constructor sets `this._codec = config.codec ?? defaultCodec` (`packages/core/src/definition/column.ts:59`). Confirm the timestamp factory is actually passing `codec` into `super()` and that nothing later (e.g., a chained method call from the schema) replaces `_codec` with `defaultCodec`.
-- **`notNull()` / `defaultNow()` chain.** Both are called on the column in `packages/tests/src/db/schema.ts`. Their bodies (in core's `column.ts` and schema's `timestamp.ts`) only mutate `_notNull` / `_defaultValue`, but worth reading at HEAD to confirm.
-- **Module identity.** Vitest + workspace `dist/` resolution sometimes loads two copies of a dep when one path goes through SSR transform and another doesn't. If a different `ColumnDefinition` constructor is running than the one the factory imported from, `super()` could go to a stale class whose constructor uses an old `defaultCodec`. `instanceof TimestampColumnDefinition` is true (probed), so this is unlikely but cheap to rule out.
-- **Tooling angle.** Add a single `console.log` at the top of `ColumnDefinition.constructor` printing `config.codec` for the `created_at` column. If the log shows the timestamp codec there but `column._codec.decode` later returns string, the corruption happens **after** the constructor.
+- `"HH:MM:SS"` / `"HH:MM:SS.fff"` (time-only, with optional fractional seconds)
+- `"-HH:MM:SS"` (signed time — sign propagates to all sub-components)
+- `"N days HH:MM:SS"`
+- `"N years N mon[th]s N days HH:MM:SS"` (`mon` / `mons` / `month` / `months` all accepted)
+- Per-component negatives (e.g. `"-3 years -6 mons -4 days -12:30:05"`)
 
-**Why the codec rewrite didn't fix it:** the rewrite changed the codec body (which is irrelevant — the decoder we ship is correct). Whatever swaps the live `_codec` reference at runtime is doing so regardless of what we wrote.
-
-**Fix priority:** medium-high. Bug 2 unblocks every Date-in path, so the test suite is mostly green; Bug 4 only blocks consumers who want `instanceof Date` on read. Worth fixing for ergonomics, but no longer urgent.
+`safeParseDuration` now tries ISO → PG → wordy. Covered by 8 new cases in `duration.test.ts` (25 total in the file).
 
 ---
 
 ## Suggested fix order
 
 1. **Bug 1 (`in` operator)** — one-line fix using existing `sql.in`. Trivial, removes a hard runtime crash for any consumer using array filters.
-2. **Bug 2 (datetime encode)** — ✅ done. Centralised `formatTimestamp` / `formatDate` / `formatTime` + `safeParseDate` in `packages/schema/src/utils/date.ts`, applied to all three column types, covered by `packages/schema/src/utils/date.test.ts`.
-3. **Bug 4 (datetime decode)** — see narrowed search space above; not solved by the codec rewrite. Worth a focused session.
-4. **Bug 3 (duration parser)** — rewrite `parseISODuration` with named groups in `packages/schema/src/utils/duration.ts` and add a sibling test file covering each ISO component combination.
+2. **Bug 2 (datetime encode)** — ✅ done.
+3. **Bug 3 (duration ISO parser)** — ✅ done.
+4. **Bug 5 (interval decode for PG format)** — ✅ done.
+
+The full e2e suite is currently 66/66 green. Bug 1 (`in` operator emits `IN $1`) remains an open code smell worth fixing for any future test that filters by an array — see Bug 1 section above.
 
 Once each bug is fixed, the corresponding test in `packages/tests/src/specs/` should pass without modification.
