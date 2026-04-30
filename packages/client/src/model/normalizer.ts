@@ -127,7 +127,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
 
       if (isFilterType(condition, "in")) {
-        expressions.push(sql`${column} IN ${sql.param(condition.in)}`);
+        expressions.push(sql.in(column, condition.in));
         continue;
       }
 

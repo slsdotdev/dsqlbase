@@ -1,5 +1,5 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core/definition";
-import { DateTimeMode, safeParseDate } from "../../utils/date.js";
+import { DateTimeMode, formatTimestamp, safeParseDate } from "../utils/date.js";
 import { DateValueType } from "./date.js";
 import { HasDefault } from "@dsqlbase/core/utils";
 import { sql } from "@dsqlbase/core";
@@ -74,15 +74,7 @@ export function timestamp<const TName extends string, const TOptions extends Dat
     dataType,
     withTimezone,
     codec: {
-      encode: (value) => {
-        const date = safeParseDate(value);
-
-        if (options?.mode === "iso") {
-          return date.toISOString(); // Format as ISO 8601 string
-        }
-
-        return date.toString();
-      },
+      encode: (value) => formatTimestamp(safeParseDate(value), { tz: withTimezone }),
       decode: (value) => {
         const date = safeParseDate(value);
 
@@ -90,7 +82,7 @@ export function timestamp<const TName extends string, const TOptions extends Dat
           case "iso":
             return date.toISOString() as DateValueType<TOptions>;
           case "string":
-            return date.toString() as DateValueType<TOptions>;
+            return formatTimestamp(date, { tz: withTimezone }) as DateValueType<TOptions>;
           case "date":
           default:
             return date as DateValueType<TOptions>;

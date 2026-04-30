@@ -1,5 +1,5 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core/definition";
-import { DateTimeMode, safeParseDate } from "../../utils/date.js";
+import { DateTimeMode, formatDate, safeParseDate } from "../utils/date.js";
 
 export interface DateColumnOptions {
   /**
@@ -28,23 +28,14 @@ export function date<const TName extends string, const TOptions extends DateColu
   return new ColumnDefinition<TName, ColumnConfig<DateValueType<TOptions>, string>>(name, {
     dataType: "date",
     codec: {
-      encode: (value) => {
-        const date = safeParseDate(value);
-
-        if (options?.mode === "iso") {
-          return date.toISOString().split("T")[0]; // Format as 'YYYY-MM-DD'
-        }
-
-        return date.toDateString();
-      },
+      encode: (value) => formatDate(safeParseDate(value)),
       decode: (value) => {
         const date = safeParseDate(value);
 
         switch (options?.mode) {
           case "iso":
-            return date.toISOString().split("T")[0] as DateValueType<TOptions>;
           case "string":
-            return date.toDateString() as DateValueType<TOptions>;
+            return formatDate(date) as DateValueType<TOptions>;
           case "date":
           default:
             return date as DateValueType<TOptions>;

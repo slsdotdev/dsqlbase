@@ -9,3 +9,5 @@ export {
   seedTasks,
   type SeededData,
 } from "./seed.js";
+
+export { truncateAll, withSeededClient, type SeededFixture } from "./fixtures.js";

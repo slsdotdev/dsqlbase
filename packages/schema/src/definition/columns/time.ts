@@ -1,4 +1,5 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
+import { formatTime } from "../utils/date.js";
 
 export interface TimeColumnOptions {
   /**
@@ -23,12 +24,18 @@ export function time<const TName extends string, const TOptions extends TimeColu
   name: TName,
   options?: TOptions
 ) {
-  const dataType = options?.tz ? "time with time zone" : "time";
+  const withTimezone = options?.tz ?? false;
+  const dataType = withTimezone ? "time with time zone" : "time";
 
-  return new ColumnDefinition<TName, ColumnConfig<string, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<string | Date, string>>(name, {
     dataType,
     codec: {
-      encode: (value) => value,
+      encode: (value) => {
+        if (value instanceof Date) {
+          return formatTime(value, { tz: withTimezone });
+        }
+        return value;
+      },
       decode: (value) => value,
     },
   });

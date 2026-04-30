@@ -4,7 +4,7 @@ import {
   formatISODuration,
   formatStringDuration,
   safeParseDuration,
-} from "../../utils/duration.js";
+} from "../utils/duration.js";
 
 export interface IntervalColumnOptions {
   /**

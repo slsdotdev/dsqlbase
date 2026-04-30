@@ -28,8 +28,8 @@ const teams = table("teams", {
   slug: text("slug").notNull().unique(),
   description: varchar("description", 500),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: datetime("created_at", { mode: "iso" }).notNull().defaultNow(),
-  updatedAt: datetime("updated_at", { mode: "iso" }).notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+  updatedAt: datetime("updated_at").notNull().defaultNow(),
 });
 
 teams.index("teams_slug_idx", { unique: true }).columns((c) => [c.slug]);

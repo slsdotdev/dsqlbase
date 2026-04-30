@@ -39,5 +39,5 @@ export {
   type DateTimeColumnOptions,
   type TimeColumnOptions,
 } from "./definition/index.js";
-export type { DateTimeMode } from "./utils/date.js";
-export type { Duration } from "./utils/duration.js";
+export type { DateTimeMode } from "./definition/utils/date.js";
+export type { Duration } from "./definition/utils/duration.js";
