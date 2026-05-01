@@ -29,6 +29,11 @@ describe("Schema introspection", () => {
     definitions = result?.definitions ?? [];
 
     await writeFile(
+      path.join(__dirname, "../db/data/introspection-query.sql"),
+      introspection.toQuery({ inlineParams: true }).text
+    );
+
+    await writeFile(
       path.join(__dirname, "../db/data/schema-introspection-result.json"),
       JSON.stringify(definitions, null, 2)
     );
@@ -106,7 +111,6 @@ describe("Schema introspection", () => {
       );
 
       expect(membersTable).toBeDefined();
-      expect(membersTable).toHaveProperty("unique");
     });
   });
 

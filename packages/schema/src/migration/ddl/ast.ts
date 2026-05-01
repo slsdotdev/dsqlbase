@@ -1,3 +1,4 @@
+// VIEW and FUNCTION kinds are reserved for future stories — no statement types, factories, or printer cases exist for them yet.
 export type DDLCommand =
   | "CREATE_TABLE"
   | "ALTER_TABLE"
@@ -161,13 +162,19 @@ export interface SetSchemaAction extends DDLStatement {
   schemaName: string;
 }
 
+export interface OwnerAction extends DDLStatement {
+  __kind: "OWNER";
+  roleName: string;
+}
+
 export type AnyAlterTableAction =
   | AddColumnAction
   | AlterColumnAction
   | RenameTableAction
   | RenameColumnAction
   | RenameConstraintAction
-  | SetSchemaAction;
+  | SetSchemaAction
+  | OwnerAction;
 
 export interface AlterTableCommand extends DDLStatement {
   __kind: "ALTER_TABLE";
@@ -353,6 +360,7 @@ export interface AlterDomainCommand extends DDLStatement {
   action: AlterDomainSubAction;
 }
 
+// Intentionally limited to rename + schema move: PG cannot alter an index's column list (drop + recreate instead) and indexes have no separate owner.
 export type AlterIndexAction = RenameTableAction | SetSchemaAction;
 
 export interface AlterIndexCommand extends DDLStatement {
@@ -382,6 +390,7 @@ export type AnyDDLStatement =
   | RenameColumnAction
   | RenameConstraintAction
   | SetSchemaAction
+  | OwnerAction
   | ColumnDefinitionExpression
   | CheckConstraintExpression
   | PrimaryKeyConstraintExpression

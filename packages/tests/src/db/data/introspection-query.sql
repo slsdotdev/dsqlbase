@@ -1,8 +1,12 @@
-import { sql } from "@dsqlbase/core";
 
-export const SYSTEM_SCHEMAS = ["pg_catalog", "pg_toast", "information_schema", "sys"];
-
-const schemas = sql`
+  WITH schemas AS (
+    SELECT n.oid, n.nspname AS name
+    FROM pg_namespace n
+    WHERE n.nspname NOT IN ('pg_catalog', 'pg_toast', 'information_schema', 'sys')
+      AND n.nspname NOT LIKE 'pg_temp_%'
+      AND n.nspname NOT LIKE 'pg_toast_temp_%'
+  ),
+  
   schema_defs AS (
     SELECT json_build_object(
       'kind', 'SCHEMA',
@@ -11,9 +15,14 @@ const schemas = sql`
     FROM schemas s
     WHERE s.name != 'public'
   )
-`;
-
-const columns = sql`
+,
+  
+  table_defs AS (
+    SELECT json_build_object(
+      'kind', 'TABLE',
+      'name', c.relname,
+      'namespace', s.name,
+      'columns', (
   SELECT json_agg(json_build_object(
     'kind', 'COLUMN',
     'name', a.attname,
@@ -73,9 +82,8 @@ const columns = sql`
   WHERE a.attrelid = c.oid
     AND a.attnum > 0
     AND NOT a.attisdropped
-`;
-
-const indexes = sql`
+),
+      'indexes', (
   SELECT json_agg(json_build_object(
     'kind', 'INDEX',
     'name', ic.relname,
@@ -124,9 +132,8 @@ const indexes = sql`
       WHERE con.conindid = ix.indexrelid
         AND con.contype IN ('u', 'p')
     )
-`;
-
-const constraints = sql`
+),
+      'constraints', (
   SELECT json_agg(json_build_object(
     'kind', CASE con.contype
       WHEN 'p' THEN 'PRIMARY_KEY_CONSTRAINT'
@@ -144,36 +151,20 @@ const constraints = sql`
       THEN pg_get_constraintdef(con.oid, true) ELSE NULL END,
     'distinctNulls', CASE WHEN con.contype = 'u'
       THEN NOT cix.indnullsnotdistinct ELSE NULL END,
-    'include', CASE WHEN con.contype IN ('u', 'p') THEN (
-      SELECT json_agg(pa.attname ORDER BY col_pos)
-      FROM LATERAL unnest(cix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
-      JOIN pg_attribute pa ON pa.attrelid = cix.indrelid AND pa.attnum = u.attnum
-      WHERE col_pos > cix.indnkeyatts
-    ) ELSE NULL END
+    'include', NULL
   ))
   FROM pg_constraint con
-  LEFT JOIN pg_index cix ON cix.indexrelid = con.conindid
+  LEFT JOIN pg_index cix ON cix.indexrelid = con.conindid AND con.contype = 'u'
   WHERE con.conrelid = c.oid
     AND con.contype IN ('p', 'u', 'c')
-`;
-
-const tables = sql`
-  table_defs AS (
-    SELECT json_build_object(
-      'kind', 'TABLE',
-      'name', c.relname,
-      'namespace', s.name,
-      'columns', (${columns}),
-      'indexes', (${indexes}),
-      'constraints', (${constraints})
+)
     ) AS defs
     FROM pg_class c
     JOIN schemas s ON s.oid = c.relnamespace
     WHERE c.relkind = 'r'
   )
-`;
-
-const domains = sql`
+,
+  
   domain_defs AS (
     SELECT json_build_object(
       'kind', 'DOMAIN',
@@ -197,9 +188,8 @@ const domains = sql`
     JOIN schemas s ON s.oid = t.typnamespace
     WHERE t.typtype = 'd'
   )
-`;
-
-const sequences = sql`
+,
+  
   sequence_defs AS (
     SELECT json_build_object(
       'kind', 'SEQUENCE',
@@ -213,19 +203,7 @@ const sequences = sql`
         'increment', seq.seqincrement::text,
         'cycle', seq.seqcycle,
         'cache', seq.seqcache::text,
-        'ownedBy', (
-          SELECT format('%I.%I', tc.relname, ta.attname)
-          FROM pg_depend dep
-          JOIN pg_class tc ON tc.oid = dep.refobjid
-          JOIN pg_attribute ta
-            ON ta.attrelid = dep.refobjid
-           AND ta.attnum = dep.refobjsubid
-          WHERE dep.classid = 'pg_class'::regclass
-            AND dep.objid = c.oid
-            AND dep.refclassid = 'pg_class'::regclass
-            AND dep.deptype = 'a'
-          LIMIT 1
-        )
+        'ownedBy', NULL
       )
     ) AS defs
     FROM pg_sequence seq
@@ -238,10 +216,8 @@ const sequences = sql`
         AND dep.deptype = 'i'
     )
   )
-`;
-
-// Reserved for future stories: VIEW and FUNCTION rows are queried but dropped at the normalizer boundary.
-const views = sql`
+,
+  
   view_defs AS (
     SELECT json_build_object(
       'kind', 'VIEW',
@@ -252,9 +228,8 @@ const views = sql`
     JOIN schemas s ON s.oid = c.relnamespace
     WHERE c.relkind = 'v'
   )
-`;
-
-const functions = sql`
+,
+  
   function_defs AS (
     SELECT json_build_object(
       'kind', 'FUNCTION',
@@ -265,30 +240,14 @@ const functions = sql`
     JOIN schemas s ON s.oid = p.pronamespace
     WHERE p.prokind = 'f'
   )
-`;
 
-export const introspection = sql`
-  WITH schemas AS (
-    SELECT n.oid, n.nspname AS name
-    FROM pg_namespace n
-    WHERE n.nspname NOT IN ('pg_catalog', 'pg_toast', 'information_schema', 'sys')
-      AND n.nspname NOT LIKE 'pg_temp_%'
-      AND n.nspname NOT LIKE 'pg_toast_temp_%'
-  ),
-  ${schemas},
-  ${tables},
-  ${domains},
-  ${sequences},
-  ${views},
-  ${functions}
   -- Concatenate all definitions into a single array
-  SELECT COALESCE(json_agg(d.defs), '[]'::json) AS definitions
+  SELECT json_agg(d.defs) AS definitions
   FROM (
     SELECT defs FROM schema_defs UNION ALL
-    SELECT defs FROM domain_defs UNION ALL
     SELECT defs FROM table_defs UNION ALL
+    SELECT defs FROM domain_defs UNION ALL
     SELECT defs FROM sequence_defs UNION ALL
     SELECT defs FROM view_defs UNION ALL
     SELECT defs FROM function_defs
   ) d
-`;

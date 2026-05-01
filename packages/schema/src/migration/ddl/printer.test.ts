@@ -1071,7 +1071,7 @@ describe("printDDL", () => {
     });
   });
 
-  describe("RENAME / SET_SCHEMA actions", () => {
+  describe("RENAME / SET_SCHEMA / OWNER actions", () => {
     it("renames a table", () => {
       const node = ddl.alterTable({
         name: "users",
@@ -1115,6 +1115,24 @@ describe("printDDL", () => {
       });
 
       expect(print(node)).toBe('ALTER TABLE "users" SET SCHEMA "private"');
+    });
+
+    it("changes a table's owner", () => {
+      const node = ddl.alterTable({
+        name: "users",
+        actions: [ddl.owner({ roleName: "app_writer" })],
+      });
+
+      expect(print(node)).toBe('ALTER TABLE "users" OWNER TO "app_writer"');
+    });
+
+    it("quotes owner identifiers with special characters", () => {
+      const node = ddl.alterTable({
+        name: "users",
+        actions: [ddl.owner({ roleName: "App Writer" })],
+      });
+
+      expect(print(node)).toBe('ALTER TABLE "users" OWNER TO "App Writer"');
     });
 
     it("quotes identifiers with special characters", () => {

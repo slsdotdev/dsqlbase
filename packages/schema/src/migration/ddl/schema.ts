@@ -127,12 +127,12 @@ export function createSequenceDDL(
     name: definition.name,
     ifNotExists,
     options: ddl.sequenceOptions({
-      incrementBy: definition.increment,
-      minValue: definition.minValue,
-      maxValue: definition.maxValue,
-      startValue: definition.startValue,
-      cache: definition.cache,
-      cycle: definition.cycle,
+      incrementBy: definition.options.increment,
+      minValue: definition.options.minValue,
+      maxValue: definition.options.maxValue,
+      startValue: definition.options.startValue,
+      cache: definition.options.cache,
+      cycle: definition.options.cycle,
     }),
   });
 }

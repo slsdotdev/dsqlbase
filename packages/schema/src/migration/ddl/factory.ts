@@ -25,6 +25,7 @@ import {
   GeneratedColumnExpression,
   IdentityConstraintExpression,
   IndexColumnExpression,
+  OwnerAction,
   PrimaryKeyConstraintExpression,
   RenameColumnAction,
   RenameConstraintAction,
@@ -81,6 +82,11 @@ export const renameConstraint = (
 
 export const setSchema = (props: Omit<SetSchemaAction, "__kind">): SetSchemaAction => ({
   __kind: "SET_SCHEMA",
+  ...props,
+});
+
+export const owner = (props: Omit<OwnerAction, "__kind">): OwnerAction => ({
+  __kind: "OWNER",
   ...props,
 });
 
@@ -244,6 +250,7 @@ export const ddl = {
   renameColumn,
   renameConstraint,
   setSchema,
+  owner,
   createIndex,
   dropIndex,
   alterIndex,

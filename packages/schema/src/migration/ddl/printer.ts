@@ -76,6 +76,7 @@ const printReducer = {
   RENAME_CONSTRAINT: (node) =>
     sql`RENAME CONSTRAINT ${sql.identifier(node.constraintName)} TO ${sql.identifier(node.newName)}`,
   SET_SCHEMA: (node) => sql`SET SCHEMA ${sql.identifier(node.schemaName)}`,
+  OWNER: (node) => sql`OWNER TO ${sql.identifier(node.roleName)}`,
   CREATE_INDEX: (node) => {
     const unique = node.unique ? sql.raw("UNIQUE ") : sql.raw("");
     const async = node.async ? sql.raw("ASYNC ") : sql.raw("");
