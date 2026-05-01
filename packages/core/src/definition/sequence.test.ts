@@ -8,40 +8,40 @@ describe("SequenceDefinition", () => {
 
     expect(json.kind).toBe("SEQUENCE");
     expect(json.name).toBe("order_seq");
-    expect(json.dataType).toBe("bigint");
-    expect(json.cache).toBe(1);
-    expect(json.cycle).toBe(false);
-    expect(json.increment).toBe(1);
-    expect(json.minValue).toBeUndefined();
-    expect(json.maxValue).toBeUndefined();
-    expect(json.startValue).toBeUndefined();
-    expect(json.ownedBy).toBeUndefined();
+    expect(json.options.dataType).toBe("bigint");
+    expect(json.options.cache).toBe(1);
+    expect(json.options.cycle).toBe(false);
+    expect(json.options.increment).toBe(1);
+    expect(json.options.minValue).toBeUndefined();
+    expect(json.options.maxValue).toBeUndefined();
+    expect(json.options.startValue).toBeUndefined();
+    expect(json.options.ownedBy).toBeUndefined();
   });
 
   it("should set cache", () => {
     const json = new SequenceDefinition("seq").cache(65536).toJSON();
-    expect(json.cache).toBe(65536);
+    expect(json.options.cache).toBe(65536);
   });
 
   it("should set cycle", () => {
     const json = new SequenceDefinition("seq").cycle().toJSON();
-    expect(json.cycle).toBe(true);
+    expect(json.options.cycle).toBe(true);
   });
 
   it("should set increment", () => {
     const json = new SequenceDefinition("seq").incrementBy(5).toJSON();
-    expect(json.increment).toBe(5);
+    expect(json.options.increment).toBe(5);
   });
 
   it("should set min and max values", () => {
     const json = new SequenceDefinition("seq").minValue(1).maxValue(9999).toJSON();
-    expect(json.minValue).toBe(1);
-    expect(json.maxValue).toBe(9999);
+    expect(json.options.minValue).toBe(1);
+    expect(json.options.maxValue).toBe(9999);
   });
 
   it("should set start value", () => {
     const json = new SequenceDefinition("seq").startWith(1000).toJSON();
-    expect(json.startValue).toBe(1000);
+    expect(json.options.startValue).toBe(1000);
   });
 
   it("should serialize all options together", () => {
@@ -57,14 +57,16 @@ describe("SequenceDefinition", () => {
     expect(json).toMatchObject({
       kind: "SEQUENCE",
       name: "invoice_seq",
-      dataType: "bigint",
-      cache: 65536,
-      cycle: true,
-      increment: 1,
-      minValue: 1,
-      maxValue: 999999,
-      startValue: 1000,
-      ownedBy: undefined,
+      options: {
+        dataType: "bigint",
+        cache: 65536,
+        cycle: true,
+        increment: 1,
+        minValue: 1,
+        maxValue: 999999,
+        startValue: 1000,
+        ownedBy: undefined,
+      },
     });
   });
 });

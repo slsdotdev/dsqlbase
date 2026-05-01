@@ -2,6 +2,17 @@ import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { SQLIdentifier, SQLQuery } from "../sql/nodes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
+export interface SequenceOptions {
+  dataType?: string;
+  cache?: number;
+  cycle?: boolean;
+  increment?: number;
+  minValue?: number;
+  maxValue?: number;
+  startValue?: number;
+  ownedBy?: SQLIdentifier;
+}
+
 export interface SequenceConfig<TNamespace extends AnyNamespaceDefinition> {
   namespace?: NodeRef<TNamespace>;
 }
@@ -16,14 +27,12 @@ export class SequenceDefinition<
   public readonly kind = Kind.SEQUENCE;
 
   protected _namespace?: NodeRef<TNamespace>;
-  protected _dataType = "bigint";
-  protected _cache = 1;
-  protected _cycle = false;
-  protected _increment = 1;
-  protected _minValue?: number;
-  protected _maxValue?: number;
-  protected _startValue?: number;
-  protected _ownedBy?: SQLIdentifier;
+  protected _options: SequenceOptions = {
+    dataType: "bigint",
+    cache: 1,
+    cycle: false,
+    increment: 1,
+  };
 
   constructor(name: TName, config: Partial<SequenceConfig<TNamespace>> = {}) {
     super(name);
@@ -32,38 +41,38 @@ export class SequenceDefinition<
   }
 
   public cache(cache: number): this {
-    this._cache = cache;
+    this._options.cache = cache;
     return this;
   }
 
   public cycle(): this {
-    this._cycle = true;
+    this._options.cycle = true;
     return this;
   }
 
   public incrementBy(increment: number): this {
-    this._increment = increment;
+    this._options.increment = increment;
     return this;
   }
 
   public minValue(minValue: number): this {
-    this._minValue = minValue;
+    this._options.minValue = minValue;
     return this;
   }
 
   public maxValue(maxValue: number): this {
-    this._maxValue = maxValue;
+    this._options.maxValue = maxValue;
     return this;
   }
 
   public startWith(startValue: number): this {
-    this._startValue = startValue;
+    this._options.startValue = startValue;
     return this;
   }
 
   // TBD - I need to understand how to handle it and that is the use case.
   // public ownedBy(table: string, column: string): this {
-  //   this._ownedBy = new SQLIdentifier(`${table}.${column}`);
+  //   this._options.ownedBy = new SQLIdentifier(`${table}.${column}`);
   //   return this;
   // }
 
@@ -72,16 +81,18 @@ export class SequenceDefinition<
       kind: this.kind,
       name: this.name,
       namespace: this._namespace?.toJSON() ?? "public",
-      dataType: this._dataType,
-      cache: this._cache,
-      cycle: this._cycle,
-      increment: this._increment,
-      minValue: this._minValue,
-      maxValue: this._maxValue,
-      startValue: this._startValue,
-      ownedBy: this._ownedBy
-        ? new SQLQuery(this._ownedBy).toQuery({ inlineParams: true }).text
-        : undefined,
+      options: {
+        dataType: this._options.dataType,
+        cache: this._options.cache,
+        cycle: this._options.cycle,
+        increment: this._options.increment,
+        minValue: this._options.minValue,
+        maxValue: this._options.maxValue,
+        startValue: this._options.startValue,
+        ownedBy: this._options.ownedBy
+          ? new SQLQuery(this._options.ownedBy).toQuery().text
+          : undefined,
+      },
     } as const;
   }
 }

@@ -8,13 +8,13 @@ import {
   Schema,
 } from "@dsqlbase/core/runtime";
 import {
-  CreateArgs,
-  DeleteArgs,
   FindOneArgs,
   QueryArgs,
+  CreateArgs,
+  UpdateArgs,
+  DeleteArgs,
   QueryResultOf,
   ReturningResultOf,
-  UpdateArgs,
 } from "./base.js";
 import { RequestNormalizer } from "./normalizer.js";
 

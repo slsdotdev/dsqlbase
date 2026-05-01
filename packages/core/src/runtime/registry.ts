@@ -57,8 +57,8 @@ export class SchemaRegistry<
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
 
-  private _tables: Map<string, AnyTable>;
-  private _relations: Map<string, AnyTableRelations>;
+  private readonly _tables: Map<string, AnyTable>;
+  private readonly _relations: Map<string, AnyTableRelations>;
 
   constructor(definition: TDefinition) {
     const schema = this._validateAndTransformSchema(definition);
@@ -120,7 +120,7 @@ export class SchemaRegistry<
     for (const [key, def] of Object.entries(schema.tables)) {
       if (def instanceof TableDefinition) {
         const relations = schema.relations[def.name as DefinitionRelationsTableName<TDefinition>];
-        const table = new Table(def, relations as AnyTableRelations);
+        const table = new Table(def, relations);
 
         tables.set(def.name, table);
         tables.set(key, table);

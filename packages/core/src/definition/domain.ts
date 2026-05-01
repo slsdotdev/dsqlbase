@@ -1,5 +1,5 @@
 import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
-import { HasDefault, NotNull, WithDomain, WithValueType } from "../utils/index.js";
+import { HasDefault, NotNull, WithDomain, ValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
 import { ColumnConfig, ColumnDefinition } from "./column.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
@@ -71,8 +71,8 @@ export class DomainDefinition<
     return this;
   }
 
-  public $type<T>(): WithValueType<this, T> {
-    return this as WithValueType<this, T>;
+  public $type<T>(): ValueType<this, T> {
+    return this as ValueType<this, T>;
   }
 
   /**

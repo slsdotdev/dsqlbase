@@ -9,5 +9,5 @@ export type {
   Unique,
   WithDomain,
   WithNamespace,
-  WithValueType,
+  ValueType,
 } from "./types.js";

@@ -1,19 +1,27 @@
 import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
-import {
-  HasDefault,
-  NotNull,
-  PrimaryKey,
-  TypedObject,
-  Unique,
-  WithValueType,
-} from "../utils/index.js";
+import { HasDefault, NotNull, PrimaryKey, TypedObject, Unique, ValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
+import { SequenceOptions } from "./sequence.js";
 
 export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKey: true }
   ? never
   : T;
+
+export type ColumnGeneratedType = "ALWAYS" | "BY DEFAULT";
+
+export interface ColumnGeneratedConfig {
+  type: "ALWAYS";
+  expression: SQLNode;
+  mode: "STORED";
+}
+
+export interface ColumnIdentityConfig {
+  type: ColumnGeneratedType;
+  options?: SequenceOptions;
+  sequenceName?: string;
+}
 
 export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   dataType: string;
@@ -22,13 +30,14 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
-  defaultValue?: SQLNode;
   codec: ColumnCodec<TRawType, TValueType>;
+  defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
+  generated?: ColumnGeneratedConfig;
+  identity?: ColumnIdentityConfig;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyColumnDefinition = ColumnDefinition<any, any>;
+export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
 
 export class ColumnDefinition<
   TName extends string,
@@ -43,6 +52,8 @@ export class ColumnDefinition<
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
+  protected _generated?: ColumnGeneratedConfig;
+  protected _identity?: ColumnIdentityConfig;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["valueType"];
@@ -58,6 +69,8 @@ export class ColumnDefinition<
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._domain = config.domain;
+    this._generated = config.generated;
+    this._identity = config.identity;
   }
 
   /**
@@ -106,8 +119,8 @@ export class ColumnDefinition<
     return this;
   }
 
-  public $type<T>(): WithValueType<this, T> {
-    return this as WithValueType<this, T>;
+  public $type<T>(): ValueType<this, T> {
+    return this as ValueType<this, T>;
   }
 
   public $onCreate(cb: () => this["__type"]["valueType"]): this {
@@ -137,6 +150,34 @@ export class ColumnDefinition<
         : null,
       check: this._check?.toJSON() ?? null,
       domain: this._domain?.toJSON() ?? null,
+      generated: this._generated
+        ? {
+            type: this._generated.type,
+            expression: new SQLQuery(this._generated.expression).toQuery({ inlineParams: true })
+              .text,
+            mode: this._generated.mode,
+          }
+        : null,
+      identity: this._identity
+        ? {
+            type: this._identity.type,
+            sequenceName: this._identity.sequenceName,
+            options: this._identity.options
+              ? {
+                  dataType: this._identity.options.dataType,
+                  cache: this._identity.options.cache,
+                  cycle: this._identity.options.cycle,
+                  increment: this._identity.options.increment,
+                  minValue: this._identity.options.minValue,
+                  maxValue: this._identity.options.maxValue,
+                  startValue: this._identity.options.startValue,
+                  ownedBy: this._identity.options.ownedBy
+                    ? new SQLQuery(this._identity.options.ownedBy).toQuery().text
+                    : undefined,
+                }
+              : null,
+          }
+        : null,
     } as const;
   }
 }

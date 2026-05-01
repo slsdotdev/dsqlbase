@@ -142,24 +142,24 @@ export class OperationsFactory<
     const resolvers: FieldResolver[] = [];
 
     if (!selection || selection.length === 0) {
-      for (const [key, column] of Object.entries<AnyColumn>(table.columns)) {
+      for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
         columns.push(column);
-        resolvers.push([key, column]);
+        resolvers.push([fieldName, column]);
       }
 
       return { columns, resolvers };
     }
 
-    for (const [key, selected] of selection) {
+    for (const [fieldName, selected] of selection) {
       if (selected) {
-        const column = table.columns[key as keyof typeof table.columns];
+        const column = table.columns[fieldName as keyof typeof table.columns];
 
         if (!column) {
-          throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
+          throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
         }
 
         columns.push(column);
-        resolvers.push([key, column]);
+        resolvers.push([fieldName, column]);
       }
     }
 
@@ -327,12 +327,12 @@ export class OperationsFactory<
       for (const row of rows as Record<string, unknown>[]) {
         const result: Record<string, unknown> = {};
 
-        for (const [key, resolver] of resolvers) {
+        for (const [fieldName, resolver] of resolvers) {
           if (Array.isArray(resolver)) {
-            const nestedRows = row[key];
+            const nestedRows = row[fieldName];
 
             if (typeof nestedRows === "undefined" || nestedRows === null) {
-              result[key] = null;
+              result[fieldName] = null;
               continue;
             }
 
@@ -341,12 +341,14 @@ export class OperationsFactory<
               Array.isArray(nestedRows) ? "many" : "one"
             );
 
-            result[key] = nestedResolver(Array.isArray(nestedRows) ? nestedRows : [nestedRows]);
+            result[fieldName] = nestedResolver(
+              Array.isArray(nestedRows) ? nestedRows : [nestedRows]
+            );
 
             continue;
           }
 
-          result[key] = resolver.resolve(row[resolver.name]);
+          result[fieldName] = resolver.resolve(row[resolver.name]);
         }
 
         results.push(result as TResult);

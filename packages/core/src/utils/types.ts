@@ -24,7 +24,7 @@ export type HasDefault<T extends TypedObject> = T & {
   __type: { hasDefault: true };
 };
 
-export type WithValueType<T extends TypedObject, TValue> = T & {
+export type ValueType<T extends TypedObject, TValue> = T & {
   __type: { valueType: TValue };
 };
 
