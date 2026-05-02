@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withSeededClient } from "../db/index.js";
+import { withSeededClient } from "../fixures/seeded-client";
 
 describe("insert operations", () => {
   const { getClient, getData } = withSeededClient();

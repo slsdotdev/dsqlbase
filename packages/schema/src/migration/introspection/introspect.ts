@@ -3,7 +3,7 @@ import { SerializedSchema, sortSchemaObjects } from "../base.js";
 import { normalizeObject, RawSchemaObject } from "./normalizer.js";
 import { introspection } from "./query.js";
 
-interface IntrospectionResult {
+export interface IntrospectionResult {
   definitions: RawSchemaObject[] | null;
 }
 

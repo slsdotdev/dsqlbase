@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sql } from "@dsqlbase/core";
-import { withSeededClient } from "../db/index.js";
+import { withSeededClient } from "../fixures/seeded-client";
 
 describe("select operations", () => {
   const { getClient, getData } = withSeededClient();

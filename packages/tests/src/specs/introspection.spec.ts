@@ -1,42 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Kind } from "@dsqlbase/core";
-import { introspection } from "@dsqlbase/schema/migration";
-
-import path from "node:path";
-import { writeFile } from "node:fs/promises";
-
-import { applyMigrations } from "../db/migrate.js";
+import { introspect, SerializedSchema } from "@dsqlbase/schema/migration";
 import { createTestClient, TestClient } from "../db/index.js";
-
-const __dirname = new URL(".", import.meta.url).pathname;
-
-interface SchemaNode {
-  kind: string;
-  name: string;
-  schema: string;
-}
+import { applyMigrations } from "../fixures/migrate.js";
 
 describe("Schema introspection", () => {
   let client: TestClient;
-  let definitions: SchemaNode[];
+  let definitions: SerializedSchema;
 
   beforeAll(async () => {
     client = createTestClient();
     await applyMigrations(client);
 
-    const [result] = await client.$raw<{ definitions: SchemaNode[] } | null>(introspection);
-
-    definitions = result?.definitions ?? [];
-
-    await writeFile(
-      path.join(__dirname, "../db/data/introspection-query.sql"),
-      introspection.toQuery({ inlineParams: true }).text
-    );
-
-    await writeFile(
-      path.join(__dirname, "../db/data/schema-introspection-result.json"),
-      JSON.stringify(definitions, null, 2)
-    );
+    definitions = await introspect(client.session);
   });
 
   afterAll(async () => {
@@ -54,18 +30,21 @@ describe("Schema introspection", () => {
         name: "pg_catalog",
       })
     );
+
     expect(definitions).not.toContainEqual(
       expect.objectContaining({
         kind: Kind.SCHEMA,
         name: "pg_toast",
       })
     );
+
     expect(definitions).not.toContainEqual(
       expect.objectContaining({
         kind: Kind.SCHEMA,
         name: "information_schema",
       })
     );
+
     expect(definitions).not.toContainEqual(
       expect.objectContaining({
         kind: Kind.SCHEMA,
@@ -75,7 +54,7 @@ describe("Schema introspection", () => {
   });
 
   it("should not include sytems objects", () => {
-    const schemas = definitions.map((d) => d.schema);
+    const schemas = definitions.map((d) => (d.kind === Kind.SCHEMA ? d.name : d.namespace));
 
     expect(schemas).not.toContainEqual("pg_catalog");
     expect(schemas).not.toContainEqual("pg_toast");
@@ -86,6 +65,7 @@ describe("Schema introspection", () => {
   describe("Tables", () => {
     it("should fetch table objects", () => {
       const tableNames = definitions.filter((d) => d.kind === Kind.TABLE).map((d) => d.name);
+
       expect(tableNames).toEqual(
         expect.arrayContaining(["projects", "tasks", "team_members", "teams", "users"])
       );

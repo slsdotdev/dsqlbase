@@ -1,5 +1,5 @@
 import { sql } from "@dsqlbase/core";
-import { TestClient } from "./client.js";
+import { TestClient } from "../db";
 
 export interface SeededData {
   teams: { id: string; name: string; slug: string }[];

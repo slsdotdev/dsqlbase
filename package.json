@@ -29,6 +29,7 @@
   "scripts": {
     "prepare": "husky",
     "test": "turbo run test",
+    "e2e": "turbo run test:e2e",
     "coverage": "turbo run test -- --coverage",
     "lint": "turbo run lint",
     "dev": "turbo run dev",
