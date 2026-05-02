@@ -1,8 +1,7 @@
 import { AnyDomainDefinition } from "@dsqlbase/core";
+import { AnyCheckConstraintDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
-import { AnyCheckConstraintDefinition } from "@dsqlbase/core/definition";
-import { diffCheckConstraint } from "./constraint.js";
 
 export function diffDomain(
   local: SerializedObject<AnyDomainDefinition>,
@@ -49,26 +48,23 @@ export function diffDomain(
     });
   }
 
-  if (local.check && !remote.check) {
-    diffs.push({
-      type: "add",
-      kind: local.check.kind,
-      name: local.check.name,
-      object: local.check,
-    });
-  }
-
-  if (!local.check && remote.check) {
-    diffs.push({
-      type: "remove",
-      kind: remote.check.kind,
-      name: remote.check.name,
-      object: remote.check,
-    });
-  }
-
-  if (local.check && remote.check) {
-    diffs.push(...diffCheckConstraint(local.check, remote.check));
+  if (local.check?.name !== remote.check?.name) {
+    if (remote.check) {
+      diffs.push({
+        type: "remove",
+        kind: remote.check.kind,
+        name: remote.check.name,
+        object: remote.check,
+      });
+    }
+    if (local.check) {
+      diffs.push({
+        type: "add",
+        kind: local.check.kind,
+        name: local.check.name,
+        object: local.check,
+      });
+    }
   }
 
   return diffs;

@@ -1,8 +1,6 @@
 import { AnySequenceDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
-import { Diff, DiffType } from "./base.js";
-
-// TODO(story-3): per-field sequence option diffing. Today this collapses every options change into one diff.
+import { Diff, DiffType, hasDiff } from "./base.js";
 
 export function diffSequence(
   local: SerializedObject<AnySequenceDefinition>,
@@ -10,7 +8,7 @@ export function diffSequence(
 ) {
   const diffs: Diff<DiffType, SerializedObject<AnySequenceDefinition>>[] = [];
 
-  if (JSON.stringify(local.options) !== JSON.stringify(remote.options)) {
+  if (hasDiff(local, remote, "options")) {
     diffs.push({
       type: "modify",
       kind: local.kind,

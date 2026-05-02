@@ -1,5 +1,5 @@
 import { DefinitionNode } from "@dsqlbase/core/definition";
-import { SerializedObject } from "../../base.js";
+import { isDefinitionObject, SerializedObject } from "../../base.js";
 
 export type DiffType = "add" | "remove" | "modify";
 export type DiffValue<
@@ -21,28 +21,77 @@ export interface Diff<TType extends DiffType, TObject extends SerializedObject<D
   prevValue?: DiffValue<TType, TObject>;
 }
 
-export function hasDiff<T extends SerializedObject<DefinitionNode>>(
+export function isDefined<T>(value: T | undefined | null): value is Exclude<T, undefined | null> {
+  return value !== undefined && value !== null;
+}
+
+export function sortedArray<T>(array: T[]): T[] {
+  return array.sort((a, b) => {
+    if (typeof a === "string" && typeof b === "string") {
+      return a.localeCompare(b);
+    }
+
+    if (isDefinitionObject(a) && isDefinitionObject(b)) {
+      return a.name.localeCompare(b.name);
+    }
+
+    return 0;
+  });
+}
+
+export function hasDiff<T extends object>(
   local: T | null | undefined,
   remote: T | null | undefined,
   key: keyof T
 ): boolean {
-  return local?.[key] !== remote?.[key];
+  if (!isDefined(local)) {
+    return isDefined(remote);
+  }
+
+  if (!isDefined(remote)) {
+    return true;
+  }
+
+  const localValue = local[key];
+  const remoteValue = remote[key];
+
+  if (typeof localValue !== typeof remoteValue) {
+    return true;
+  }
+
+  if (typeof localValue === "object" && localValue !== null) {
+    if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
+      if (localValue.length !== remoteValue.length) {
+        return true;
+      }
+
+      for (let i = 0; i < localValue.length; i++) {
+        if (hasDiff(sortedArray(localValue), sortedArray(remoteValue), i)) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    for (const subKey of Object.keys(localValue) as (keyof typeof localValue)[]) {
+      if (hasDiff(localValue, remoteValue as typeof localValue, subKey)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  return localValue !== remoteValue;
 }
 
-function isSet(value: unknown): boolean {
-  return value !== undefined && value !== null;
-}
-
-export function diffType<T extends SerializedObject<DefinitionNode>>(
-  local: T,
-  remote: T,
-  key: keyof T
-): DiffType {
-  if (isSet(local[key]) && !isSet(remote[key])) {
+export function diffType<T extends object>(local: T, remote: T, key: keyof T): DiffType {
+  if (isDefined(local[key]) && !isDefined(remote[key])) {
     return "add";
   }
 
-  if (!isSet(local[key]) && isSet(remote[key])) {
+  if (!isDefined(local[key]) && isDefined(remote[key])) {
     return "remove";
   }
 

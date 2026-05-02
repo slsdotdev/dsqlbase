@@ -5,6 +5,7 @@ import {
   AnyTableDefinition,
   DefinitionNode,
   NodeKind,
+  Kind,
 } from "@dsqlbase/core/definition";
 
 export type SchemaObjectType =
@@ -35,13 +36,21 @@ export function isSchemaObjectKind(node: DefinitionNode): node is SchemaObjectTy
   return ORDERED_SCHEMA_OBJECTS.includes(node.kind);
 }
 
-export function isDefinitionInstance(obj: unknown): obj is DefinitionNode {
+export function isDefinitionObject(
+  obj: unknown
+): obj is DefinitionNode | SerializedObject<DefinitionNode> {
   return (
     typeof obj === "object" &&
     obj !== null &&
-    Object.hasOwn(obj, "kind") &&
-    typeof obj["toJSON" as keyof typeof obj] === "function"
+    "kind" in obj &&
+    Object.keys(Kind).includes(obj["kind"] as string) &&
+    "name" in obj &&
+    typeof obj["name"] === "string"
   );
+}
+
+export function isDefinitionInstance(obj: unknown): obj is DefinitionNode {
+  return isDefinitionObject(obj) && typeof obj["toJSON" as keyof typeof obj] === "function";
 }
 
 export function getSerializedSchemaObjects<T extends DefinitionNode[]>(definitions: T) {
