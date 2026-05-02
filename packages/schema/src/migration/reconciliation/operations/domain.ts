@@ -1,12 +1,18 @@
-import { AnyDomainDefinition } from "@dsqlbase/core/definition";
+import { AnyDomainDefinition, DefinitionNode } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
   DDLOperation,
+  DDLOperationError,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
+  refusal,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
+import { diffDomain } from "../diffs/domain.js";
+import { Diff, DiffType } from "../diffs/base.js";
+
+type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
 
 export function createDomainOperation(
   object: SerializedObject<AnyDomainDefinition>,
@@ -39,7 +45,7 @@ export function dropDomainOperation(
   const statement = ddl.dropDomain({
     name: object.name,
     ifExists,
-    cascade: "CASCADE",
+    cascade: "RESTRICT",
   });
 
   return {
@@ -68,5 +74,52 @@ export function diffDomainOperations(
     };
   }
 
-  return { operations: [], errors: [] };
+  const operations: DDLOperation[] = [];
+  const errors: DDLOperationError[] = [];
+  const namespaceRef = maybeNamespaceReference(local);
+  const diffs = diffDomain(local, remote) as unknown as AnyDiff[];
+  const blocked: AnyDiff[] = [];
+  const blockedAttrs: string[] = [];
+
+  for (const diff of diffs) {
+    const key = diff.key as string;
+
+    if (key === "defaultValue") {
+      const action =
+        diff.type === "remove"
+          ? ddl.dropDefault()
+          : ddl.setDefault({ expression: String(diff.value) });
+
+      operations.push({
+        type: "ALTER",
+        object: local,
+        statement: ddl.alterDomain({
+          name: local.name,
+          schema: local.namespace,
+          action,
+        }),
+        references: namespaceRef,
+      });
+      continue;
+    }
+
+    blocked.push(diff);
+    blockedAttrs.push(key);
+  }
+
+  if (blocked.length > 0) {
+    errors.push(
+      refusal({
+        code: "IMMUTABLE_DOMAIN",
+        message:
+          `Domain "${local.name}" is immutable except for defaultValue — ` +
+          `cannot change ${blockedAttrs.join(", ")}.`,
+        object: local,
+        subject: local.name,
+        diffs: blocked,
+      })
+    );
+  }
+
+  return { operations, errors };
 }

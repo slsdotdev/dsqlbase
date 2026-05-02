@@ -151,10 +151,15 @@
       THEN pg_get_constraintdef(con.oid, true) ELSE NULL END,
     'distinctNulls', CASE WHEN con.contype = 'u'
       THEN NOT cix.indnullsnotdistinct ELSE NULL END,
-    'include', NULL
+    'include', CASE WHEN con.contype IN ('u', 'p') THEN (
+      SELECT json_agg(pa.attname ORDER BY col_pos)
+      FROM LATERAL unnest(cix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
+      JOIN pg_attribute pa ON pa.attrelid = cix.indrelid AND pa.attnum = u.attnum
+      WHERE col_pos > cix.indnkeyatts
+    ) ELSE NULL END
   ))
   FROM pg_constraint con
-  LEFT JOIN pg_index cix ON cix.indexrelid = con.conindid AND con.contype = 'u'
+  LEFT JOIN pg_index cix ON cix.indexrelid = con.conindid
   WHERE con.conrelid = c.oid
     AND con.contype IN ('p', 'u', 'c')
 )
@@ -203,7 +208,19 @@
         'increment', seq.seqincrement::text,
         'cycle', seq.seqcycle,
         'cache', seq.seqcache::text,
-        'ownedBy', NULL
+        'ownedBy', (
+          SELECT format('%I.%I', tc.relname, ta.attname)
+          FROM pg_depend dep
+          JOIN pg_class tc ON tc.oid = dep.refobjid
+          JOIN pg_attribute ta
+            ON ta.attrelid = dep.refobjid
+           AND ta.attnum = dep.refobjsubid
+          WHERE dep.classid = 'pg_class'::regclass
+            AND dep.objid = c.oid
+            AND dep.refclassid = 'pg_class'::regclass
+            AND dep.deptype = 'a'
+          LIMIT 1
+        )
       )
     ) AS defs
     FROM pg_sequence seq
@@ -242,11 +259,11 @@
   )
 
   -- Concatenate all definitions into a single array
-  SELECT json_agg(d.defs) AS definitions
+  SELECT COALESCE(json_agg(d.defs), '[]'::json) AS definitions
   FROM (
     SELECT defs FROM schema_defs UNION ALL
-    SELECT defs FROM table_defs UNION ALL
     SELECT defs FROM domain_defs UNION ALL
+    SELECT defs FROM table_defs UNION ALL
     SELECT defs FROM sequence_defs UNION ALL
     SELECT defs FROM view_defs UNION ALL
     SELECT defs FROM function_defs

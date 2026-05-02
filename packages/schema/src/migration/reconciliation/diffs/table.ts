@@ -72,7 +72,7 @@ export function diffTable(
   for (const localConstraint of local.constraints) {
     const remoteConstraint = remoteConstraints.get(localConstraint.name);
 
-    if (remoteConstraint && localConstraint.kind === remoteConstraint.kind) {
+    if (!remoteConstraint || localConstraint.kind === remoteConstraint.kind) {
       diffs.push(...diffConstraint(localConstraint, remoteConstraint));
       remoteConstraints.delete(localConstraint.name);
     }

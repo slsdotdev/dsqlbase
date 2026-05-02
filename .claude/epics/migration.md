@@ -70,45 +70,38 @@ These rules drive both validation and refusals. They are PG-faithful where DSQL 
 
 Order is fixed: each later story depends on earlier ones being solid.
 
-### Story 1 — DDL: review nodes & close gaps
+### Story 1 — DDL: review nodes & close gaps ✅
 
 **Goal:** the AST + factory + printer cover every statement reconciliation will emit. No dead nodes.
 
 `packages/schema/src/migration/ddl/`
 
-- [ ] Reserved-but-unbuilt kinds stay in `ast.ts`:
-  - `OWNER` action in `DDLAction` (line 25): keep. DSQL allows `ALTER … OWNER TO`. Define a concrete `OwnerAction` statement type, add it to `AnyAlterTableAction`, build it in `factory.ts`, print it in `printer.ts`, and cover it in `printer.test.ts`.
-  - View / function commands (`CREATE_VIEW`, `ALTER_VIEW`, `DROP_VIEW`, `CREATE_FUNCTION`, `ALTER_FUNCTION`, `DROP_FUNCTION` in `DDLCommand`, lines 13–21): keep. They're reserved for future stories. No statement types, factories, or printer cases needed yet — add a one-line note near the union that they're intentionally unbuilt.
-- [ ] Confirm `AlterIndexAction` is intentionally limited to `RenameTableAction | SetSchemaAction` (line 356). PG can't alter an index's column list — a column change must drop+recreate. Document this in a one-line comment near the type.
-- [ ] Verify `printer.test.ts` covers every *built* statement kind in `AnyDDLStatement`. Add cases for any kind not exercised (including the new `OwnerAction`). The existing 36KB test file is the bar.
-- [ ] `async` on `CreateIndexCommand` is a modifier, not a default. Callers (reconciliation operations) decide whether to pass it. Don't add a default in the factory or printer.
+- [x] Reserved-but-unbuilt kinds stay in `ast.ts`:
+  - `OWNER` action: built — concrete `OwnerAction`, added to `AnyAlterTableAction`, factory + printer + tests.
+  - View / function commands: kept reserved with a note at the union; intentionally unbuilt.
+- [x] `AlterIndexAction` documented as intentionally limited to `RenameTableAction | SetSchemaAction`.
+- [x] `printer.test.ts` covers every built kind. `AnyDDLStatement` printers exercised.
+- [x] `async` on `CreateIndexCommand` stays a caller-supplied modifier (no factory default).
 
-**Acceptance:** `npm test -w @dsqlbase/schema` passes; no AST kind is unprinted; no unused kinds remain.
+Story 3b also added two AST kinds the operations layer needs:
+- `ADD_IDENTITY` sub-action (`ALTER COLUMN c ADD GENERATED [ALWAYS|BY DEFAULT] AS IDENTITY [options]`).
+- `ADD_CONSTRAINT_USING_INDEX` table-level action (`ALTER TABLE T ADD CONSTRAINT n UNIQUE USING INDEX i`). Factory + printer + tests.
+
+**Acceptance:** met. `npm test -w @dsqlbase/schema` green.
 
 ---
 
-### Story 2 — Introspection: query, normalizer, introspect
+### Story 2 — Introspection: query, normalizer, introspect ✅
 
-**Goal:** introspection produces a `SerializedSchema` byte-equivalent to what `toJSON()` produces locally, so reconciliation can compare without translation glue.
+**Goal:** introspection produces a `SerializedSchema` byte-equivalent to what `toJSON()` produces locally.
 
 `packages/schema/src/migration/introspection/`
 
-- [ ] **`query.ts` updates.** Currently selects schemas, tables, columns, indexes, domains, sequences, views, functions. Changes:
-  - Remove `view_defs` and `function_defs` CTEs and their UNIONs — out of scope.
-  - **Restructure table-constraint selection.** Today, primary key, unique, and check are scattered: PK is inferred per-column (`columns[].primaryKey`), single-column unique is per-column, multi-column unique is in `tables.unique`, check is in `tables.checks` for multi-column and per-column for single. Replace with a single `constraints` array per table that pulls every `pg_constraint` row for the table (`p`, `u`, `c`) with kind, name, columns, expression (for check). Tag column-level vs table-level in the normalizer, not in SQL.
-  - **Add identity columns.** Select from `pg_attribute.attidentity` (`'a'` = ALWAYS, `'d'` = BY DEFAULT) plus the identity sequence options. Shape must match `ColumnIdentityConfig` (`{ type, options?, sequenceName? }`).
-  - **Add generated columns.** Select from `pg_attribute.attgenerated` (`'s'` = stored). Pull the expression via `pg_get_expr(adbin, adrelid)` from `pg_attrdef`. Shape must match `ColumnGeneratedConfig` (`{ type: "ALWAYS", expression, mode: "STORED" }`).
-- [ ] **`normalizer.ts`.** Currently a stub returning input unchanged. Implement:
-  - Dispatches per `kind` into per-object normalizers.
-  - For tables, splits the unified `constraints[]` into column-level (PK on a single column → `column.primaryKey = true`; UNIQUE on a single column → `column.unique = true`; CHECK whose `conkey = [single col]` → `column.check`) vs table-level (everything else).
-  - Coerces null → undefined where the local `toJSON()` shape uses optional. The `ddl-serialized-adapter` proposal has a checklist — port the `nullsDistinct` / `distinctNulls` / `primaryKey` / `isPrimaryKey` rename rules here.
-  - Returns a `SerializedSchema` that round-trips cleanly through `sortSchemaObjects`.
-- [ ] **`introspect.ts`.** Currently empty. Implement `introspect(session: Session): Promise<SerializedSchema>`:
-  - Execute `introspection` query (single round-trip).
-  - Run normalizer on each row.
-  - Sort via `sortSchemaObjects` and return.
+- [x] **`query.ts`** — removed view/function CTEs; unified table constraints into a single `constraints[]` per table (PK/UNIQUE/CHECK with kind, name, columns, expression); identity and generated columns pulled via `pg_attribute.attidentity` / `attgenerated` and `pg_get_expr`.
+- [x] **`normalizer.ts`** — per-kind dispatch; column-level vs table-level constraint split; null → undefined coercion; rename rules applied.
+- [x] **`introspect.ts`** — single round-trip query, normalize, sort, return.
 
-**Acceptance:** unit tests round-trip a definition through `toJSON()` → mock introspection result → `normalizer` and assert deep-equal.
+**Acceptance:** met. Round-trip tests in place.
 
 ---
 
@@ -118,34 +111,36 @@ Order is fixed: each later story depends on earlier ones being solid.
 
 `packages/schema/src/migration/reconciliation/`
 
-#### 3a. Diffs
+#### 3a. Diffs ✅
 
 `diffs/` — diff every observable attribute, no DSQL awareness.
 
-- [ ] **`diffColumn`** (`diffs/table.ts:12`): add diffs for `generated` (whole `ColumnGeneratedConfig`) and `identity` (whole `ColumnIdentityConfig`, including nested options). Today's check-constraint handling at lines 104–124 stays.
-- [ ] **`diffIndex`** (new function in `diffs/table.ts`): diff `unique`, `distinctNulls`, `columns[]` (column name, sort, nulls, position), `include[]`. Replaces the `// TBD` at line 178.
-- [ ] **`diffConstraint`** (rename `diffCheckConstraint`, generalize): diff every constraint kind (`PRIMARY_KEY`, `UNIQUE`, `CHECK`) by name. For UNIQUE add `columns[]`, `include[]`, `nullsDistinct`. For PRIMARY_KEY add `columns[]`, `include[]`. For CHECK keep `expression`. Replaces the `// TBD` at line 208.
-- [ ] **`diffSequence`** (`diffs/sequence.ts`) is complete — confirm coverage matches `SequenceDefinition.toJSON()` after any recent changes.
-- [ ] **`diffDomain`** (`diffs/domain.ts`) is complete — confirm coverage.
+- [x] Per-object split: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates.
+- [x] `hasDiff` is a recursive deep-equal over arrays / nested objects / primitives.
+- [x] Column attrs diffed as whole-attribute keys: `generated`, `identity`, `check` are all whole-config diffs through the same loop (no name-only carve-out — see note below).
+- [x] `diffIndex` covers `unique`, `distinctNulls`, `columns[]`, `include[]`.
+- [x] `diffConstraint` dispatches PK / UNIQUE / CHECK; emits add when remote missing, modify per attr otherwise.
+- [x] `diffDomain`, `diffSequence` confirmed complete.
 
-#### 3b. Operations
+**Note:** the simplified column/domain `check` diffing dropped the prior "name-only equality" carve-out. Equivalent expressions that PG normalizes (e.g. `qty > 0` vs `(qty > (0)::integer)`) now emit a `modify` diff, which the operations layer turns into an `IMMUTABLE_CONSTRAINT` refusal. Story 2 follow-up: normalize local expressions in the introspection adapter so re-introspection round-trips cleanly.
+
+#### 3b. Operations ✅
 
 `operations/` — per-subject batching; refusals as structured `DDLOperationError`.
 
-- [ ] **`alterTableOperation`** (`operations/table.ts`): replace the empty branch at line 176. Group diffs by subject:
-  - Per column → one `ALTER_COLUMN` action with all sub-actions, or one refusal listing every blocked attribute.
-  - **Column `unique` flag transitions** (a special case of "column diff that produces a table-level operation, not a column-level one): `prev: false → current: true` emits `CREATE UNIQUE INDEX … ASYNC` + `ALTER TABLE … ADD CONSTRAINT … UNIQUE USING INDEX` against that column. `prev: true → current: false` emits `ALTER TABLE … DROP CONSTRAINT` for the auto-named unique constraint. These are emitted as table-level operations even though the diff originates from `diffColumn`, so the planner can order them after any preceding `ADD_COLUMN` for the same column.
-  - Column adds → one `ADD_COLUMN` per added column. Refuse if the added column carries any inline constraint (DSQL bare-only) — except: the column-level NOT NULL/DEFAULT/CHECK on a *new* column at CREATE TABLE time is fine; on `ADD COLUMN` it isn't. Today `createTableOperation` (lines 30–48) emits all of these inline at create-time, which is correct; `ADD COLUMN` must strip them and emit a refusal. If the added column also has `unique: true`, the unique-flag promotion path above applies after the bare `ADD COLUMN`.
-  - Column drops → always refuse (`DSQL_NO_DROP_COLUMN`).
-  - Index adds → emit `CREATE_INDEX` with `async: true` (extract the helper from `createIndexOperation`, reuse).
-  - Index drops → emit `DROP_INDEX`.
-  - Index modifications → refuse-or-recreate-and-refuse (a column-list change on an existing index is a drop+recreate; we refuse the drop unless the operation is "drop only" or "create only", since DSQL allows both).
-  - Constraint adds → for `UNIQUE`, emit `CREATE INDEX … ASYNC` followed by `ALTER TABLE … ADD CONSTRAINT … UNIQUE USING INDEX`. For `PRIMARY_KEY` on an existing table, refuse (DSQL can't add a PK after table creation without recreate). For `CHECK`, refuse (DSQL can't add CHECK after creation).
-  - Constraint drops → emit `ALTER TABLE … DROP CONSTRAINT`. Allowed in DSQL.
-- [ ] **Refusal records.** A refusal is `{ code, message, object, diffs?: Diff[] }` — extend `DDLOperationError` with optional `diffs` so per-subject refusals carry the full blocked list. One refusal per subject, never per diff.
-- [ ] **Drop default = `RESTRICT`** to match Postgres. Today `dropTableOperation` (`operations/table.ts:144`) hard-codes `cascade: "CASCADE"` — switch to `"RESTRICT"`. Same default for `DROP_INDEX`, `DROP_DOMAIN`, `DROP_SEQUENCE`, `DROP_SCHEMA`. Callers (or the runner, via an explicit option) can override.
-- [ ] **Domain ALTERs** (`operations/domain.ts`): refuse `dataType` changes (`DSQL_NO_DOMAIN_TYPE_CHANGE`); allow `notNull` (SET/DROP), `defaultValue` (SET/DROP — both add and remove transitions), and `check` (ADD/DROP/VALIDATE) via the existing `ALTER_DOMAIN` sub-actions.
-- [ ] **Sequence ALTERs** (`operations/sequence.ts`): emit `ALTER_SEQUENCE` for option changes; validate `cache ∈ {1} ∪ [65536, ∞)` at the operation layer (mirrors validation rule).
+Implemented behavior — note where it diverges from the original epic plan:
+
+- [x] **`diffTableOperations`** existing-remote branch. Split into per-subject helpers (`processColumnDiffs` → `handleColumnAdd` / `handleColumnModify`, `processIndexDiffs`, `processConstraintDiffs`) under one orchestrator.
+- [x] **Column adds**: bare `ADD COLUMN`. `unique: true` triggers the promotion path. `identity` on an added column emits bare `ADD COLUMN` + `ALTER COLUMN c ADD IDENTITY` in the same `ALTER TABLE` (identity is mutable, so no refusal). `notNull`, `defaultValue`, `check`, `primaryKey`, `generated` are non-promotable → `IMMUTABLE_COLUMN` refusal. Domain-typed columns push the domain into the `ALTER TABLE` op's `references[]` (planner uses it).
+- [x] **Column modifies**: every attr is refused (`IMMUTABLE_COLUMN`) **except identity** (mutable: ADD/DROP/SET GENERATED/RESTART) and `unique: false → true` (promotion path).
+- [x] **Column drops**: `NO_DROP_COLUMN`.
+- [x] **Indexes**: adds emit `CREATE INDEX … ASYNC`; drops emit `DROP INDEX … RESTRICT`; modifies refuse `IMMUTABLE_INDEX`.
+- [x] **Constraints (revised — diverges from original plan):** constraints are immutable in DSQL, so all constraint diffs refuse (`IMMUTABLE_CONSTRAINT`) **except** UNIQUE adds, which emit the promotion path. PK adds, CHECK adds, and any constraint drop or modify all refuse — the original plan's "constraint drops emit ALTER TABLE … DROP CONSTRAINT" is **not** what shipped.
+- [x] **UNIQUE promotion is modeled as `type: CREATE, object: <UNIQUE_CONSTRAINT>`**, not as ALTER on the table. This breaks the self-loop (a table cannot reference itself via `references[]`) and lets the planner sequence `CREATE TABLE → ADD COLUMN → CREATE INDEX → CREATE constraint` cleanly.
+- [x] **Refusal records** in `operations/base.ts`: `RefusalCode` union (`IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT`, `IMMUTABLE_DOMAIN`, `IMMUTABLE_INDEX`, `NO_FOREIGN_KEY`, `INVALID_SEQUENCE_CACHE`, `KIND_MISMATCH`); `DDLOperationError` extended with optional `subject` + `diffs`. **One refusal per subject** with all blocked attrs in the message + `diffs[]` payload (consolidation chosen over fine-grained codes).
+- [x] **Drop defaults switched to `RESTRICT`** for `DROP_TABLE`, `DROP_DOMAIN`, `DROP_SEQUENCE`, `DROP_SCHEMA`, and the new `dropIndexOperation`. PG RESTRICT is also what guards "domain in use" — no separate logic needed.
+- [x] **Domain ALTERs (revised — diverges from original plan):** only `defaultValue` SET/DROP/modify are allowed. `dataType`, `notNull`, and `check` all refuse `IMMUTABLE_DOMAIN`. The original plan allowed `notNull` SET/DROP and CHECK ADD/DROP — those have been removed because constraints are immutable and the user landed on a tighter "default-only" rule.
+- [x] **Sequence ALTERs:** option changes emit `ALTER_SEQUENCE`. Cache validation **lives at the validation layer (story 4), not at the operation layer** — the original plan put it here as a mirror; that mirror was removed as redundant.
 
 #### 3c. Planner
 
@@ -153,10 +148,18 @@ Order is fixed: each later story depends on earlier ones being solid.
   - Schemas before namespaced objects.
   - Domains before tables that use them (use `DDLOperation.references[]`).
   - Sequences before tables that own them (via `OWNED BY`).
-  - For a table: CREATE TABLE → ADD COLUMN → CREATE INDEX → ADD CONSTRAINT USING INDEX (the UNIQUE promotion ordering is load-bearing).
-  - Drops in reverse: DROP INDEX → DROP CONSTRAINT → DROP TABLE → DROP DOMAIN → DROP SCHEMA.
+  - For a table: CREATE TABLE → ADD COLUMN → CREATE INDEX → CREATE constraint (UNIQUE-via-`USING INDEX`).
+  - Drops in reverse: DROP INDEX → DROP TABLE → DROP DOMAIN → DROP SCHEMA. (No DROP CONSTRAINT — constraints are immutable; revisit if that ever changes.)
   - Within the same kind, preserve emission order (stable sort).
 - [ ] **Reconcile entry point** (`reconcile.ts`): `reconcileSchemas` returns `{ operations, errors }` after planning, not before. Today it returns raw emission order.
+
+**Notes for the implementer (carried over from 3b):**
+
+- Story 3b emits `type: CREATE, object: <UNIQUE_CONSTRAINT>, references: [<table>, <index>]` for the promotion path. Constraint serializations have no `namespace` field, so `qualifiedName(object)` from `operations/base.ts` is **not** suitable as a registry key for these sub-objects.
+- Constraint names are scoped to their parent table in PG (two tables can share `<x>_pkey`). The planner registry needs a composite key like `<tableQualifiedName>.<constraintName>` for these CREATE-on-constraint ops, separate from the table's own qualified name. Consider a `qualifiedConstraintName(parentTable, constraint)` helper alongside `qualifiedName`.
+- `references[]` on the constraint op already lists `[tableName, indexName]` — the planner just needs to look those up correctly.
+- ADD COLUMN ops with a domain-typed column carry the domain's name in `references[]` — the planner orders the domain ahead of the column add.
+- Identity ops live inside `ALTER COLUMN` sub-actions of the table-level `ALTER_TABLE` op, so they ride along with the column work; no separate ordering needed.
 
 **Acceptance:** new `reconcile.test.ts` cases for each refusal code, each batched ALTER scenario, each ordering invariant. Existing `reconcile.test.ts` still passes.
 
@@ -225,9 +228,22 @@ Order is fixed: each later story depends on earlier ones being solid.
 
 ## Decommissioning
 
-After all six stories merge:
+Removed (stories 1, 2, 3a, 3b implemented; epic captures the durable rules):
 
-- [ ] Delete the nine proposals in `.claude/proposals/`. Every durable rule from them is captured in this epic; rationale lives in commits and PR descriptions from here on.
+- `ddl-ast-catalog.md`, `ddl-printer-phases.md` — Story 1.
+- `ddl-serialized-adapter.md` — Story 2.
+- `definition-objects-gaps.md` — definition layer audit, gaps closed across stories 1–3b.
+- `migration-3b.md` — Story 3b proposal, just landed.
+- `migrations-module-mvp.md`, `migration-strategy-research.md`, `semantic-constraints.md` — superseded by this epic.
+- `reconciler.md` — original reconciler design; conflicts with the diff/operations split that shipped.
+
+Still in `.claude/proposals/`:
+
+- `validation-implementation-plan.md` — kept until Story 4 lands; the file layout / type sketch there is a useful jumping-off point.
+
+Remaining cleanup once all six stories merge:
+
+- [ ] Delete `validation-implementation-plan.md`.
 - [ ] Update `CLAUDE.md` if needed to point to `.claude/epics/` for future epic docs (today it only mentions proposals).
 
 ## Open questions deferred to post-v1

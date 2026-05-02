@@ -45,9 +45,11 @@ export {
   maybeNamespaceReference,
   qualifiedName,
   hasCustomNamespace,
+  refusal,
   type DDLOperation,
   type IndexedDDLOperation,
   type DDLOperationError,
   type OperationResult,
   type DDLOperationType,
+  type RefusalCode,
 } from "./base.js";

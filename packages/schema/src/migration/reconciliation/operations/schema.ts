@@ -22,7 +22,7 @@ export function createSchemaOperation(
 export function dropSchemaOperation(
   object: SerializedObject<AnyNamespaceDefinition>,
   ifExists = true,
-  cascade: "CASCADE" | "RESTRICT" = "CASCADE"
+  cascade: "CASCADE" | "RESTRICT" = "RESTRICT"
 ): DDLOperation {
   const statement = ddl.dropSchema({
     name: object.name,

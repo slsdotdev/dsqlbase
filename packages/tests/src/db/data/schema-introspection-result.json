@@ -1,5 +1,31 @@
 [
   {
+    "kind": "DOMAIN",
+    "name": "task_status",
+    "namespace": "public",
+    "dataType": "text",
+    "notNull": false,
+    "defaultValue": null,
+    "check": {
+      "kind": "CHECK_CONSTRAINT",
+      "name": "chk_task_status",
+      "expression": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'archived'::text]))"
+    }
+  },
+  {
+    "kind": "DOMAIN",
+    "name": "priority_level",
+    "namespace": "public",
+    "dataType": "text",
+    "notNull": false,
+    "defaultValue": null,
+    "check": {
+      "kind": "CHECK_CONSTRAINT",
+      "name": "chk_priority_level",
+      "expression": "CHECK (VALUE = ANY (ARRAY['urgent'::text, 'high'::text, 'medium'::text, 'low'::text, 'none'::text]))"
+    }
+  },
+  {
     "kind": "TABLE",
     "name": "teams",
     "namespace": "public",
@@ -94,16 +120,6 @@
     ],
     "constraints": [
       {
-        "kind": "UNIQUE_CONSTRAINT",
-        "name": "teams_slug_key",
-        "columns": [
-          "slug"
-        ],
-        "expression": null,
-        "distinctNulls": true,
-        "include": null
-      },
-      {
         "kind": "PRIMARY_KEY_CONSTRAINT",
         "name": "teams_pkey",
         "columns": [
@@ -111,6 +127,16 @@
         ],
         "expression": null,
         "distinctNulls": null,
+        "include": null
+      },
+      {
+        "kind": "UNIQUE_CONSTRAINT",
+        "name": "teams_slug_key",
+        "columns": [
+          "slug"
+        ],
+        "expression": null,
+        "distinctNulls": true,
         "include": null
       }
     ]
@@ -206,6 +232,16 @@
     ],
     "constraints": [
       {
+        "kind": "PRIMARY_KEY_CONSTRAINT",
+        "name": "team_members_pkey",
+        "columns": [
+          "id"
+        ],
+        "expression": null,
+        "distinctNulls": null,
+        "include": null
+      },
+      {
         "kind": "UNIQUE_CONSTRAINT",
         "name": "team_members_unique",
         "columns": [
@@ -214,16 +250,6 @@
         ],
         "expression": null,
         "distinctNulls": true,
-        "include": null
-      },
-      {
-        "kind": "PRIMARY_KEY_CONSTRAINT",
-        "name": "team_members_pkey",
-        "columns": [
-          "id"
-        ],
-        "expression": null,
-        "distinctNulls": null,
         "include": null
       }
     ]
@@ -303,16 +329,6 @@
     ],
     "constraints": [
       {
-        "kind": "UNIQUE_CONSTRAINT",
-        "name": "users_email_key",
-        "columns": [
-          "email"
-        ],
-        "expression": null,
-        "distinctNulls": true,
-        "include": null
-      },
-      {
         "kind": "PRIMARY_KEY_CONSTRAINT",
         "name": "users_pkey",
         "columns": [
@@ -320,6 +336,16 @@
         ],
         "expression": null,
         "distinctNulls": null,
+        "include": null
+      },
+      {
+        "kind": "UNIQUE_CONSTRAINT",
+        "name": "users_email_key",
+        "columns": [
+          "email"
+        ],
+        "expression": null,
+        "distinctNulls": true,
         "include": null
       }
     ]
@@ -693,32 +719,6 @@
         "include": null
       }
     ]
-  },
-  {
-    "kind": "DOMAIN",
-    "name": "task_status",
-    "namespace": "public",
-    "dataType": "text",
-    "notNull": false,
-    "defaultValue": null,
-    "check": {
-      "kind": "CHECK_CONSTRAINT",
-      "name": "chk_task_status",
-      "expression": "CHECK (VALUE = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text, 'archived'::text]))"
-    }
-  },
-  {
-    "kind": "DOMAIN",
-    "name": "priority_level",
-    "namespace": "public",
-    "dataType": "text",
-    "notNull": false,
-    "defaultValue": null,
-    "check": {
-      "kind": "CHECK_CONSTRAINT",
-      "name": "chk_priority_level",
-      "expression": "CHECK (VALUE = ANY (ARRAY['urgent'::text, 'high'::text, 'medium'::text, 'low'::text, 'none'::text]))"
-    }
   },
   {
     "kind": "SEQUENCE",

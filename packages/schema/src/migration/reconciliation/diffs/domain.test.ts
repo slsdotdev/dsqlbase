@@ -13,8 +13,16 @@ const baseDomain: Domain = {
   check: undefined,
 };
 
-const checkA = { kind: "CHECK_CONSTRAINT", name: "email_format", expression: "VALUE ~ '@'" } as const;
-const checkB = { kind: "CHECK_CONSTRAINT", name: "email_strict", expression: "VALUE ~ '^.+@.+$'" } as const;
+const checkA = {
+  kind: "CHECK_CONSTRAINT",
+  name: "email_format",
+  expression: "VALUE ~ '@'",
+} as const;
+const checkB = {
+  kind: "CHECK_CONSTRAINT",
+  name: "email_strict",
+  expression: "VALUE ~ '^.+@.+$'",
+} as const;
 
 describe("diffDomain", () => {
   it("emits no diffs when local and remote are identical", () => {
@@ -35,7 +43,10 @@ describe("diffDomain", () => {
   describe("CHECK constraint (name-only equality)", () => {
     it("emits no diff when names match but expressions differ", () => {
       const local: Domain = { ...baseDomain, check: { ...checkA, expression: "VALUE ~ '@'" } };
-      const remote: Domain = { ...baseDomain, check: { ...checkA, expression: "(VALUE ~ '@'::text)" } };
+      const remote: Domain = {
+        ...baseDomain,
+        check: { ...checkA, expression: "(VALUE ~ '@'::text)" },
+      };
       expect(diffDomain(local, remote)).toEqual([]);
     });
 
@@ -45,14 +56,21 @@ describe("diffDomain", () => {
       expect(diffDomain(local, remote)).toEqual([]);
     });
 
-    it("emits an add and a remove (no modify) when names differ", () => {
+    it("emits modify when names differ", () => {
       const local: Domain = { ...baseDomain, check: checkA };
       const remote: Domain = { ...baseDomain, check: checkB };
       const diffs = diffDomain(local, remote);
 
       expect(diffs).toEqual([
-        { type: "remove", kind: "CHECK_CONSTRAINT", name: "email_strict", object: checkB },
-        { type: "add", kind: "CHECK_CONSTRAINT", name: "email_format", object: checkA },
+        {
+          type: "modify",
+          kind: "DOMAIN",
+          name: local.name,
+          object: local,
+          key: "check",
+          value: checkA,
+          prevValue: checkB,
+        },
       ]);
     });
 
@@ -60,7 +78,15 @@ describe("diffDomain", () => {
       const local: Domain = { ...baseDomain, check: checkA };
       const diffs = diffDomain(local, baseDomain);
       expect(diffs).toEqual([
-        { type: "add", kind: "CHECK_CONSTRAINT", name: "email_format", object: checkA },
+        {
+          type: "add",
+          kind: "DOMAIN",
+          name: local.name,
+          object: local,
+          key: "check",
+          value: checkA,
+          prevValue: undefined,
+        },
       ]);
     });
 
@@ -68,7 +94,15 @@ describe("diffDomain", () => {
       const remote: Domain = { ...baseDomain, check: checkA };
       const diffs = diffDomain(baseDomain, remote);
       expect(diffs).toEqual([
-        { type: "remove", kind: "CHECK_CONSTRAINT", name: "email_format", object: checkA },
+        {
+          type: "remove",
+          kind: "DOMAIN",
+          name: baseDomain.name,
+          object: baseDomain,
+          key: "check",
+          value: undefined,
+          prevValue: checkA,
+        },
       ]);
     });
   });

@@ -1,5 +1,4 @@
 import { AnyDomainDefinition } from "@dsqlbase/core";
-import { AnyCheckConstraintDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
 
@@ -7,64 +6,32 @@ export function diffDomain(
   local: SerializedObject<AnyDomainDefinition>,
   remote: SerializedObject<AnyDomainDefinition>
 ) {
-  const diffs: (
-    | Diff<DiffType, SerializedObject<AnyDomainDefinition>>
-    | Diff<DiffType, SerializedObject<AnyCheckConstraintDefinition>>
-  )[] = [];
+  const diffs: Diff<DiffType, SerializedObject<AnyDomainDefinition>>[] = [];
 
-  if (hasDiff(local, remote, "dataType")) {
-    diffs.push({
-      type: diffType(local, remote, "dataType"),
-      kind: local.kind,
-      name: local.name,
-      object: local,
-      key: "dataType",
-      value: local.dataType,
-      prevValue: remote.dataType,
-    });
-  }
-
-  if (hasDiff(local, remote, "notNull")) {
-    diffs.push({
-      type: diffType(local, remote, "notNull"),
-      kind: local.kind,
-      name: local.name,
-      object: local,
-      key: "notNull",
-      value: local.notNull,
-      prevValue: remote.notNull,
-    });
-  }
-
-  if (hasDiff(local, remote, "defaultValue")) {
-    diffs.push({
-      type: diffType(local, remote, "defaultValue"),
-      kind: local.kind,
-      name: local.name,
-      object: local,
-      key: "defaultValue",
-      value: local.defaultValue,
-      prevValue: remote.defaultValue,
-    });
-  }
-
-  if (local.check?.name !== remote.check?.name) {
-    if (remote.check) {
+  for (const key of ["dataType", "notNull", "defaultValue"] as const) {
+    if (hasDiff(local, remote, key)) {
       diffs.push({
-        type: "remove",
-        kind: remote.check.kind,
-        name: remote.check.name,
-        object: remote.check,
+        type: diffType(local, remote, key),
+        kind: local.kind,
+        name: local.name,
+        object: local,
+        key,
+        value: local[key],
+        prevValue: remote[key],
       });
     }
-    if (local.check) {
-      diffs.push({
-        type: "add",
-        kind: local.check.kind,
-        name: local.check.name,
-        object: local.check,
-      });
-    }
+  }
+
+  if (hasDiff(local.check, remote.check, "name")) {
+    diffs.push({
+      type: diffType(local, remote, "check"),
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "check",
+      value: local.check,
+      prevValue: remote.check,
+    });
   }
 
   return diffs;

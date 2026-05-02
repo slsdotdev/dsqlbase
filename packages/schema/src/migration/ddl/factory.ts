@@ -1,6 +1,8 @@
 import {
   AddColumnAction,
   AddConstraintSubAction,
+  AddConstraintUsingIndexAction,
+  AddIdentitySubAction,
   AlterColumnAction,
   AlterDomainCommand,
   AlterIndexCommand,
@@ -87,6 +89,13 @@ export const setSchema = (props: Omit<SetSchemaAction, "__kind">): SetSchemaActi
 
 export const owner = (props: Omit<OwnerAction, "__kind">): OwnerAction => ({
   __kind: "OWNER",
+  ...props,
+});
+
+export const addConstraintUsingIndex = (
+  props: Omit<AddConstraintUsingIndexAction, "__kind">
+): AddConstraintUsingIndexAction => ({
+  __kind: "ADD_CONSTRAINT_USING_INDEX",
   ...props,
 });
 
@@ -186,6 +195,9 @@ export const setDataType = (props: Omit<SetDataTypeSubAction, "__kind">): SetDat
   __kind: "SET_DATA_TYPE",
   ...props,
 });
+export const addIdentity = (
+  props: Omit<AddIdentitySubAction, "__kind">
+): AddIdentitySubAction => ({ __kind: "ADD_IDENTITY", ...props });
 export const setGenerated = (
   props: Omit<SetGeneratedSubAction, "__kind">
 ): SetGeneratedSubAction => ({ __kind: "SET_GENERATED", ...props });
@@ -251,6 +263,7 @@ export const ddl = {
   renameConstraint,
   setSchema,
   owner,
+  addConstraintUsingIndex,
   createIndex,
   dropIndex,
   alterIndex,
@@ -271,6 +284,7 @@ export const ddl = {
   setDefault,
   dropDefault,
   setDataType,
+  addIdentity,
   setGenerated,
   restart,
   dropIdentity,

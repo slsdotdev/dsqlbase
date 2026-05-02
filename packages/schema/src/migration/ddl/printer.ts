@@ -77,6 +77,10 @@ const printReducer = {
     sql`RENAME CONSTRAINT ${sql.identifier(node.constraintName)} TO ${sql.identifier(node.newName)}`,
   SET_SCHEMA: (node) => sql`SET SCHEMA ${sql.identifier(node.schemaName)}`,
   OWNER: (node) => sql`OWNER TO ${sql.identifier(node.roleName)}`,
+  ADD_CONSTRAINT_USING_INDEX: (node) => {
+    const kind = node.kind === "PRIMARY_KEY" ? "PRIMARY KEY" : "UNIQUE";
+    return sql`ADD CONSTRAINT ${sql.identifier(node.name)} ${sql.raw(kind)} USING INDEX ${sql.identifier(node.indexName)}`;
+  },
   CREATE_INDEX: (node) => {
     const unique = node.unique ? sql.raw("UNIQUE ") : sql.raw("");
     const async = node.async ? sql.raw("ASYNC ") : sql.raw("");
@@ -232,6 +236,12 @@ const printReducer = {
   SET_DATA_TYPE: (node) => {
     const out = sql`SET DATA TYPE ${sql.raw(node.dataType)}`;
     if (node.using !== undefined) out.append(sql` USING ${sql.raw(node.using)}`);
+    return out;
+  },
+  ADD_IDENTITY: (node) => {
+    const mode = node.mode === "ALWAYS" ? "ALWAYS" : "BY DEFAULT";
+    const out = sql`${sql.raw(`ADD GENERATED ${mode} AS IDENTITY`)}`;
+    if (node.options) out.append(sql` (${node.options})`);
     return out;
   },
   SET_GENERATED: (node) => {

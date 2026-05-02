@@ -28,7 +28,8 @@ export type DDLAction =
   | "ALTER_COLUMN"
   | "RENAME_COLUMN"
   | "RENAME_CONSTRAINT"
-  | "SET_SCHEMA";
+  | "SET_SCHEMA"
+  | "ADD_CONSTRAINT_USING_INDEX";
 
 export type DDLSubAction =
   | "SET_NOT_NULL"
@@ -36,6 +37,7 @@ export type DDLSubAction =
   | "SET_DEFAULT"
   | "DROP_DEFAULT"
   | "SET_DATA_TYPE"
+  | "ADD_IDENTITY"
   | "SET_GENERATED"
   | "RESTART"
   | "DROP_IDENTITY"
@@ -167,6 +169,13 @@ export interface OwnerAction extends DDLStatement {
   roleName: string;
 }
 
+export interface AddConstraintUsingIndexAction extends DDLStatement {
+  __kind: "ADD_CONSTRAINT_USING_INDEX";
+  name: string;
+  kind: "UNIQUE" | "PRIMARY_KEY";
+  indexName: string;
+}
+
 export type AnyAlterTableAction =
   | AddColumnAction
   | AlterColumnAction
@@ -174,7 +183,8 @@ export type AnyAlterTableAction =
   | RenameColumnAction
   | RenameConstraintAction
   | SetSchemaAction
-  | OwnerAction;
+  | OwnerAction
+  | AddConstraintUsingIndexAction;
 
 export interface AlterTableCommand extends DDLStatement {
   __kind: "ALTER_TABLE";
@@ -306,6 +316,12 @@ export interface RestartSubAction extends DDLStatement {
   with?: number;
 }
 
+export interface AddIdentitySubAction extends DDLStatement {
+  __kind: "ADD_IDENTITY";
+  mode: "ALWAYS" | "BY_DEFAULT";
+  options?: SequenceOptionsExpression;
+}
+
 export interface DropIdentitySubAction extends DDLStatement {
   __kind: "DROP_IDENTITY";
   ifExists?: boolean;
@@ -337,6 +353,7 @@ type SharedModifySubAction =
 export type AlterColumnSubAction =
   | SharedModifySubAction
   | SetDataTypeSubAction
+  | AddIdentitySubAction
   | SetGeneratedSubAction
   | RestartSubAction
   | DropIdentitySubAction;
@@ -391,6 +408,7 @@ export type AnyDDLStatement =
   | RenameConstraintAction
   | SetSchemaAction
   | OwnerAction
+  | AddConstraintUsingIndexAction
   | ColumnDefinitionExpression
   | CheckConstraintExpression
   | PrimaryKeyConstraintExpression
@@ -406,6 +424,7 @@ export type AnyDDLStatement =
   | SetDefaultSubAction
   | DropDefaultSubAction
   | SetDataTypeSubAction
+  | AddIdentitySubAction
   | SetGeneratedSubAction
   | RestartSubAction
   | DropIdentitySubAction

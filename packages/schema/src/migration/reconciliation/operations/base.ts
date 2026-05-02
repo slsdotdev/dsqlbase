@@ -1,6 +1,7 @@
 import { DefinitionNode } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { DDLStatement } from "../../ddl/index.js";
+import { Diff, DiffType } from "../diffs/base.js";
 
 export type DDLOperationType = "CREATE" | "DROP" | "ALTER";
 
@@ -15,10 +16,32 @@ export interface IndexedDDLOperation extends DDLOperation {
   id: number;
 }
 
+export type RefusalCode =
+  | "IMMUTABLE_COLUMN"
+  | "NO_DROP_COLUMN"
+  | "IMMUTABLE_CONSTRAINT"
+  | "IMMUTABLE_DOMAIN"
+  | "IMMUTABLE_INDEX"
+  | "NO_FOREIGN_KEY"
+  | "INVALID_SEQUENCE_CACHE"
+  | "KIND_MISMATCH";
+
 export interface DDLOperationError {
-  code: string;
+  code: RefusalCode | string;
   message: string;
   object: SerializedObject<DefinitionNode>;
+  subject?: string;
+  diffs?: Diff<DiffType, SerializedObject<DefinitionNode>>[];
+}
+
+export function refusal(args: {
+  code: RefusalCode;
+  message: string;
+  object: SerializedObject<DefinitionNode>;
+  subject?: string;
+  diffs?: Diff<DiffType, SerializedObject<DefinitionNode>>[];
+}): DDLOperationError {
+  return args;
 }
 
 export interface OperationResult {

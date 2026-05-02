@@ -2,11 +2,13 @@ import { AnySequenceDefinition } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
   DDLOperation,
+  DDLOperationError,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
+import { diffSequence } from "../diffs/sequence.js";
 
 export function createSequenceOperation(
   object: SerializedObject<AnySequenceDefinition>,
@@ -43,7 +45,7 @@ export function dropSequenceOperation(
   const statement = ddl.dropSequence({
     name: object.name,
     ifExists,
-    cascade: "CASCADE",
+    cascade: "RESTRICT",
   });
 
   return {
@@ -58,19 +60,42 @@ export function diffSequenceOperations(
   local: SerializedObject<AnySequenceDefinition>,
   remote?: SerializedObject<SchemaObjectType>
 ): OperationResult {
+  const operations: DDLOperation[] = [];
+  const errors: DDLOperationError[] = [];
+
   if (!remote) {
-    return {
-      operations: [createSequenceOperation(local)],
-      errors: [],
-    };
+    operations.push(createSequenceOperation(local));
+    return { operations, errors };
   }
 
   if (remote.kind !== "SEQUENCE") {
-    return {
-      operations: [],
-      errors: [kindMismatchError("SEQUENCE", remote)],
-    };
+    errors.push(kindMismatchError("SEQUENCE", remote));
+    return { operations, errors };
   }
 
-  return { operations: [], errors: [] };
+  if (diffSequence(local, remote).length === 0) {
+    return { operations, errors };
+  }
+
+  operations.push({
+    type: "ALTER",
+    object: local,
+    statement: ddl.alterSequence({
+      name: local.name,
+      schema: local.namespace,
+      options: ddl.sequenceOptions({
+        dataType: local.options.dataType,
+        incrementBy: local.options.increment,
+        cache: local.options.cache,
+        cycle: local.options.cycle,
+        startValue: local.options.startValue,
+        minValue: local.options.minValue,
+        maxValue: local.options.maxValue,
+        ownedBy: local.options.ownedBy,
+      }),
+    }),
+    references: maybeNamespaceReference(local),
+  });
+
+  return { operations, errors };
 }

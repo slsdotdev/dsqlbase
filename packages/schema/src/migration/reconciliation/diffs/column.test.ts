@@ -139,10 +139,10 @@ describe("diffColumn", () => {
       expect(diffs).toEqual([
         {
           type: "modify",
-          kind: "CHECK_CONSTRAINT",
-          name: checkA.name,
-          key: "name",
-          object: checkA,
+          kind: local.kind,
+          name: local.name,
+          object: local,
+          key: "check",
           value: checkA,
           prevValue: checkB,
         },
@@ -153,7 +153,15 @@ describe("diffColumn", () => {
       const local: Column = { ...baseColumn, check: checkA };
       const diffs = diffColumn(local, baseColumn);
       expect(diffs).toEqual([
-        { type: "add", kind: "CHECK_CONSTRAINT", name: "qty_positive", object: checkA },
+        {
+          type: "add",
+          kind: local.kind,
+          name: local.name,
+          object: local,
+          key: "check",
+          value: checkA,
+          prevValue: null,
+        },
       ]);
     });
 
@@ -161,7 +169,15 @@ describe("diffColumn", () => {
       const remote: Column = { ...baseColumn, check: checkA };
       const diffs = diffColumn(baseColumn, remote);
       expect(diffs).toEqual([
-        { type: "remove", kind: "CHECK_CONSTRAINT", name: "qty_positive", object: checkA },
+        {
+          type: "remove",
+          kind: baseColumn.kind,
+          name: baseColumn.name,
+          object: baseColumn,
+          key: "check",
+          value: null,
+          prevValue: checkA,
+        },
       ]);
     });
   });
