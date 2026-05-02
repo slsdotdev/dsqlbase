@@ -23,7 +23,6 @@ export type RefusalCode =
   | "IMMUTABLE_DOMAIN"
   | "IMMUTABLE_INDEX"
   | "NO_FOREIGN_KEY"
-  | "INVALID_SEQUENCE_CACHE"
   | "KIND_MISMATCH";
 
 export interface DDLOperationError {

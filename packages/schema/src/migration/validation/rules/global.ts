@@ -1,4 +1,7 @@
-import { GlobalRule } from "../context.js";
+import { DefinitionNode } from "@dsqlbase/core/definition";
+import { GlobalRule, Rule } from "../context.js";
+
+const MAX_IDENTIFIER_BYTES = 63;
 
 export const noDuplicateObjectNames: GlobalRule = (definition, context) => {
   const nameByNamespace = new Map<string, Set<string>>(
@@ -29,4 +32,16 @@ export const noDuplicateObjectNames: GlobalRule = (definition, context) => {
 
     names?.add(obj.name);
   }
+};
+
+export const identifierTooLong: Rule<DefinitionNode> = (node, context) => {
+  const bytes = Buffer.byteLength(node.name, "utf8");
+  if (bytes <= MAX_IDENTIFIER_BYTES) return;
+
+  context.report({
+    level: "error",
+    code: "IDENTIFIER_TOO_LONG",
+    message: `Identifier "${node.name}" is ${bytes} bytes; PostgreSQL limits identifiers to ${MAX_IDENTIFIER_BYTES} bytes.`,
+    path: [node.name],
+  });
 };

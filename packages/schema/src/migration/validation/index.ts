@@ -7,4 +7,4 @@ export type {
   ValidationIssue,
 } from "./context.js";
 
-export { validateDefinition } from "./validate.js";
+export { defaultRules, globalRules, validateDefinition } from "./validate.js";

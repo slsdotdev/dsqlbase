@@ -1,7 +1,8 @@
+import { DefinitionNode } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
 
 export interface ValidationIssue {
-  level: "error" | "warning" | "notice";
+  level: "error" | "warning";
   code: string;
   path: string[];
   message: string;
@@ -46,13 +47,15 @@ export class ValidationContext {
   }
 }
 
-export type Rule<T extends SchemaObjectType["name"]> = (
-  definition: SerializedObject<Extract<SchemaObjectType, { name: T }>>,
+export type Rule<T extends DefinitionNode> = (
+  definition: SerializedObject<T>,
   context: ValidationContext
 ) => void;
 
 export type GlobalRule = (definition: SerializedSchema, context: ValidationContext) => void;
 
 export type ValidationRules = {
-  [K in SchemaObjectType["name"]]?: Rule<K>[];
+  [K in SchemaObjectType["kind"]]?: Extract<SchemaObjectType, { kind: K }> extends DefinitionNode
+    ? Rule<Extract<SchemaObjectType, { kind: K }>>[]
+    : never;
 };
