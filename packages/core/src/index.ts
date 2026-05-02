@@ -1,4 +1,7 @@
 export {
+  Kind,
+  Relation,
+  defaultCodec,
   ColumnDefinition,
   DomainDefinition,
   IndexDefinition,
@@ -8,9 +11,6 @@ export {
   ViewDefinition,
   RelationsDefinition,
   DefinitionNode,
-  Kind,
-  Relation,
-  defaultCodec,
   type AnyColumnDefinition,
   type AnyDomainDefinition,
   type AnyFieldRelation,

@@ -142,26 +142,29 @@ Implemented behavior — note where it diverges from the original epic plan:
 - [x] **Domain ALTERs (revised — diverges from original plan):** only `defaultValue` SET/DROP/modify are allowed. `dataType`, `notNull`, and `check` all refuse `IMMUTABLE_DOMAIN`. The original plan allowed `notNull` SET/DROP and CHECK ADD/DROP — those have been removed because constraints are immutable and the user landed on a tighter "default-only" rule.
 - [x] **Sequence ALTERs:** option changes emit `ALTER_SEQUENCE`. Cache validation **lives at the validation layer (story 4), not at the operation layer** — the original plan put it here as a mirror; that mirror was removed as redundant.
 
-#### 3c. Planner
+#### 3c. Planner ✅
 
-- [ ] **Operation planner / sorter.** New file `operations/planner.ts`. Inputs the `IndexedDDLOperation[]` from `SchemaReconciler.run()`, outputs an ordered list. Rules:
-  - Schemas before namespaced objects.
-  - Domains before tables that use them (use `DDLOperation.references[]`).
-  - Sequences before tables that own them (via `OWNED BY`).
-  - For a table: CREATE TABLE → ADD COLUMN → CREATE INDEX → CREATE constraint (UNIQUE-via-`USING INDEX`).
-  - Drops in reverse: DROP INDEX → DROP TABLE → DROP DOMAIN → DROP SCHEMA. (No DROP CONSTRAINT — constraints are immutable; revisit if that ever changes.)
-  - Within the same kind, preserve emission order (stable sort).
-- [ ] **Reconcile entry point** (`reconcile.ts`): `reconcileSchemas` returns `{ operations, errors }` after planning, not before. Today it returns raw emission order.
+Implemented as a **type-agnostic** stable topological sort over `IndexedDDLOperation[]`. The planner inspects only `id`, `type`, and `references[]` — no per-kind rules. Every ordering invariant in the original bullet list is realized by the relevant operation declaring its dependencies in `references[]`; the planner just resolves them.
 
-**Notes for the implementer (carried over from 3b):**
+- [x] **Planner.** New file `reconciliation/planner.ts` (sibling to `reconcile.ts`, not under `operations/` — it's a reconciliation-level concern, not an operation factory).
+  - `planOperations(ops)` builds a subject registry, a dependency graph, and runs Kahn's with a min-id tiebreaker for stability.
+  - For `CREATE`/`ALTER` X: edges `dep → X` for each `dep` touching a subject in `X.references`.
+  - For `DROP` X: edges `X → dep` (drops run before the things that point at the subject they remove).
+  - Subjects key on `qualifiedName(object)` for namespaced objects, and on `qualifiedConstraintName(parentTable, constraint)` for standalone constraint ops (parent pulled from `references[0]`). New helper added to `operations/base.ts`.
+  - Cycles throw with a list of the offending op ids — they signal a bug in operation emission, not user input.
+- [x] **Reconcile entry point** (`reconcile.ts`): `reconcileSchemas` returns `planOperations(this._operations)`. The old `_operationRegistry` / `_registerOperation` were removed (planner reconstructs the registry).
 
-- Story 3b emits `type: CREATE, object: <UNIQUE_CONSTRAINT>, references: [<table>, <index>]` for the promotion path. Constraint serializations have no `namespace` field, so `qualifiedName(object)` from `operations/base.ts` is **not** suitable as a registry key for these sub-objects.
-- Constraint names are scoped to their parent table in PG (two tables can share `<x>_pkey`). The planner registry needs a composite key like `<tableQualifiedName>.<constraintName>` for these CREATE-on-constraint ops, separate from the table's own qualified name. Consider a `qualifiedConstraintName(parentTable, constraint)` helper alongside `qualifiedName`.
-- `references[]` on the constraint op already lists `[tableName, indexName]` — the planner just needs to look those up correctly.
-- ADD COLUMN ops with a domain-typed column carry the domain's name in `references[]` — the planner orders the domain ahead of the column add.
-- Identity ops live inside `ALTER COLUMN` sub-actions of the table-level `ALTER_TABLE` op, so they ride along with the column work; no separate ordering needed.
+**How the original bullet list collapsed into `references[]`:**
 
-**Acceptance:** new `reconcile.test.ts` cases for each refusal code, each batched ALTER scenario, each ordering invariant. Existing `reconcile.test.ts` still passes.
+- _Schemas before namespaced objects_ — namespaced-object ops already push the namespace via `maybeNamespaceReference`.
+- _Domains before tables that use them_ — `createTableOperation` and ADD COLUMN ops push column domain names.
+- _For a table: CREATE TABLE → ADD COLUMN → CREATE INDEX → CREATE constraint_ — index ops reference the table; the promotion-path constraint op references `[table, index]`.
+- _Drops in reverse_ — same edges, opposite direction (DROP-handling rule above).
+- _Stable within same kind_ — emission `id` is the tiebreaker.
+
+**Deferred:** _Sequences before tables that own them (via `OWNED BY`)_. The public `SequenceDefinition.ownedBy()` setter is commented out and the local/introspection serializations of `ownedBy` don't agree (single quoted ident vs dot-separated). Wiring `references[]` for `OWNED BY` is gated on fixing that plumbing first; covered by a single one-line change to `createSequenceOperation` once the serialization is structured. No planner change needed when it lands.
+
+**Acceptance:** met. New `planner.test.ts` covers ref direction (CREATE/DROP), transitive deps, schema-before-namespaced, domain-before-ALTER, the UNIQUE promotion chain, stability within a subject, independent-op interleaving, constraint-name collision isolation across tables, and cycle detection. `reconcile.test.ts` unchanged and green. `npm test -w @dsqlbase/schema` → 272/272.
 
 ---
 

@@ -44,6 +44,7 @@ export {
   kindMismatchError,
   maybeNamespaceReference,
   qualifiedName,
+  qualifiedConstraintName,
   hasCustomNamespace,
   refusal,
   type DDLOperation,

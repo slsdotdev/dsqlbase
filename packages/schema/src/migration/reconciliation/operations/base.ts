@@ -59,6 +59,13 @@ export function qualifiedName(obj: SerializedObject<DefinitionNode>): string {
   return hasCustomNamespace(obj) ? `${obj.namespace}.${obj.name}` : obj.name;
 }
 
+export function qualifiedConstraintName(
+  parentTableQualifiedName: string,
+  constraint: SerializedObject<DefinitionNode>
+): string {
+  return `${parentTableQualifiedName}.${constraint.name}`;
+}
+
 export function maybeNamespaceReference(
   obj: SerializedObject<DefinitionNode>
 ): [string] | undefined {

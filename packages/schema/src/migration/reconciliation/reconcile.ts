@@ -1,4 +1,3 @@
-import { DefinitionNode } from "@dsqlbase/core";
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
 import {
   DDLOperation,
@@ -8,13 +7,13 @@ import {
   IndexedDDLOperation,
   qualifiedName,
 } from "./operations/index.js";
+import { planOperations } from "./planner.js";
 
 export class SchemaReconciler {
   private readonly _localSchema: Map<string, SerializedObject<SchemaObjectType>>;
   private readonly _remoteSchema: Map<string, SerializedObject<SchemaObjectType>>;
 
   private _operationIdCounter = 0;
-  private readonly _operationRegistry = new Map<string, number[]>();
   private readonly _operations: IndexedDDLOperation[] = [];
   private readonly _errors: DDLOperationError[] = [];
 
@@ -23,22 +22,9 @@ export class SchemaReconciler {
     this._remoteSchema = new Map(remoteSchema.map((obj) => [qualifiedName(obj), obj]));
   }
 
-  private _registerOperation(object: SerializedObject<DefinitionNode>): number {
-    const subject = qualifiedName(object);
-    const id = this._operationIdCounter++;
-
-    if (!this._operationRegistry.has(subject)) {
-      this._operationRegistry.set(subject, []);
-    }
-
-    this._operationRegistry.get(subject)?.push(id);
-    return id;
-  }
-
   private _pushOperation(operation: DDLOperation) {
-    const id = this._registerOperation(operation.object);
-    this._operations.push({ id: id, ...operation });
-
+    const id = this._operationIdCounter++;
+    this._operations.push({ id, ...operation });
     return id;
   }
 
@@ -64,7 +50,7 @@ export class SchemaReconciler {
     }
 
     return {
-      operations: this._operations,
+      operations: planOperations(this._operations),
       errors: this._errors,
     };
   }
