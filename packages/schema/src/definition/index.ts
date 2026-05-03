@@ -22,3 +22,5 @@ export { namespace, schema } from "./namespace.js";
 export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 export { sequence } from "./sequence.js";
 export { table } from "./table.js";
+
+export { type Duration } from "./utils/duration.js";
