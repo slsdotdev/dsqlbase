@@ -1,8 +1,10 @@
-import { AnyDomainDefinition, DefinitionNode } from "@dsqlbase/core/definition";
+import { AnyDomainDefinition } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
   DDLOperation,
   DDLOperationError,
+  DDLOperationOptions,
+  DEFAULT_DDL_OPERATION_OPTIONS,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
@@ -10,9 +12,7 @@ import {
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
 import { diffDomain } from "../diffs/domain.js";
-import { Diff, DiffType } from "../diffs/base.js";
-
-type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
+import { AnyDiff } from "../diffs/base.js";
 
 export function createDomainOperation(
   object: SerializedObject<AnyDomainDefinition>,
@@ -40,12 +40,12 @@ export function createDomainOperation(
 
 export function dropDomainOperation(
   object: SerializedObject<AnyDomainDefinition>,
-  ifExists = true
+  options: DDLOperationOptions
 ): DDLOperation {
   const statement = ddl.dropDomain({
     name: object.name,
-    ifExists,
-    cascade: "RESTRICT",
+    ifExists: options.safeOperations,
+    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
   });
 
   return {
@@ -58,11 +58,12 @@ export function dropDomainOperation(
 
 export function diffDomainOperations(
   local: SerializedObject<AnyDomainDefinition>,
-  remote?: SerializedObject<SchemaObjectType>
+  remote?: SerializedObject<SchemaObjectType>,
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): OperationResult {
   if (!remote) {
     return {
-      operations: [createDomainOperation(local)],
+      operations: [createDomainOperation(local, options.safeOperations)],
       errors: [],
     };
   }
@@ -77,8 +78,8 @@ export function diffDomainOperations(
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
   const namespaceRef = maybeNamespaceReference(local);
-  const diffs = diffDomain(local, remote) as unknown as AnyDiff[];
-  const blocked: AnyDiff[] = [];
+  const diffs = diffDomain(local, remote);
+  const blocked: AnyDiff<AnyDomainDefinition>[] = [];
   const blockedAttrs: string[] = [];
 
   for (const diff of diffs) {

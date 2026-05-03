@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Kind } from "@dsqlbase/core";
 import { introspect, SerializedSchema } from "@dsqlbase/schema/migration";
 import { createTestClient, TestClient } from "../db/index.js";
-import { applyMigrations } from "../fixures/migrate.js";
+import { applyMigrations } from "../db/migrate.js";
 
 describe("Schema introspection", () => {
   let client: TestClient;

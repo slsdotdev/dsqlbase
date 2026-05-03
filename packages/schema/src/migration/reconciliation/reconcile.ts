@@ -1,4 +1,5 @@
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
+import { DDLOperationOptions } from "./operations/base.js";
 import {
   DDLOperation,
   DDLOperationError,
@@ -16,10 +17,19 @@ export class SchemaReconciler {
   private _operationIdCounter = 0;
   private readonly _operations: IndexedDDLOperation[] = [];
   private readonly _errors: DDLOperationError[] = [];
+  private readonly _options: DDLOperationOptions;
 
-  constructor(localSchema: SerializedSchema, remoteSchema: SerializedSchema) {
+  constructor(
+    localSchema: SerializedSchema,
+    remoteSchema: SerializedSchema,
+    options: Partial<DDLOperationOptions> = {}
+  ) {
     this._localSchema = new Map(localSchema.map((obj) => [qualifiedName(obj), obj]));
     this._remoteSchema = new Map(remoteSchema.map((obj) => [qualifiedName(obj), obj]));
+    this._options = {
+      asyncIndexes: options.asyncIndexes ?? true,
+      safeOperations: options.safeOperations ?? true,
+    };
   }
 
   private _pushOperation(operation: DDLOperation) {
@@ -31,7 +41,7 @@ export class SchemaReconciler {
   public run() {
     for (const [name, local] of this._localSchema.entries()) {
       const remote = this._remoteSchema.get(name);
-      const { operations, errors } = diffObjectOperations(local, remote);
+      const { operations, errors } = diffObjectOperations(local, remote, this._options);
 
       for (const operation of operations) {
         this._pushOperation(operation);
@@ -45,7 +55,7 @@ export class SchemaReconciler {
     }
 
     for (const remote of this._remoteSchema.values()) {
-      const operation = dropObjectOperations(remote);
+      const operation = dropObjectOperations(remote, this._options);
       this._pushOperation(operation);
     }
 
@@ -56,6 +66,10 @@ export class SchemaReconciler {
   }
 }
 
-export function reconcileSchemas(local: SerializedSchema, remote: SerializedSchema) {
-  return new SchemaReconciler(local, remote).run();
+export function reconcileSchemas(
+  local: SerializedSchema,
+  remote: SerializedSchema,
+  options: Partial<DDLOperationOptions> = {}
+) {
+  return new SchemaReconciler(local, remote, options).run();
 }

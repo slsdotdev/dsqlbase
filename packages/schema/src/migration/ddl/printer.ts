@@ -1,4 +1,4 @@
-import { sql, SQLContext, SQLNode, SQLQuery } from "@dsqlbase/core";
+import { sql, SQLContext, SQLNode, SQLQuery, SQLStatement } from "@dsqlbase/core";
 import { AnyDDLStatement, DDLKind, DDLStatement, isStatement } from "./ast.js";
 
 export type PrintedNode<T extends DDLStatement> = {
@@ -315,8 +315,8 @@ export function printDDL<T extends DDLStatement>(
 }
 
 export function createPrinter(context?: Partial<SQLContext>, reducer?: Partial<Reducer>) {
-  return function print(statement: DDLStatement): string {
+  return function print(statement: DDLStatement): SQLStatement {
     const query = sql`${printDDL(statement, reducer)}`;
-    return query.toQuery(context).text;
+    return query.toQuery(context);
   };
 }

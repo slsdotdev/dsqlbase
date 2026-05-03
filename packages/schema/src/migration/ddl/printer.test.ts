@@ -16,7 +16,7 @@ describe("printDDL", () => {
         defaultValue: null,
       });
 
-      expect(print(node)).toBe('"name" text');
+      expect(print(node).text).toBe('"name" text');
     });
 
     it("prints NOT NULL", () => {
@@ -29,7 +29,7 @@ describe("printDDL", () => {
         defaultValue: null,
       });
 
-      expect(print(node)).toBe('"name" text NOT NULL');
+      expect(print(node).text).toBe('"name" text NOT NULL');
     });
 
     it("prints UNIQUE and NOT NULL", () => {
@@ -42,7 +42,7 @@ describe("printDDL", () => {
         defaultValue: null,
       });
 
-      expect(print(node)).toBe('"email" text NOT NULL UNIQUE');
+      expect(print(node).text).toBe('"email" text NOT NULL UNIQUE');
     });
 
     it("prints PRIMARY KEY with default", () => {
@@ -55,7 +55,7 @@ describe("printDDL", () => {
         defaultValue: "gen_random_uuid()",
       });
 
-      expect(print(node)).toBe('"id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()');
+      expect(print(node).text).toBe('"id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()');
     });
 
     it("prints DEFAULT value", () => {
@@ -68,7 +68,7 @@ describe("printDDL", () => {
         defaultValue: "true",
       });
 
-      expect(print(node)).toBe('"is_active" boolean NOT NULL DEFAULT true');
+      expect(print(node).text).toBe('"is_active" boolean NOT NULL DEFAULT true');
     });
 
     it("prints inline CHECK constraint", () => {
@@ -85,7 +85,7 @@ describe("printDDL", () => {
         }),
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `"status" text NOT NULL CONSTRAINT "chk_status" CHECK (status IN ('a','b'))`
       );
     });
@@ -100,7 +100,7 @@ describe("printDDL", () => {
         defaultValue: null,
       });
 
-      expect(print(node)).toBe('"title" varchar(100)');
+      expect(print(node).text).toBe('"title" varchar(100)');
     });
   });
 
@@ -111,24 +111,24 @@ describe("printDDL", () => {
         expression: "age >= 0",
       });
 
-      expect(print(node)).toBe(`CONSTRAINT "chk_age" CHECK (age >= 0)`);
+      expect(print(node).text).toBe(`CONSTRAINT "chk_age" CHECK (age >= 0)`);
     });
   });
 
   describe("PRIMARY_KEY_CONSTRAINT", () => {
     it("prints unnamed primary key", () => {
       const node = ddl.primaryKey({ columns: ["id"] });
-      expect(print(node)).toBe(`PRIMARY KEY ("id")`);
+      expect(print(node).text).toBe(`PRIMARY KEY ("id")`);
     });
 
     it("prints composite primary key", () => {
       const node = ddl.primaryKey({ columns: ["team_id", "user_id"] });
-      expect(print(node)).toBe(`PRIMARY KEY ("team_id", "user_id")`);
+      expect(print(node).text).toBe(`PRIMARY KEY ("team_id", "user_id")`);
     });
 
     it("prints named primary key", () => {
       const node = ddl.primaryKey({ name: "pk_teams", columns: ["id"] });
-      expect(print(node)).toBe(`CONSTRAINT "pk_teams" PRIMARY KEY ("id")`);
+      expect(print(node).text).toBe(`CONSTRAINT "pk_teams" PRIMARY KEY ("id")`);
     });
 
     it("prints primary key with INCLUDE", () => {
@@ -136,24 +136,24 @@ describe("printDDL", () => {
         columns: ["id"],
         include: ["name", "email"],
       });
-      expect(print(node)).toBe(`PRIMARY KEY ("id") INCLUDE ("name", "email")`);
+      expect(print(node).text).toBe(`PRIMARY KEY ("id") INCLUDE ("name", "email")`);
     });
   });
 
   describe("UNIQUE_CONSTRAINT", () => {
     it("prints unnamed unique", () => {
       const node = ddl.unique({ columns: ["email"] });
-      expect(print(node)).toBe(`UNIQUE ("email")`);
+      expect(print(node).text).toBe(`UNIQUE ("email")`);
     });
 
     it("prints composite unique", () => {
       const node = ddl.unique({ columns: ["team_id", "user_id"] });
-      expect(print(node)).toBe(`UNIQUE ("team_id", "user_id")`);
+      expect(print(node).text).toBe(`UNIQUE ("team_id", "user_id")`);
     });
 
     it("prints named unique", () => {
       const node = ddl.unique({ name: "uq_slug", columns: ["slug"] });
-      expect(print(node)).toBe(`CONSTRAINT "uq_slug" UNIQUE ("slug")`);
+      expect(print(node).text).toBe(`CONSTRAINT "uq_slug" UNIQUE ("slug")`);
     });
 
     it("prints NULLS NOT DISTINCT", () => {
@@ -161,7 +161,7 @@ describe("printDDL", () => {
         columns: ["email"],
         nullsDistinct: false,
       });
-      expect(print(node)).toBe(`UNIQUE NULLS NOT DISTINCT ("email")`);
+      expect(print(node).text).toBe(`UNIQUE NULLS NOT DISTINCT ("email")`);
     });
 
     it("prints NULLS DISTINCT", () => {
@@ -169,7 +169,7 @@ describe("printDDL", () => {
         columns: ["email"],
         nullsDistinct: true,
       });
-      expect(print(node)).toBe(`UNIQUE NULLS DISTINCT ("email")`);
+      expect(print(node).text).toBe(`UNIQUE NULLS DISTINCT ("email")`);
     });
 
     it("prints unique with INCLUDE", () => {
@@ -177,19 +177,19 @@ describe("printDDL", () => {
         columns: ["team_id", "user_id"],
         include: ["role"],
       });
-      expect(print(node)).toBe(`UNIQUE ("team_id", "user_id") INCLUDE ("role")`);
+      expect(print(node).text).toBe(`UNIQUE ("team_id", "user_id") INCLUDE ("role")`);
     });
   });
 
   describe("INDEX_COLUMN", () => {
     it("prints bare column", () => {
       const node = ddl.indexColumn({ columnName: "email" });
-      expect(print(node)).toBe(`"email"`);
+      expect(print(node).text).toBe(`"email"`);
     });
 
     it("prints with sort direction", () => {
       const node = ddl.indexColumn({ columnName: "email", sortDirection: "DESC" });
-      expect(print(node)).toBe(`"email" DESC`);
+      expect(print(node).text).toBe(`"email" DESC`);
     });
 
     it("prints with NULLS clause", () => {
@@ -198,7 +198,7 @@ describe("printDDL", () => {
         sortDirection: "ASC",
         nulls: "LAST",
       });
-      expect(print(node)).toBe(`"email" ASC NULLS LAST`);
+      expect(print(node).text).toBe(`"email" ASC NULLS LAST`);
     });
   });
 
@@ -226,7 +226,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE TABLE "users" (\n  "id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),\n  "email" text NOT NULL UNIQUE\n)`
       );
     });
@@ -247,7 +247,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE TABLE IF NOT EXISTS "users" (\n  "id" uuid NOT NULL PRIMARY KEY\n)`
       );
     });
@@ -276,7 +276,7 @@ describe("printDDL", () => {
         constraints: [ddl.unique({ columns: ["team_id", "user_id"] })],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE TABLE "team_members" (\n  "team_id" uuid NOT NULL,\n  "user_id" uuid NOT NULL,\n  UNIQUE ("team_id", "user_id")\n)`
       );
     });
@@ -285,17 +285,17 @@ describe("printDDL", () => {
   describe("DROP_TABLE", () => {
     it("prints DROP TABLE", () => {
       const node = ddl.dropTable({ name: "users" });
-      expect(print(node)).toBe(`DROP TABLE "users"`);
+      expect(print(node).text).toBe(`DROP TABLE "users"`);
     });
 
     it("prints DROP TABLE IF EXISTS", () => {
       const node = ddl.dropTable({ name: "users", ifExists: true });
-      expect(print(node)).toBe(`DROP TABLE IF EXISTS "users"`);
+      expect(print(node).text).toBe(`DROP TABLE IF EXISTS "users"`);
     });
 
     it("prints DROP TABLE CASCADE", () => {
       const node = ddl.dropTable({ name: "users", cascade: "CASCADE" });
-      expect(print(node)).toBe(`DROP TABLE "users" CASCADE`);
+      expect(print(node).text).toBe(`DROP TABLE "users" CASCADE`);
     });
 
     it("prints DROP TABLE IF EXISTS RESTRICT", () => {
@@ -304,7 +304,7 @@ describe("printDDL", () => {
         ifExists: true,
         cascade: "RESTRICT",
       });
-      expect(print(node)).toBe(`DROP TABLE IF EXISTS "users" RESTRICT`);
+      expect(print(node).text).toBe(`DROP TABLE IF EXISTS "users" RESTRICT`);
     });
   });
 
@@ -326,7 +326,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(`ALTER TABLE "users" ADD COLUMN "age" integer`);
+      expect(print(node).text).toBe(`ALTER TABLE "users" ADD COLUMN "age" integer`);
     });
 
     it("prints ADD COLUMN IF NOT EXISTS", () => {
@@ -347,7 +347,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "age" integer NOT NULL DEFAULT 0`
       );
     });
@@ -361,7 +361,7 @@ describe("printDDL", () => {
         columns: [ddl.indexColumn({ columnName: "project_id" })],
       });
 
-      expect(print(node)).toBe(`CREATE INDEX "tasks_project_idx" ON "tasks" ("project_id")`);
+      expect(print(node).text).toBe(`CREATE INDEX "tasks_project_idx" ON "tasks" ("project_id")`);
     });
 
     it("prints UNIQUE index", () => {
@@ -372,7 +372,7 @@ describe("printDDL", () => {
         columns: [ddl.indexColumn({ columnName: "email" })],
       });
 
-      expect(print(node)).toBe(`CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email")`);
+      expect(print(node).text).toBe(`CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email")`);
     });
 
     it("prints ASYNC index", () => {
@@ -383,7 +383,7 @@ describe("printDDL", () => {
         columns: [ddl.indexColumn({ columnName: "status" })],
       });
 
-      expect(print(node)).toBe(`CREATE INDEX ASYNC "tasks_status_idx" ON "tasks" ("status")`);
+      expect(print(node).text).toBe(`CREATE INDEX ASYNC "tasks_status_idx" ON "tasks" ("status")`);
     });
 
     it("prints UNIQUE ASYNC IF NOT EXISTS", () => {
@@ -396,7 +396,7 @@ describe("printDDL", () => {
         columns: [ddl.indexColumn({ columnName: "email" })],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email")`
       );
     });
@@ -412,7 +412,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE UNIQUE INDEX "projects_team_key_idx" ON "projects" ("team_id", "key")`
       );
     });
@@ -425,7 +425,7 @@ describe("printDDL", () => {
         include: ["status"],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE INDEX "tasks_due_date_idx" ON "tasks" ("due_date") INCLUDE ("status")`
       );
     });
@@ -443,7 +443,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE INDEX "tasks_date_idx" ON "tasks" ("due_date" DESC NULLS LAST)`
       );
     });
@@ -457,7 +457,7 @@ describe("printDDL", () => {
         nullsDistinct: false,
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email") NULLS NOT DISTINCT`
       );
     });
@@ -466,17 +466,17 @@ describe("printDDL", () => {
   describe("DROP_INDEX", () => {
     it("prints DROP INDEX", () => {
       const node = ddl.dropIndex({ name: "users_email_idx" });
-      expect(print(node)).toBe(`DROP INDEX "users_email_idx"`);
+      expect(print(node).text).toBe(`DROP INDEX "users_email_idx"`);
     });
 
     it("prints DROP INDEX IF EXISTS", () => {
       const node = ddl.dropIndex({ name: "users_email_idx", ifExists: true });
-      expect(print(node)).toBe(`DROP INDEX IF EXISTS "users_email_idx"`);
+      expect(print(node).text).toBe(`DROP INDEX IF EXISTS "users_email_idx"`);
     });
 
     it("prints DROP INDEX CASCADE", () => {
       const node = ddl.dropIndex({ name: "users_email_idx", cascade: "CASCADE" });
-      expect(print(node)).toBe(`DROP INDEX "users_email_idx" CASCADE`);
+      expect(print(node).text).toBe(`DROP INDEX "users_email_idx" CASCADE`);
     });
 
     it("prints DROP INDEX IF EXISTS RESTRICT", () => {
@@ -485,36 +485,36 @@ describe("printDDL", () => {
         ifExists: true,
         cascade: "RESTRICT",
       });
-      expect(print(node)).toBe(`DROP INDEX IF EXISTS "users_email_idx" RESTRICT`);
+      expect(print(node).text).toBe(`DROP INDEX IF EXISTS "users_email_idx" RESTRICT`);
     });
   });
 
   describe("CREATE_SCHEMA", () => {
     it("prints CREATE SCHEMA", () => {
       const node = ddl.createSchema({ name: "analytics" });
-      expect(print(node)).toBe(`CREATE SCHEMA "analytics"`);
+      expect(print(node).text).toBe(`CREATE SCHEMA "analytics"`);
     });
 
     it("prints CREATE SCHEMA IF NOT EXISTS", () => {
       const node = ddl.createSchema({ name: "analytics", ifNotExists: true });
-      expect(print(node)).toBe(`CREATE SCHEMA IF NOT EXISTS "analytics"`);
+      expect(print(node).text).toBe(`CREATE SCHEMA IF NOT EXISTS "analytics"`);
     });
   });
 
   describe("DROP_SCHEMA", () => {
     it("prints DROP SCHEMA", () => {
       const node = ddl.dropSchema({ name: "analytics" });
-      expect(print(node)).toBe(`DROP SCHEMA "analytics"`);
+      expect(print(node).text).toBe(`DROP SCHEMA "analytics"`);
     });
 
     it("prints DROP SCHEMA IF EXISTS", () => {
       const node = ddl.dropSchema({ name: "analytics", ifExists: true });
-      expect(print(node)).toBe(`DROP SCHEMA IF EXISTS "analytics"`);
+      expect(print(node).text).toBe(`DROP SCHEMA IF EXISTS "analytics"`);
     });
 
     it("prints DROP SCHEMA CASCADE", () => {
       const node = ddl.dropSchema({ name: "analytics", cascade: "CASCADE" });
-      expect(print(node)).toBe(`DROP SCHEMA "analytics" CASCADE`);
+      expect(print(node).text).toBe(`DROP SCHEMA "analytics" CASCADE`);
     });
 
     it("prints DROP SCHEMA IF EXISTS RESTRICT", () => {
@@ -523,19 +523,19 @@ describe("printDDL", () => {
         ifExists: true,
         cascade: "RESTRICT",
       });
-      expect(print(node)).toBe(`DROP SCHEMA IF EXISTS "analytics" RESTRICT`);
+      expect(print(node).text).toBe(`DROP SCHEMA IF EXISTS "analytics" RESTRICT`);
     });
   });
 
   describe("SEQUENCE_OPTIONS", () => {
     it("prints empty options", () => {
       const node = ddl.sequenceOptions({});
-      expect(print(node)).toBe(``);
+      expect(print(node).text).toBe(``);
     });
 
     it("prints dataType", () => {
       const node = ddl.sequenceOptions({ dataType: "bigint" });
-      expect(print(node)).toBe(`AS bigint`);
+      expect(print(node).text).toBe(`AS bigint`);
     });
 
     it("prints a full option set", () => {
@@ -548,31 +548,31 @@ describe("printDDL", () => {
         cache: 65536,
         cycle: false,
       });
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `AS bigint INCREMENT BY 1 MINVALUE 0 MAXVALUE 1000000 START WITH 1 CACHE 65536 NO CYCLE`
       );
     });
 
     it("prints CYCLE when true", () => {
       const node = ddl.sequenceOptions({ cycle: true });
-      expect(print(node)).toBe(`CYCLE`);
+      expect(print(node).text).toBe(`CYCLE`);
     });
 
     it("prints OWNED BY raw expression", () => {
       const node = ddl.sequenceOptions({ ownedBy: `"users"."id"` });
-      expect(print(node)).toBe(`OWNED BY "users"."id"`);
+      expect(print(node).text).toBe(`OWNED BY "users"."id"`);
     });
   });
 
   describe("CREATE_SEQUENCE", () => {
     it("prints bare CREATE SEQUENCE", () => {
       const node = ddl.createSequence({ name: "task_number_seq" });
-      expect(print(node)).toBe(`CREATE SEQUENCE "task_number_seq"`);
+      expect(print(node).text).toBe(`CREATE SEQUENCE "task_number_seq"`);
     });
 
     it("prints IF NOT EXISTS", () => {
       const node = ddl.createSequence({ name: "task_number_seq", ifNotExists: true });
-      expect(print(node)).toBe(`CREATE SEQUENCE IF NOT EXISTS "task_number_seq"`);
+      expect(print(node).text).toBe(`CREATE SEQUENCE IF NOT EXISTS "task_number_seq"`);
     });
 
     it("prints with options", () => {
@@ -585,7 +585,7 @@ describe("printDDL", () => {
           cache: 1,
         }),
       });
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE SEQUENCE "task_number_seq" AS bigint INCREMENT BY 1 START WITH 1 CACHE 1`
       );
     });
@@ -594,7 +594,7 @@ describe("printDDL", () => {
   describe("DROP_SEQUENCE", () => {
     it("prints DROP SEQUENCE", () => {
       const node = ddl.dropSequence({ name: "task_number_seq" });
-      expect(print(node)).toBe(`DROP SEQUENCE "task_number_seq"`);
+      expect(print(node).text).toBe(`DROP SEQUENCE "task_number_seq"`);
     });
 
     it("prints DROP SEQUENCE IF EXISTS CASCADE", () => {
@@ -603,7 +603,7 @@ describe("printDDL", () => {
         ifExists: true,
         cascade: "CASCADE",
       });
-      expect(print(node)).toBe(`DROP SEQUENCE IF EXISTS "task_number_seq" CASCADE`);
+      expect(print(node).text).toBe(`DROP SEQUENCE IF EXISTS "task_number_seq" CASCADE`);
     });
   });
 
@@ -613,7 +613,7 @@ describe("printDDL", () => {
         name: "task_number_seq",
         options: ddl.sequenceOptions({ cache: 65536 }),
       });
-      expect(print(node)).toBe(`ALTER SEQUENCE "task_number_seq" CACHE 65536`);
+      expect(print(node).text).toBe(`ALTER SEQUENCE "task_number_seq" CACHE 65536`);
     });
 
     it("prints RESTART without value", () => {
@@ -621,7 +621,7 @@ describe("printDDL", () => {
         name: "task_number_seq",
         restart: {},
       });
-      expect(print(node)).toBe(`ALTER SEQUENCE "task_number_seq" RESTART`);
+      expect(print(node).text).toBe(`ALTER SEQUENCE "task_number_seq" RESTART`);
     });
 
     it("prints RESTART WITH n", () => {
@@ -629,7 +629,7 @@ describe("printDDL", () => {
         name: "task_number_seq",
         restart: { with: 1000 },
       });
-      expect(print(node)).toBe(`ALTER SEQUENCE "task_number_seq" RESTART WITH 1000`);
+      expect(print(node).text).toBe(`ALTER SEQUENCE "task_number_seq" RESTART WITH 1000`);
     });
 
     it("prints options + RESTART together", () => {
@@ -638,14 +638,16 @@ describe("printDDL", () => {
         options: ddl.sequenceOptions({ incrementBy: 2 }),
         restart: { with: 500 },
       });
-      expect(print(node)).toBe(`ALTER SEQUENCE "task_number_seq" INCREMENT BY 2 RESTART WITH 500`);
+      expect(print(node).text).toBe(
+        `ALTER SEQUENCE "task_number_seq" INCREMENT BY 2 RESTART WITH 500`
+      );
     });
   });
 
   describe("CREATE_DOMAIN", () => {
     it("prints bare CREATE DOMAIN", () => {
       const node = ddl.createDomain({ name: "priority_level", dataType: "integer" });
-      expect(print(node)).toBe(`CREATE DOMAIN "priority_level" AS integer`);
+      expect(print(node).text).toBe(`CREATE DOMAIN "priority_level" AS integer`);
     });
 
     it("prints NOT NULL and DEFAULT", () => {
@@ -655,7 +657,7 @@ describe("printDDL", () => {
         notNull: true,
         defaultValue: "0",
       });
-      expect(print(node)).toBe(`CREATE DOMAIN "priority_level" AS integer NOT NULL DEFAULT 0`);
+      expect(print(node).text).toBe(`CREATE DOMAIN "priority_level" AS integer NOT NULL DEFAULT 0`);
     });
 
     it("prints inline CHECK constraint", () => {
@@ -667,21 +669,21 @@ describe("printDDL", () => {
           expression: `VALUE IN ('todo', 'in_progress', 'done', 'cancelled')`,
         }),
       });
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `CREATE DOMAIN "task_status" AS text CONSTRAINT "chk_task_status" CHECK (VALUE IN ('todo', 'in_progress', 'done', 'cancelled'))`
       );
     });
 
     it("preserves pre-escaped dataType", () => {
       const node = ddl.createDomain({ name: "short_text", dataType: "varchar(50)" });
-      expect(print(node)).toBe(`CREATE DOMAIN "short_text" AS varchar(50)`);
+      expect(print(node).text).toBe(`CREATE DOMAIN "short_text" AS varchar(50)`);
     });
   });
 
   describe("DROP_DOMAIN", () => {
     it("prints DROP DOMAIN", () => {
       const node = ddl.dropDomain({ name: "task_status" });
-      expect(print(node)).toBe(`DROP DOMAIN "task_status"`);
+      expect(print(node).text).toBe(`DROP DOMAIN "task_status"`);
     });
 
     it("prints DROP DOMAIN IF EXISTS CASCADE", () => {
@@ -690,19 +692,19 @@ describe("printDDL", () => {
         ifExists: true,
         cascade: "CASCADE",
       });
-      expect(print(node)).toBe(`DROP DOMAIN IF EXISTS "task_status" CASCADE`);
+      expect(print(node).text).toBe(`DROP DOMAIN IF EXISTS "task_status" CASCADE`);
     });
   });
 
   describe("IDENTITY_CONSTRAINT", () => {
     it("prints GENERATED BY DEFAULT AS IDENTITY", () => {
       const node = ddl.identity({ mode: "BY_DEFAULT" });
-      expect(print(node)).toBe(`GENERATED BY DEFAULT AS IDENTITY`);
+      expect(print(node).text).toBe(`GENERATED BY DEFAULT AS IDENTITY`);
     });
 
     it("prints GENERATED ALWAYS AS IDENTITY", () => {
       const node = ddl.identity({ mode: "ALWAYS" });
-      expect(print(node)).toBe(`GENERATED ALWAYS AS IDENTITY`);
+      expect(print(node).text).toBe(`GENERATED ALWAYS AS IDENTITY`);
     });
 
     it("prints with sequence options", () => {
@@ -710,7 +712,7 @@ describe("printDDL", () => {
         mode: "ALWAYS",
         options: ddl.sequenceOptions({ cache: 65536, startValue: 1 }),
       });
-      expect(print(node)).toBe(`GENERATED ALWAYS AS IDENTITY (START WITH 1 CACHE 65536)`);
+      expect(print(node).text).toBe(`GENERATED ALWAYS AS IDENTITY (START WITH 1 CACHE 65536)`);
     });
   });
 
@@ -720,7 +722,7 @@ describe("printDDL", () => {
         expression: `"first" || ' ' || "last"`,
         stored: true,
       });
-      expect(print(node)).toBe(`GENERATED ALWAYS AS ("first" || ' ' || "last") STORED`);
+      expect(print(node).text).toBe(`GENERATED ALWAYS AS ("first" || ' ' || "last") STORED`);
     });
   });
 
@@ -738,7 +740,7 @@ describe("printDDL", () => {
           options: ddl.sequenceOptions({ cache: 65536 }),
         }),
       });
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `"id" bigint GENERATED ALWAYS AS IDENTITY (CACHE 65536) NOT NULL PRIMARY KEY`
       );
     });
@@ -758,7 +760,7 @@ describe("printDDL", () => {
           stored: true,
         }),
       });
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `"full_name" text GENERATED ALWAYS AS ("first" || ' ' || "last") STORED`
       );
     });
@@ -821,7 +823,7 @@ describe("printDDL", () => {
         constraints: [ddl.unique({ columns: ["team_id", "user_id"] })],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         [
           `CREATE TABLE "team_members" (`,
           `  "id" uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),`,
@@ -849,7 +851,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL');
+      expect(print(node).text).toBe('ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL');
     });
 
     it("wraps DROP NOT NULL", () => {
@@ -863,7 +865,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL');
+      expect(print(node).text).toBe('ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL');
     });
 
     it("sets DEFAULT", () => {
@@ -877,7 +879,9 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(`ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`);
+      expect(print(node).text).toBe(
+        `ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`
+      );
     });
 
     it("drops DEFAULT", () => {
@@ -891,7 +895,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" ALTER COLUMN "status" DROP DEFAULT');
+      expect(print(node).text).toBe('ALTER TABLE "users" ALTER COLUMN "status" DROP DEFAULT');
     });
 
     it("sets data type with USING", () => {
@@ -905,7 +909,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ALTER COLUMN "age" SET DATA TYPE bigint USING age::bigint'
       );
     });
@@ -926,7 +930,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ALTER COLUMN "id" SET GENERATED ALWAYS INCREMENT BY 1'
       );
     });
@@ -942,7 +946,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" ALTER COLUMN "id" RESTART WITH 1000');
+      expect(print(node).text).toBe('ALTER TABLE "users" ALTER COLUMN "id" RESTART WITH 1000');
     });
 
     it("drops identity IF EXISTS", () => {
@@ -956,7 +960,9 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" ALTER COLUMN "id" DROP IDENTITY IF EXISTS');
+      expect(print(node).text).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "id" DROP IDENTITY IF EXISTS'
+      );
     });
 
     it("adds identity GENERATED BY DEFAULT", () => {
@@ -970,7 +976,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY'
       );
     });
@@ -991,7 +997,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ALTER COLUMN "id" ADD GENERATED ALWAYS AS IDENTITY (INCREMENT BY 1 START WITH 100)'
       );
     });
@@ -1007,7 +1013,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL, ALTER COLUMN "email" SET DEFAULT ''`
       );
     });
@@ -1024,7 +1030,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ADD CONSTRAINT "users_email_key" UNIQUE USING INDEX "users_email_idx"'
       );
     });
@@ -1041,7 +1047,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ADD CONSTRAINT "users_pkey" PRIMARY KEY USING INDEX "users_id_idx"'
       );
     });
@@ -1067,7 +1073,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" ADD COLUMN "nickname" text, ALTER COLUMN "email" SET NOT NULL'
       );
     });
@@ -1080,7 +1086,7 @@ describe("printDDL", () => {
         action: ddl.setNotNull(),
       });
 
-      expect(print(node)).toBe('ALTER DOMAIN "email_addr" SET NOT NULL');
+      expect(print(node).text).toBe('ALTER DOMAIN "email_addr" SET NOT NULL');
     });
 
     it("drops default", () => {
@@ -1089,7 +1095,7 @@ describe("printDDL", () => {
         action: ddl.dropDefault(),
       });
 
-      expect(print(node)).toBe('ALTER DOMAIN "email_addr" DROP DEFAULT');
+      expect(print(node).text).toBe('ALTER DOMAIN "email_addr" DROP DEFAULT');
     });
 
     it("sets default", () => {
@@ -1098,7 +1104,7 @@ describe("printDDL", () => {
         action: ddl.setDefault({ expression: "''" }),
       });
 
-      expect(print(node)).toBe(`ALTER DOMAIN "email_addr" SET DEFAULT ''`);
+      expect(print(node).text).toBe(`ALTER DOMAIN "email_addr" SET DEFAULT ''`);
     });
 
     it("adds a check constraint", () => {
@@ -1112,7 +1118,7 @@ describe("printDDL", () => {
         }),
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         `ALTER DOMAIN "email_addr" ADD CONSTRAINT "email_addr_format" CHECK (VALUE ~ '@')`
       );
     });
@@ -1127,7 +1133,7 @@ describe("printDDL", () => {
         }),
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER DOMAIN "email_addr" DROP CONSTRAINT IF EXISTS "email_addr_format" CASCADE'
       );
     });
@@ -1138,7 +1144,9 @@ describe("printDDL", () => {
         action: ddl.validateConstraint({ name: "email_addr_format" }),
       });
 
-      expect(print(node)).toBe('ALTER DOMAIN "email_addr" VALIDATE CONSTRAINT "email_addr_format"');
+      expect(print(node).text).toBe(
+        'ALTER DOMAIN "email_addr" VALIDATE CONSTRAINT "email_addr_format"'
+      );
     });
   });
 
@@ -1149,7 +1157,7 @@ describe("printDDL", () => {
         actions: [ddl.rename({ newName: "user_accounts" })],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" RENAME TO "user_accounts"');
+      expect(print(node).text).toBe('ALTER TABLE "users" RENAME TO "user_accounts"');
     });
 
     it("renames a column", () => {
@@ -1158,9 +1166,7 @@ describe("printDDL", () => {
         actions: [ddl.renameColumn({ columnName: "email", newName: "email_address" })],
       });
 
-      expect(print(node)).toBe(
-        'ALTER TABLE "users" RENAME COLUMN "email" TO "email_address"'
-      );
+      expect(print(node).text).toBe('ALTER TABLE "users" RENAME COLUMN "email" TO "email_address"');
     });
 
     it("renames a constraint", () => {
@@ -1174,7 +1180,7 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER TABLE "users" RENAME CONSTRAINT "chk_email" TO "chk_email_format"'
       );
     });
@@ -1185,7 +1191,7 @@ describe("printDDL", () => {
         actions: [ddl.setSchema({ schemaName: "private" })],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" SET SCHEMA "private"');
+      expect(print(node).text).toBe('ALTER TABLE "users" SET SCHEMA "private"');
     });
 
     it("changes a table's owner", () => {
@@ -1194,7 +1200,7 @@ describe("printDDL", () => {
         actions: [ddl.owner({ roleName: "app_writer" })],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" OWNER TO "app_writer"');
+      expect(print(node).text).toBe('ALTER TABLE "users" OWNER TO "app_writer"');
     });
 
     it("quotes owner identifiers with special characters", () => {
@@ -1203,7 +1209,7 @@ describe("printDDL", () => {
         actions: [ddl.owner({ roleName: "App Writer" })],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" OWNER TO "App Writer"');
+      expect(print(node).text).toBe('ALTER TABLE "users" OWNER TO "App Writer"');
     });
 
     it("quotes identifiers with special characters", () => {
@@ -1212,7 +1218,7 @@ describe("printDDL", () => {
         actions: [ddl.rename({ newName: "User Accounts" })],
       });
 
-      expect(print(node)).toBe('ALTER TABLE "users" RENAME TO "User Accounts"');
+      expect(print(node).text).toBe('ALTER TABLE "users" RENAME TO "User Accounts"');
     });
   });
 
@@ -1223,7 +1229,7 @@ describe("printDDL", () => {
         action: ddl.rename({ newName: "idx_users_email_addr" }),
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER INDEX "idx_users_email" RENAME TO "idx_users_email_addr"'
       );
     });
@@ -1234,7 +1240,7 @@ describe("printDDL", () => {
         action: ddl.setSchema({ schemaName: "private" }),
       });
 
-      expect(print(node)).toBe('ALTER INDEX "idx_users_email" SET SCHEMA "private"');
+      expect(print(node).text).toBe('ALTER INDEX "idx_users_email" SET SCHEMA "private"');
     });
 
     it("supports IF EXISTS", () => {
@@ -1244,7 +1250,7 @@ describe("printDDL", () => {
         action: ddl.rename({ newName: "idx_users_email_addr" }),
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'ALTER INDEX IF EXISTS "idx_users_email" RENAME TO "idx_users_email_addr"'
       );
     });
@@ -1267,14 +1273,14 @@ describe("printDDL", () => {
         ],
       });
 
-      expect(print(node)).toBe(
+      expect(print(node).text).toBe(
         'CREATE TABLE "auth"."users" (\n  "id" uuid NOT NULL PRIMARY KEY\n)'
       );
     });
 
     it("qualifies DROP TABLE", () => {
       const node = ddl.dropTable({ schema: "auth", name: "users", cascade: "CASCADE" });
-      expect(print(node)).toBe('DROP TABLE "auth"."users" CASCADE');
+      expect(print(node).text).toBe('DROP TABLE "auth"."users" CASCADE');
     });
 
     it("qualifies ALTER TABLE", () => {
@@ -1284,9 +1290,7 @@ describe("printDDL", () => {
         actions: [ddl.rename({ newName: "user_accounts" })],
       });
 
-      expect(print(node)).toBe(
-        'ALTER TABLE "auth"."users" RENAME TO "user_accounts"'
-      );
+      expect(print(node).text).toBe('ALTER TABLE "auth"."users" RENAME TO "user_accounts"');
     });
 
     it("qualifies the table reference in CREATE INDEX", () => {
@@ -1297,14 +1301,12 @@ describe("printDDL", () => {
         columns: [ddl.indexColumn({ columnName: "email" })],
       });
 
-      expect(print(node)).toBe(
-        'CREATE INDEX "idx_users_email" ON "auth"."users" ("email")'
-      );
+      expect(print(node).text).toBe('CREATE INDEX "idx_users_email" ON "auth"."users" ("email")');
     });
 
     it("qualifies DROP INDEX", () => {
       const node = ddl.dropIndex({ schema: "auth", name: "idx_users_email" });
-      expect(print(node)).toBe('DROP INDEX "auth"."idx_users_email"');
+      expect(print(node).text).toBe('DROP INDEX "auth"."idx_users_email"');
     });
 
     it("qualifies ALTER INDEX", () => {
@@ -1314,17 +1316,15 @@ describe("printDDL", () => {
         action: ddl.setSchema({ schemaName: "private" }),
       });
 
-      expect(print(node)).toBe(
-        'ALTER INDEX "auth"."idx_users_email" SET SCHEMA "private"'
-      );
+      expect(print(node).text).toBe('ALTER INDEX "auth"."idx_users_email" SET SCHEMA "private"');
     });
 
     it("qualifies sequence commands", () => {
-      expect(
-        print(ddl.createSequence({ schema: "auth", name: "user_id_seq" }))
-      ).toBe('CREATE SEQUENCE "auth"."user_id_seq"');
+      expect(print(ddl.createSequence({ schema: "auth", name: "user_id_seq" })).text).toBe(
+        'CREATE SEQUENCE "auth"."user_id_seq"'
+      );
 
-      expect(print(ddl.dropSequence({ schema: "auth", name: "user_id_seq" }))).toBe(
+      expect(print(ddl.dropSequence({ schema: "auth", name: "user_id_seq" })).text).toBe(
         'DROP SEQUENCE "auth"."user_id_seq"'
       );
 
@@ -1335,18 +1335,16 @@ describe("printDDL", () => {
             name: "user_id_seq",
             restart: { with: 1000 },
           })
-        )
+        ).text
       ).toBe('ALTER SEQUENCE "auth"."user_id_seq" RESTART WITH 1000');
     });
 
     it("qualifies domain commands", () => {
       expect(
-        print(
-          ddl.createDomain({ schema: "auth", name: "email_addr", dataType: "text" })
-        )
+        print(ddl.createDomain({ schema: "auth", name: "email_addr", dataType: "text" })).text
       ).toBe('CREATE DOMAIN "auth"."email_addr" AS text');
 
-      expect(print(ddl.dropDomain({ schema: "auth", name: "email_addr" }))).toBe(
+      expect(print(ddl.dropDomain({ schema: "auth", name: "email_addr" })).text).toBe(
         'DROP DOMAIN "auth"."email_addr"'
       );
 
@@ -1357,7 +1355,7 @@ describe("printDDL", () => {
             name: "email_addr",
             action: ddl.setNotNull(),
           })
-        )
+        ).text
       ).toBe('ALTER DOMAIN "auth"."email_addr" SET NOT NULL');
     });
   });

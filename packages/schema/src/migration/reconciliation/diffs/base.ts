@@ -21,6 +21,11 @@ export interface Diff<TType extends DiffType, TObject extends SerializedObject<D
   prevValue?: DiffValue<TType, TObject>;
 }
 
+export type AnyDiff<T extends DefinitionNode = DefinitionNode> = Diff<
+  DiffType,
+  SerializedObject<T>
+>;
+
 export function isDefined<T>(value: T | undefined | null): value is Exclude<T, undefined | null> {
   return value !== undefined && value !== null;
 }

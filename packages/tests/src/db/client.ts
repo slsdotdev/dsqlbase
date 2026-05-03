@@ -22,7 +22,7 @@ export const createTestClient = () => {
   const session = new MockSession(pg);
   const dsql = createClient({ schema, session });
 
-  return Object.assign(dsql, { session, close: () => pg.close() });
+  return Object.assign(dsql, { session, pg, close: () => pg.close() });
 };
 
 export type ClientSchema = Schema<typeof schema>;

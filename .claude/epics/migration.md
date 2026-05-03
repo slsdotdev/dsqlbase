@@ -168,45 +168,67 @@ Implemented as a **type-agnostic** stable topological sort over `IndexedDDLOpera
 
 ---
 
-### Story 4 — Validation: rules + tests
+### Story 4 — Validation: rules + tests ✅
 
 `packages/schema/src/migration/validation/`
 
-- [ ] Implement these error rules in `rules/`:
-  - `TABLE_NO_PRIMARY_KEY` — every table must declare a PK (column-level or table-level).
-  - `DUPLICATE_NAME` — exists as `noDuplicateObjectNames` in `rules/global.ts`. Keep.
-  - `UNKNOWN_COLUMN_REFERENCE` — every column referenced in an index, constraint, or `ownedBy` exists on the parent table.
-  - `EMPTY_CONSTRAINT_COLUMNS` — PK / UNIQUE constraints have non-empty `columns[]`.
-  - `IDENTIFIER_TOO_LONG` — name byte-length ≤ 63 for every named object (table, column, index, constraint, domain, sequence, schema).
-  - `FOREIGN_KEY_DECLARED` — surface FK declarations as a validation error (DSQL can't enforce them).
-  - `RELATION_TARGET_MISSING` — relations point to tables in the schema.
-  - `RESERVED_NAMESPACE` — namespace names don't collide with PG system schemas (`pg_catalog`, `pg_toast`, `information_schema`, `sys`).
-  - `INVALID_SEQUENCE_CACHE` — `cache` is `1` or `>= 65536`.
-- [ ] Implement these warnings:
-  - `REDUNDANT_UNIQUE_ON_PK` — UNIQUE on the PK column set.
-  - `DUPLICATE_INDEX_COVERAGE` — two indexes with identical column lists.
-  - `VARCHAR_WITHOUT_LENGTH` — `varchar` with no length modifier (style nudge, not error).
-  - `NO_INDEX_ON_RELATION_FK` — relation FK column without an index (write performance concern).
-- [ ] Tests in `rules/<rule>.test.ts` per rule. One happy path, one violation per rule.
+Implemented behavior — note where it diverges from the original epic plan:
 
-**Acceptance:** `npm test -w @dsqlbase/schema` covers each rule with a positive and negative case.
+- [x] **Type relaxation.** `Rule<T>` was widened from `Rule<T extends SchemaObjectType["name"]>` to `Rule<T extends DefinitionNode>`, so a single rule (`identifierTooLong`) can target any named node — top-level objects via the registry and nested children (columns, indexes, constraints) via reuse from the table rules. The registry-key bug was fixed at the same time: `ValidationRules` now keys on `SchemaObjectType["kind"]` instead of `["name"]` (runtime dispatch already used `node.kind`).
+- [x] **`ValidationIssue.level`** dropped `"notice"` (warnings cover the same use case; notices were silently discarded by `getResults()` anyway).
+- [x] **Error rules:**
+  - `TABLE_NO_PRIMARY_KEY` — column-level OR table-level PK constraint.
+  - `DUPLICATE_OBJECT_NAME` — kept the existing `noDuplicateObjectNames` global rule and its existing code (epic name `DUPLICATE_NAME` was an alias attempt; we kept the original to avoid a churn rename).
+  - `UNKNOWN_COLUMN_REFERENCE` — walks `constraints[*].columns` (PK/UNIQUE) and `indexes[*].columns[*].column` against the table's column set. **`ownedBy` is not checked** — deferred until the sequence-`ownedBy` plumbing lands (see Story 3c deferred note).
+  - `EMPTY_CONSTRAINT_COLUMNS` — PK / UNIQUE only (CHECK has no `columns[]`).
+  - `IDENTIFIER_TOO_LONG` — single generic rule in `rules/global.ts`. Registered against SCHEMA / DOMAIN / TABLE / SEQUENCE for top-level names; reused from `tableIdentifiersTooLong` for columns/indexes/constraints. UTF-8 byte length via `Buffer.byteLength(name, "utf8")`.
+  - `RESERVED_NAMESPACE` — blocks `pg_catalog`, `pg_toast`, `information_schema`, `sys`, and any `pg_*`.
+  - `INVALID_SEQUENCE_CACHE` — `cache === 1 || cache >= 65536`. Lives in `rules/sequence.ts` only; the matching `RefusalCode` was removed from `operations/base.ts` since validation gates first.
+- [x] **Warning rules:**
+  - `REDUNDANT_UNIQUE_ON_PK` — UNIQUE constraint or unique index whose ordered column set equals the PK set.
+  - `DUPLICATE_INDEX_COVERAGE` — two indexes with identical ordered column lists.
+  - `VARCHAR_WITHOUT_LENGTH` — column `dataType === "varchar"`.
+- [x] **Default registry** lives inline next to the global rules in `validate.ts` (`defaultRules`, frozen). `validateDefinition(definition, rules = defaultRules)` runs globals first, then dispatches by `node.kind`. Caller can pass a custom registry to override.
+- [x] **Tests** — one test file per rule file (not per rule): `rules/global.test.ts`, `rules/table.test.ts`, `rules/schema.test.ts`, `rules/sequence.test.ts`. One `describe` per rule, happy + violating cases per failure mode. Fixtures use raw `SerializedObject<…>` JSON to match the existing reconciliation-test convention rather than running through the high-level builders.
+
+**Dropped from the epic plan (out of scope, recorded for future):**
+
+- `FOREIGN_KEY_DECLARED` — no rule shipped because the serialized table shape doesn't carry FK declarations yet. The rule lands together with the FK serialization.
+- `RELATION_TARGET_MISSING`, `NO_INDEX_ON_RELATION_FK` — relations are a runtime-only construct; they're not part of `SerializedSchema`. Validating them at the migration layer would be redundant.
+- `UNSUPPORTED_TYPE` — the proposal had it; the epic dropped it as redundant with the compile-time `dataType` constraint. Stayed dropped.
+
+**Acceptance:** met. `npm test -w @dsqlbase/schema` → 306/306 (was 272 after Story 3c).
 
 ---
 
-### Story 5 — Runner: wire everything together
+### Story 5 — Runner: wire everything together ✅
 
-`packages/schema/src/migration/runner.ts` and `executor.ts`.
+`packages/schema/src/migration/runner.ts`, `progress.ts`. (`executor.ts` deleted.)
 
-- [ ] `runner.ts` already orchestrates validate → introspect → reconcile (line 25–107). Once Story 2 lands, the `throw "not implemented"` on introspection goes away.
-- [ ] **`executor.ts` is empty.** Implement `MigrationExecutor` that:
-  - Takes `IndexedDDLOperation[]` (planned).
-  - Prints each statement via the DDL printer.
-  - Executes via the supplied `Session` (one statement at a time, no implicit transaction — DSQL doesn't support DDL in transactions).
-  - Returns `{ executed: number, statement: string }[]` for observability.
-- [ ] Runner gates: any refusal in `errors[]` from reconciliation aborts the migration. Validation errors also abort. No bypass flag in v1.
-- [ ] Dry-run mode (`runner.run({ dryRun: true })`) returns the plan + printed SQL without executing.
+Implemented behavior — note where it diverges from the original story plan. Design captured in `.claude/proposals/migration-runner.md`.
 
-**Acceptance:** unit test: feed runner a `Session` mock + a small definition + a mock introspection result; assert the executed statement list matches expectation.
+- [x] **`executor.ts` deleted.** A separate executor class added indirection without earning its keep — per-op execution is a method on the runner. Story 5 was rewritten around two consumer shapes: a CLI `run()` orchestrator and a per-step API for durable execution hosts (Step Functions, Inngest, Temporal, durable Lambda).
+- [x] **Runner surface** (`runner.ts`): `validate`, `introspect`, `reconcile`, `executeOperation`, `awaitBatch`, `run`. Each method is a self-contained step the durable consumer can wrap and checkpoint; `run()` composes them in-process for CLI use.
+- [x] **`OperationProgress` union** (`progress.ts`): `{ kind: "sync", opId, sql, status: "done" }` or `{ kind: "async", opId, sql, jobId, status: "pending" | "done" | "failed" }`. Returned from `executeOperation`; the durable host persists it between steps.
+- [x] **Async batching at execution time, not plan time.** The runner walks the planned ops in order. `CREATE INDEX ASYNC` ops start their job and accumulate into a batch. The next sync op forces a `awaitBatch` drain before it runs; trailing async ops are drained at end. Independent async indexes naturally run in parallel; the planner stays type-agnostic. Algorithm:
+  ```
+  for op of plan:
+    if isAsync(op): batch.push(executeOperation(op))
+    else: if batch.length: awaitBatch(batch); batch = []; executeOperation(op)
+  if batch.length: awaitBatch(batch)
+  ```
+- [x] **`AsyncJobTracker` interface** (`progress.ts`): pluggable strategy for `start(session, op, sql) → { jobId }` and `poll(session, jobIds) → Map<jobId, status>`. Default `NoopAsyncJobTracker` executes the SQL synchronously and reports `done` immediately — sufficient for unit tests and PGlite. A real DSQL tracker (queries the DSQL job table) is deferred until there's an integration target.
+- [x] **Gates.** Validation errors throw `ValidationError`. Reconciliation refusals throw `ReconciliationError`. Async-job failures throw `AsyncOperationFailedError`. No bypass flag in v1.
+- [x] **Dry-run.** `run({ dryRun: true })` returns `{ plan, statements, errors: [] }` with no IO beyond `introspect`.
+- [x] **Failure handling.** v1 trusts the durable host's exactly-once-ish step semantics. Re-introspect-on-retry is deferred to v2.
+
+**Diverges from original plan:**
+
+- The plan said implement `MigrationExecutor`. Shipped: deleted the file, folded responsibility into the runner.
+- The plan implied a single-pass loop running statements one at a time. Shipped: a per-op API plus an in-process loop in `run()`, so durable hosts can drive the same primitives step-by-step.
+- The plan returned `{ executed, statement }[]` for observability. Shipped: `OperationProgress[]` (richer — carries jobId/status for async).
+
+**Acceptance:** met. New `runner.test.ts` covers validation gate, reconciliation gate, dry-run no-IO, sync-only execution, consecutive-async batching (single drain), async-then-sync drain ordering, trailing-async drain at end, async failure propagation, and the per-op shape contract. `npm test -w @dsqlbase/schema` → 318/318 (was 306 after Story 4).
 
 ---
 
@@ -231,7 +253,7 @@ Implemented as a **type-agnostic** stable topological sort over `IndexedDDLOpera
 
 ## Decommissioning
 
-Removed (stories 1, 2, 3a, 3b implemented; epic captures the durable rules):
+Removed (stories 1, 2, 3a, 3b, 4 implemented; epic captures the durable rules):
 
 - `ddl-ast-catalog.md`, `ddl-printer-phases.md` — Story 1.
 - `ddl-serialized-adapter.md` — Story 2.
@@ -239,10 +261,7 @@ Removed (stories 1, 2, 3a, 3b implemented; epic captures the durable rules):
 - `migration-3b.md` — Story 3b proposal, just landed.
 - `migrations-module-mvp.md`, `migration-strategy-research.md`, `semantic-constraints.md` — superseded by this epic.
 - `reconciler.md` — original reconciler design; conflicts with the diff/operations split that shipped.
-
-Still in `.claude/proposals/`:
-
-- `validation-implementation-plan.md` — kept until Story 4 lands; the file layout / type sketch there is a useful jumping-off point.
+- `validation-implementation-plan.md` — Story 4 landed; current implementation diverges from the proposal (imperative `(node, ctx) => void` rules, bare string codes, no `CODES` const map, default registry inline in `validate.ts`).
 
 Remaining cleanup once all six stories merge:
 

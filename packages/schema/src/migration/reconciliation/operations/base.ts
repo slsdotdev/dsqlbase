@@ -1,7 +1,26 @@
 import { DefinitionNode } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { DDLStatement } from "../../ddl/index.js";
-import { Diff, DiffType } from "../diffs/base.js";
+import { AnyDiff } from "../diffs/base.js";
+
+export interface DDLOperationOptions {
+  /**
+   * Adds ASYNC modifier to CREATE INDEX operations.
+   * @default true
+   */
+  asyncIndexes: boolean;
+
+  /**
+   * Adds IF NOT EXISTS / IF EXISTS modifiers to operations where applicable.
+   * @default false
+   */
+  safeOperations: boolean;
+}
+
+export const DEFAULT_DDL_OPERATION_OPTIONS: DDLOperationOptions = {
+  asyncIndexes: true,
+  safeOperations: false,
+};
 
 export type DDLOperationType = "CREATE" | "DROP" | "ALTER";
 
@@ -25,21 +44,21 @@ export type RefusalCode =
   | "NO_FOREIGN_KEY"
   | "KIND_MISMATCH";
 
-export interface DDLOperationError {
+export interface DDLOperationError<T extends DefinitionNode = DefinitionNode> {
   code: RefusalCode | string;
   message: string;
-  object: SerializedObject<DefinitionNode>;
+  object: SerializedObject<T>;
   subject?: string;
-  diffs?: Diff<DiffType, SerializedObject<DefinitionNode>>[];
+  diffs?: AnyDiff<T>[];
 }
 
-export function refusal(args: {
+export function refusal<T extends DefinitionNode>(args: {
   code: RefusalCode;
   message: string;
-  object: SerializedObject<DefinitionNode>;
+  object: SerializedObject<T>;
   subject?: string;
-  diffs?: Diff<DiffType, SerializedObject<DefinitionNode>>[];
-}): DDLOperationError {
+  diffs?: AnyDiff<T>[];
+}): DDLOperationError<T> {
   return args;
 }
 

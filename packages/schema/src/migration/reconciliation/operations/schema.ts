@@ -1,6 +1,12 @@
 import { AnyNamespaceDefinition } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
-import { DDLOperation, kindMismatchError, OperationResult } from "./base.js";
+import {
+  DDLOperation,
+  DDLOperationOptions,
+  DEFAULT_DDL_OPERATION_OPTIONS,
+  kindMismatchError,
+  OperationResult,
+} from "./base.js";
 import { ddl } from "../../ddl/index.js";
 
 export function createSchemaOperation(
@@ -21,13 +27,12 @@ export function createSchemaOperation(
 
 export function dropSchemaOperation(
   object: SerializedObject<AnyNamespaceDefinition>,
-  ifExists = true,
-  cascade: "CASCADE" | "RESTRICT" = "RESTRICT"
+  options: DDLOperationOptions
 ): DDLOperation {
   const statement = ddl.dropSchema({
     name: object.name,
-    ifExists,
-    cascade,
+    ifExists: options.safeOperations,
+    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
   });
 
   return {
@@ -39,11 +44,12 @@ export function dropSchemaOperation(
 
 export function diffSchemaOperations(
   local: SerializedObject<AnyNamespaceDefinition>,
-  remote?: SerializedObject<SchemaObjectType>
+  remote?: SerializedObject<SchemaObjectType>,
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): OperationResult {
   if (!remote) {
     return {
-      operations: [createSchemaOperation(local)],
+      operations: [createSchemaOperation(local, options.safeOperations)],
       errors: [],
     };
   }

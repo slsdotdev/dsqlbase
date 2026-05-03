@@ -72,3 +72,24 @@ export function sortSchemaObjects<T extends SerializedSchema>(definitions: T): T
     return aIndex - bIndex;
   });
 }
+
+interface MigrationIssue {
+  code: string;
+  message: string;
+}
+
+export class MigrationError extends Error {
+  public readonly issues: MigrationIssue[];
+
+  constructor(message: string, issues: MigrationIssue[] = []) {
+    const errorMessage =
+      issues.length > 0
+        ? `${message} Issues:\n${issues.map((i) => `- [${i.code}] ${i.message}`).join("\n")}`
+        : message;
+
+    super(errorMessage);
+
+    this.name = "MigrationError";
+    this.issues = issues;
+  }
+}

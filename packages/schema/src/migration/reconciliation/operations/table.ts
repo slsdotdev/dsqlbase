@@ -19,6 +19,8 @@ import { diffTable } from "../diffs/table.js";
 import {
   DDLOperation,
   DDLOperationError,
+  DDLOperationOptions,
+  DEFAULT_DDL_OPERATION_OPTIONS,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
@@ -149,14 +151,17 @@ export function createIndexOperation(
   };
 }
 
-export function dropTableOperation(object: SerializedObject<AnyTableDefinition>): DDLOperation {
+export function dropTableOperation(
+  object: SerializedObject<AnyTableDefinition>,
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
+): DDLOperation {
   return {
     type: "DROP",
     object: object,
     statement: ddl.dropTable({
       name: object.name,
-      ifExists: true,
-      cascade: "RESTRICT",
+      ifExists: options.safeOperations,
+      cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
     }),
     references: maybeNamespaceReference(object),
   };
@@ -164,15 +169,15 @@ export function dropTableOperation(object: SerializedObject<AnyTableDefinition>)
 
 export function dropIndexOperation(
   object: SerializedObject<AnyIndexDefinition>,
-  ifExists = true
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
   return {
     type: "DROP",
     object,
     statement: ddl.dropIndex({
       name: object.name,
-      ifExists,
-      cascade: "RESTRICT",
+      ifExists: options.safeOperations,
+      cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
     }),
     references: maybeNamespaceReference(object),
   };
@@ -180,18 +185,21 @@ export function dropIndexOperation(
 
 export function diffTableOperations(
   local: SerializedObject<AnyTableDefinition>,
-  remote?: SerializedObject<SchemaObjectType>
+  remote?: SerializedObject<SchemaObjectType>,
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): OperationResult {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
     const tableName = qualifiedName(local);
-    operations.push(createTableOperation(local));
+    operations.push(createTableOperation(local, options.safeOperations));
 
     if (local.indexes.length) {
       for (const idx of local.indexes) {
-        operations.push(createIndexOperation(idx, tableName));
+        operations.push(
+          createIndexOperation(idx, tableName, options.safeOperations, options.asyncIndexes)
+        );
       }
     }
 
@@ -211,7 +219,7 @@ export function diffTableOperations(
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
 
   const columnResult = processColumnDiffs(buckets.columns, ctx);
-  const indexResult = processIndexDiffs(buckets.indexes, ctx);
+  const indexResult = processIndexDiffs(buckets.indexes, ctx, options);
   const constraintResult = processConstraintDiffs(buckets.constraints, ctx);
 
   errors.push(...columnResult.errors, ...indexResult.errors, ...constraintResult.errors);
@@ -469,7 +477,8 @@ function handleColumnModify(
 
 function processIndexDiffs(
   indexDiffs: Map<string, AnyDiff[]>,
-  ctx: TableProcessingContext
+  ctx: TableProcessingContext,
+  options: DDLOperationOptions = { asyncIndexes: true, safeOperations: true }
 ): SubjectProcessingResult {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
@@ -481,13 +490,18 @@ function processIndexDiffs(
 
     if (wholeAdd) {
       operations.push(
-        createIndexOperation(wholeAdd.object as IndexSerialized, ctx.tableName, true, true)
+        createIndexOperation(
+          wholeAdd.object as IndexSerialized,
+          ctx.tableName,
+          options.safeOperations,
+          options.asyncIndexes
+        )
       );
       continue;
     }
 
     if (wholeRemove) {
-      operations.push(dropIndexOperation(wholeRemove.object as IndexSerialized));
+      operations.push(dropIndexOperation(wholeRemove.object as IndexSerialized, options));
       continue;
     }
 

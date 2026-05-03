@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach } from "vitest";
-import { createTestClient, TestClient } from "../db";
-import { applyMigrations } from "./migrate";
+import { createTestClient, TestClient, applyMigrations } from "../db";
 import { seedData, SeededData } from "./seed";
 import { truncateTables } from "./truncate";
 

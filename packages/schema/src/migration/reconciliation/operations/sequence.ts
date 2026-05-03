@@ -3,6 +3,8 @@ import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
   DDLOperation,
   DDLOperationError,
+  DDLOperationOptions,
+  DEFAULT_DDL_OPERATION_OPTIONS,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
@@ -40,12 +42,12 @@ export function createSequenceOperation(
 
 export function dropSequenceOperation(
   object: SerializedObject<AnySequenceDefinition>,
-  ifExists = true
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
   const statement = ddl.dropSequence({
     name: object.name,
-    ifExists,
-    cascade: "RESTRICT",
+    ifExists: options.safeOperations,
+    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
   });
 
   return {
@@ -58,13 +60,14 @@ export function dropSequenceOperation(
 
 export function diffSequenceOperations(
   local: SerializedObject<AnySequenceDefinition>,
-  remote?: SerializedObject<SchemaObjectType>
+  remote?: SerializedObject<SchemaObjectType>,
+  options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): OperationResult {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
-    operations.push(createSequenceOperation(local));
+    operations.push(createSequenceOperation(local, options.safeOperations));
     return { operations, errors };
   }
 
