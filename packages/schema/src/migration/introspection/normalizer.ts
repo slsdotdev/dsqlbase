@@ -336,10 +336,6 @@ function normalizeSequence(raw: RawSequence): SerializedObject<AnySequenceDefini
   };
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Dispatch
-// ──────────────────────────────────────────────────────────────────────────
-
 export function normalizeObject(raw: RawSchemaObject): SerializedObject<SchemaObjectType> | null {
   switch (raw.kind) {
     case "SCHEMA":

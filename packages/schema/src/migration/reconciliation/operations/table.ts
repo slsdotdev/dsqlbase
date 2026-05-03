@@ -126,7 +126,7 @@ export function createIndexOperation(
   for (const column of index.columns) {
     columns.push(
       ddl.indexColumn({
-        columnName: column.name,
+        columnName: column.column,
         nulls: column.nulls,
       })
     );
