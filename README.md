@@ -1,8 +1,8 @@
-<div style="display:flex;flex-direction:column;align-items:center;">
-<h1 style="border:none;">dsqlbase</h1>
-<p style="text-align:center">
-  Query client and schema migration tools for distributed PostgreSQL databases.
-</p>
+<div align="center">
+  <h1>dsqlbase</h1>
+  <p>
+    Query client and schema migration tools for distributed PostgreSQL databases.
+  </p>
 </div>
 
 ---
