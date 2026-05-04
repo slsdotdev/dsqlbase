@@ -46,7 +46,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   public getInsertValue(
-    value: TConfig["valueType"] | null | undefined | SQLParam<TConfig["valueType"]>
+    value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined
   ) {
     let param = value ?? undefined;
 
@@ -65,7 +65,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     return param as SQLNode;
   }
 
-  getUpdateValue(value: TConfig["valueType"] | null | undefined | SQLParam<TConfig["valueType"]>) {
+  getUpdateValue(value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined) {
     let param = value;
 
     if (param === undefined) {

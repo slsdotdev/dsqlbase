@@ -5,7 +5,11 @@ export { bytea } from "./columns/bytea.js";
 export { char } from "./columns/char.js";
 export { date, type DateValueType, type DateColumnOptions } from "./columns/date.js";
 export { double, float8 } from "./columns/double.js";
-export { identity, IdentityColumnDefinition, type IdentityOptions } from "./columns/identity.js";
+export {
+  identity,
+  IdentityColumnDefinition,
+  type IdentityColumnOptions,
+} from "./columns/identity.js";
 export { int, int4 } from "./columns/int.js";
 export { interval, duration, type IntervalColumnOptions } from "./columns/interval.js";
 export { json } from "./columns/json.js";

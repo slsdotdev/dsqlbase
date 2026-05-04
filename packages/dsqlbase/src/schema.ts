@@ -13,6 +13,7 @@ export {
   duration,
   float4,
   float8,
+  identity,
   int,
   int2,
   int4,
@@ -41,8 +42,9 @@ export {
   // Types
   type DateColumnOptions,
   type DateTimeColumnOptions,
-  type DateValueType,
+  type IdentityColumnOptions,
   type IntervalColumnOptions,
   type TimeColumnOptions,
+  type DateValueType,
   type Duration,
 } from "@dsqlbase/schema/definition";
