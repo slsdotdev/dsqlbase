@@ -12,6 +12,7 @@ export {
   duration,
   float4,
   float8,
+  identity,
   int,
   int2,
   int4,

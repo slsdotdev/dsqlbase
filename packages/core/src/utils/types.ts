@@ -28,6 +28,18 @@ export type ValueType<T extends TypedObject, TValue> = T & {
   __type: { valueType: TValue };
 };
 
+export type Generated<T extends TypedObject, TGeneration> = T & {
+  __type: { generated: TGeneration };
+};
+
+export type Identity<T extends TypedObject, TOptions> = T & {
+  __type: {
+    notNull: true;
+    hasDefault: true;
+    identity: TOptions;
+  };
+};
+
 export type WithNamespace<T extends TypedObject, TSchema extends TypedObject> = T & {
   __type: { namespace: TSchema };
 };

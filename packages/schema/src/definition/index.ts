@@ -5,6 +5,7 @@ export { bytea } from "./columns/bytea.js";
 export { char } from "./columns/char.js";
 export { date, type DateValueType, type DateColumnOptions } from "./columns/date.js";
 export { double, float8 } from "./columns/double.js";
+export { identity, IdentityColumnDefinition, type IdentityOptions } from "./columns/identity.js";
 export { int, int4 } from "./columns/int.js";
 export { interval, duration, type IntervalColumnOptions } from "./columns/interval.js";
 export { json } from "./columns/json.js";
@@ -19,8 +20,9 @@ export { varchar } from "./columns/varchar.js";
 
 export { domain } from "./domain.js";
 export { namespace, schema } from "./namespace.js";
-export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 export { sequence } from "./sequence.js";
 export { table } from "./table.js";
+
+export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 
 export { type Duration } from "./utils/duration.js";

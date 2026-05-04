@@ -19,7 +19,7 @@ export interface ColumnGeneratedConfig {
 
 export interface ColumnIdentityConfig {
   type: ColumnGeneratedType;
-  options?: SequenceOptions;
+  options: SequenceOptions;
   sequenceName?: string;
 }
 
