@@ -1,6 +1,6 @@
 {
   "name": "@dsqlbase/core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Core primitives and utilities for dsqlbase",
   "sideEffects": false,
   "type": "module",
