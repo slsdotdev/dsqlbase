@@ -1,6 +1,6 @@
 {
   "name": "@dsqlbase/client",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Query client for DSQLBase",
   "sideEffects": false,
   "type": "module",
@@ -42,9 +42,9 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.0.1"
+    "@dsqlbase/core": "^0.1.0"
   },
   "devDependencies": {
-    "@dsqlbase/schema": "^0.0.1"
+    "@dsqlbase/schema": "^0.1.0"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "dsqlbase",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Query client and schema definition for distributed SQL databases",
   "sideEffects": false,
   "type": "module",
@@ -50,8 +50,8 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.0.1",
-    "@dsqlbase/schema": "^0.0.1",
-    "@dsqlbase/client": "^0.0.1"
+    "@dsqlbase/core": "^0.1.0",
+    "@dsqlbase/schema": "^0.1.0",
+    "@dsqlbase/client": "^0.1.0"
   }
 }
