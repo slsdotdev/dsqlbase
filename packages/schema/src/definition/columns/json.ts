@@ -1,4 +1,5 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
+import { safeParseJson } from "../utils/json.js";
 
 /**
  * Defines a `json` data type column.
@@ -12,7 +13,7 @@ export function json<const TName extends string>(name: TName) {
     dataType: "json",
     codec: {
       encode: (value) => JSON.stringify(value),
-      decode: (value) => JSON.parse(value),
+      decode: (value) => safeParseJson(value),
     },
   });
 }

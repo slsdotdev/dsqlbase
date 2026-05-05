@@ -1,4 +1,4 @@
-import { TestClient } from "../db/index.js";
+import { TestClient } from "../db";
 import { schema } from "../db/schema";
 
 export async function truncateTables(client: TestClient, tables: string[] = []) {

@@ -30,7 +30,7 @@ export class IdentityColumnDefinition<
     identity: TIdentity;
   }
 > {
-  protected override _identity: ColumnIdentityConfig;
+  protected _identity: ColumnIdentityConfig;
 
   constructor(
     name: TName,
