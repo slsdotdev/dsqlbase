@@ -36,7 +36,7 @@ npm run lint
 
 ## Changesets
 
-If you change a published package (`@dsqlbase/core`, `@dsqlbase/schema`, `@dsqlbase/client`, or `dsqlbase`), add a changeset rather than bumping `version` by hand:
+If you change a published package (`@dsqlbase/core`, `@dsqlbase/migration`, or `dsqlbase`), add a changeset rather than bumping `version` by hand:
 
 ```bash
 npm run changeset

@@ -58,7 +58,7 @@ export interface ClientOptions<TSchema extends DefinitionSchema> {
  * });
  *
  * // client.ts
- * import { createClient } from "@dsqlbase/client";
+ * import { createClient } from "dsqlbase";
  * import * as schema from "./schema";
  *
  * export const dsql = createClient({ schema });

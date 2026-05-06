@@ -40,13 +40,21 @@
       "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./client": {
+      "default": "./dist/client/index.js",
+      "types": "./dist/client/index.d.ts"
+    },
+    "./pg": {
+      "default": "./dist/pg/index.js",
+      "types": "./dist/pg/index.d.ts"
+    },
+    "./pglite": {
+      "default": "./dist/pglite/index.js",
+      "types": "./dist/pglite/index.d.ts"
+    },
     "./schema": {
       "default": "./dist/schema/index.js",
       "types": "./dist/schema/index.d.ts"
-    },
-    "./*": {
-      "default": "./dist/*.js",
-      "types": "./dist/*.d.ts"
     }
   },
   "scripts": {
@@ -55,7 +63,21 @@
   },
   "dependencies": {
     "@dsqlbase/core": "^0.1.0",
-    "@dsqlbase/schema": "^0.1.0",
-    "@dsqlbase/client": "^0.1.0"
+    "@dsqlbase/schema": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@electric-sql/pglite": "^0.4.5",
+    "pg": "^8.20.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "@electric-sql/pglite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }
