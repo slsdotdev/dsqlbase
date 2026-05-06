@@ -1,5 +1,13 @@
 # dsqlbase
 
+## 0.1.1
+
+### Patch Changes
+
+- 57c5e9e: connector session factories
+- 4f4ecdd: internal packages restructure
+  - @dsqlbase/core@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

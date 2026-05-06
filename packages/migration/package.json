@@ -1,6 +1,6 @@
 {
   "name": "@dsqlbase/migration",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Migration tools for DSQLBase",
   "sideEffects": false,
   "type": "module",
@@ -42,6 +42,6 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.1.0"
+    "@dsqlbase/core": "^0.1.1"
   }
 }
