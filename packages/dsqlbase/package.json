@@ -62,8 +62,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.1.1",
-    "@dsqlbase/schema": "^0.1.0"
+    "@dsqlbase/core": "^0.1.1"
   },
   "peerDependencies": {
     "@electric-sql/pglite": "^0.4.5",
