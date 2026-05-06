@@ -1,11 +1,13 @@
-import { AnyTable, ExecutionContext, QueryBuilder, SchemaRegistry, Session } from "@dsqlbase/core";
-import { DefinitionSchema } from "@dsqlbase/core/definition";
-import { DatabaseClient } from "./database.js";
+import {
+  AnyTable,
+  DefinitionSchema,
+  ExecutionContext,
+  QueryBuilder,
+  SchemaRegistry,
+  Session,
+} from "@dsqlbase/core";
 import { ModelClient } from "./model/client.js";
-import { Models } from "./base.js";
-
-export type DSQLClient<TSchema extends DefinitionSchema> = DatabaseClient<TSchema> &
-  Models<TSchema>;
+import { DatabaseClient, QueryClient } from "./database/index.js";
 
 export interface ClientOptions<TSchema extends DefinitionSchema> {
   /**
@@ -81,7 +83,7 @@ export interface ClientOptions<TSchema extends DefinitionSchema> {
 
 export function createClient<TSchema extends DefinitionSchema>(
   options: ClientOptions<TSchema>
-): DSQLClient<TSchema> {
+): QueryClient<TSchema> {
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
@@ -103,5 +105,5 @@ export function createClient<TSchema extends DefinitionSchema>(
     });
   }
 
-  return dbClient as DSQLClient<TSchema>;
+  return dbClient as QueryClient<TSchema>;
 }

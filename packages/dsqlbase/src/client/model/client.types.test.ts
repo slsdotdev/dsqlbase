@@ -5,7 +5,7 @@ import {
   QueryBuilder,
   ExecutableQuery,
 } from "@dsqlbase/core/runtime";
-import { belongsTo, hasMany, relations, table, text, uuid } from "@dsqlbase/schema";
+import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
 import { ModelClient } from "./client.js";
 
 const users = table("users", {

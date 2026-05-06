@@ -1,4 +1,4 @@
-import { AnyNamespaceDefinition, DomainDefinition } from "@dsqlbase/core";
+import { AnyNamespaceDefinition, DomainDefinition, sql } from "@dsqlbase/core";
 
 /**
  * Creates a domain definition.
@@ -25,4 +25,22 @@ export function domain<TName extends string>(name: TName) {
       decode: (value) => value,
     },
   });
+}
+
+export function $enum<TName extends string, const TValues extends string[]>(
+  name: TName,
+  values: TValues
+) {
+  const domain = new DomainDefinition<TName, TValues[number], string, AnyNamespaceDefinition>(
+    name,
+    {
+      dataType: "text",
+      codec: {
+        encode: (value) => value,
+        decode: (value) => value,
+      },
+    }
+  );
+
+  return domain.check((v) => sql.in(v, values), `${name}_enum_check`);
 }

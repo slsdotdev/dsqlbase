@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import { domain, int, sequence, table, text, uuid, varchar } from "@dsqlbase/schema/definition";
+import { domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
 import {
   createMigrationRunner,
   introspect,
   MigrationRunner,
   type SerializedSchema,
-} from "@dsqlbase/schema/migration";
+} from "@dsqlbase/migration";
 
 class PGliteSession implements Session {
   constructor(private readonly pg: PGlite) {}

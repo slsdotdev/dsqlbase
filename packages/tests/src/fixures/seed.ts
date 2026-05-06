@@ -26,7 +26,7 @@ export async function seedTeams(client: TestClient) {
     RETURNING "id", "name", "slug"
   `;
 
-  return await client.$raw<{ id: string; name: string; slug: string }>(query);
+  return await client.$query<{ id: string; name: string; slug: string }>(query);
 }
 
 export async function seedUsers(client: TestClient) {
@@ -39,7 +39,7 @@ export async function seedUsers(client: TestClient) {
     RETURNING "id", "name", "email"
   `;
 
-  return await client.$raw<{ id: string; name: string; email: string }>(query);
+  return await client.$query<{ id: string; name: string; email: string }>(query);
 }
 
 export async function seedMembers(
@@ -57,7 +57,7 @@ export async function seedMembers(
       (${teams[2].id}, ${users[3].id}, 'admin')
     RETURNING "id", "team_id", "user_id", "role"
   `;
-  return await client.$raw<{ id: string; teamId: string; userId: string; role: string }>(query);
+  return await client.$query<{ id: string; teamId: string; userId: string; role: string }>(query);
 }
 
 export async function seedProjects(client: TestClient, teams: SeededData["teams"]) {
@@ -68,7 +68,7 @@ export async function seedProjects(client: TestClient, teams: SeededData["teams"
       (${teams[1].id}, 'Design System', 'DSN', 'Shared component library', DEFAULT)
     RETURNING "id", "team_id", "name", "key"
   `;
-  return await client.$raw<{ id: string; teamId: string; name: string; key: string }>(query);
+  return await client.$query<{ id: string; teamId: string; name: string; key: string }>(query);
 }
 
 export async function seedTasks(
@@ -89,7 +89,7 @@ export async function seedTasks(
     RETURNING "id", "project_id", "assignee_id", "task_number", "title", "status", "priority"
   `;
 
-  const rows = await client.$raw<{
+  const rows = await client.$query<{
     id: string;
     project_id: string;
     assignee_id: string | null;

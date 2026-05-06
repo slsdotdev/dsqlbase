@@ -1,4 +1,4 @@
-import { createMigrationRunner, getSerializedSchemaObjects } from "@dsqlbase/schema/migration";
+import { createMigrationRunner, getSerializedSchemaObjects } from "@dsqlbase/migration";
 import { schema } from "./schema";
 import { TestClient } from "./client";
 

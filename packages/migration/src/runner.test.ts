@@ -1,8 +1,14 @@
-import { Session, SQLStatement } from "@dsqlbase/core";
-import { domain, int, sequence, table, text, uuid, varchar } from "../definition/index.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createMigrationRunner, MigrationRunner } from "./runner.js";
+import {
+  ColumnDefinition,
+  DomainDefinition,
+  SequenceDefinition,
+  Session,
+  SQLStatement,
+  TableDefinition,
+} from "@dsqlbase/core";
 import { getSerializedSchemaObjects, MigrationError, SerializedSchema } from "./base.js";
+import { createMigrationRunner, MigrationRunner } from "./runner.js";
 import { AsyncJob } from "./executor.js";
 
 interface SessionLog {
@@ -75,18 +81,24 @@ class TestSession implements Session {
   }
 }
 
-const usersTable = table("users", {
-  id: uuid("id").primaryKey(),
-  name: text("name").notNull(),
-  email: varchar("email", 200).notNull(),
+const usersTable = new TableDefinition("users", {
+  columns: {
+    id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+    name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+    email: new ColumnDefinition("email", { dataType: "varchar(200)" }).notNull(),
+  },
 });
 
-const noPkTable = table("invalid", {
-  name: text("name").notNull(),
+const noPkTable = new TableDefinition("invalid", {
+  columns: {
+    name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+  },
 });
 
-const orphanTable = table("orphan", {
-  id: uuid("id").primaryKey(),
+const orphanTable = new TableDefinition("orphan", {
+  columns: {
+    id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+  },
 });
 
 describe("MigrationRunner", () => {
@@ -111,11 +123,6 @@ describe("MigrationRunner", () => {
       });
     });
 
-    // FIXME: reconciling a table against an identical-by-value remote (same JSON)
-    // currently surfaces an IMMUTABLE_COLUMN refusal on its primary-key column.
-    // The diff layer is treating two equal column shapes as different — root
-    // cause unconfirmed. Tests below assert the intended behavior; they will
-    // pass once the diff bug is fixed.
     it("flags destructive when the remote has objects missing locally", async () => {
       const usersJson = usersTable.toJSON();
       session.introspection = [
@@ -146,11 +153,13 @@ describe("MigrationRunner", () => {
     });
 
     it("collects refusals from reconciliation in errors[]", async () => {
-      const remote = table("users", {
-        id: uuid("id").primaryKey(),
-        name: text("name").notNull(),
-        email: varchar("email", 200).notNull(),
-        legacy: text("legacy"),
+      const remote = new TableDefinition("users", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+          email: new ColumnDefinition("email", { dataType: "varchar(200)" }).notNull(),
+          legacy: new ColumnDefinition("legacy", { dataType: "text" }),
+        },
       });
 
       session.introspection = [remote.toJSON()];
@@ -215,11 +224,13 @@ describe("MigrationRunner", () => {
     });
 
     it("aborts with MigrationError when reconciliation surfaces refusals", async () => {
-      const remote = table("users", {
-        id: uuid("id").primaryKey(),
-        name: text("name").notNull(),
-        email: varchar("email", 200).notNull(),
-        legacy: text("legacy"),
+      const remote = new TableDefinition("users", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+          email: new ColumnDefinition("email", { dataType: "varchar(200)" }).notNull(),
+          legacy: new ColumnDefinition("legacy", { dataType: "text" }),
+        },
       });
       session.introspection = [remote.toJSON()];
 
@@ -260,9 +271,11 @@ describe("MigrationRunner", () => {
     });
 
     it("polls async jobs to completion when the DDL returns a job_id", async () => {
-      const tableWithIndex = table("widgets", {
-        id: uuid("id").primaryKey(),
-        slug: text("slug").notNull(),
+      const tableWithIndex = new TableDefinition("widgets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          slug: new ColumnDefinition("slug", { dataType: "text" }).notNull(),
+        },
       });
 
       tableWithIndex.index("widgets_slug_idx", { unique: true }).columns((c) => [c.slug]);
@@ -284,9 +297,11 @@ describe("MigrationRunner", () => {
     });
 
     it("marks operation as failed when the async job ends in failed state", async () => {
-      const tableWithIndex = table("widgets", {
-        id: uuid("id").primaryKey(),
-        slug: text("slug").notNull(),
+      const tableWithIndex = new TableDefinition("widgets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          slug: new ColumnDefinition("slug", { dataType: "text" }).notNull(),
+        },
       });
       tableWithIndex.index("widgets_slug_idx").columns((c) => [c.slug]);
 
@@ -301,12 +316,17 @@ describe("MigrationRunner", () => {
     });
 
     it("plans domain + table + sequence in dependency order", async () => {
-      const status = domain("status").$type<"open" | "closed">();
-      const counter = sequence("counter").startWith(1);
-      const tickets = table("tickets", {
-        id: uuid("id").primaryKey(),
-        state: status.column("state").notNull(),
-        seq: int("seq").notNull(),
+      const status = new DomainDefinition("status", { dataType: "text" }).$type<
+        "open" | "closed"
+      >();
+      const counter = new SequenceDefinition("counter").startWith(1);
+
+      const tickets = new TableDefinition("tickets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          state: status.column("state").notNull(),
+          seq: new ColumnDefinition("seq", { dataType: "int" }).notNull(),
+        },
       });
 
       const definitions = getSerializedSchemaObjects([status, counter, tickets]);

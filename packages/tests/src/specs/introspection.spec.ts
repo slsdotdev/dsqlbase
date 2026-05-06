@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Kind } from "@dsqlbase/core";
-import { introspect, SerializedSchema } from "@dsqlbase/schema/migration";
+import { introspect, SerializedSchema } from "@dsqlbase/migration";
 import { createTestClient, TestClient } from "../db/index.js";
 import { applyMigrations } from "../db/migrate.js";
 

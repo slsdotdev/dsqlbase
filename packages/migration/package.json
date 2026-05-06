@@ -1,7 +1,7 @@
 {
-  "name": "@dsqlbase/client",
+  "name": "@dsqlbase/migration",
   "version": "0.1.0",
-  "description": "Query client for DSQLBase",
+  "description": "Migration tools for DSQLBase",
   "sideEffects": false,
   "type": "module",
   "license": "MIT",
@@ -17,7 +17,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slsdotdev/dsqlbase.git",
-    "directory": "packages/client"
+    "directory": "packages/migration"
   },
   "bugs": {
     "url": "https://github.com/slsdotdev/dsqlbase/issues"
@@ -38,13 +38,10 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run --typecheck",
+    "test": "vitest run",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@dsqlbase/core": "^0.1.0"
-  },
-  "devDependencies": {
-    "@dsqlbase/schema": "^0.1.0"
   }
 }

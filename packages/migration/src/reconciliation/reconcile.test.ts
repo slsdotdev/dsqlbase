@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { table, text, uuid } from "../../definition/index.js";
 import { reconcileSchemas } from "./reconcile.js";
 import { SerializedSchema } from "../base.js";
+import { ColumnDefinition, TableDefinition } from "@dsqlbase/core";
 
-const usersTable = table("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  address: text("address"),
+const usersTable = new TableDefinition("users", {
+  columns: {
+    id: new ColumnDefinition("id").primaryKey().default("gen_random_uuid()"),
+    name: new ColumnDefinition("name").notNull(),
+    email: new ColumnDefinition("email").notNull().unique(),
+    address: new ColumnDefinition("address"),
+  },
 });
 
 describe("Schema Reconciliation", () => {

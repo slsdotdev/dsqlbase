@@ -1,5 +1,5 @@
-import { AnyColumnDefinition, AnyTableDefinition } from "@dsqlbase/core/definition";
 import { describe, expect, it } from "vitest";
+import { AnyColumnDefinition, AnyTableDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { ValidationContext } from "../context.js";
 import {
@@ -83,7 +83,13 @@ describe("unknownColumnReference", () => {
     const table = baseTable({
       columns: [baseColumn({ name: "id", primaryKey: true })],
       constraints: [
-        { kind: "UNIQUE_CONSTRAINT", name: "u", columns: ["id"], include: null, distinctNulls: true },
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "u",
+          columns: ["id"],
+          include: null,
+          distinctNulls: true,
+        },
       ],
       indexes: [
         {
@@ -92,7 +98,13 @@ describe("unknownColumnReference", () => {
           unique: false,
           distinctNulls: true,
           columns: [
-            { kind: "INDEX_COLUMN", name: "idx_column_id", sortDirection: "ASC", nulls: "LAST", column: "id" },
+            {
+              kind: "INDEX_COLUMN",
+              name: "idx_column_id",
+              sortDirection: "ASC",
+              nulls: "LAST",
+              column: "id",
+            },
           ],
           include: null,
         },
@@ -107,7 +119,13 @@ describe("unknownColumnReference", () => {
     const table = baseTable({
       columns: [baseColumn({ name: "id", primaryKey: true })],
       constraints: [
-        { kind: "UNIQUE_CONSTRAINT", name: "u", columns: ["missing"], include: null, distinctNulls: true },
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "u",
+          columns: ["missing"],
+          include: null,
+          distinctNulls: true,
+        },
       ],
     } as Partial<Table>);
     const context = ctxFor(table);
@@ -126,7 +144,13 @@ describe("unknownColumnReference", () => {
           unique: false,
           distinctNulls: true,
           columns: [
-            { kind: "INDEX_COLUMN", name: "idx_column_missing", sortDirection: "ASC", nulls: "LAST", column: "missing" },
+            {
+              kind: "INDEX_COLUMN",
+              name: "idx_column_missing",
+              sortDirection: "ASC",
+              nulls: "LAST",
+              column: "missing",
+            },
           ],
           include: null,
         },
@@ -180,7 +204,13 @@ describe("redundantUniqueOnPk", () => {
     const table = baseTable({
       columns: [baseColumn({ name: "id", primaryKey: true })],
       constraints: [
-        { kind: "UNIQUE_CONSTRAINT", name: "u", columns: ["id"], include: null, distinctNulls: true },
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "u",
+          columns: ["id"],
+          include: null,
+          distinctNulls: true,
+        },
       ],
     } as Partial<Table>);
     const context = ctxFor(table);
@@ -200,7 +230,13 @@ describe("redundantUniqueOnPk", () => {
           unique: true,
           distinctNulls: true,
           columns: [
-            { kind: "INDEX_COLUMN", name: "idx_column_id", sortDirection: "ASC", nulls: "LAST", column: "id" },
+            {
+              kind: "INDEX_COLUMN",
+              name: "idx_column_id",
+              sortDirection: "ASC",
+              nulls: "LAST",
+              column: "id",
+            },
           ],
           include: null,
         },
@@ -214,9 +250,18 @@ describe("redundantUniqueOnPk", () => {
 
   it("does not warn for unique constraint on different column set", () => {
     const table = baseTable({
-      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "email", dataType: "text" })],
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "email", dataType: "text" }),
+      ],
       constraints: [
-        { kind: "UNIQUE_CONSTRAINT", name: "u", columns: ["email"], include: null, distinctNulls: true },
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "u",
+          columns: ["email"],
+          include: null,
+          distinctNulls: true,
+        },
       ],
     } as Partial<Table>);
     const context = ctxFor(table);
@@ -237,10 +282,27 @@ describe("duplicateIndexCoverage", () => {
       }) as const;
 
     const table = baseTable({
-      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "email", dataType: "text" })],
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "email", dataType: "text" }),
+      ],
       indexes: [
-        { kind: "INDEX", name: "idx_a", unique: false, distinctNulls: true, columns: [ic("email", "idx_a")], include: null },
-        { kind: "INDEX", name: "idx_b", unique: false, distinctNulls: true, columns: [ic("email", "idx_b")], include: null },
+        {
+          kind: "INDEX",
+          name: "idx_a",
+          unique: false,
+          distinctNulls: true,
+          columns: [ic("email", "idx_a")],
+          include: null,
+        },
+        {
+          kind: "INDEX",
+          name: "idx_b",
+          unique: false,
+          distinctNulls: true,
+          columns: [ic("email", "idx_b")],
+          include: null,
+        },
       ],
     } as Partial<Table>);
     const context = ctxFor(table);
@@ -260,10 +322,28 @@ describe("duplicateIndexCoverage", () => {
       }) as const;
 
     const table = baseTable({
-      columns: [baseColumn({ name: "a" }), baseColumn({ name: "b" }), baseColumn({ name: "id", primaryKey: true })],
+      columns: [
+        baseColumn({ name: "a" }),
+        baseColumn({ name: "b" }),
+        baseColumn({ name: "id", primaryKey: true }),
+      ],
       indexes: [
-        { kind: "INDEX", name: "idx_a", unique: false, distinctNulls: true, columns: [ic("a", "idx_a"), ic("b", "idx_a")], include: null },
-        { kind: "INDEX", name: "idx_b", unique: false, distinctNulls: true, columns: [ic("b", "idx_b"), ic("a", "idx_b")], include: null },
+        {
+          kind: "INDEX",
+          name: "idx_a",
+          unique: false,
+          distinctNulls: true,
+          columns: [ic("a", "idx_a"), ic("b", "idx_a")],
+          include: null,
+        },
+        {
+          kind: "INDEX",
+          name: "idx_b",
+          unique: false,
+          distinctNulls: true,
+          columns: [ic("b", "idx_b"), ic("a", "idx_b")],
+          include: null,
+        },
       ],
     } as Partial<Table>);
     const context = ctxFor(table);
@@ -275,7 +355,10 @@ describe("duplicateIndexCoverage", () => {
 describe("varcharWithoutLength", () => {
   it("warns on a column with bare varchar", () => {
     const table = baseTable({
-      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "label", dataType: "varchar" })],
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "label", dataType: "varchar" }),
+      ],
     });
     const context = ctxFor(table);
     varcharWithoutLength(table, context);
@@ -285,7 +368,10 @@ describe("varcharWithoutLength", () => {
 
   it("does not warn on varchar(n)", () => {
     const table = baseTable({
-      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "label", dataType: "varchar(255)" })],
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "label", dataType: "varchar(255)" }),
+      ],
     });
     const context = ctxFor(table);
     varcharWithoutLength(table, context);

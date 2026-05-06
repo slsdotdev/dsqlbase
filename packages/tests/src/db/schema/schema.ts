@@ -1,4 +1,3 @@
-import { sql } from "@dsqlbase/core";
 import {
   boolean,
   date,
@@ -13,9 +12,9 @@ import {
   hasOne,
   hasMany,
   belongsTo,
-  domain,
   sequence,
-} from "@dsqlbase/schema/definition";
+  $enum,
+} from "dsqlbase/schema";
 
 export interface ProjectSettings {
   notificationsEnabled: boolean;
@@ -75,16 +74,8 @@ const projects = table("projects", {
 projects.index("projects_team_key_idx", { unique: true }).columns((c) => [c.teamId, c.key]);
 projects.index("projects_team_idx").columns((c) => [c.teamId]);
 
-const TASK_STATUS = ["todo", "in_progress", "done", "archived"] as const;
-const PRIORITY_LEVEL = ["urgent", "high", "medium", "low", "none"] as const;
-
-const taskStatus = domain("task_status")
-  .check((c) => sql.in(c, [...TASK_STATUS]), "chk_task_status")
-  .$type<(typeof TASK_STATUS)[number]>();
-
-const priorityLevel = domain("priority_level")
-  .check((c) => sql.in(c, [...PRIORITY_LEVEL]), "chk_priority_level")
-  .$type<(typeof PRIORITY_LEVEL)[number]>();
+const taskStatus = $enum("task_status", ["todo", "in_progress", "done", "archived"]);
+const priorityLevel = $enum("priority_level", ["urgent", "high", "medium", "low", "none"]);
 
 const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 

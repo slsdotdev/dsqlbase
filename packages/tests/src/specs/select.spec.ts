@@ -441,7 +441,7 @@ describe("select operations", () => {
         ON true
       `;
 
-      const results = await client.$raw<{
+      const results = await client.$query<{
         id: string;
         title: string;
         description: string | null;

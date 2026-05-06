@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { SQLStatement } from "@dsqlbase/core";
 import { Schema, Session } from "@dsqlbase/core/runtime";
-import { createClient } from "@dsqlbase/client";
+import { createClient } from "dsqlbase";
 import { schema } from "./schema";
 
 class MockSession implements Session {
