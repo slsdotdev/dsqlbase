@@ -1,10 +1,10 @@
 import { Session, SQLStatement } from "@dsqlbase/core";
-import { ClientBase } from "pg";
+import { Pool } from "pg";
 
 export class PGSession implements Session {
-  private _client: ClientBase;
+  private _client: Pool;
 
-  constructor(client: ClientBase) {
+  constructor(client: Pool) {
     this._client = client;
   }
 
@@ -14,6 +14,6 @@ export class PGSession implements Session {
   }
 }
 
-export function createPgSession(client: ClientBase): PGSession {
+export function createPgSession(client: Pool): PGSession {
   return new PGSession(client);
 }
