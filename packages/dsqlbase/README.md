@@ -52,18 +52,16 @@ export const projectRelations = relations(projects, {
 
 ```ts
 // client.ts
+import { Pool } from "pg";
+import { createPgSession } from "dsqlbase/pg";
 import { createClient, type Session, type SQLStatement } from "dsqlbase";
 import * as schema from "./schema";
-import { Pool } from "pg";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-
-const session: Session = {
-  async execute<T = unknown>(query: SQLStatement): Promise<T[]> {
-    const result = await pool.query(query.text, [...query.params]);
-    return result.rows as T[];
-  },
-};
+const session = createPgSession(
+  new Pool({
+    connectionString: process.env.DATABASE_URL,
+  })
+);
 
 export const dsql = createClient({ schema, session });
 

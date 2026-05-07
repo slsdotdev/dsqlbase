@@ -9,16 +9,28 @@ export {
   identity,
   IdentityColumnDefinition,
   type IdentityColumnOptions,
+  type IdentityConfig,
 } from "./columns/identity.js";
 export { int, int4 } from "./columns/int.js";
-export { interval, duration, type IntervalColumnOptions } from "./columns/interval.js";
+export {
+  interval,
+  duration,
+  type IntervalColumnOptions,
+  type IntervalValueType,
+} from "./columns/interval.js";
 export { json } from "./columns/json.js";
 export { decimal, numeric } from "./columns/numeric.js";
 export { real, float4 } from "./columns/real.js";
 export { smallint, int2 } from "./columns/smallint.js";
 export { text } from "./columns/text.js";
 export { time, type TimeColumnOptions } from "./columns/time.js";
-export { timestamp, datetime, type DateTimeColumnOptions } from "./columns/timestamp.js";
+export {
+  timestamp,
+  datetime,
+  TimestampColumnDefinition,
+  type DateTimeColumnOptions,
+  type TimestampColumnConfig,
+} from "./columns/timestamp.js";
 export { uuid, UUIDColumnDefinition } from "./columns/uuid.js";
 export { varchar } from "./columns/varchar.js";
 
