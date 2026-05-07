@@ -1,5 +1,12 @@
 # dsqlbase
 
+## 0.1.4
+
+### Patch Changes
+
+- 772d163: fix pg types
+  - @dsqlbase/core@0.1.4
+
 ## 0.1.3
 
 ### Patch Changes
