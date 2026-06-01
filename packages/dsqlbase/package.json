@@ -59,6 +59,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "test": "vitest run",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {

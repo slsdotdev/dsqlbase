@@ -14,22 +14,16 @@ export type OperationResult<TMode extends OperationMode, TResult> = TMode extend
   ? TResult | null
   : TResult[];
 
-export interface Operation<
-  TMode extends OperationMode,
-  TTable extends AnyTable,
-  TArgs extends object,
-  TResult = unknown,
-> {
+export interface Operation<TMode extends OperationMode, TArgs extends object, TResult = unknown> {
   type: OperationType;
   mode: TMode;
-  table: TTable;
   name: string;
   args: TArgs;
   query: SQLStatement;
   resolve: (rows: unknown[]) => OperationResult<TMode, TResult>;
 }
 
-export type AnyOperation = Operation<OperationMode, AnyTable, object, unknown>;
+export type AnyOperation = Operation<OperationMode, object, unknown>;
 
 export interface OperationRequest<
   TArgs extends object,
@@ -61,10 +55,9 @@ export interface SelectOperationArgs {
 
 export interface SelectOperation<
   TMode extends OperationMode,
-  TTable extends AnyTable,
   TArgs extends SelectOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TTable, TArgs, TReturn> {
+> extends Operation<TMode, TArgs, TReturn> {
   type: "select";
 }
 
@@ -75,10 +68,9 @@ export interface InsertOperationArgs {
 
 export interface InsertOperation<
   TMode extends OperationMode,
-  TTable extends AnyTable,
   TArgs extends InsertOperationArgs,
   TReturn,
-> extends Operation<TMode, TTable, TArgs, TReturn> {
+> extends Operation<TMode, TArgs, TReturn> {
   type: "insert";
 }
 
@@ -90,10 +82,9 @@ export interface UpdateOperationArgs {
 
 export interface UpdateOperation<
   TMode extends OperationMode,
-  TTable extends AnyTable,
   TArgs extends UpdateOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TTable, TArgs, TReturn> {
+> extends Operation<TMode, TArgs, TReturn> {
   type: "update";
 }
 
@@ -104,10 +95,9 @@ export interface DeleteOperationArgs {
 
 export interface DeleteOperation<
   TMode extends OperationMode,
-  TTable extends AnyTable,
   TArgs extends DeleteOperationArgs = DeleteOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TTable, TArgs, TReturn> {
+> extends Operation<TMode, TArgs, TReturn> {
   type: "delete";
 }
 
@@ -367,10 +357,7 @@ export class OperationsFactory<
     TTable extends AnyTable,
     TMode extends OperationMode = OperationMode,
     TArgs extends SelectOperationArgs = SelectOperationArgs,
-  >(
-    table: TTable,
-    config: OperationRequest<TArgs, TMode>
-  ): SelectOperation<TMode, TTable, TArgs, TResult> {
+  >(table: TTable, config: OperationRequest<TArgs, TMode>): SelectOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
     const { resolvers: fieldResolvers, ...params } = this._resolveSelectParams(table, args, mode);
@@ -378,7 +365,6 @@ export class OperationsFactory<
 
     return {
       type: "select",
-      table: table,
       mode: mode,
       name: name ?? `select_${table.name}`,
       args: args,
@@ -392,10 +378,7 @@ export class OperationsFactory<
     TTable extends AnyTable,
     TMode extends OperationMode,
     TArgs extends InsertOperationArgs,
-  >(
-    table: TTable,
-    config: OperationRequest<TArgs, TMode>
-  ): InsertOperation<TMode, TTable, TArgs, TResult> {
+  >(table: TTable, config: OperationRequest<TArgs, TMode>): InsertOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
     const [columns, values] = this._resolveInsertEntries(table, args.data);
@@ -411,7 +394,6 @@ export class OperationsFactory<
     return {
       type: "insert",
       mode: config.mode,
-      table: table,
       name: name ?? `insert_${table.name}`,
       args: args,
       query: query.toQuery(),
@@ -424,10 +406,7 @@ export class OperationsFactory<
     TMode extends OperationMode = OperationMode,
     TTable extends AnyTable = AnyTable,
     TArgs extends UpdateOperationArgs = UpdateOperationArgs,
-  >(
-    table: TTable,
-    config: OperationRequest<TArgs, TMode>
-  ): UpdateOperation<TMode, TTable, TArgs, TResult> {
+  >(table: TTable, config: OperationRequest<TArgs, TMode>): UpdateOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
     const entries = this._resolveUpdateEntries(table, args.set);
@@ -443,7 +422,6 @@ export class OperationsFactory<
 
     return {
       type: "update",
-      table: table,
       mode,
       name: name ?? `update_${table.name}`,
       args: args,
@@ -457,10 +435,7 @@ export class OperationsFactory<
     TMode extends OperationMode = OperationMode,
     TTable extends AnyTable = AnyTable,
     TArgs extends DeleteOperationArgs = DeleteOperationArgs,
-  >(
-    table: TTable,
-    config: OperationRequest<TArgs, TMode>
-  ): DeleteOperation<TMode, TTable, TArgs, TResult> {
+  >(table: TTable, config: OperationRequest<TArgs, TMode>): DeleteOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
     const where = args.where ? this._validateWhereExpression(table, args.where) : undefined;
@@ -474,7 +449,6 @@ export class OperationsFactory<
 
     return {
       type: "delete",
-      table: table,
       mode: config.mode,
       name: name ?? `delete_${table.name}`,
       args: args,
