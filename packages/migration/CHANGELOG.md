@@ -1,5 +1,11 @@
 # @dsqlbase/migration
 
+## 0.1.6
+
+### Patch Changes
+
+- @dsqlbase/core@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes
