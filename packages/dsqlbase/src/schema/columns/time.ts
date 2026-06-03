@@ -27,10 +27,10 @@ export function time<const TName extends string, const TOptions extends TimeColu
   const withTimezone = options?.tz ?? false;
   const dataType = withTimezone ? "time with time zone" : "time";
 
-  return new ColumnDefinition<TName, ColumnConfig<string | Date, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<string, string>>(name, {
     dataType,
     codec: {
-      encode: (value) => {
+      encode: (value: string | Date) => {
         if (value instanceof Date) {
           return formatTime(value, { tz: withTimezone });
         }

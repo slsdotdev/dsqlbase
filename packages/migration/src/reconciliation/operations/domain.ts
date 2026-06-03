@@ -83,9 +83,7 @@ export function diffDomainOperations(
   const blockedAttrs: string[] = [];
 
   for (const diff of diffs) {
-    const key = diff.key as string;
-
-    if (key === "defaultValue") {
+    if (diff.key === "defaultValue") {
       const action =
         diff.type === "remove"
           ? ddl.dropDefault()
@@ -105,7 +103,10 @@ export function diffDomainOperations(
     }
 
     blocked.push(diff);
-    blockedAttrs.push(key);
+
+    if (diff.key) {
+      blockedAttrs.push(diff.key);
+    }
   }
 
   if (blocked.length > 0) {
