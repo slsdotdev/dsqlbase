@@ -1,5 +1,12 @@
 # dsqlbase
 
+## 0.1.6
+
+### Patch Changes
+
+- 830c371: fix time column type
+  - @dsqlbase/core@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes
