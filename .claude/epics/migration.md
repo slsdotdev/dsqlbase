@@ -7,6 +7,8 @@ created: 2026-05-01
 
 # Migration module — consolidation epic
 
+> **Docs note (2026-09-19).** Durable content from this epic now lives in `docs/internals/migration-pipeline.md` (invariants, layer design), `docs/internals/dsql-capabilities.md` (verified DSQL table), and `docs/decisions/0002-migration-consolidation.md`. Paths below are historical: `packages/schema/src/migration/` is now `packages/migration/src/`. The "Refused" table below predates DSQL's current `ALTER TABLE` grammar and is superseded by `dsql-capabilities.md`. Story 6's failing-index-test note is stale (e2e is green). Keep reading this file for story history only.
+
 ## Problem
 
 The migration module under `packages/schema/src/migration/` is partially built and has drifted from the nine proposals in `.claude/proposals/`. We need to close the gaps, lock the design, and retire the old proposals. The current implementation is the source of truth where it conflicts with proposals; the proposals contribute durable rules (DSQL constraints, validation codes, refusal codes) which this epic captures inline.
@@ -271,7 +273,7 @@ Removed (stories 1, 2, 3a, 3b, 3c, 4, 5 implemented; epic captures the durable r
 
 Remaining cleanup:
 
-- [ ] Update `CLAUDE.md` if needed to point to `.claude/epics/` for future epic docs (today it only mentions proposals).
+- [x] Update `CLAUDE.md` to point to `.claude/epics/` — done in the docs bootstrap (2026-09-19).
 
 ## Open questions deferred to post-v1
 

@@ -34,6 +34,12 @@ npm run lint
 
 `packages/tests` runs end-to-end specs against [PGlite](https://github.com/electric-sql/pglite) (`npm run test:e2e` from that package). Husky runs `npm run lint` on pre-commit; please don't bypass it.
 
+## Design and documentation
+
+- Architecture, pipelines, and conventions are documented in [`docs/internals/`](./docs/internals/README.md); read it before proposing a change.
+- Non-trivial work starts as a proposal in `.claude/proposals/`; multi-story work is tracked in `.claude/epics/`. Accepted designs are recorded in [`docs/decisions/`](./docs/decisions/README.md).
+- **Docs are part of done.** Every proposal ends with a `## Docs` section, every story names the `docs/` pages it changes, and a PR is not complete until those pages are updated. The full rule is in [Conventions → Documentation](./docs/internals/conventions.md#documentation).
+
 ## Changesets
 
 If you change a published package (`@dsqlbase/core`, `@dsqlbase/migration`, or `dsqlbase`), add a changeset rather than bumping `version` by hand:
@@ -41,6 +47,8 @@ If you change a published package (`@dsqlbase/core`, `@dsqlbase/migration`, or `
 ```bash
 npm run changeset
 ```
+
+The changeset body must carry a `Docs:` line naming the documentation pages touched, or `Docs: none — <reason>`.
 
 ## Code of conduct
 
