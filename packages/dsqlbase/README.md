@@ -9,7 +9,7 @@
 > dsqlbase is in early-stage development and not suited for production environments.
 > Features may change at any time, without prior notice.
 
-dsqlbase is an ORM and migration toolkit purpose-built for [Aurora DSQL](https://aws.amazon.com/rds/aurora/dsql/). It treats DSQL's distributed-database constraints (no foreign keys, no in-place column changes, async-only index builds, etc.) as first-class — refusing unsupported DDL up front and emitting DSQL-shaped SQL by default. See the [project README](https://github.com/slsdotdev/dsqlbase#readme) for the longer motivation.
+dsqlbase is an ORM and migration toolkit purpose-built for [Aurora DSQL](https://aws.amazon.com/rds/aurora/dsql/). It treats DSQL's distributed-database constraints (async DDL, one DDL statement per transaction, restricted `ALTER TABLE`, optimistic concurrency) as first-class — refusing unsupported DDL up front and emitting DSQL-shaped SQL by default. See the [documentation](https://github.com/slsdotdev/dsqlbase/blob/main/docs/README.md) for the full guide.
 
 ## Install
 
@@ -75,7 +75,8 @@ const recent = await dsql.projects.findMany({
 
 ## Links
 
-- [Repository & full docs](https://github.com/slsdotdev/dsqlbase#readme)
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, migrations, DSQL notes
+- [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)
 

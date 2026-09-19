@@ -214,7 +214,7 @@ export interface QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> {
    * });
    * ```
    * @notes
-   * * The `limit` parameter specifies the maximum number of records to return. If not provided, the default limit _(100)_ will be applied.
+   * * The `limit` parameter specifies the maximum number of records to return. If not provided, no limit is applied and every matching record is returned.
    * * The `offset` parameter specifies the number of records to skip before starting to return records. This is useful for implementing pagination in your queries. If not provided, no records will be skipped.
    * * When using `limit` and `offset` together, the query will return records starting from the `offset` position up to the number specified by `limit`. For example, if `offset` is 20 and `limit` is 10, the query will return records 21 through 30.
    */

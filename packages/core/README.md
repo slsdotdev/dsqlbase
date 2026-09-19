@@ -13,6 +13,10 @@ npm install @dsqlbase/core
 
 For typical application use, `npm install dsqlbase` instead — it re-exports `sql`, `Session`, `SQLStatement`, and `SQLQuery` directly.
 
+## Documentation
+
+What this package owns and how it fits the others: [Architecture](https://github.com/slsdotdev/dsqlbase/blob/main/docs/internals/architecture.md).
+
 ## License
 
 MIT.
