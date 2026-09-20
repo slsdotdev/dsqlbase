@@ -7,7 +7,7 @@ created: 2026-09-20
 
 # Schema prerequisites: shared runtime work for global ids and polymorphic relations
 
-Extracted from `.claude/proposals/schema-guid.md` (Topic 1) and `.claude/proposals/schema-polymorphic-relations.md` (Topic 2). Every story here is needed by both features; none introduces either feature. Implement this proposal first, as one epic (`.claude/epics/schema-prerequisites.md`), then the two feature proposals in either order.
+Extracted from `.claude/proposals/schema-guid.md` (Topic 1), `.claude/proposals/schema-polymorphic-relations.md` (Topic 2) and `.claude/proposals/schema-embeddable-objects.md` (Topic 3). Every story here is needed by at least two of the three features or is a correctness fix they all rely on; none introduces either feature. Implement this proposal first, as one epic (`.claude/epics/schema-prerequisites.md`), then the two feature proposals in either order.
 
 ## Problem
 
@@ -17,7 +17,7 @@ Two more items are not gaps but shared surface: the `OnSelectionOf` member-selec
 
 ## Decision
 
-Seven stories, ordered so that 1–4 are pure gap fixes with no new public API, and 5–7 introduce the shared surface. Each is one PR with its own changeset and docs update. The features' story lists in the two proposals are rebased on these (see "Effect on the feature proposals").
+Eight stories, ordered so that 1–4 are pure gap fixes with no new public API, 5–7 introduce the shared surface, and 8 is a correctness fix plus the path lookup Topic 3 needs. Each is one PR with its own changeset and docs update. The features' story lists in the two proposals are rebased on these (see "Effect on the feature proposals").
 
 ### Rejected alternatives (one line each)
 
@@ -78,15 +78,23 @@ All changesets are on the fixed group (`@dsqlbase/core`, `dsqlbase`, `@dsqlbase/
 - **Tests.** Normalizer unit tests per operator and shorthand, pattern operators untouched; e2e filter tests for `date`, `datetime`, `bigint`, `duration` columns in the fixture (each exercising `eq`, `in`, `between`).
 - **Docs.** `docs/internals/codec-boundary.md` (move where values from "does NOT apply" to "applies"; `Column.param` for raw SQL), `docs/internals/runtime-pipeline.md` (remove the gap row), `docs/guide/querying.md` (filters accept JS values for every codec column). Changeset: `minor` — wire format of filter values changes for codec columns (`Docs: docs/internals/codec-boundary.md, docs/internals/runtime-pipeline.md, docs/guide/querying.md`).
 
+### 8. Duplicate DB column names and path lookup on `Table`
+
+- **Change.** `TableDefinition` constructor and `Table._buildColumns` (`packages/core/src/runtime/table.ts`) throw when two fields map to the same DB column name (today the second silently shadows the first in `getColumn(name)` and migrations emit invalid DDL). New migration rule `duplicateColumnName` (`DUPLICATE_COLUMN_NAME`) in `packages/migration/src/validation/rules/table.ts`. `Table.getColumn` accepts a dotted alias path in addition to an alias or a DB name (a no-op for flat tables; Topic 3 keys group members by path).
+- **Consumers.** Topic 3: flattened groups make collisions likely and need the path lookup. Topics 1 and 2: none directly; the check is a correctness fix owed regardless.
+- **Tests.** `table.test.ts` (definition and runtime): duplicate name throws with both aliases named; migration rule test; `getColumn` by path.
+- **Docs.** `docs/guide/schema.md` (column names must be unique per table), `docs/internals/migration-pipeline.md` (new rule). Changeset: `minor` — schemas that relied on silent shadowing now fail at definition time (`Docs: docs/guide/schema.md, docs/internals/migration-pipeline.md`).
+
 ## Effect on the feature proposals
 
 - `schema-guid.md`: stories 1, 2, 3, 5 move here (as 1, 2, 5, 7); its remaining stories are **4** (node registry, `guid()` marker, `$findByGlobalId` / `$listByGlobalId`, helpers — G) and **6** (guid codec + relation validation — A), plus the relation-pair validation is now an extension of story 4 here.
 - `schema-polymorphic-relations.md`: its story 0 is this proposal; its stories 1–5 are unchanged.
+- `schema-embeddable-objects.md`: depends on stories 5, 7 and 8; its five stories are unchanged.
 - The two proposals keep their own decision records; this one is recorded as a single entry that closes four gap rows.
 
 ## Breaking surface
 
-Stories 3, 4, 5 and 7 change observable behaviour (SQL text with aliases, stricter relation validation, `$$meta` on rows, encoded filter values). Each is `minor` with the change named in its changeset body. Stories 1, 2 and 6 are additive (`patch`).
+Stories 3, 4, 5, 7 and 8 change observable behaviour (SQL text with aliases, stricter relation validation, `$$meta` on rows, encoded filter values, duplicate column names rejected). Each is `minor` with the change named in its changeset body. Stories 1, 2 and 6 are additive (`patch`).
 
 ## Test plan
 
@@ -94,7 +102,7 @@ Per story above. Cross-cutting: the PGlite fixture (`packages/tests/src/db/schem
 
 ## Docs
 
-- **Guide** (`docs/guide/`): `querying.md` (`$$meta`, `on` map, codec-aware filters), `schema.md` (`table().meta()`, reserved aliases `$$meta` / `$$key`), `relations.md` (composite pairs, self-referential relations).
-- **Internals** (`docs/internals/`): `runtime-pipeline.md` (four gap rows removed: composite PK, first-column-only joins, no table aliasing, codec not applied to where; new sections on alias allocation, resolver tree and post-processors, `attachModels`), `codec-boundary.md` (where values now encoded; `Column.param`).
+- **Guide** (`docs/guide/`): `querying.md` (`$$meta`, `on` map, codec-aware filters), `schema.md` (`table().meta()`, reserved aliases `$$meta` / `$$key`, unique column names), `relations.md` (composite pairs, self-referential relations).
+- **Internals** (`docs/internals/`): `migration-pipeline.md` (duplicate column rule); `runtime-pipeline.md` (four gap rows removed: composite PK, first-column-only joins, no table aliasing, codec not applied to where; new sections on alias allocation, resolver tree and post-processors, `attachModels`), `codec-boundary.md` (where values now encoded; `Column.param`).
 - **Decision record**: `docs/decisions/0003-schema-prerequisites.md` on acceptance (renumbering Topic 1's to `0004` and Topic 2's to `0005`); this proposal is then deleted and the epic records what shipped.
 - **Stale lines**: none in `CLAUDE.md`; `packages/dsqlbase/README.md` relations example gains nothing until the feature proposals land.
