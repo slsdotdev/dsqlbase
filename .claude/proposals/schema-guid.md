@@ -198,7 +198,7 @@ None. `guid()` serializes exactly as `uuid()` (`dataType: "uuid"`); the guid mar
 
 ## Stories, ordering, changesets
 
-All changesets are `minor` on the fixed group. Ordered G-first; each story names its docs pages and is not done until they are updated in the same PR.
+All changesets are `minor` on the fixed group. Ordered G-first; each story names its docs pages and is not done until they are updated in the same PR. **Stories 1, 2, 3 and 5 below are implemented by `.claude/proposals/schema-prerequisites.md` (its stories 1, 2, 5, 7) together with the join-aliasing and composite-pair gap fixes; they are kept here for the reasoning and are not to be re-planned.**
 
 1. **Runtime primary key** (prerequisite). `Table.primaryKey` from column flags and table-level constraint. Docs: `docs/internals/runtime-pipeline.md` (Primary keys at runtime, gap table).
 2. **Shared model attachment and alias on `Table`** (prerequisite). `attachModels`, `Table.alias` passed from the registry, `_models` on `BaseClient` keyed by alias (Topic 2 attaches `UnionClient`s through the same function). Docs: `docs/internals/runtime-pipeline.md` (derived-client pattern).
