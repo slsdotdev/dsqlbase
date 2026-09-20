@@ -165,8 +165,23 @@ Nothing new: leaf columns are ordinary columns, so selects, `WHERE`, `ORDER BY`,
 
 ## Migration impact
 
-- Option A produces ordinary columns and ordinary CHECK constraints; snapshots, diffs and validation see no new node kinds. Consequences to document: changing a reused shape changes every table that uses it (add / drop leaf columns — `DROP COLUMN` is supported by DSQL, refused by the module today: that stale rule is a migration-topic item and until it lands a dropped member is reported, not executed); renaming a member is add + drop, not a rename; toggling `.notNull()` on a group flips leaf nullability (`DROP NOT NULL` is supported, `SET NOT NULL` is not — a group can become nullable, not the reverse, without recreate) and adds/removes the derived CHECK (`NOT VALID` + validate path, also refused today).
-- Option B: `jsonb` is a new `dataType` string; no module change. Expression indexes over JSON paths need `IndexDefinition` expression support — migration topic, listed as a follow-up.
+Option A produces ordinary columns and an ordinary CHECK constraint; snapshots, diffs and validation see no new node kinds. The design needs nothing DSQL does not support. What is and is not executable **today** is a property of the migration module's stale refusals, not of this design, and is tracked in `.claude/prime/04-migrations.md` ("Consumers waiting on this prime"):
+
+| Change to a shape | DDL | DSQL | Migration module today |
+|---|---|---|---|
+| New table with groups | `CREATE TABLE` with leaf columns and the CHECK | supported | works |
+| Add an optional member | `ADD COLUMN` | supported | works |
+| Add a required member to a `.notNull()` group | `ADD COLUMN … NOT NULL DEFAULT …` | supported (inline constraints: "to verify" row) | bare `ADD COLUMN` only |
+| Remove a member | `DROP COLUMN` | supported | refused `NO_DROP_COLUMN` (stale) |
+| Rename a member | `ADD COLUMN` + `DROP COLUMN` (no rename intent) | supported | drop refused (stale) |
+| Make a group nullable | `DROP NOT NULL` per leaf + `ADD CONSTRAINT CHECK … NOT VALID` + `VALIDATE` | supported | refused (stale) |
+| Make a group `.notNull()` | `SET NOT NULL` | **not supported** | refused (correct) — recreate |
+| Add a required member to a nullable group | `ADD COLUMN` + `DROP CONSTRAINT` + `ADD CONSTRAINT CHECK` | supported | refused (stale) |
+| Change a group default | `SET DEFAULT` per leaf | supported | refused `IMMUTABLE_COLUMN` (stale) |
+
+Until the migration catch-up lands, shape evolution beyond adding members is reported as refused, exactly as it would be for hand-written prefixed columns. The migration proposal must include an e2e that walks this table.
+
+Option B: `jsonb` is a new `dataType` string; no module change. Expression and partial indexes over JSON paths need `IndexDefinition` support — migration topic.
 
 ## Failure modes
 
@@ -216,4 +231,4 @@ Level: `minor`, each named in the changeset body with a `Docs:` line.
 - **Internals** (`docs/internals/`): `runtime-pipeline.md` (path-keyed columns, group resolver node and post-processor, normalizer nested walk); `codec-boundary.md` (member codecs apply per leaf; validator inside the jsonb codec); `migration-pipeline.md` (flattening precedes serialization; no new node kinds); `dsql-capabilities.md` (add the verified line: `CREATE TYPE` not in the supported DDL list; index keys may be expressions — `Verified:` date bump); `architecture.md` (new files).
 - **Decision record**: `docs/decisions/0006-embeddable-objects.md` on acceptance (after `0003` prerequisites, `0004` global ids, `0005` polymorphic relations); this proposal is then deleted.
 - **Stale lines**: root `README.md` showcase (`json` example → `jsonb`); `packages/dsqlbase/README.md` column list.
-- **Cross-topic notes**: the migration topic owns `DROP COLUMN`, `NOT VALID` CHECK and expression-index support that this feature's consequences rely on; the resolver post-processor and path lookup come from `schema-prerequisites.md` (stories 5, 8); the client pagination topic may order by a group member (a leaf column — no special case).
+- **Cross-topic notes**: the migration topic owns the stale refusals and the expression-index support that shape evolution and `jsonb` indexing rely on (recorded in `.claude/prime/04-migrations.md`); the resolver post-processor and path lookup come from `schema-prerequisites.md` (stories 5, 8); the client pagination topic may order by a group member (a leaf column — no special case).
