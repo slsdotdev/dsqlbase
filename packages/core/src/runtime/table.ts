@@ -16,6 +16,34 @@ import { AnyColumn, Column } from "./column.js";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
 
+/**
+ * How a table is named when it *qualifies a column* — the alias bound for it in the
+ * rendering context, or its bare name when none is.
+ *
+ * Counterpart to `Table.toSQL`, which renders the table as a *source*
+ * (`"billing"."invoices"`, for `FROM` / `UPDATE` / `INSERT INTO`). A source says *which
+ * table*, so it carries the schema; a reference says *which correlation in this query*,
+ * where the schema is not part of the name.
+ *
+ * Deliberately **not** schema-qualified when unaliased, for two reasons Postgres enforces:
+ * once a source is aliased, `"billing"."invoices"."id"` is rejected outright with
+ * `invalid reference to FROM-clause entry`; and schema-qualifying would not rescue an
+ * unaliased shadowed subquery anyway, because that needs *both* sides qualified and a table
+ * declared without a namespace has no schema to qualify with. Aliasing is the fix; this
+ * fallback only ever runs where exactly one table is in scope (DML, `$query`).
+ */
+class TableRef implements SQLNode {
+  private readonly _table: AnyTable;
+
+  constructor(table: AnyTable) {
+    this._table = table;
+  }
+
+  toSQL(ctx: SQLContext): SQLStatement {
+    return sql.identifier(ctx.aliases?.get(this._table) ?? this._table.name).toSQL(ctx);
+  }
+}
+
 export type WithRelations<
   TColumns extends Record<string, AnyColumnDefinition>,
   TNamespace extends AnyNamespaceDefinition,
@@ -81,6 +109,8 @@ export class Table<
 
   /** True when the primary key spans more than one column. */
   readonly isCompositeKey: boolean;
+
+  private readonly _ref: SQLNode = new TableRef(this);
 
   constructor(
     definition: TableDefinition<TName, TColumns, TNamespace>,
@@ -175,6 +205,14 @@ export class Table<
     }
 
     return this.relations[fieldName];
+  }
+
+  /**
+   * The node that names this table when qualifying a column: the alias bound in the
+   * rendering context, else the table name. Cached — it holds no per-render state.
+   */
+  public ref(): SQLNode {
+    return this._ref;
   }
 
   public toSQL(ctx: SQLContext): SQLStatement {

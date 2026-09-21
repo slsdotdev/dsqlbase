@@ -99,6 +99,14 @@ export async function seedTasks(
     priority: string;
   }>(query);
 
+  // Give the self-relation something to resolve: tasks 2 and 3 are children of task 1.
+  await client.$query(
+    sql`UPDATE "tasks" SET "parent_id" = ${rows[0].id} WHERE "id" IN (${sql.join(
+      [sql.param(rows[1].id), sql.param(rows[2].id)],
+      ", "
+    )})`
+  );
+
   return rows.map((r) => ({
     id: r.id,
     projectId: r.project_id,

@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { Relation } from "../definition/index.js";
-import { sql, SQLIdentifier, SQLNode, SQLStatement, SQLValue, SQLWrapper } from "../sql/index.js";
+import { SQLIdentifier, SQLNode, SQLStatement, SQLValue } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
@@ -263,14 +263,36 @@ export class OperationsFactory<
         );
       }
 
-      const fromColumn = table.getColumn(relation.from[0].name);
-      const toColumn = targetTable.getColumn(relation.to[0].name);
-
-      if (!fromColumn || !toColumn) {
+      if (relation.from.length === 0 || relation.from.length !== relation.to.length) {
         throw new Error(
-          `Invalid relation "${key}" on table "${table.name}": missing columns "${relation.from[0].name}" or "${relation.to[0].name}"`
+          `Relation "${fieldName}" on table "${table.name}" must pair an equal, non-zero ` +
+            `number of columns (got ${relation.from.length} from, ${relation.to.length} to)`
         );
       }
+
+      const fromColumns = relation.from.map((ref) => {
+        const column = table.getColumn(ref.name);
+
+        if (!column) {
+          throw new Error(
+            `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
+          );
+        }
+
+        return column;
+      });
+
+      const toColumns = relation.to.map((ref) => {
+        const column = targetTable.getColumn(ref.name);
+
+        if (!column) {
+          throw new Error(
+            `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}" on target table "${targetTable.name}"`
+          );
+        }
+
+        return column;
+      });
 
       const joinResolvers: FieldResolver[] = [];
       const params: SelectParams = this._resolveSelectParams(
@@ -280,25 +302,14 @@ export class OperationsFactory<
         joinResolvers
       );
 
-      const connection =
-        relation.type === Relation.BELONGS_TO
-          ? sql.eq(fromColumn, toColumn)
-          : sql.eq(toColumn, fromColumn);
-
+      // The correlation itself is the query builder's business: only it knows the alias each
+      // level renders under, and a self-join needs the two sides aliased differently.
       joins.push({
         alias: fieldName,
         type: relation.type === "has_many" ? "many" : "one",
-        from: fromColumn,
-        to: toColumn,
-        params: {
-          ...params,
-          where: params.where
-            ? sql.and([
-                connection,
-                params.where instanceof SQLWrapper ? params.where : new SQLWrapper(params.where),
-              ])
-            : connection,
-        },
+        from: fromColumns,
+        to: toColumns,
+        params,
       });
 
       resolvers.push([fieldName, joinResolvers]);

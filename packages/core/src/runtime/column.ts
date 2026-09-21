@@ -84,6 +84,9 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   toSQL(ctx: SQLContext): SQLStatement {
-    return sql.join([sql.identifier(this.table.name), sql.identifier(this.name)], ".").toSQL(ctx);
+    // The table decides how it is named here: an alias when one is bound for it in this
+    // scope, otherwise its plain name. Outside a select tree nothing is bound, so this
+    // renders `"table"."column"` exactly as it always has.
+    return sql.join([this.table.ref(), sql.identifier(this.name)], ".").toSQL(ctx);
   }
 }

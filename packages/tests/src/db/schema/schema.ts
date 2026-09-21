@@ -83,6 +83,7 @@ const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
   assigneeId: uuid("assignee_id"),
+  parentId: uuid("parent_id"),
   taskNumber: text("task_number").notNull(),
   title: text("title").notNull(),
   description: varchar("description", 5000),
@@ -155,6 +156,15 @@ const taskRelations = relations(tasks, {
   assignee: belongsTo(users, {
     from: [tasks.columns.assigneeId],
     to: [users.columns.id],
+  }),
+  // Self-referential: both sides of the join are the same table.
+  parent: belongsTo(tasks, {
+    from: [tasks.columns.parentId],
+    to: [tasks.columns.id],
+  }),
+  subtasks: hasMany(tasks, {
+    from: [tasks.columns.id],
+    to: [tasks.columns.parentId],
   }),
 });
 

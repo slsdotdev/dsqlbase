@@ -9,10 +9,11 @@ Read this directory before proposing or implementing anything. Every page cites 
 1. [Architecture](./architecture.md) — which package owns what, and the dependency direction you must not invert.
 2. [Runtime pipeline](./runtime-pipeline.md) — the chain every client feature threads through, and its known gaps. **Gaps are deficiencies to fix, not constraints to design around**: when a feature needs one fixed, the fix is a prerequisite story in the proposal.
 3. [Codec boundary](./codec-boundary.md) — where values are encoded/decoded and where they are not.
-4. [Migration pipeline](./migration-pipeline.md) — invariants that hold across the diff / operations / planner / runner layers.
-5. [DSQL capabilities](./dsql-capabilities.md) — the verified DDL table. Cite it, do not restate DSQL rules from memory.
-6. [Conventions](./conventions.md) — tooling rules, the proposal workflow, and the documentation definition of done.
-7. [Testing](./testing.md) — commands and test conventions.
+4. [Select-tree aliasing](./select-tree-aliasing.md) — why every select level is aliased, and how one predicate references the same table under two aliases.
+5. [Migration pipeline](./migration-pipeline.md) — invariants that hold across the diff / operations / planner / runner layers.
+6. [DSQL capabilities](./dsql-capabilities.md) — the verified DDL table. Cite it, do not restate DSQL rules from memory.
+7. [Conventions](./conventions.md) — tooling rules, the proposal workflow, and the documentation definition of done.
+8. [Testing](./testing.md) — commands and test conventions.
 
 ## Where design lives
 

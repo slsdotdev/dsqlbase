@@ -454,4 +454,64 @@ describe("select operations", () => {
       expect(taskWithAssignee).toHaveLength(5);
     });
   });
+
+  // Story 3: both sides of this join are the same table. Before select-tree aliasing the
+  // correlation collapsed to `parent_id = id` on one row and returned the wrong parent.
+  describe("self-referential relations", () => {
+    it("resolves a parent through a relation pointing at its own table", async () => {
+      const client = getClient();
+
+      const children = await client.tasks.findMany({
+        select: { id: true, title: true },
+        where: { parentId: { exists: true } },
+        join: { parent: { select: { id: true, title: true } } },
+        orderBy: { title: "asc" },
+      });
+
+      expect(children.length).toBeGreaterThan(0);
+
+      for (const child of children) {
+        expect(child.parent).not.toBeNull();
+        // The parent must be a different row, and must be the row the child points at.
+        expect(child.parent?.id).not.toBe(child.id);
+        expect(child.parent?.title).toBe("Setup authentication");
+      }
+    });
+
+    it("resolves children through the reverse self-relation", async () => {
+      const client = getClient();
+
+      const parent = await client.tasks.findOne({
+        where: { title: { eq: "Setup authentication" } },
+        select: { id: true, title: true },
+        join: { subtasks: { select: { id: true, title: true }, orderBy: { title: "asc" } } },
+      });
+
+      expect(parent?.subtasks).toHaveLength(2);
+      expect(parent?.subtasks?.map((t) => t.title).sort()).toEqual([
+        "Implement rate limiting",
+        "Write API documentation",
+      ]);
+      expect(parent?.subtasks?.every((t) => t.id !== parent.id)).toBe(true);
+    });
+
+    it("nests a self-relation inside another join", async () => {
+      const client = getClient();
+
+      const project = await client.projects.findOne({
+        where: { key: { eq: "API" } },
+        select: { id: true },
+        join: {
+          tasks: {
+            select: { id: true, title: true },
+            where: { parentId: { exists: true } },
+            join: { parent: { select: { title: true } } },
+          },
+        },
+      });
+
+      expect(project?.tasks.length).toBeGreaterThan(0);
+      expect(project?.tasks.every((t) => t.parent?.title === "Setup authentication")).toBe(true);
+    });
+  });
 });

@@ -10,6 +10,15 @@ export interface SQLContext {
   paramCounter: ParamIndexCounter;
   escapeValue(str: string): string;
   escapeIdentifier(str: string): string;
+
+  /**
+   * Alias bindings in effect for the subtree being rendered, set by {@link SQLScope}.
+   *
+   * Keys are opaque to this module — a node that wants to be referenced by an alias looks
+   * itself up here and falls back to its own name when absent. Nothing in `sql/` knows what
+   * the keys are, which keeps this layer independent of the runtime.
+   */
+  aliases?: ReadonlyMap<unknown, string>;
 }
 
 export type SQLValue = string | number | boolean | bigint | null | object;
@@ -101,6 +110,35 @@ export class SQLWrapper implements SQLNode {
       text: `(${contents.text})`,
       params: contents.params,
     };
+  }
+}
+
+/**
+ * Renders a subtree with extra alias bindings in scope.
+ *
+ * Query-builder machinery, deliberately absent from the `sql` tag and the `./sql` barrel:
+ * the bindings are keyed by the very node objects the builder threads through a select
+ * tree, which is not knowledge a caller can be expected to have. A user-facing way to
+ * alias a table in hand-written SQL is a separate thing to design.
+ *
+ * Scopes nest by rendering with a derived context rather than by mutating a stack, so the
+ * innermost binding for a key wins. That is what lets one correlated predicate reference the
+ * same table under two different aliases — wrap the outer side in its own scope and it keeps
+ * the outer alias even though it is rendered inside the inner query.
+ */
+export class SQLScope implements SQLNode {
+  private readonly _bindings: ReadonlyMap<unknown, string>;
+  private readonly _node: SQLNode;
+
+  constructor(bindings: ReadonlyMap<unknown, string>, node: SQLNode) {
+    this._bindings = bindings;
+    this._node = node;
+  }
+
+  toSQL(ctx: SQLContext): SQLStatement {
+    const aliases = ctx.aliases ? new Map([...ctx.aliases, ...this._bindings]) : this._bindings;
+
+    return this._node.toSQL({ ...ctx, aliases });
   }
 }
 
