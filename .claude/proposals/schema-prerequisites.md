@@ -7,7 +7,7 @@ created: 2026-09-20
 
 # Schema prerequisites: shared runtime work for global ids and polymorphic relations
 
-Extracted from `.claude/proposals/schema-guid.md` (Topic 1), `.claude/proposals/schema-polymorphic-relations.md` (Topic 2) and `.claude/proposals/schema-embeddable-objects.md` (Topic 3). Every story here is needed by at least two of the three features or is a correctness fix they all rely on; none introduces either feature. Implement this proposal first, as one epic (`.claude/epics/schema-prerequisites.md`), then the two feature proposals in either order.
+Extracted from `.claude/proposals/schema-guid.md` (Topic 1), `.claude/proposals/schema-polymorphic-relations.md` (Topic 2) and `.claude/proposals/schema-embeddable-objects.md` (Topic 3). Also consumed by `.claude/proposals/client-pagination.md` (stories 1 and 5), `.claude/proposals/client-runtime-joins.md` (stories 3 as amended, 4, 5 and 9) and `.claude/proposals/client-tenancy.md` (stories 2 and 9). Every story here is needed by at least two of the three features or is a correctness fix they all rely on; none introduces either feature. Implement this proposal first, as one epic (`.claude/epics/schema-prerequisites.md`), then the two feature proposals in either order.
 
 ## Problem
 
@@ -17,7 +17,7 @@ Two more items are not gaps but shared surface: the `OnSelectionOf` member-selec
 
 ## Decision
 
-Eight stories, ordered so that 1–4 are pure gap fixes with no new public API, 5–7 introduce the shared surface, and 8 is a correctness fix plus the path lookup Topic 3 needs. Each is one PR with its own changeset and docs update. The features' story lists in the two proposals are rebased on these (see "Effect on the feature proposals").
+Nine stories, ordered so that 1–4 are pure gap fixes with no new public API, 5–7 introduce the shared surface, and 8 and 9 are correctness fixes (8 also adds the path lookup Topic 3 needs). Each is one PR with its own changeset and docs update. The features' story lists in the two proposals are rebased on these (see "Effect on the feature proposals").
 
 ### Rejected alternatives (one line each)
 
@@ -45,22 +45,22 @@ All changesets are on the fixed group (`@dsqlbase/core`, `dsqlbase`, `@dsqlbase/
 
 ### 3. Table aliasing in lateral joins
 
-- **Change.** `QueryBuilder` (`packages/core/src/runtime/query.ts`) assigns `"__t<n>"` aliases per `FROM` in a select tree (`SelectParams.alias`, allocated by `OperationsFactory._resolveSelectParams` with a per-operation counter), and every column reference produced for that level (`select`, `where`, `orderBy`, join connections) is qualified with the alias instead of the table name. `Column.toSQL` therefore needs a level-aware form: `OperationsFactory` wraps columns as `sql.identifier(alias).column` at resolution time rather than changing `Column.toSQL` globally, so `$query` users writing `${users.columns.id}` are unaffected. The correlated predicate of a join references the parent alias.
-- **Consumers.** Topic 2: self-referential union members (`ArchiveFolder.entries`) and any join to the parent's own table. Topic 1: the `parentId` self-reference example (`users.parent`). Both are impossible today.
-- **Tests.** `query.test.ts` SQL snapshots: single table, one join, nested join, **self-join**, same table joined twice at one level; e2e `select.spec.ts`: a `tasks.parent` self-relation added to the fixture.
-- **Docs.** `docs/internals/runtime-pipeline.md` (remove the gap row; document alias allocation), `docs/guide/relations.md` (self-referential relations now supported). Changeset: `minor` — SQL text changes for every join; behaviour unchanged except self-joins now work (`Docs: docs/internals/runtime-pipeline.md, docs/guide/relations.md`).
+- **Change.** Every `FROM` in a select tree gets an alias, unconditionally: `"__t<n>"` per table level and `"__j<n>"` per JSON wrapper (today the wrapper is the fixed `"__t"`). Scopes are owned by the **normalizer**: each level of `RequestNormalizer._getSelectArgs` (`packages/dsqlbase/src/client/model/normalizer.ts`) allocates an opaque `Scope` token carried on `SelectOperationArgs.scope`; `QueryBuilder` (`packages/core/src/runtime/query.ts`) maps token → alias when it renders that level, via a scope stack on `SQLContext`. New `ColumnRef(column, scope)` node in `packages/core/src/sql` renders as `"<alias>"."<column>"`; every column reference produced for a level (`select`, `where`, `orderBy`, join correlations) is a `ColumnRef` of that level's scope, built by the normalizer (user-facing refs, where and order columns) or the operations factory (selection, hidden columns). `Column.toSQL` is **unchanged** (`"table"."column"`), so `$query` users writing `${users.columns.id}` are unaffected; a `ColumnRef` rendered outside any select tree falls back to the same form. The reason the scope must be explicit rather than looked up by table: in a self-join the parent and the inner level are the same `Table` object, so a lookup by table cannot tell `"__t0"."id"` from `"__t1"."id"`.
+- **Consumers.** Topic 2: self-referential union members (`ArchiveFolder.entries`) and any join to the parent's own table. Topic 1: the `parentId` self-reference example (`users.parent`). Client runtime joins (`client-runtime-joins.md`): `where` callbacks receive `ColumnRefsOf` proxies of the current and parent scopes; ad-hoc self-joins. Client pagination: hidden `__k<n>` projections reference the root scope. All impossible or wrong today.
+- **Tests.** `query.test.ts` SQL snapshots: single table, one join, nested join, **self-join**, same table joined twice at one level, a parent-scope and an inner-scope `ColumnRef` of the same column rendering two aliases; `ColumnRef` fallback outside a select tree; e2e `select.spec.ts`: a `tasks.parent` self-relation added to the fixture.
+- **Docs.** `docs/internals/runtime-pipeline.md` (remove the gap row; document scope allocation in the normalizer and alias rendering in the builder; `ColumnRef`), `docs/guide/relations.md` (self-referential relations now supported). Changeset: `minor` — SQL text changes for every select (aliases everywhere); behaviour unchanged except self-joins now work (`Docs: docs/internals/runtime-pipeline.md, docs/guide/relations.md`).
 
 ### 4. Composite relation pairs
 
 - **Change.** `_resolveJoinEntries` (`packages/core/src/runtime/operation.ts`) builds the join connection as `sql.and` over every `from[i]` / `to[i]` pair; `SchemaRegistry._buildRelations` validates equal lengths, non-empty, same `dataType` per pair, and that each column belongs to the declared side (Topic 1 later adds the guid-key check on top of this loop).
-- **Consumers.** Topic 1: relation pair validation hook. Topic 2: branch predicates over every pair. Composite-key tables in general.
+- **Consumers.** Topic 1: relation pair validation hook. Topic 2: branch predicates over every pair. Client runtime joins: the filtered-relation form (`{ relation, where }`) correlates over every pair. Composite-key tables in general.
 - **Tests.** `operation.test.ts` / `query.test.ts`: two-column relation SQL; `registry.test.ts`: length mismatch, type mismatch, wrong-side column each throw with `table.column` names.
 - **Docs.** `docs/internals/runtime-pipeline.md` (remove the gap row), `docs/guide/relations.md` (drop "for future composite support"; document composite pairs). Changeset: `minor` — schemas with mismatched pairs that silently worked on `[0]` now fail at `createClient` (`Docs: docs/internals/runtime-pipeline.md, docs/guide/relations.md`).
 
 ### 5. `$$meta`, `table().meta()`, and the row-aware resolver
 
-- **Change.** `TableDefinition.meta<M>(m)` (`packages/core/src/definition/table.ts`; `TableConfig.meta`, excluded from `toJSON`); `Table.meta` frozen `{ key: alias, table: name, schema?, ...definition.meta }`; `$$meta` and `$$key` rejected as field aliases at `Table` build. Resolver tree in `packages/core/src/runtime/operation.ts` changes from `FieldResolver = [field, AnyColumn | FieldResolver[]]` to a node type `{ table, fields, post? }` per level, where `post` is an ordered list of **row-aware post-processors** `(row, table) => void` run after column resolution; `_createResultResolver` stamps `$$meta` at every level (top-level, join, `return`) as an enumerable property whose shared part is the frozen table meta. Topic 1 registers a `globalId` post-processor; Topic 2 registers union dispatch and dynamic-key wrapping. Types: `TableDefinition` / `Table` gain a trailing `TMeta` generic with a default; `RecordMetaOf<TTable> = { key; table; schema? } & TMeta`; `QueryResultOf`, `RelationJoinResultOf`, `ReturningResultOf` (`packages/dsqlbase/src/client/model/base.ts`) add `$$meta`.
-- **Consumers.** Topic 1: `$$meta.key` discriminant, `globalId`. Topic 2: per-row dispatch, `__typename` for interfaces and unions.
+- **Change.** `TableDefinition.meta<M>(m)` (`packages/core/src/definition/table.ts`; `TableConfig.meta`, excluded from `toJSON`); `Table.meta` frozen `{ key: alias, table: name, schema?, ...definition.meta }`; `$$meta` and `$$key` rejected as field aliases at `Table` build. Resolver tree in `packages/core/src/runtime/operation.ts` changes from `FieldResolver = [field, AnyColumn | FieldResolver[]]` to a node type `{ table, fields, post? }` per level, where `post` is an ordered list of **row-aware post-processors** `(row, raw, table) => void` run after column resolution — `raw` is the driver row before codec decoding, because consumers that need the database's own text representation (keyset cursors) cannot rebuild it from decoded values; `_createResultResolver` stamps `$$meta` at every level (top-level, join, `return`) as an enumerable property whose shared part is the frozen table meta. Topic 1 registers a `globalId` post-processor; Topic 2 registers union dispatch and dynamic-key wrapping. Types: `TableDefinition` / `Table` gain a trailing `TMeta` generic with a default; `RecordMetaOf<TTable> = { key; table; schema? } & TMeta`; `QueryResultOf`, `RelationJoinResultOf`, `ReturningResultOf` (`packages/dsqlbase/src/client/model/base.ts`) add `$$meta`.
+- **Consumers.** Topic 1: `$$meta.key` discriminant, `globalId`. Topic 2: per-row dispatch, `__typename` for interfaces and unions. Client pagination (`client-pagination.md`): `$$meta.cursor` stamped from the raw row's hidden `__k<n>` columns.
 - **Tests.** `operation.test.ts`: `$$meta` at each level, shared part frozen, post-processor order, reserved aliases; type tests in `client.types.test.ts` for `$$meta` on all result shapes; e2e: `$$meta` present on nested join rows and `return` rows.
 - **Docs.** `docs/guide/querying.md` (`$$meta` on every row), `docs/guide/schema.md` (`table().meta()`, reserved aliases), `docs/internals/runtime-pipeline.md` (resolver tree shape, post-processors). Changeset: `minor` — result rows gain a property; consumer `toEqual` assertions on whole rows break (`Docs: docs/guide/querying.md, docs/guide/schema.md, docs/internals/runtime-pipeline.md`).
 
@@ -73,7 +73,7 @@ All changesets are on the fixed group (`@dsqlbase/core`, `dsqlbase`, `@dsqlbase/
 
 ### 7. Codec-aware where clauses
 
-- **Change.** `Column.param(value): SQLParam` (`packages/core/src/runtime/column.ts`) builds `new SQLParam(value, codec.encode)`; `packages/dsqlbase/src/client/model/normalizer.ts` routes `eq / neq / gt / gte / lt / lte / in / between` and the value shorthand through it for `where`, `update.where`, `delete.where`; `beginsWith / endsWith / contains` stay raw patterns (documented). `sql.eq(column, value)` is unchanged (raw), as `docs/internals/codec-boundary.md` records for `$query`.
+- **Change.** `Column.param(value): SQLParam` (`packages/core/src/runtime/column.ts`) builds `new SQLParam(value, codec.encode)`; `packages/dsqlbase/src/client/model/normalizer.ts` routes `eq / neq / gt / gte / lt / lte / in / between` and the value shorthand through it for `where`, `update.where`, `delete.where`; `beginsWith / endsWith / contains` stay raw patterns (documented). `sql.eq(column, value)` is unchanged (raw), as `docs/internals/codec-boundary.md` records for `$query`. A value that is already an `SQLNode` — in particular a `ColumnRef` from story 3 (`client-runtime-joins.md`) — is passed through untouched, never encoded.
 - **Consumers.** Topic 1: wrapped ids in filters. Topic 2: shared `where` per member column, discriminator expansion. Date, bigint and interval filters today (behaviour change: values are codec-encoded instead of driver-serialized — e2e must show identical results).
 - **Tests.** Normalizer unit tests per operator and shorthand, pattern operators untouched; e2e filter tests for `date`, `datetime`, `bigint`, `duration` columns in the fixture (each exercising `eq`, `in`, `between`).
 - **Docs.** `docs/internals/codec-boundary.md` (move where values from "does NOT apply" to "applies"; `Column.param` for raw SQL), `docs/internals/runtime-pipeline.md` (remove the gap row), `docs/guide/querying.md` (filters accept JS values for every codec column). Changeset: `minor` — wire format of filter values changes for codec columns (`Docs: docs/internals/codec-boundary.md, docs/internals/runtime-pipeline.md, docs/guide/querying.md`).
@@ -85,16 +85,26 @@ All changesets are on the fixed group (`@dsqlbase/core`, `dsqlbase`, `@dsqlbase/
 - **Tests.** `table.test.ts` (definition and runtime): duplicate name throws with both aliases named; migration rule test; `getColumn` by path.
 - **Docs.** `docs/guide/schema.md` (column names must be unique per table), `docs/internals/migration-pipeline.md` (new rule). Changeset: `minor` — schemas that relied on silent shadowing now fail at definition time (`Docs: docs/guide/schema.md, docs/internals/migration-pipeline.md`).
 
+### 9. One field namespace per table
+
+- **Change.** `SchemaRegistry._buildTables` (`packages/core/src/runtime/registry.ts`) throws when a relation name equals a column alias on the same table, naming both (`Relation "members" on table "workspaces" collides with column "members"`). Columns, relations and — when `schema-embeddable-objects.md` lands — embeddable group names all draw from one namespace, because the client addresses them all as fields of one model (`select`, `join`, result keys). Today nothing checks this and `QueryResultOf` would intersect the two types.
+- **Consumers.** Client runtime joins: relations under `select` are told apart from columns and groups by name alone. Topic 3 (embeddables): group names join the same check. Correctness fix owed regardless.
+- **Tests.** `registry.test.ts`: relation named like a column throws with both names; relation named like a column of a *different* table passes.
+- **Docs.** `docs/guide/relations.md`, `docs/guide/schema.md` (field names are unique per table across columns and relations). Changeset: `minor` — schemas with a colliding relation name now fail at `createClient` (`Docs: docs/guide/relations.md, docs/guide/schema.md`).
+
 ## Effect on the feature proposals
 
 - `schema-guid.md`: stories 1, 2, 3, 5 move here (as 1, 2, 5, 7); its remaining stories are **4** (node registry, `guid()` marker, `$findByGlobalId` / `$listByGlobalId`, helpers — G) and **6** (guid codec + relation validation — A), plus the relation-pair validation is now an extension of story 4 here.
 - `schema-polymorphic-relations.md`: its story 0 is this proposal; its stories 1–5 are unchanged.
 - `schema-embeddable-objects.md`: depends on stories 5, 7 and 8; its five stories are unchanged.
+- `client-pagination.md`: depends on stories 1 and 5 (story 5's post-processor signature carries the raw row for this reason); story 3 changes its column references but not its design; story 7 is not required because cursors bypass codecs.
+- `client-runtime-joins.md`: depends on stories 3 (amended above: unconditional aliasing, normalizer-owned scopes, `ColumnRef`), 4, 5 and 9; story 7 must pass `ColumnRef` values through unencoded.
+- `client-tenancy.md`: depends on story 2 (`attachModels` builds the identity client) and story 9 (a claim field is a field, so it may not collide with a relation name); story 7 is not required because the tenant predicate is encoded in core.
 - The two proposals keep their own decision records; this one is recorded as a single entry that closes four gap rows.
 
 ## Breaking surface
 
-Stories 3, 4, 5, 7 and 8 change observable behaviour (SQL text with aliases, stricter relation validation, `$$meta` on rows, encoded filter values, duplicate column names rejected). Each is `minor` with the change named in its changeset body. Stories 1, 2 and 6 are additive (`patch`).
+Stories 3, 4, 5, 7, 8 and 9 change observable behaviour (SQL text with aliases, stricter relation validation, `$$meta` on rows, encoded filter values, duplicate column names rejected, colliding relation names rejected). Each is `minor` with the change named in its changeset body. Stories 1, 2 and 6 are additive (`patch`).
 
 ## Test plan
 
@@ -102,7 +112,7 @@ Per story above. Cross-cutting: the PGlite fixture (`packages/tests/src/db/schem
 
 ## Docs
 
-- **Guide** (`docs/guide/`): `querying.md` (`$$meta`, `on` map, codec-aware filters), `schema.md` (`table().meta()`, reserved aliases `$$meta` / `$$key`, unique column names), `relations.md` (composite pairs, self-referential relations).
-- **Internals** (`docs/internals/`): `migration-pipeline.md` (duplicate column rule); `runtime-pipeline.md` (four gap rows removed: composite PK, first-column-only joins, no table aliasing, codec not applied to where; new sections on alias allocation, resolver tree and post-processors, `attachModels`), `codec-boundary.md` (where values now encoded; `Column.param`).
+- **Guide** (`docs/guide/`): `querying.md` (`$$meta`, `on` map, codec-aware filters), `schema.md` (`table().meta()`, reserved aliases `$$meta` / `$$key`, unique column names, one field namespace per table), `relations.md` (composite pairs, self-referential relations, relation names may not collide with columns).
+- **Internals** (`docs/internals/`): `migration-pipeline.md` (duplicate column rule); `runtime-pipeline.md` (four gap rows removed: composite PK, first-column-only joins, no table aliasing, codec not applied to where; new sections on scope allocation in the normalizer and alias rendering in the builder, `ColumnRef`, resolver tree and post-processors, `attachModels`), `codec-boundary.md` (where values now encoded; `Column.param`).
 - **Decision record**: `docs/decisions/0003-schema-prerequisites.md` on acceptance (renumbering Topic 1's to `0004` and Topic 2's to `0005`); this proposal is then deleted and the epic records what shipped.
 - **Stale lines**: none in `CLAUDE.md`; `packages/dsqlbase/README.md` relations example gains nothing until the feature proposals land.
