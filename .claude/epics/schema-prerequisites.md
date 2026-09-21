@@ -32,7 +32,7 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 | 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⏸ deferred — grouped with story 5 |
 | 7 | Codec-aware where clauses (`Column.param`) | `minor` | ✅ |
 | 8 | Duplicate DB column names rejected | `minor` | ✅ (path lookup deferred) |
-| 9 | One field namespace per table | `minor` | ⬜ |
+| 9 | One field namespace per table | `minor` | ✅ |
 
 ## Ordering change (2026-09-21)
 

@@ -246,6 +246,59 @@ describe("SchemaRegistry", () => {
     });
   });
 
+  describe("field namespace", () => {
+    const articles = new TableDefinition("articles", {
+      columns: {
+        id: new ColumnDefinition("id", { primaryKey: true }),
+        author: new ColumnDefinition("author", { dataType: "text" }),
+      },
+    });
+
+    const authors = new TableDefinition("authors", {
+      columns: {
+        id: new ColumnDefinition("id", { primaryKey: true }),
+        name: new ColumnDefinition("name", { dataType: "text" }),
+      },
+    });
+
+    it("rejects a relation named like a column on the same table", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            articles,
+            authors,
+            rel: new RelationsDefinition(articles, {
+              author: {
+                type: Relation.BELONGS_TO,
+                target: authors,
+                from: [articles.columns.id],
+                to: [authors.columns.id],
+              },
+            }),
+          })
+      ).toThrow(/Relation "author" on table "articles" collides with a column of the same name/);
+    });
+
+    it("accepts a relation named like a column of a different table", () => {
+      const registry = new SchemaRegistry({
+        articles,
+        authors,
+        // "author" is a column on `articles`, but this relation is declared on `authors`,
+        // which has no such column. The namespace is per table, not per schema.
+        rel: new RelationsDefinition(authors, {
+          author: {
+            type: Relation.BELONGS_TO,
+            target: articles,
+            from: [authors.columns.id],
+            to: [articles.columns.id],
+          },
+        }),
+      });
+
+      expect(registry.getRelations("authors")).toHaveProperty("author");
+    });
+  });
+
   it("should check if relations exist for a table", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 

@@ -238,6 +238,16 @@ export class SchemaRegistry<
       }
 
       for (const [field, relation] of Object.entries(relations)) {
+        // Columns and relations share one namespace: the client addresses both as fields of
+        // the same model (`select`, `join`, and the keys of a result row), so a name can
+        // only mean one of them.
+        if (table.hasColumn(field)) {
+          throw new Error(
+            `Relation "${field}" on table "${tableName}" collides with a column of the same ` +
+              `name. Columns and relations share one field namespace on a table.`
+          );
+        }
+
         this._validateRelation(tableName, field, relation, definitions);
       }
 
