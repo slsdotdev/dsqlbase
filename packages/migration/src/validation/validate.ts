@@ -5,6 +5,7 @@ import { identifierTooLong, noDuplicateObjectNames } from "./rules/global.js";
 import { reservedNamespace } from "./rules/schema.js";
 import { invalidSequenceCache } from "./rules/sequence.js";
 import {
+  duplicateColumnName,
   duplicateIndexCoverage,
   emptyConstraintColumns,
   multiplePrimaryKeys,
@@ -23,6 +24,7 @@ export const defaultRules: ValidationRules = Object.freeze({
   TABLE: [
     tableNoPrimaryKey,
     multiplePrimaryKeys,
+    duplicateColumnName,
     unknownColumnReference,
     emptyConstraintColumns,
     identifierTooLong,

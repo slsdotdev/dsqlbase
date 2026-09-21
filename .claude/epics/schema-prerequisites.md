@@ -31,7 +31,7 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 | 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⏸ deferred — see below |
 | 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⏸ deferred — grouped with story 5 |
 | 7 | Codec-aware where clauses (`Column.param`) | `minor` | ✅ |
-| 8 | Duplicate DB column names; `getColumn` by path | `minor` | ⬜ |
+| 8 | Duplicate DB column names rejected | `minor` | ✅ (path lookup deferred) |
 | 9 | One field namespace per table | `minor` | ⬜ |
 
 ## Ordering change (2026-09-21)
@@ -50,6 +50,13 @@ when story 5 lands, so nothing is lost by waiting.
 
 Stories 7, 8 and 9 are standalone correctness fixes with immediate value and no dependency on
 either.
+
+### Story 8 — path lookup deferred
+
+`Table.getColumn` accepting a dotted alias path is dropped from this story for the same
+reason story 6 moved: it is a no-op until embeddable objects exist (`schema-embeddable-objects.md`,
+not accepted), since a flat table has nothing to resolve a dotted path against. It belongs to
+that work, which is also where it gets a consumer and a test that means anything.
 
 ## Deviations from the proposal
 

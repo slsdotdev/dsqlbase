@@ -38,6 +38,31 @@ export const multiplePrimaryKeys: TableRule = (table, context) => {
   });
 };
 
+/**
+ * The high-level builders reject this when the table is declared, but `validate` also
+ * accepts a `SerializedSchema` that never went through them.
+ */
+export const duplicateColumnName: TableRule = (table, context) => {
+  const seen = new Set<string>();
+  const reported = new Set<string>();
+
+  for (const column of table.columns) {
+    if (seen.has(column.name) && !reported.has(column.name)) {
+      reported.add(column.name);
+
+      context.report({
+        level: "error",
+        code: "DUPLICATE_COLUMN_NAME",
+        message: `Table "${table.name}" declares column "${column.name}" more than once.`,
+        path: [table.namespace, table.name, "columns", column.name],
+        hint: `Every field on a table must map to a distinct column name.`,
+      });
+    }
+
+    seen.add(column.name);
+  }
+};
+
 export const unknownColumnReference: TableRule = (table, context) => {
   const columnNames = new Set(table.columns.map((c) => c.name));
 

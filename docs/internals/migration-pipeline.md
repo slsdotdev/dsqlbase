@@ -56,7 +56,7 @@ Deferred: sequences before the tables that own them (`OWNED BY`). `SequenceDefin
 
 ### Validation (`validation/`)
 
-Imperative rules `(node, ctx) => void` keyed by `node.kind`, default registry inline in `validate.ts`. Errors: `TABLE_NO_PRIMARY_KEY`, `MULTIPLE_PRIMARY_KEYS`, `DUPLICATE_OBJECT_NAME`, `UNKNOWN_COLUMN_REFERENCE`, `EMPTY_CONSTRAINT_COLUMNS`, `IDENTIFIER_TOO_LONG` (63 UTF-8 bytes), `RESERVED_NAMESPACE`, `INVALID_SEQUENCE_CACHE`. Warnings: `REDUNDANT_UNIQUE_ON_PK`, `DUPLICATE_INDEX_COVERAGE`, `VARCHAR_WITHOUT_LENGTH`. Relations are not validated here (runtime-only). An `UNSUPPORTED_TYPE` rule was deliberately dropped: `dataType` is pinned at compile time.
+Imperative rules `(node, ctx) => void` keyed by `node.kind`, default registry inline in `validate.ts`. Errors: `TABLE_NO_PRIMARY_KEY`, `MULTIPLE_PRIMARY_KEYS`, `DUPLICATE_COLUMN_NAME`, `DUPLICATE_OBJECT_NAME`, `UNKNOWN_COLUMN_REFERENCE`, `EMPTY_CONSTRAINT_COLUMNS`, `IDENTIFIER_TOO_LONG` (63 UTF-8 bytes), `RESERVED_NAMESPACE`, `INVALID_SEQUENCE_CACHE`. Warnings: `REDUNDANT_UNIQUE_ON_PK`, `DUPLICATE_INDEX_COVERAGE`, `VARCHAR_WITHOUT_LENGTH`. Relations are not validated here (runtime-only; `SchemaRegistry` checks their column pairs when the client is built). Several rules restate something the high-level builders already reject at declaration time — `validate` also accepts a `SerializedSchema` that never went through them. An `UNSUPPORTED_TYPE` rule was deliberately dropped: `dataType` is pinned at compile time.
 
 ### Runner and executor (`runner.ts`, `executor.ts`)
 

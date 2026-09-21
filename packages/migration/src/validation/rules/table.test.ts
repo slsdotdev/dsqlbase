@@ -3,6 +3,7 @@ import { AnyColumnDefinition, AnyTableDefinition } from "@dsqlbase/core/definiti
 import { SerializedObject } from "../../base.js";
 import { ValidationContext } from "../context.js";
 import {
+  duplicateColumnName,
   duplicateIndexCoverage,
   emptyConstraintColumns,
   multiplePrimaryKeys,
@@ -141,6 +142,50 @@ describe("multiplePrimaryKeys", () => {
     expect(context.issues).toHaveLength(1);
     expect(context.issues[0]?.code).toBe("MULTIPLE_PRIMARY_KEYS");
     expect(context.issues[0]?.message).toContain('column "id", constraint "users_pk"');
+  });
+});
+
+describe("duplicateColumnName", () => {
+  it("does not report distinct column names", () => {
+    const table = baseTable({
+      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "email" })],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+    expect(context.issues).toEqual([]);
+  });
+
+  it("reports a repeated column name once", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "display_name" }),
+        baseColumn({ name: "display_name" }),
+        baseColumn({ name: "display_name" }),
+      ],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+
+    expect(context.issues).toHaveLength(1);
+    expect(context.issues[0]?.code).toBe("DUPLICATE_COLUMN_NAME");
+    expect(context.issues[0]?.level).toBe("error");
+    expect(context.issues[0]?.message).toContain('"display_name"');
+  });
+
+  it("reports each distinct duplicate separately", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "a" }),
+        baseColumn({ name: "a" }),
+        baseColumn({ name: "b" }),
+        baseColumn({ name: "b" }),
+      ],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+
+    expect(context.issues).toHaveLength(2);
   });
 });
 

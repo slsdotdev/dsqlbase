@@ -18,7 +18,7 @@ export const users = table("users", {
 });
 ```
 
-The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
+The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. **Two fields may not map to the same column name** — `table()` throws when they do, because the result resolver reads rows by column name and one field would silently shadow the other. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
 
 ### Column modifiers
 
