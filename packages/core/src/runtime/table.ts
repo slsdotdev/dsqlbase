@@ -8,9 +8,10 @@ import {
   TableConfig,
   TableDefinition,
   NamespaceDefinition,
+  PrimaryKeyConstraintDefinition,
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
-import { Column } from "./column.js";
+import { AnyColumn, Column } from "./column.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
@@ -60,10 +61,24 @@ export class Table<
   readonly columns: TableColumns<this>;
   readonly relations: TRelations;
 
+  /**
+   * The columns of the table's primary key, in key order. Empty when the table declares none.
+   *
+   * A table has at most one primary key; a composite key is that one key spanning several
+   * columns. Declaring more than one — two flagged columns, a flagged column alongside a
+   * table-level constraint, or two table-level constraints — throws when the table is built.
+   */
+  readonly primaryKey: AnyColumn[];
+
+  /** True when the primary key spans more than one column. */
+  readonly isCompositeKey: boolean;
+
   constructor(definition: TableDefinition<TName, TColumns, TNamespace>, relations?: TRelations) {
     this.schema = definition["_namespace"]?.name as TableSchemaName<this>;
     this.name = definition.name;
     this.columns = this._buildColumns(definition);
+    this.primaryKey = this._buildPrimaryKey(definition);
+    this.isCompositeKey = this.primaryKey.length > 1;
     this.relations = relations as TRelations;
   }
 
@@ -77,6 +92,45 @@ export class Table<
     }
 
     return columns as TableColumns<this>;
+  }
+
+  private _buildPrimaryKey(
+    definition: TableDefinition<TName, TColumns, TNamespace>
+  ): AnyColumn[] {
+    const flagged = this.getColumnEntries().filter(([, column]) => column.primaryKey);
+    const constraints = definition["_constraints"].filter(
+      (constraint) => constraint instanceof PrimaryKeyConstraintDefinition
+    );
+
+    const declarations = [
+      ...flagged.map(([field]) => `column "${field}"`),
+      ...constraints.map((constraint) => `constraint "${constraint.name}"`),
+    ];
+
+    if (declarations.length > 1) {
+      throw new Error(
+        `Table "${this.name}" declares more than one primary key (${declarations.join(", ")}). ` +
+          `A table has at most one primary key; use table.primaryKey((c) => [...]) for a composite key.`
+      );
+    }
+
+    const constraint = constraints[0];
+
+    if (!constraint) {
+      return flagged.map(([, column]) => column);
+    }
+
+    return constraint["_columns"].map((ref) => {
+      const column = this.getColumn(ref.name);
+
+      if (!column) {
+        throw new Error(
+          `Primary key constraint "${constraint.name}" on table "${this.name}" references unknown column "${ref.name}"`
+        );
+      }
+
+      return column;
+    });
   }
 
   public hasColumn(name: string): boolean {

@@ -7,6 +7,7 @@ import { invalidSequenceCache } from "./rules/sequence.js";
 import {
   duplicateIndexCoverage,
   emptyConstraintColumns,
+  multiplePrimaryKeys,
   redundantUniqueOnPk,
   tableIdentifiersTooLong,
   tableNoPrimaryKey,
@@ -21,6 +22,7 @@ export const defaultRules: ValidationRules = Object.freeze({
   DOMAIN: [identifierTooLong],
   TABLE: [
     tableNoPrimaryKey,
+    multiplePrimaryKeys,
     unknownColumnReference,
     emptyConstraintColumns,
     identifierTooLong,

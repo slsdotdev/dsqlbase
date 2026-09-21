@@ -47,6 +47,116 @@ describe("Table", () => {
     expect(text).toBe('"users"');
   });
 
+  describe("primary key", () => {
+    it("should expose a column-level primary key", () => {
+      const table = new Table(definition);
+
+      expect(table.primaryKey.map((col) => col.name)).toEqual(["id"]);
+      expect(table.isCompositeKey).toBe(false);
+    });
+
+    it("should expose a table-level single-column primary key", () => {
+      const def = new TableDefinition("posts", {
+        columns: {
+          slug: new ColumnDefinition("slug").notNull(),
+          title: new ColumnDefinition("title"),
+        },
+      });
+      def.primaryKey((c) => [c.slug]);
+
+      const table = new Table(def);
+
+      expect(table.primaryKey.map((col) => col.name)).toEqual(["slug"]);
+      expect(table.isCompositeKey).toBe(false);
+    });
+
+    it("should expose a composite primary key in constraint order", () => {
+      const def = new TableDefinition("team_members", {
+        columns: {
+          userId: new ColumnDefinition("user_id").notNull(),
+          teamId: new ColumnDefinition("team_id").notNull(),
+          role: new ColumnDefinition("role"),
+        },
+      });
+      def.primaryKey((c) => [c.teamId, c.userId]);
+
+      const table = new Table(def);
+
+      expect(table.primaryKey.map((col) => col.name)).toEqual(["team_id", "user_id"]);
+      expect(table.isCompositeKey).toBe(true);
+    });
+
+    it("should resolve key columns whose field alias differs from the column name", () => {
+      const def = new TableDefinition("team_members", {
+        columns: {
+          teamId: new ColumnDefinition("team_id").notNull(),
+          userId: new ColumnDefinition("user_id").notNull(),
+        },
+      });
+      def.primaryKey((c) => [c.teamId, c.userId]);
+
+      const table = new Table(def);
+
+      expect(table.primaryKey.map((col) => col.name)).toEqual(["team_id", "user_id"]);
+      expect(table.primaryKey[0]).toBe(table.columns.teamId);
+      expect(table.primaryKey[1]).toBe(table.columns.userId);
+    });
+
+    it("should expose an empty primary key when the table declares none", () => {
+      const def = new TableDefinition("logs", {
+        columns: { message: new ColumnDefinition("message") },
+      });
+
+      const table = new Table(def);
+
+      expect(table.primaryKey).toEqual([]);
+      expect(table.isCompositeKey).toBe(false);
+    });
+
+    // A table has at most one PRIMARY KEY. Each source below prints independently in
+    // packages/migration/src/ddl/printer.ts, so accepting them would emit DDL that
+    // Postgres rejects with "multiple primary keys for table ... are not allowed".
+    it("should throw when two columns are flagged as primary key", () => {
+      const def = new TableDefinition("team_members", {
+        columns: {
+          teamId: new ColumnDefinition("team_id").primaryKey(),
+          userId: new ColumnDefinition("user_id").primaryKey(),
+        },
+      });
+
+      expect(() => new Table(def)).toThrow(
+        /declares more than one primary key \(column "teamId", column "userId"\)/
+      );
+    });
+
+    it("should throw when a flagged column is combined with a table-level constraint", () => {
+      const def = new TableDefinition("team_members", {
+        columns: {
+          teamId: new ColumnDefinition("team_id").primaryKey(),
+          userId: new ColumnDefinition("user_id").notNull(),
+        },
+      });
+      def.primaryKey((c) => [c.teamId, c.userId]);
+
+      expect(() => new Table(def)).toThrow(
+        /declares more than one primary key \(column "teamId", constraint "team_members_primary_key"\)/
+      );
+    });
+
+    it("should throw when two table-level primary keys are declared", () => {
+      const def = new TableDefinition("team_members", {
+        columns: {
+          teamId: new ColumnDefinition("team_id").notNull(),
+          userId: new ColumnDefinition("user_id").notNull(),
+        },
+      });
+      def.primaryKey((c) => [c.teamId]);
+      def.primaryKey((c) => [c.userId]);
+
+      expect(() => new Table(def)).toThrow(/declares more than one primary key/);
+    });
+  });
+
   describe("with schema", () => {
     const withSchema = new TableDefinition("users", {
       namespace: new NodeRef(new NamespaceDefinition("test")),

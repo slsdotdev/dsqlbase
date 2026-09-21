@@ -19,6 +19,25 @@ export const tableNoPrimaryKey: TableRule = (table, context) => {
   });
 };
 
+export const multiplePrimaryKeys: TableRule = (table, context) => {
+  const declarations = [
+    ...table.columns.filter((col) => col.primaryKey).map((col) => `column "${col.name}"`),
+    ...(table.constraints ?? [])
+      .filter((c) => c.kind === "PRIMARY_KEY_CONSTRAINT")
+      .map((c) => `constraint "${c.name}"`),
+  ];
+
+  if (declarations.length < 2) return;
+
+  context.report({
+    level: "error",
+    code: "MULTIPLE_PRIMARY_KEYS",
+    message: `Table "${table.name}" declares more than one primary key (${declarations.join(", ")}).`,
+    path: [table.namespace, table.name],
+    hint: `A table has at most one primary key. Use a single table-level primary key constraint for a composite key.`,
+  });
+};
+
 export const unknownColumnReference: TableRule = (table, context) => {
   const columnNames = new Set(table.columns.map((c) => c.name));
 

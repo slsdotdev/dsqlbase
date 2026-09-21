@@ -19,8 +19,9 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 
 ## Primary keys at runtime
 
-- `Column.primaryKey` exists for column-level `.primaryKey()`.
-- Table-level composite keys live in `TableDefinition._constraints` (`packages/core/src/definition/table.ts`) and are **not** exposed on the runtime `Table` (`packages/core/src/runtime/table.ts` exposes columns and relations only). Anything that needs "the key of this table" — node lookup, keyset cursor tiebreakers — has to add that.
+- `Table.primaryKey: AnyColumn[]` (`packages/core/src/runtime/table.ts`) is the key in key order, empty when the table declares none; `Table.isCompositeKey` is `primaryKey.length > 1`. Anything that needs "the key of this table" — node lookup, keyset cursor tiebreakers — reads it from there.
+- It is built from whichever source declares the key: the column-level `.primaryKey()` flag, or a `PrimaryKeyConstraintDefinition` in `TableDefinition._constraints` (`packages/core/src/definition/table.ts`), whose column refs carry DB names and resolve through `Table.getColumn`.
+- **A table has at most one primary key.** Two flagged columns, a flagged column alongside a table-level constraint, or two table-level constraints all throw when the `Table` is built. The migration path never touches `Table`, so the `MULTIPLE_PRIMARY_KEYS` validation rule (`packages/migration/src/validation/rules/table.ts`) catches the same thing there. Both are needed because `packages/migration/src/ddl/printer.ts` prints each source independently — inline `PRIMARY KEY` per flagged column, a `PRIMARY KEY (...)` clause per constraint — so more than one produced DDL Postgres rejects. A composite key is one constraint over several columns: `table.primaryKey((c) => [...])`.
 - `OperationsFactory` refuses updates to PK columns.
 
 ## Relations and joins
@@ -41,7 +42,6 @@ Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only)
 | Gap | Where | Affects |
 |---|---|---|
 | Codec not applied to where-clause values | `normalizer.ts` → `sql.eq/...` | any codec that changes wire format; see [Codec boundary](./codec-boundary.md) |
-| Composite PK invisible at runtime | `runtime/table.ts` | pagination tiebreakers, node lookup |
 | First-column-only relation joins | `operation.ts` | composite relations |
 | No table aliasing in joins | `query.ts` | self-joins, repeated tables |
 | `_validateWhereExpression` stub | `operation.ts` | predicate injection seam |
