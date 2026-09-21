@@ -14,8 +14,8 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 ```
 
 - `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations }`. There are **no hooks, middleware, or interceptors** anywhere in the chain.
-- The only "derived client" pattern is `packages/dsqlbase/src/client/transaction/transaction-client.ts`: build a new `ExecutionContext` with a different session, re-attach one `ModelClient` per table with `defineProperty`. Any scoped client (tenancy, identity) will copy this pattern until a shared factory exists.
-- Models are attached to `DatabaseClient` keyed by the schema **alias** (the export name), in `packages/dsqlbase/src/client/create.ts`. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the runtime `Table`. There is no reverse map from table name to alias and no models map on the context.
+- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session, then attach one `ModelClient` per table with `defineProperty`. Both `packages/dsqlbase/src/client/create.ts` and `packages/dsqlbase/src/client/transaction/transaction-client.ts` go through it, and any scoped client (tenancy, identity) should too. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
+- Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
 

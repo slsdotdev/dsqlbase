@@ -120,7 +120,7 @@ export class SchemaRegistry<
     for (const [key, def] of Object.entries(schema.tables)) {
       if (def instanceof TableDefinition) {
         const relations = schema.relations[def.name as DefinitionRelationsTableName<TDefinition>];
-        const table = new Table(def, relations);
+        const table = new Table(def, relations, key);
 
         tables.set(def.name, table);
         tables.set(key, table);
@@ -166,6 +166,29 @@ export class SchemaRegistry<
 
   public getTables(): Prettify<RuntimeTables<this["__type"]>> {
     return Object.fromEntries(this._tables.entries()) as RuntimeTables<this["__type"]>;
+  }
+
+  /**
+   * One entry per table, keyed by schema alias. Unlike `getTables()`, which holds every
+   * table under both its alias and its database name, this never yields the same table
+   * twice — use it whenever you iterate tables to build something per table.
+   */
+  public getTableEntries(): [alias: string, table: AnyTable][] {
+    const entries = new Map<string, AnyTable>();
+
+    for (const table of this._tables.values()) {
+      entries.set(table.alias, table);
+    }
+
+    return [...entries.entries()];
+  }
+
+  /**
+   * The schema alias for a table, given either its alias or its database name.
+   * Throws when no such table exists.
+   */
+  public getAlias(nameOrAlias: string): string {
+    return this.getTable(nameOrAlias).alias;
   }
 
   public hasRelations(tableNameOrAlias: string): boolean {

@@ -53,6 +53,14 @@ export const usersDislikedPosts = new RelationsDefinition(users, {
   },
 });
 
+const teamMembers = new TableDefinition("team_members", {
+  columns: {
+    teamId: new ColumnDefinition("team_id").notNull(),
+    userId: new ColumnDefinition("user_id").notNull(),
+  },
+});
+teamMembers.primaryKey((c) => [c.teamId, c.userId]);
+
 describe("SchemaRegistry", () => {
   it("should create a registry with the provided schema", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
@@ -88,6 +96,45 @@ describe("SchemaRegistry", () => {
 
     expect(tables).toHaveProperty("users");
     expect(tables).toHaveProperty("posts");
+  });
+
+  describe("aliases", () => {
+    // `members` is exported under an alias that differs from the table name, the shape
+    // the e2e fixture uses (`members` -> `team_members`).
+    const registry = new SchemaRegistry({ users, posts, members: teamMembers });
+
+    it("should set the table alias from the schema object key", () => {
+      expect(registry.getTable("members").alias).toBe("members");
+      expect(registry.getTable("members").name).toBe("team_members");
+      expect(registry.getTable("users").alias).toBe("users");
+    });
+
+    it("should resolve the alias from either the alias or the table name", () => {
+      expect(registry.getAlias("members")).toBe("members");
+      expect(registry.getAlias("team_members")).toBe("members");
+      expect(() => registry.getAlias("nonexistent")).toThrow(/Table not found: nonexistent/);
+    });
+
+    it("should list each table once, keyed by alias", () => {
+      const entries = registry.getTableEntries();
+
+      expect(entries.map(([alias]) => alias).sort()).toEqual(["members", "posts", "users"]);
+      expect(new Set(entries.map(([, table]) => table)).size).toBe(3);
+    });
+
+    // getTables() keys every table by both its alias and its table name, so an aliased
+    // table appears twice. getTableEntries() exists precisely to avoid that.
+    it("should not inherit the duplicate keys getTables() returns", () => {
+      const tables = registry.getTables() as Record<string, unknown>;
+
+      expect(Object.keys(tables)).toContain("team_members");
+      expect(Object.keys(tables)).toContain("members");
+      expect(registry.getTableEntries().map(([alias]) => alias)).not.toContain("team_members");
+    });
+
+    it("should default the alias to the table name when built directly", () => {
+      expect(new Table(teamMembers).alias).toBe("team_members");
+    });
   });
 
   it("should check if relations exist for a table", () => {

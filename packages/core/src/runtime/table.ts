@@ -57,6 +57,15 @@ export class Table<
   declare readonly __type: WithRelations<TColumns, TNamespace, TRelations>;
 
   readonly name: TName;
+
+  /**
+   * The key this table is exported under in the schema object — the name the client
+   * addresses it by (`dsql.members`), which may differ from the database table name
+   * (`team_members`). Set by `SchemaRegistry`; defaults to `name` when a `Table` is
+   * constructed directly.
+   */
+  readonly alias: string;
+
   readonly schema: TableSchemaName<this>;
   readonly columns: TableColumns<this>;
   readonly relations: TRelations;
@@ -73,9 +82,14 @@ export class Table<
   /** True when the primary key spans more than one column. */
   readonly isCompositeKey: boolean;
 
-  constructor(definition: TableDefinition<TName, TColumns, TNamespace>, relations?: TRelations) {
+  constructor(
+    definition: TableDefinition<TName, TColumns, TNamespace>,
+    relations?: TRelations,
+    alias?: string
+  ) {
     this.schema = definition["_namespace"]?.name as TableSchemaName<this>;
     this.name = definition.name;
+    this.alias = alias ?? definition.name;
     this.columns = this._buildColumns(definition);
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;

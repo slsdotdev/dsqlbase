@@ -25,7 +25,7 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 |---|---|---|---|
 | 0 | Run the type-level suite for real; build deps before test | `patch` | ✅ |
 | 1 | `Table.primaryKey` / `isCompositeKey`; one-PK rule; PK `include()` fix | `minor` | ✅ |
-| 2 | `Table.alias`, `getAlias`, `getTableEntries`, shared `attachModels` | `patch` | ⬜ |
+| 2 | `Table.alias`, `getAlias`, `getTableEntries`, shared `attachModels` | `patch` | ✅ |
 | 3 | Table aliasing in select trees (`Scope` + `ColumnRef`) | `minor` | ⬜ design note first |
 | 4 | Composite relation pairs + relation validation | `minor` | ⬜ |
 | 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⬜ design note first |

@@ -1,25 +1,11 @@
-import {
-  AnyTable,
-  DefinitionSchema,
-  ExecutableQuery,
-  ExecutionContext,
-  TransactionSession,
-} from "@dsqlbase/core";
-import { BaseClient } from "../database/base.js";
-import { ModelClient } from "../model/client.js";
+import { DefinitionSchema, ExecutableQuery, ExecutionContext } from "@dsqlbase/core";
+import { attachModels, BaseClient } from "../database/base.js";
 import { Models } from "../database/index.js";
 import { backoffDelay, isOccError, OCCRetryOptions, sleep } from "./occ-retry.js";
 
 export class TransactionClient<
   TDefinition extends DefinitionSchema,
-> extends BaseClient<TDefinition> {
-  private readonly _session: TransactionSession;
-
-  constructor(ctx: ExecutionContext<TDefinition>, session: TransactionSession) {
-    super(ctx);
-    this._session = session;
-  }
-}
+> extends BaseClient<TDefinition> {}
 
 export type TxClient<T extends DefinitionSchema> = TransactionClient<T> & Models<T>;
 
@@ -37,17 +23,8 @@ export async function createTransactionRunner<TDefinition extends DefinitionSche
     session: session,
   });
 
-  const txClient = new TransactionClient<TDefinition>(context, session);
-
-  for (const [tableName, table] of Object.entries<AnyTable>(ctx.schema.getTables())) {
-    const modelClient = new ModelClient(context, table);
-
-    Object.defineProperty(txClient, tableName, {
-      value: modelClient,
-      writable: false,
-      enumerable: true,
-    });
-  }
+  const txClient = new TransactionClient<TDefinition>(context);
+  attachModels(txClient, context);
 
   return async <TReturn = unknown>(
     opsOrCallback:
