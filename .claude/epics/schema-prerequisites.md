@@ -28,11 +28,28 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 | 2 | `Table.alias`, `getAlias`, `getTableEntries`, shared `attachModels` | `patch` | ✅ |
 | 3 | Table aliasing in select trees (`SQLScope`, builder-owned) | `minor` | ✅ |
 | 4 | Relation pair validation in `SchemaRegistry` (correlation done in story 3) | `minor` | ✅ |
-| 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⬜ design note first |
-| 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⬜ |
-| 7 | Codec-aware where clauses (`Column.param`) | `minor` | ⬜ |
+| 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⏸ deferred — see below |
+| 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⏸ deferred — grouped with story 5 |
+| 7 | Codec-aware where clauses (`Column.param`) | `minor` | ✅ |
 | 8 | Duplicate DB column names; `getColumn` by path | `minor` | ⬜ |
 | 9 | One field namespace per table | `minor` | ⬜ |
+
+## Ordering change (2026-09-21)
+
+Stories 5 and 6 are deferred to the end; 7, 8 and 9 run first.
+
+`schema-guid.md` wants `$$meta` implemented only after `schema-polymorphic-relations.md` is
+accepted, so the union select interface is settled before the `$$meta` contract is fixed;
+`schema-prerequisites.md` orders it unconditionally. Story 5 fixes a result shape that both
+features depend on, and getting it wrong means changing shipped rows twice.
+
+Story 6 (`OnSelectionOf`) follows story 5 rather than preceding it: it is pure shared surface
+for two features that are themselves deferred, and its result type only narrows once
+`QueryResultOf` carries `$$meta`. Built from `QueryResultOf`, it inherits `$$meta` for free
+when story 5 lands, so nothing is lost by waiting.
+
+Stories 7, 8 and 9 are standalone correctness fixes with immediate value and no dependency on
+either.
 
 ## Deviations from the proposal
 

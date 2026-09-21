@@ -12,11 +12,24 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
 | Insert values | encode | `getInsertValue` in `runtime/column.ts` |
 | Update values | encode | `getUpdateValue` in `runtime/column.ts` |
 | Column defaults set from JS | encode | `ColumnDefinition.default()` in `definition/column.ts` |
+| Where-clause values, including `update.where` / `delete.where` | encode | `Column.param` in `runtime/column.ts`, applied by `packages/dsqlbase/src/client/model/normalizer.ts` |
 
 ## Where codecs do NOT apply
 
-- **Where-clause values.** `packages/dsqlbase/src/client/model/normalizer.ts` calls `sql.eq / gt / in / between / ...` (`packages/core/src/sql/tag.ts`), which wrap the value in a bare `SQLParam`. The same is true for the value shorthand and for `update.where` / `delete.where`. A codec that changes the wire representation therefore breaks filtering until the normalizer is codec-aware. **This is a gap to fix, not a rule to work around.**
+- **Pattern operators** — `beginsWith`, `endsWith`, `contains` build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw.
+- **`exists`** — a null check, no value.
+- **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.
+
+## Filtering by a codec column in raw SQL
+
+```ts
+sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}`
+```
+
+`Column.param` is the filter counterpart to `getInsertValue` / `getUpdateValue`. A value that is already an `SQLNode` passes through untouched, so a column reference or sub-expression is never encoded.
+
+**Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that *rewrites* the value — a guid wrapper, an embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
 ## Rules for new work
 

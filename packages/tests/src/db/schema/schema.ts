@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   datetime,
@@ -91,6 +92,7 @@ const tasks = table("tasks", {
   status: taskStatus.column("status").notNull(),
   priority: priorityLevel.column("priority").notNull(),
   dueDate: date("due_date"),
+  estimateSeconds: bigint("estimate_seconds"),
   completedAt: datetime("completed_at"),
   deletedAt: datetime("deleted_at"),
   createdAt: datetime("created_at").notNull().defaultNow(),

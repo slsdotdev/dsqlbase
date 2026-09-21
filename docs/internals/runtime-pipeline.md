@@ -41,7 +41,6 @@ Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only)
 
 | Gap | Where | Affects |
 |---|---|---|
-| Codec not applied to where-clause values | `normalizer.ts` → `sql.eq/...` | any codec that changes wire format; see [Codec boundary](./codec-boundary.md) |
 | `_validateWhereExpression` stub | `operation.ts` | predicate injection seam |
 | No hooks / derived-client factory | `context.ts`, `transaction-client.ts` | tenancy/identity scoping |
 

@@ -52,6 +52,7 @@ const tasks = await dsql.tasks.findMany({
 
 - **`select`** — real columns only; omit for all columns. Virtual or computed fields are not supported yet.
 - **`where`** — per field: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `between`, `exists` (null check), `beginsWith`, `endsWith`, `contains`; combinators `and`, `or`, `not`. A bare value is shorthand for `eq`.
+  Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns.
@@ -73,7 +74,11 @@ const raw = await dsql.$execute<{ n: number }>({ text: "select 1 as n", params: 
 - `$query(SQLQuery)` — build with the `sql` tagged template; parameters are bound automatically. Returns an `ExecutableQuery`, so it can join a `$transaction([...])` batch.
 - `$execute(SQLStatement)` — pass `{ text, params }` straight to the session.
 
-Both bypass codecs and typing; results are whatever the driver returns.
+Both bypass codecs and typing; results are whatever the driver returns. To filter by a column whose stored form differs from its JS value, wrap the value with `column.param(...)`:
+
+```ts
+await dsql.$query(sql`select * from "tasks" where ${tasks.columns.dueDate} > ${tasks.columns.dueDate.param(cutoff)}`);
+```
 
 ## Related
 
