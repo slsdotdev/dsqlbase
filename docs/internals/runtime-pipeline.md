@@ -28,7 +28,7 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
-- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. **Gap:** `SchemaRegistry` does not yet validate that a relation's pairs line up in length, type and side — the builder throws on a length mismatch at build time instead.
+- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. `SchemaRegistry._buildRelations` validates each relation when the client is built: non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected); both columns of a pair of the same `dataType`.
 - **Gap:** `_validateWhereExpression` in `operation.ts` returns `where[0]` when given an array. It is a stub — and the natural seam for injecting predicates below the normalizer (tenancy, soft delete).
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - Selection accepts only real columns. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
@@ -42,7 +42,6 @@ Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only)
 | Gap | Where | Affects |
 |---|---|---|
 | Codec not applied to where-clause values | `normalizer.ts` → `sql.eq/...` | any codec that changes wire format; see [Codec boundary](./codec-boundary.md) |
-| Relation pairs unvalidated at registry build | `registry.ts` | composite relations fail late, at query build |
 | `_validateWhereExpression` stub | `operation.ts` | predicate injection seam |
 | No hooks / derived-client factory | `context.ts`, `transaction-client.ts` | tenancy/identity scoping |
 

@@ -137,6 +137,115 @@ describe("SchemaRegistry", () => {
     });
   });
 
+  describe("relation pair validation", () => {
+    const memberships = new TableDefinition("memberships", {
+      columns: {
+        teamId: new ColumnDefinition("team_id", { dataType: "uuid" }),
+        userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+        role: new ColumnDefinition("role", { dataType: "text" }),
+      },
+    });
+
+    const assignments = new TableDefinition("assignments", {
+      columns: {
+        teamId: new ColumnDefinition("team_id", { dataType: "uuid" }),
+        userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+        note: new ColumnDefinition("note", { dataType: "text" }),
+      },
+    });
+
+    const relate = (from: unknown[], to: unknown[]) =>
+      new RelationsDefinition(assignments, {
+        membership: {
+          type: Relation.BELONGS_TO,
+          target: memberships,
+          from,
+          to,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+    it("accepts a multi-column pair", () => {
+      const registry = new SchemaRegistry({
+        assignments,
+        memberships,
+        rel: relate(
+          [assignments.columns.teamId, assignments.columns.userId],
+          [memberships.columns.teamId, memberships.columns.userId]
+        ),
+      });
+
+      expect(registry.getRelations("assignments")).toHaveProperty("membership");
+    });
+
+    it("rejects sides of unequal length", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            assignments,
+            memberships,
+            rel: relate(
+              [assignments.columns.teamId, assignments.columns.userId],
+              [memberships.columns.teamId]
+            ),
+          })
+      ).toThrow(/pairs 2 "from" column\(s\) with 1 "to" column\(s\)/);
+    });
+
+    it("rejects an empty pair list", () => {
+      expect(
+        () => new SchemaRegistry({ assignments, memberships, rel: relate([], []) })
+      ).toThrow(/must declare at least one column pair/);
+    });
+
+    // Identity, not name: `memberships.teamId` is a uuid called "team_id" just like
+    // `assignments.teamId`, so a name-based check would wave this through.
+    it("rejects a from column that belongs to another table", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            assignments,
+            memberships,
+            rel: relate([memberships.columns.teamId], [memberships.columns.teamId]),
+          })
+      ).toThrow(/"from" column "team_id" is not declared on table "assignments"/);
+    });
+
+    it("rejects a to column that belongs to another table", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            assignments,
+            memberships,
+            rel: relate([assignments.columns.teamId], [assignments.columns.teamId]),
+          })
+      ).toThrow(/"to" column "team_id" is not declared on target table "memberships"/);
+    });
+
+    it("rejects a pair whose sides have different types", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            assignments,
+            memberships,
+            rel: relate([assignments.columns.note], [memberships.columns.userId]),
+          })
+      ).toThrow(
+        /"assignments"\."note" is "text" but "memberships"\."userId" is "uuid"/
+      );
+    });
+
+    it("rejects a relation whose target is not in the schema", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            assignments,
+            rel: relate([assignments.columns.teamId], [memberships.columns.teamId]),
+          })
+      ).toThrow(/targets table "memberships", which is not in the schema/);
+    });
+  });
+
   it("should check if relations exist for a table", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 

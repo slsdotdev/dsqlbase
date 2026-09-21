@@ -27,7 +27,7 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 | 1 | `Table.primaryKey` / `isCompositeKey`; one-PK rule; PK `include()` fix | `minor` | ✅ |
 | 2 | `Table.alias`, `getAlias`, `getTableEntries`, shared `attachModels` | `patch` | ✅ |
 | 3 | Table aliasing in select trees (`SQLScope`, builder-owned) | `minor` | ✅ |
-| 4 | Relation pair validation in `SchemaRegistry` (correlation done in story 3) | `minor` | ⬜ |
+| 4 | Relation pair validation in `SchemaRegistry` (correlation done in story 3) | `minor` | ✅ |
 | 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⬜ design note first |
 | 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⬜ |
 | 7 | Codec-aware where clauses (`Column.param`) | `minor` | ⬜ |

@@ -1,6 +1,9 @@
 import { TypedObject, Prettify } from "../utils/index.js";
 import {
+  AnyColumnDefinition,
+  AnyFieldRelation,
   AnyRelationDefinition,
+  AnyTableDefinition,
   AnyTableRelations,
   DefinitionSchema,
   RelationsDefinition,
@@ -130,8 +133,100 @@ export class SchemaRegistry<
     return tables;
   }
 
+  /**
+   * The field alias a column is declared under on `table`, or `undefined` when the column
+   * does not belong to it. Identity, not name: a column from a different table that happens
+   * to share a name is not a match, which is the copy-paste mistake this catches.
+   */
+  private _findColumnAlias(
+    table: AnyTableDefinition,
+    column: AnyColumnDefinition
+  ): string | undefined {
+    return Object.entries(table.columns).find(([, candidate]) => candidate === column)?.[0];
+  }
+
+  /**
+   * Checks that a relation's column pairs line up: equal, non-zero length; each column
+   * declared on the side it is listed under; both columns of a pair of the same type.
+   *
+   * The query builder correlates over every pair (`packages/core/src/runtime/query.ts`), so
+   * a malformed relation would otherwise surface as a confusing SQL error at query time, or
+   * not at all.
+   */
+  private _validateRelation(
+    sourceName: string,
+    field: string,
+    relation: AnyFieldRelation,
+    definitions: Map<string, AnyTableDefinition>
+  ): void {
+    const label = `Relation "${field}" on table "${sourceName}"`;
+    const { from, to } = relation;
+
+    if (from.length === 0 || to.length === 0) {
+      throw new Error(`${label} must declare at least one column pair in "from" and "to".`);
+    }
+
+    if (from.length !== to.length) {
+      throw new Error(
+        `${label} pairs ${from.length} "from" column(s) with ${to.length} "to" column(s); ` +
+          `the two sides must have the same length.`
+      );
+    }
+
+    const source = definitions.get(sourceName);
+    const target = definitions.get(relation.target.name);
+
+    if (!source) {
+      throw new Error(`${label} refers to a table that is not in the schema.`);
+    }
+
+    if (!target) {
+      throw new Error(
+        `${label} targets table "${relation.target.name}", which is not in the schema.`
+      );
+    }
+
+    for (const [index, fromColumn] of from.entries()) {
+      const toColumn = to[index];
+
+      const fromAlias = this._findColumnAlias(source, fromColumn);
+      const toAlias = this._findColumnAlias(target, toColumn);
+
+      if (!fromAlias) {
+        throw new Error(
+          `${label}: "from" column "${fromColumn.name}" is not declared on table "${sourceName}".`
+        );
+      }
+
+      if (!toAlias) {
+        throw new Error(
+          `${label}: "to" column "${toColumn.name}" is not declared on target table "${relation.target.name}".`
+        );
+      }
+
+      const fromType = fromColumn["_dataType"];
+      const toType = toColumn["_dataType"];
+
+      if (fromType !== toType) {
+        throw new Error(
+          `${label}: "${sourceName}"."${fromAlias}" is "${fromType}" but ` +
+            `"${relation.target.name}"."${toAlias}" is "${toType}"; ` +
+            `both columns of a pair must have the same type.`
+        );
+      }
+    }
+  }
+
   private _buildRelations(schema: Schema<TDefinition>) {
     const map = new Map<string, AnyTableRelations>();
+
+    const definitions = new Map<string, AnyTableDefinition>();
+
+    for (const definition of Object.values<AnyTableDefinition>(schema.tables)) {
+      if (definition instanceof TableDefinition) {
+        definitions.set(definition.name, definition);
+      }
+    }
 
     for (const [tableName, relations] of Object.entries(
       schema.relations as Record<string, AnyTableRelations>
@@ -140,6 +235,10 @@ export class SchemaRegistry<
 
       if (!table) {
         throw new Error(`Table not found for relations: ${tableName}`);
+      }
+
+      for (const [field, relation] of Object.entries(relations)) {
+        this._validateRelation(tableName, field, relation, definitions);
       }
 
       map.set(tableName, relations);

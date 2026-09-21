@@ -82,6 +82,7 @@ const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
+  teamId: uuid("team_id"),
   assigneeId: uuid("assignee_id"),
   parentId: uuid("parent_id"),
   taskNumber: text("task_number").notNull(),
@@ -165,6 +166,11 @@ const taskRelations = relations(tasks, {
   subtasks: hasMany(tasks, {
     from: [tasks.columns.id],
     to: [tasks.columns.parentId],
+  }),
+  // Two-column relation: the assignee's membership record within this task's team.
+  assigneeMembership: belongsTo(members, {
+    from: [tasks.columns.teamId, tasks.columns.assigneeId],
+    to: [members.columns.teamId, members.columns.userId],
   }),
 });
 

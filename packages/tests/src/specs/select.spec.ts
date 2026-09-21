@@ -514,4 +514,44 @@ describe("select operations", () => {
       expect(project?.tasks.every((t) => t.parent?.title === "Setup authentication")).toBe(true);
     });
   });
+
+  // Story 4: a relation correlated over two column pairs.
+  describe("multi-column relations", () => {
+    it("correlates a join over every column pair", async () => {
+      const client = getClient();
+
+      const task = await client.tasks.findOne({
+        where: { title: { eq: "Setup authentication" } },
+        select: { id: true, title: true, teamId: true, assigneeId: true },
+        join: { assigneeMembership: { select: { teamId: true, userId: true, role: true } } },
+      });
+
+      expect(task?.assigneeMembership).not.toBeNull();
+      expect(task?.assigneeMembership?.teamId).toBe(task?.teamId);
+      expect(task?.assigneeMembership?.userId).toBe(task?.assigneeId);
+      expect(task?.assigneeMembership?.role).toBe("admin");
+    });
+
+    it("matches no row when only one of the two columns lines up", async () => {
+      const client = getClient();
+      const data = getData();
+
+      // Dave is a member of teams[1] and teams[2], never of teams[0]. Pointing a task in
+      // teams[0] at him leaves the first pair matching and the second not, so a correlation
+      // that only used from[0] would still return a membership.
+      const task = data.tasks[0];
+      await client.tasks.update({
+        set: { assigneeId: data.users[3].id },
+        where: { id: { eq: task.id } },
+      });
+
+      const updated = await client.tasks.findOne({
+        where: { id: { eq: task.id } },
+        select: { id: true, teamId: true },
+        join: { assigneeMembership: { select: { role: true } } },
+      });
+
+      expect(updated?.assigneeMembership).toBeNull();
+    });
+  });
 });

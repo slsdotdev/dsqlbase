@@ -99,6 +99,12 @@ export async function seedTasks(
     priority: string;
   }>(query);
 
+  // Denormalise the owning team so the composite relation has both of its columns.
+  await client.$query(
+    sql`UPDATE "tasks" SET "team_id" = "projects"."team_id"
+        FROM "projects" WHERE "tasks"."project_id" = "projects"."id"`
+  );
+
   // Give the self-relation something to resolve: tasks 2 and 3 are children of task 1.
   await client.$query(
     sql`UPDATE "tasks" SET "parent_id" = ${rows[0].id} WHERE "id" IN (${sql.join(
