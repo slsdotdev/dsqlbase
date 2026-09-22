@@ -54,6 +54,7 @@ describe("select operations", () => {
       expect(result).toEqual({
         id: data.users[0].id,
         email: data.users[0].email,
+        $$meta: { key: "users", table: "users" },
       });
     });
   });
@@ -552,6 +553,71 @@ describe("select operations", () => {
       });
 
       expect(updated?.assigneeMembership).toBeNull();
+    });
+  });
+
+  describe("$$meta", () => {
+    it("reports the schema alias as `key` and the database name as `table`", async () => {
+      const client = getClient();
+      const data = getData();
+
+      const member = await client.members.findOne({
+        where: { id: { eq: data.members[0].id } },
+        select: { id: true },
+      });
+
+      expect(member?.$$meta).toEqual({
+        key: "members",
+        table: "team_members",
+        __typename: "TeamMember",
+      });
+    });
+
+    it("gives each level of a join its own metadata", async () => {
+      const client = getClient();
+      const data = getData();
+
+      const project = await client.projects.findOne({
+        where: { id: { eq: data.projects[0].id } },
+        select: { id: true },
+        join: { tasks: { select: { id: true } }, team: { select: { id: true } } },
+      });
+
+      expect(project?.$$meta.key).toBe("projects");
+      expect(project?.tasks[0]?.$$meta).toEqual({
+        key: "tasks",
+        table: "tasks",
+        __typename: "Task",
+      });
+      expect(project?.team?.$$meta.key).toBe("teams");
+    });
+
+    it("reaches a level nested two joins deep", async () => {
+      const client = getClient();
+      const data = getData();
+
+      const team = await client.teams.findOne({
+        where: { id: { eq: data.teams[0].id } },
+        select: { id: true },
+        join: { projects: { select: { id: true }, join: { tasks: { select: { id: true } } } } },
+      });
+
+      const tasks = team?.projects.flatMap((project) => project.tasks) ?? [];
+
+      expect(tasks.length).toBeGreaterThan(0);
+      expect(tasks.every((task) => task.$$meta.__typename === "Task")).toBe(true);
+    });
+
+    it("survives a spread, because it is an enumerable own property", async () => {
+      const client = getClient();
+      const data = getData();
+
+      const task = await client.tasks.findOne({
+        where: { id: { eq: data.tasks[0].id } },
+        select: { id: true },
+      });
+
+      expect(task?.$$meta.__typename).toBe("Task");
     });
   });
 });

@@ -34,6 +34,8 @@ const teams = table("teams", {
 
 teams.index("teams_slug_idx", { unique: true }).columns((c) => [c.slug]);
 
+// Declares metadata and is keyed under an alias that differs from its database name, so
+// `$$meta` has something to get wrong: `key` is "members", `table` is "team_members".
 const members = table("team_members", {
   id: uuid("id").primaryKey().defaultRandom(),
   teamId: uuid("team_id").notNull(),
@@ -41,7 +43,7 @@ const members = table("team_members", {
   role: text("role").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
   updatedAt: datetime("updated_at").notNull().defaultNow(),
-});
+}).meta({ __typename: "TeamMember" });
 
 members.unique((c) => [c.teamId, c.userId]);
 members
@@ -97,7 +99,7 @@ const tasks = table("tasks", {
   deletedAt: datetime("deleted_at"),
   createdAt: datetime("created_at").notNull().defaultNow(),
   updatedAt: datetime("updated_at").notNull().defaultNow(),
-});
+}).meta({ __typename: "Task" });
 
 tasks.index("tasks_project_idx").columns((c) => [c.projectId]);
 tasks.index("tasks_assignee_idx").columns((c) => [c.assigneeId]);

@@ -33,6 +33,43 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - Selection accepts only real columns. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
+- Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
+
+## Result resolution and `$$meta`
+
+`_createResultResolver` (`packages/core/src/runtime/operation.ts`) turns driver rows into
+result records by walking a list of `[fieldName, howToResolve]` entries, one list per level.
+There are three kinds of entry:
+
+| Entry | Resolver | Produces |
+|---|---|---|
+| `FieldResolver` (column) | an `AnyColumn` | `column.resolve(row[column.name])` — the decoded value |
+| `FieldResolver` (nested) | `ResolverEntry[]` | a recursive resolve of the join's rows |
+| `MetaResolver` | `(row) => unknown` | a value computed from the driver row itself |
+
+The `row` a `MetaResolver` receives is the **raw driver row**, before any codec has decoded it
+— the same row the column branch reads from. A resolver that needs the database's own text
+representation of a value rather than the decoded one therefore has it.
+
+`$$meta` is the only `MetaResolver` today. `_resolveFields` pushes it first for every level it
+builds — the top level of a select, each join level, and each `return` selection — so every
+result record leads with it:
+
+```ts
+resolvers.push([META_FIELD, () => table.meta]);
+```
+
+`Table.meta` (`packages/core/src/runtime/table.ts`) is frozen and built once, so every row of a
+level shares one object by reference. It is `{ key, table, schema?, ...declared }`, where `key`
+is the schema alias, `table` the database name, and `declared` whatever `table().meta()` set.
+A `table().meta()` key that collides with a built-in throws when the `Table` is built.
+
+`$$meta` and `$$key` are reserved field names (`RESERVED_FIELD_NAMES` in
+`packages/core/src/definition/base.ts`): a column of that name throws at definition time, a
+relation of that name when the registry is built. `$$key` is reserved ahead of its use, since
+reserving a name costs nothing now and is a breaking change later.
+
+An absent `belongsTo` stays `null` and an empty `hasMany` stays `[]` — no row, no meta.
 
 ## Query args surface
 

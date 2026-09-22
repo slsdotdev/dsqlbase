@@ -28,8 +28,8 @@ in the same commit. Stories 3 and 5 get a design note in this file, approved bef
 | 2 | `Table.alias`, `getAlias`, `getTableEntries`, shared `attachModels` | `patch` | ✅ |
 | 3 | Table aliasing in select trees (`SQLScope`, builder-owned) | `minor` | ✅ |
 | 4 | Relation pair validation in `SchemaRegistry` (correlation done in story 3) | `minor` | ✅ |
-| 5 | `$$meta`, `table().meta()`, row-aware resolver tree | `minor` | ⏸ deferred — see below |
-| 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ⏸ deferred — grouped with story 5 |
+| 5 | `$$meta`, `table().meta()`, meta resolver entry | `minor` | ✅ (no `post` hook — see below) |
+| 6 | `OnSelectionOf` + `resolveOnSelection` | `patch` | ❌ dropped — see below |
 | 7 | Codec-aware where clauses (`Column.param`) | `minor` | ✅ |
 | 8 | Duplicate DB column names rejected | `minor` | ✅ (path lookup deferred) |
 | 9 | One field namespace per table | `minor` | ✅ |
@@ -182,15 +182,80 @@ SQL text are rewritten. The e2e fixture gains `tasks.parentId` plus a `tasks.par
 self-relation; `introspection.spec.ts` asserts with `arrayContaining` and the seed uses
 explicit column lists, so a new nullable column does not disturb them.
 
+## Story 5 — as built
+
+The proposal specified the resolver tree changing from `[field, AnyColumn | FieldResolver[]]`
+to a node `{ table, fields, post? }` per level, where `post` is an ordered list of row-aware
+post-processors `(row, raw, table) => void`. Review cut that to nothing structural.
+
+**What was wrong with the proposed shape.** Three objections, in the order they came up:
+
+1. **`post` had no consumer.** It exists for guid's `$$meta.globalId`, polymorphic's union
+   dispatch and pagination's `$$meta.cursor` — none in this epic. They also do not share a
+   hook: union dispatch decides *which node resolves a row*, so it runs before fields rather
+   than after, and `client-pagination.md` already has its resolver wrapping
+   `_createResultResolver` rather than plugging into it. One real customer is not a pattern.
+2. **Storing the table was more than `$$meta` needs.** It needs the meta object, which the
+   table owns. `schema-guid.md` itself says `{ meta, fields }`; the prerequisites proposal
+   escalated it to `{ table, fields, post? }`.
+3. **Nothing needed restructuring.** `$$meta` is a property on the result record, and
+   `_createResultResolver` is already a loop writing properties from `[name, howToResolve]`
+   pairs. A third kind of "how" fits the mechanism that exists.
+
+**What shipped.** A `MetaResolver = [fieldName, (row) => unknown]` entry kind beside the
+existing column and nested-level kinds, and one push in `_resolveFields`:
+
+```ts
+resolvers.push([META_FIELD, () => table.meta]);
+```
+
+`_resolveFields` receives the level's table and is called for the top level of a select, for
+each join level, and for each `return` selection — so one line reaches all of them.
+`FieldResolver`'s nested branch widens to `ResolverEntry[]`; its own meaning is unchanged.
+
+**Why this also disposes of `post`.** The `row` the loop already reads from is the raw driver
+row, before decoding. So guid's per-row `globalId` becomes
+`["$$meta", (row) => ({ ...table.meta, globalId: encode(table, row) })]`, and pagination's
+`$$meta.cursor` reads the hidden `__k<n>` columns off that same row. The `raw` parameter
+`post` was going to thread through for a feature two proposals away is just the argument
+already in scope. Union dispatch stays polymorphic's problem, as it would have under any
+design.
+
+**Two things added beyond the proposal.** The reserved-name check covers relations as well as
+columns (relations share the field namespace, per story 9), and `table().meta()` may not
+redeclare `key` / `table` / `schema` — silently losing a built-in to a user key would be worse
+than throwing.
+
+**Deliberately not done.** `$$meta.key` is typed `string`, not the literal alias, so a row
+union does not yet narrow on it. The literal needs the alias threaded as a type parameter,
+which `TableByName` cannot supply (it looks up by database name, where the alias is a union).
+`schema-guid.md` already designs this; it belongs there, with the discriminated union that
+needs it.
+
+## Story 6 — dropped
+
+`OnSelectionOf` is a union-selection type fragment with no method behind it in this epic. The
+repo tests types through public methods — `client.types.test.ts` builds a real `ModelClient`
+and asserts on `client.create(...)` — and the proposal's `on.types.test.ts` would assert on the
+type directly, which is only necessary *because* nothing calls it.
+
+It moves to whichever feature first ships a method taking `on` (`$findByGlobalId` in
+`schema-guid.md`, or the union client in `schema-polymorphic-relations.md`); the second to land
+imports it from the first. Narrowed to `select` only for a first cut — no `where`, no `join`.
+Both proposals carry a note to that effect.
+
 ## Open questions
 
 - **Story 3** — the proposal specifies a scope stack on `SQLContext`, but `SQLContext` is built
   inside `SQLQuery.toQuery()` at render time and nodes render depth-first, so a stack needs
   push/pop marker nodes. A mutable `Scope` token stamped with its alias at build time is the
   candidate alternative. Decide when the story starts.
-- **Story 5** — `schema-guid.md` wants `$$meta` implemented only after
-  `schema-polymorphic-relations.md` is accepted, so the union select interface is settled;
-  `schema-prerequisites.md` orders it unconditionally. Confirm before starting.
+- **Story 5** — `schema-guid.md` wanted `$$meta` implemented only after
+  `schema-polymorphic-relations.md` was accepted, so the union select interface would be
+  settled first. Resolved by shipping less: the contract fixed here is `{ key, table, schema? }`
+  plus declared metadata, which is the part both features agree on. The union select interface
+  touches `$$key` and per-row dispatch, neither of which this story decides — `$$key` is only
+  reserved.
 
 ## Close-out
 

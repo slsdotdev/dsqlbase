@@ -119,7 +119,7 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1 }]);
-    expect(result).toEqual({ id: 1 });
+    expect(result).toEqual({ id: 1, $$meta: { key: "users", table: "users" } });
   });
 
   it("should create a select operation", () => {
@@ -165,7 +165,7 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1, name: "Alice" }]);
-    expect(result).toEqual({ id: 1, name: "Alice" });
+    expect(result).toEqual({ id: 1, name: "Alice", $$meta: { key: "users", table: "users" } });
   });
 
   it("should resolve many select operation results", () => {
@@ -190,8 +190,8 @@ describe("OperationFactory", () => {
     ]);
 
     expect(result).toEqual([
-      { id: 1, name: "Alice" },
-      { id: 2, name: "Alex" },
+      { id: 1, name: "Alice", $$meta: { key: "users", table: "users" } },
+      { id: 2, name: "Alex", $$meta: { key: "users", table: "users" } },
     ]);
   });
 
@@ -251,6 +251,102 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1 }]);
-    expect(result).toEqual({ id: 1 });
+    expect(result).toEqual({ id: 1, $$meta: { key: "users", table: "users" } });
+  });
+});
+
+describe("OperationFactory / $$meta", () => {
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: registry, dialect: mockDialect, session: mockSession })
+    );
+
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+    mockDialect.buildDeleteQuery.mockReturnValue(sql`DELETE`);
+  });
+
+  const selectUsers = (args: Parameters<typeof factory.createSelectOperation>[1]["args"]) =>
+    factory.createSelectOperation(registry.getTable("users"), { mode: "many", args });
+
+  it("stamps $$meta on rows of a joined level, not only the top level", () => {
+    const users = registry.getTable("users");
+    const operation = selectUsers({
+      select: [["id", users.columns.id]],
+      join: [["posts", { select: [["title", registry.getTable("posts").columns.title]] }]],
+    });
+
+    const [row] = operation.resolve([
+      { id: 1, posts: [{ title: "First" }, { title: "Second" }] },
+    ]) as Record<string, { $$meta: unknown }[]>[];
+
+    expect(row.posts?.[0]?.$$meta).toEqual({ key: "posts", table: "posts" });
+    expect(row.posts?.[1]?.$$meta).toEqual({ key: "posts", table: "posts" });
+  });
+
+  it("reports the joined level's own table, not the parent's", () => {
+    const users = registry.getTable("users");
+    const operation = selectUsers({
+      select: [["id", users.columns.id]],
+      join: [["posts", { select: [["title", registry.getTable("posts").columns.title]] }]],
+    });
+
+    const [row] = operation.resolve([{ id: 1, posts: [{ title: "First" }] }]) as Record<
+      string,
+      unknown
+    >[];
+
+    expect((row.$$meta as { key: string }).key).toBe("users");
+    expect((row.posts as { $$meta: { key: string } }[])[0]?.$$meta.key).toBe("posts");
+  });
+
+  it("shares one frozen object across every row of a level", () => {
+    const users = registry.getTable("users");
+    const rows = selectUsers({ select: [["id", users.columns.id]] }).resolve([
+      { id: 1 },
+      { id: 2 },
+    ]) as { $$meta: object }[];
+
+    expect(rows[0]?.$$meta).toBe(rows[1]?.$$meta);
+    expect(rows[0]?.$$meta).toBe(users.meta);
+    expect(Object.isFrozen(rows[0]?.$$meta)).toBe(true);
+  });
+
+  it("leaves an absent join null rather than stamping meta on it", () => {
+    const users = registry.getTable("users");
+    const operation = selectUsers({
+      select: [["id", users.columns.id]],
+      join: [["posts", { select: [["title", registry.getTable("posts").columns.title]] }]],
+    });
+
+    const [row] = operation.resolve([{ id: 1, posts: null }]) as Record<string, unknown>[];
+
+    expect(row.posts).toBeNull();
+  });
+
+  it("leads every record, so $$meta is the first key", () => {
+    const users = registry.getTable("users");
+    const [row] = selectUsers({
+      select: [
+        ["id", users.columns.id],
+        ["name", users.columns.name],
+      ],
+    }).resolve([{ id: 1, name: "Alice" }]) as object[];
+
+    expect(Object.keys(row)).toEqual(["$$meta", "id", "name"]);
+  });
+
+  it("stamps $$meta on `return` rows of a mutation", () => {
+    const users = registry.getTable("users");
+    const operation = factory.createDeleteOperation(users, {
+      mode: "one",
+      args: { where: sql`${users.columns.id} = ${sql.param(1)}`, return: [["id", users.columns.id]] },
+    });
+
+    expect(operation.resolve([{ id: 1 }])).toEqual({
+      id: 1,
+      $$meta: { key: "users", table: "users" },
+    });
   });
 });

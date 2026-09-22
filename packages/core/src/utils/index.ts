@@ -11,5 +11,6 @@ export type {
   Unique,
   ValueType,
   WithDomain,
+  WithMeta,
   WithNamespace,
 } from "./types.js";

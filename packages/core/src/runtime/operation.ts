@@ -1,5 +1,5 @@
 import { TypedObject } from "../utils/index.js";
-import { Relation } from "../definition/index.js";
+import { META_FIELD, Relation } from "../definition/index.js";
 import { SQLIdentifier, SQLNode, SQLStatement, SQLValue } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
@@ -41,7 +41,26 @@ export type FieldSelection = [
 
 export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
 
-export type FieldResolver = [fieldName: string, resolver: AnyColumn | FieldResolver[]];
+/**
+ * How one field of a result record is produced from a driver row: read a column and decode
+ * it, or resolve a nested level.
+ */
+export type FieldResolver = [fieldName: string, resolver: AnyColumn | ResolverEntry[]];
+
+/**
+ * How one field of a result record is produced from the driver row *itself*, rather than
+ * from a column of it. `$$meta` is the only one today.
+ *
+ * The row passed in is the raw driver row, before any codec has decoded it — the same row
+ * the column branch reads from. A resolver that needs the database's own text representation
+ * of a value (rather than the decoded one) therefore has it.
+ */
+export type MetaResolver = [
+  fieldName: string,
+  resolve: (row: Record<string, unknown>) => unknown,
+];
+
+export type ResolverEntry = FieldResolver | MetaResolver;
 
 export interface SelectOperationArgs {
   select: FieldSelection[];
@@ -127,9 +146,17 @@ export class OperationsFactory<
     return order;
   }
 
+  /**
+   * Resolvers for one level of a result — the top level of a select, a join level, or a
+   * `return` selection. Every level is built here, which is why stamping `$$meta` once at the
+   * top of this function reaches all of them.
+   */
   private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
     const columns: AnyColumn[] = [];
-    const resolvers: FieldResolver[] = [];
+    const resolvers: ResolverEntry[] = [];
+
+    // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
+    resolvers.push([META_FIELD, () => table.meta]);
 
     if (!selection || selection.length === 0) {
       for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
@@ -212,7 +239,7 @@ export class OperationsFactory<
     table: T,
     args: SelectOperationArgs,
     mode: OperationMode,
-    resolvers: FieldResolver[] = []
+    resolvers: ResolverEntry[] = []
   ) {
     const fields = this._resolveFields(table, args.select);
     resolvers.push(...fields.resolvers);
@@ -238,7 +265,7 @@ export class OperationsFactory<
   private _resolveJoinEntries<T extends AnyTable>(
     table: T,
     join: [SQLIdentifier | string, SelectOperationArgs][],
-    resolvers: FieldResolver[]
+    resolvers: ResolverEntry[]
   ): JoinParams[] {
     const joins: JoinParams[] = [];
 
@@ -294,7 +321,7 @@ export class OperationsFactory<
         return column;
       });
 
-      const joinResolvers: FieldResolver[] = [];
+      const joinResolvers: ResolverEntry[] = [];
       const params: SelectParams = this._resolveSelectParams(
         targetTable,
         value,
@@ -319,7 +346,7 @@ export class OperationsFactory<
   }
 
   public _createResultResolver<TMode extends OperationMode, TResult extends object>(
-    resolvers: FieldResolver[],
+    resolvers: ResolverEntry[],
     mode: TMode
   ): (rows: unknown[]) => OperationResult<TMode, TResult> {
     return (rows: unknown[]): OperationResult<TMode, TResult> => {
@@ -329,6 +356,11 @@ export class OperationsFactory<
         const result: Record<string, unknown> = {};
 
         for (const [fieldName, resolver] of resolvers) {
+          if (typeof resolver === "function") {
+            result[fieldName] = resolver(row);
+            continue;
+          }
+
           if (Array.isArray(resolver)) {
             const nestedRows = row[fieldName];
 

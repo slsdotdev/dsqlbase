@@ -137,3 +137,40 @@ describe("Table", () => {
     expect(json.indexes[0].columns[1].column).toBe("status");
   });
 });
+
+describe("TableDefinition meta", () => {
+  const columns = { id: new ColumnDefinition("id").primaryKey() };
+
+  it("returns the definition so it chains off `table()`", () => {
+    const definition = new TableDefinition("users", { columns });
+
+    expect(definition.meta({ __typename: "User" })).toBe(definition);
+  });
+
+  it("accepts metadata through the constructor config", () => {
+    const definition = new TableDefinition("users", { columns, meta: { __typename: "User" } });
+
+    expect(definition["_meta"]).toEqual({ __typename: "User" });
+  });
+
+  it("keeps metadata out of toJSON, so it never reaches a migration", () => {
+    const json = new TableDefinition("users", { columns }).meta({ __typename: "User" }).toJSON();
+
+    expect(json).not.toHaveProperty("meta");
+    expect(JSON.stringify(json)).not.toContain("__typename");
+  });
+});
+
+describe("TableDefinition reserved field names", () => {
+  it.each(["$$meta", "$$key"])("rejects a column named %s", (field) => {
+    expect(
+      () => new TableDefinition("users", { columns: { [field]: new ColumnDefinition("value") } })
+    ).toThrow(`declares a column named "${field}", which is reserved`);
+  });
+
+  it("allows those names as database column names, which are a separate namespace", () => {
+    expect(
+      () => new TableDefinition("users", { columns: { meta: new ColumnDefinition("$$meta") } })
+    ).not.toThrow();
+  });
+});
