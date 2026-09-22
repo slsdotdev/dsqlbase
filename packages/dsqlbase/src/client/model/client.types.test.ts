@@ -58,6 +58,16 @@ const context = new ExecutionContext({
 const tables = context.schema.getTables();
 const client = new ModelClient(context, tables.users);
 
+/**
+ * Every result record carries `$$meta`. Neither fixture table declares `table().meta()`, so
+ * only the built-ins are present; the declared half is covered separately below.
+ */
+interface Meta {
+  key: string;
+  table: string;
+  schema?: string;
+}
+
 describe("ModelClient", () => {
   it("should infer return type based on `return` selection", async () => {
     const query = client.create({
@@ -74,7 +84,7 @@ describe("ModelClient", () => {
     });
 
     expect(query).toBeInstanceOf(ExecutableQuery);
-    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string } | null>();
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta } | null>();
   });
 
   it("should infer return type as null if no fields are selected", async () => {
@@ -108,6 +118,7 @@ describe("ModelClient", () => {
       emailAddress: string;
       phoneNumber: string | null;
       address: string | null;
+      $$meta: Meta;
     } | null>();
   });
 
@@ -124,6 +135,7 @@ describe("ModelClient", () => {
       ExecutableQuery<{
         id: string;
         firstName: string;
+        $$meta: Meta;
       } | null>
     >();
   });
@@ -141,7 +153,7 @@ describe("ModelClient", () => {
       orderBy: { lastName: "asc" },
     });
 
-    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; lastName: string }[]>();
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; lastName: string; $$meta: Meta }[]>();
   });
 
   it("should infer joined relations", async () => {
@@ -170,9 +182,11 @@ describe("ModelClient", () => {
       id: string;
       firstName: string;
       lastName: string;
+      $$meta: Meta;
       contacts: {
         type: string;
         value: string;
+        $$meta: Meta;
         owner: {
           id: string;
           firstName: string;
@@ -180,8 +194,60 @@ describe("ModelClient", () => {
           emailAddress: string;
           phoneNumber: string | null;
           address: string | null;
+          $$meta: Meta;
         } | null;
       }[];
     } | null>();
+  });
+});
+
+const orgs = table("orgs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+}).meta({ __typename: "Organisation" });
+
+const employees = table("employees", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id").notNull(),
+}).meta({ __typename: "Employee" });
+
+const orgRelations = relations(orgs, {
+  employees: hasMany(employees, { from: [orgs.columns.id], to: [employees.columns.orgId] }),
+});
+
+const metaContext = new ExecutionContext({
+  dialect: new QueryBuilder(),
+  schema: new SchemaRegistry({ orgs, employees, orgRelations }),
+  session: mockSession,
+});
+
+const orgClient = new ModelClient(metaContext, metaContext.schema.getTables().orgs);
+
+describe("table().meta()", () => {
+  it("adds the declared metadata to $$meta on the row", () => {
+    const query = orgClient.findOne({ where: { id: { eq: "1" } }, select: { id: true } });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{
+      id: string;
+      $$meta: { key: string; table: string; schema?: string; __typename: string };
+    } | null>();
+  });
+
+  it("uses each level's own metadata, not the parent's", () => {
+    const query = orgClient.findMany({
+      select: { id: true },
+      join: { employees: { select: { id: true } } },
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<
+      {
+        id: string;
+        $$meta: { key: string; table: string; schema?: string; __typename: string };
+        employees: {
+          id: string;
+          $$meta: { key: string; table: string; schema?: string; __typename: string };
+        }[];
+      }[]
+    >();
   });
 });

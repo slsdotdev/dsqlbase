@@ -17,6 +17,24 @@ import { AnyColumn, Column } from "./column.js";
 export type AnyTable = Table<any, any, any, any>;
 
 /**
+ * What a row reports about the table it came from, written to every result record as
+ * `$$meta` (`packages/core/src/runtime/operation.ts`).
+ *
+ * `key` is the schema alias — the name the client addresses the table by, and the intended
+ * discriminant when a row could have come from one of several tables. `table` is the
+ * database name, which may differ.
+ */
+export interface RecordMeta {
+  readonly key: string;
+  readonly table: string;
+  readonly schema?: string;
+  readonly [field: string]: unknown;
+}
+
+/** Meta keys the runtime owns; `table().meta()` may not redeclare them. */
+const BUILT_IN_META_KEYS: readonly string[] = Object.freeze(["key", "table", "schema"]);
+
+/**
  * How a table is named when it *qualifies a column* — the alias bound for it in the
  * rendering context, or its bare name when none is.
  *
@@ -110,6 +128,15 @@ export class Table<
   /** True when the primary key spans more than one column. */
   readonly isCompositeKey: boolean;
 
+  /**
+   * What every row of this table reports about itself, surfaced as `$$meta` on each result
+   * record — the built-in `key` / `table` / `schema` plus whatever `table().meta()` declared.
+   *
+   * Frozen and built once: the same object is shared by reference across every row of a
+   * level, because nothing in it varies per row.
+   */
+  readonly meta: RecordMeta;
+
   private readonly _ref: SQLNode = new TableRef(this);
 
   constructor(
@@ -123,6 +150,7 @@ export class Table<
     this.columns = this._buildColumns(definition);
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
+    this.meta = this._buildMeta(definition);
     this.relations = relations as TRelations;
   }
 
@@ -174,6 +202,26 @@ export class Table<
       }
 
       return column;
+    });
+  }
+
+  private _buildMeta(definition: TableDefinition<TName, TColumns, TNamespace>): RecordMeta {
+    const declared = definition["_meta"] ?? {};
+
+    for (const key of Object.keys(declared)) {
+      if (BUILT_IN_META_KEYS.includes(key)) {
+        throw new Error(
+          `Table "${this.name}" declares meta key "${key}", which is built in. ` +
+            `${BUILT_IN_META_KEYS.join(", ")} are set from the schema and cannot be overridden.`
+        );
+      }
+    }
+
+    return Object.freeze({
+      key: this.alias,
+      table: this.name,
+      ...(this.schema ? { schema: this.schema as string } : {}),
+      ...declared,
     });
   }
 

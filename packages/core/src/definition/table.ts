@@ -1,5 +1,6 @@
+import { WithMeta } from "../utils/types.js";
 import { SQLNode, SQLQuery } from "../sql/nodes.js";
-import { DefinitionNode, Kind, NodeRef } from "./base.js";
+import { DefinitionNode, Kind, NodeRef, RESERVED_FIELD_NAMES } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
 import {
   AnyConstraintDefinition,
@@ -16,6 +17,12 @@ export interface TableConfig<
 > {
   namespace?: NodeRef<TSchema>;
   columns: TColumns;
+  /**
+   * Arbitrary per-table metadata, surfaced on every result row as part of `$$meta`.
+   * Describes the table to the application, never to the database: it is not DDL and is
+   * deliberately absent from {@link TableDefinition.toJSON}, so it never reaches a migration.
+   */
+  meta?: unknown;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,6 +42,7 @@ export class TableDefinition<
   protected _namespace?: NodeRef<TNamespace>;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
+  protected _meta?: Record<string, unknown>;
 
   readonly columns: Readonly<TColumns>;
 
@@ -43,8 +51,26 @@ export class TableDefinition<
 
     this._namespace = config.namespace;
     this.columns = config.columns as Readonly<TColumns>;
+    this._meta = config.meta as Record<string, unknown> | undefined;
 
+    this._assertReservedFieldNames();
     this._assertDistinctColumnNames();
+  }
+
+  /**
+   * Field names the runtime writes onto result records itself cannot also be columns —
+   * one would overwrite the other. Checked here rather than at `Table` build time so the
+   * error names the definition the author wrote.
+   */
+  private _assertReservedFieldNames(): void {
+    for (const field of Object.keys(this.columns)) {
+      if (RESERVED_FIELD_NAMES.includes(field)) {
+        throw new Error(
+          `Table "${this.name}" declares a column named "${field}", which is reserved. ` +
+            `The runtime writes ${RESERVED_FIELD_NAMES.join(" and ")} onto every result row.`
+        );
+      }
+    }
   }
 
   /**
@@ -126,6 +152,27 @@ export class TableDefinition<
     this._constraints?.push(constraint);
 
     return constraint;
+  }
+
+  /**
+   * Attaches arbitrary metadata to the table, surfaced on every result row under `$$meta`
+   * alongside the built-in `key`, `table` and `schema`.
+   *
+   * Metadata describes the table to the application — a GraphQL typename, a display label —
+   * and never to the database: it is absent from {@link TableDefinition.toJSON}, so it does
+   * not participate in migrations. Built-in keys may not be overwritten; that throws when the
+   * runtime `Table` is built.
+   *
+   * @example
+   * ```ts
+   * const users = table("users", { id: uuid("id").primaryKey() }).meta({ __typename: "User" });
+   * // row.$$meta.__typename === "User"
+   * ```
+   */
+  public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
+    this._meta = meta;
+
+    return this as WithMeta<this, M>;
   }
 
   public toJSON() {

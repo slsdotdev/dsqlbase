@@ -102,6 +102,7 @@ describe("delete operations", () => {
       expect(result).toEqual({
         id: data.users[1].id,
         email: data.users[1].email,
+        $$meta: { key: "users", table: "users" },
       });
     });
   });

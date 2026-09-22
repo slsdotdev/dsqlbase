@@ -37,6 +37,29 @@ Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last order
 
 **A table has at most one primary key.** Use `.primaryKey()` on a single column, or `table.primaryKey((c) => [...])` for a composite key — never both, and never two of either. Declaring more than one is rejected when the client is created and by the migration validator (`MULTIPLE_PRIMARY_KEYS`); SQL allows only one `PRIMARY KEY` per table.
 
+### Table metadata
+
+`.meta()` attaches arbitrary data to a table, surfaced on every result row as part of
+[`$$meta`](./querying.md#meta-on-every-row):
+
+```ts
+const tasks = table("tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+}).meta({ __typename: "Task" });
+
+// later
+row.$$meta.__typename; // "Task", typed from the declaration
+```
+
+It chains off `table()` — that is what carries the type through — and describes the table to
+your application, never to the database. Metadata is excluded from `toJSON`, so it never
+reaches a migration; changing it produces no DDL.
+
+The built-in keys `key`, `table` and `schema` are set from the schema itself and may not be
+redeclared. `$$meta` and `$$key` are reserved field names: a column or a relation of either
+name throws.
+
 ## Column types
 
 | Constructor(s) | PG type | Notes |

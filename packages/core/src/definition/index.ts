@@ -2,6 +2,8 @@ export {
   DefinitionNode,
   NodeRef,
   Kind,
+  META_FIELD,
+  RESERVED_FIELD_NAMES,
   Relation,
   defaultCodec,
   type NodeKind,

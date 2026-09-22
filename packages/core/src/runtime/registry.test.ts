@@ -297,6 +297,24 @@ describe("SchemaRegistry", () => {
 
       expect(registry.getRelations("authors")).toHaveProperty("author");
     });
+
+    it.each(["$$meta", "$$key"])("rejects a relation named %s", (field) => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            articles,
+            authors,
+            rel: new RelationsDefinition(articles, {
+              [field]: {
+                type: Relation.BELONGS_TO,
+                target: authors,
+                from: [articles.columns.id],
+                to: [authors.columns.id],
+              },
+            }),
+          })
+      ).toThrow(`declares a relation named "${field}", which is reserved`);
+    });
   });
 
   it("should check if relations exist for a table", () => {

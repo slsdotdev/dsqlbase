@@ -224,3 +224,54 @@ describe("Table", () => {
     });
   });
 });
+
+describe("Table meta", () => {
+  const columns = { id: new ColumnDefinition("id").primaryKey() };
+
+  it("reports the schema alias as `key` and the database name as `table`", () => {
+    const table = new Table(new TableDefinition("team_members", { columns }), undefined, "members");
+
+    expect(table.meta).toEqual({ key: "members", table: "team_members" });
+  });
+
+  it("falls back to the table name when built without an alias", () => {
+    expect(new Table(new TableDefinition("users", { columns })).meta).toEqual({
+      key: "users",
+      table: "users",
+    });
+  });
+
+  it("carries the namespace when the table declares one", () => {
+    const billing = new NamespaceDefinition("billing", {});
+    const definition = new TableDefinition("invoices", {
+      columns,
+      namespace: new NodeRef(billing),
+    });
+
+    expect(new Table(definition).meta).toEqual({
+      key: "invoices",
+      table: "invoices",
+      schema: "billing",
+    });
+  });
+
+  it("includes metadata declared with `table().meta()`", () => {
+    const definition = new TableDefinition("users", { columns }).meta({ __typename: "User" });
+
+    expect(new Table(definition).meta).toEqual({
+      key: "users",
+      table: "users",
+      __typename: "User",
+    });
+  });
+
+  it("is frozen, so a consumer cannot mutate what every row shares", () => {
+    expect(Object.isFrozen(new Table(new TableDefinition("users", { columns })).meta)).toBe(true);
+  });
+
+  it("rejects declared metadata that would overwrite a built-in key", () => {
+    const definition = new TableDefinition("users", { columns }).meta({ key: "impostor" });
+
+    expect(() => new Table(definition)).toThrow(/meta key "key", which is built in/);
+  });
+});

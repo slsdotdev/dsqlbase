@@ -8,7 +8,7 @@ import {
   TableDefinition,
 } from "@dsqlbase/core/definition";
 import { AnySchema, AnyTable, SchemaTableRelations, Table } from "@dsqlbase/core/runtime";
-import { Prettify } from "@dsqlbase/core/utils";
+import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
@@ -48,6 +48,28 @@ export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
     ? T["valueType"]
     : T["valueType"] | null
   : never;
+
+/**
+ * The metadata a table declared with `table().meta()`, or `object` when it declared none.
+ * Accepts a `Table` or a `TableDefinition` — both carry it on `__type`.
+ */
+export type DeclaredMetaOf<T> = T extends { __type: { meta: infer M } }
+  ? M extends Record<string, unknown>
+    ? M
+    : object
+  : object;
+
+/**
+ * The `$$meta` property carried by every result record: built-ins set from the schema, plus
+ * whatever `table().meta()` declared.
+ *
+ * `key` is the schema alias — the name the client addresses the table by. It is typed
+ * `string` rather than the literal alias; narrowing a row union on `$$meta.key` needs the
+ * alias threaded as a type parameter, which the feature that needs it will add.
+ */
+export type RecordMetaOf<T> = Prettify<
+  { key: string; table: string; schema?: string } & DeclaredMetaOf<T>
+>;
 
 export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
 
@@ -94,13 +116,19 @@ export type ReturningResultOf<T extends AnyTable, TArgs> = TArgs extends {
   return?: infer R;
 }
   ? R extends FieldSelectionOf<T>
-    ? {
-        [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
-          ? ValueTypeOf<ColumnTypeOf<T, K>>
-          : never;
-      }
+    ? Prettify<
+        {
+          [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
+            ? ValueTypeOf<ColumnTypeOf<T, K>>
+            : never;
+        } & { $$meta: RecordMetaOf<T> }
+      >
     : R extends true
-      ? { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> }
+      ? Prettify<
+          { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> } & {
+            $$meta: RecordMetaOf<T>;
+          }
+        >
       : Record<string, never>
   : never;
 
@@ -321,15 +349,32 @@ export type RelationJoinResultOf<
   TTargetName extends string,
   TTargetCols extends Record<string, AnyColumnDefinition>,
   TTargetSchema extends AnyNamespaceDefinition,
+  TTargetMeta = object,
 > =
   RelationTypeOf<TTable, TRelationField> extends "has_many"
     ? QueryResultOf<
-        Table<TTargetName, TTargetCols, TTargetSchema, SchemaTableRelations<TSchema, TTargetName>>,
+        WithMeta<
+          Table<
+            TTargetName,
+            TTargetCols,
+            TTargetSchema,
+            SchemaTableRelations<TSchema, TTargetName>
+          >,
+          TTargetMeta
+        >,
         TSchema,
         TArgs
       >[]
     : QueryResultOf<
-        Table<TTargetName, TTargetCols, TTargetSchema, SchemaTableRelations<TSchema, TTargetName>>,
+        WithMeta<
+          Table<
+            TTargetName,
+            TTargetCols,
+            TTargetSchema,
+            SchemaTableRelations<TSchema, TTargetName>
+          >,
+          TTargetMeta
+        >,
         TSchema,
         TArgs
       > | null;
@@ -339,7 +384,7 @@ export type QueryResultOf<
   TSchema extends AnySchema,
   TArgs extends QueryArgs<TTable, TSchema>,
 > = Prettify<
-  SelectionResultOf<TTable, TSchema, TArgs> & {
+  SelectionResultOf<TTable, TSchema, TArgs> & { $$meta: RecordMetaOf<TTable> } & {
     [K in keyof TArgs["join"]]: K extends RelationFieldNamesOf<TTable>
       ? RelationTargetOf<TTable, K> extends TableDefinition<
           infer TName,
@@ -350,7 +395,16 @@ export type QueryResultOf<
             Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
             TSchema
           >
-          ? RelationJoinResultOf<TTable, TSchema, TArgs["join"][K], K, TName, TCols, TNamespace>
+          ? RelationJoinResultOf<
+              TTable,
+              TSchema,
+              TArgs["join"][K],
+              K,
+              TName,
+              TCols,
+              TNamespace,
+              DeclaredMetaOf<RelationTargetOf<TTable, K>>
+            >
           : TArgs["join"][K] extends boolean
             ? TArgs["join"][K] extends true
               ? RelationJoinResultOf<
@@ -363,7 +417,8 @@ export type QueryResultOf<
                   K,
                   TName,
                   TCols,
-                  TNamespace
+                  TNamespace,
+                  DeclaredMetaOf<RelationTargetOf<TTable, K>>
                 >
               : never
             : never

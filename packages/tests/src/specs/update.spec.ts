@@ -118,6 +118,7 @@ describe("update operations", () => {
       expect(result).toEqual({
         id: data.users[2].id,
         name: "Carol Updated",
+        $$meta: { key: "users", table: "users" },
       });
     });
   });

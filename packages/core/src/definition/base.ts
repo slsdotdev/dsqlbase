@@ -24,6 +24,19 @@ export const Relation = Object.freeze({
   BELONGS_TO: "belongs_to",
 } as const);
 
+/** The field carrying per-row table metadata on every result record. */
+export const META_FIELD = "$$meta";
+
+/**
+ * Field names a table may use for neither a column nor a relation.
+ *
+ * The runtime writes them onto result records itself, so a field of the same name would be
+ * silently overwritten. `$$key` is reserved ahead of its use as a union-member discriminant:
+ * reserving a name costs nothing now and is a breaking change later. See
+ * `docs/decisions/0004-record-meta.md`.
+ */
+export const RESERVED_FIELD_NAMES: readonly string[] = Object.freeze([META_FIELD, "$$key"]);
+
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof Relation)[keyof typeof Relation];
 

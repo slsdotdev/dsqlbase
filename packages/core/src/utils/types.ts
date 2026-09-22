@@ -47,3 +47,9 @@ export type WithNamespace<T extends TypedObject, TSchema extends TypedObject> = 
 export type WithDomain<T extends TypedObject, TDomain extends TypedObject> = T & {
   __type: { domain: TDomain };
 };
+
+/**
+ * Attaches arbitrary per-table metadata to a definition's `__type`, so `table().meta({ … })`
+ * is visible to the result types (`$$meta` on every row).
+ */
+export type WithMeta<T extends TypedObject, TMeta> = T & { __type: { meta: TMeta } };

@@ -60,6 +60,41 @@ const tasks = await dsql.tasks.findMany({
 
 There is no `count`, aggregate, or keyset-pagination helper today; use `$query` for those.
 
+## `$$meta` on every row
+
+Every result record carries a `$$meta` property describing the table it came from — rows from
+`findOne` / `findMany`, rows of a joined level, and rows returned by `create` / `update` /
+`delete` with `return`:
+
+```ts
+const task = await dsql.tasks.findOne({
+  where: { id: { eq: id } },
+  select: { id: true, title: true },
+  join: { project: { select: { name: true } } },
+});
+
+task?.$$meta;          // { key: "tasks", table: "tasks" }
+task?.project?.$$meta; // { key: "projects", table: "projects" } — its own, not the parent's
+```
+
+- **`key`** — the name the table is exported under in the schema object, which is how the
+  client addresses it (`dsql.members`).
+- **`table`** — the database table name, which may differ (`team_members`).
+- **`schema`** — present only when the table declares a namespace.
+
+`$$meta` is an ordinary enumerable property, so it survives `{ ...row }` and `JSON.stringify`.
+It is the first key on each record. A whole-row `toEqual` in your tests must account for it.
+
+Add your own fields with [`table().meta()`](./schema.md#table-metadata):
+
+```ts
+const tasks = table("tasks", { /* … */ }).meta({ __typename: "Task" });
+
+task?.$$meta.__typename; // "Task", typed
+```
+
+`$$meta` and `$$key` are reserved: a column or relation of either name throws.
+
 ## Escape hatches
 
 ```ts

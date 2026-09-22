@@ -1,4 +1,4 @@
-import { TypedObject, Prettify } from "../utils/index.js";
+import { TypedObject, Prettify, WithMeta } from "../utils/index.js";
 import {
   AnyColumnDefinition,
   AnyFieldRelation,
@@ -6,6 +6,7 @@ import {
   AnyTableDefinition,
   AnyTableRelations,
   DefinitionSchema,
+  RESERVED_FIELD_NAMES,
   RelationsDefinition,
   TableDefinition,
 } from "../definition/index.js";
@@ -20,13 +21,23 @@ import {
 } from "./base.js";
 import { AnyTable, Table } from "./table.js";
 
+/**
+ * The metadata a definition declared with `table().meta()`. Rebuilding a `Table` from the
+ * definition's three type parameters would otherwise drop it, taking `$$meta`'s declared
+ * half with it.
+ */
+export type DeclaredTableMeta<TDef> = TDef extends { __type: { meta: infer M } } ? M : unknown;
+
 export type RuntimeTables<TSchema extends AnySchema> = {
   [K in keyof TSchema["tables"]]: TSchema["tables"][K] extends TableDefinition<
     infer Name,
     infer Columns,
     infer Schema
   >
-    ? Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>
+    ? WithMeta<
+        Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>,
+        DeclaredTableMeta<TSchema["tables"][K]>
+      >
     : never;
 };
 
@@ -35,7 +46,10 @@ export type TableByAlias<
   TAlias extends string,
 > = TAlias extends keyof TSchema["tables"]
   ? TSchema["tables"][TAlias] extends TableDefinition<infer Name, infer Columns, infer Schema>
-    ? Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>
+    ? WithMeta<
+        Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>,
+        DeclaredTableMeta<TSchema["tables"][TAlias]>
+      >
     : never
   : never;
 
@@ -245,6 +259,14 @@ export class SchemaRegistry<
           throw new Error(
             `Relation "${field}" on table "${tableName}" collides with a column of the same ` +
               `name. Columns and relations share one field namespace on a table.`
+          );
+        }
+
+        // That one namespace also excludes the names the runtime writes onto result rows.
+        if (RESERVED_FIELD_NAMES.includes(field)) {
+          throw new Error(
+            `Table "${tableName}" declares a relation named "${field}", which is reserved. ` +
+              `The runtime writes ${RESERVED_FIELD_NAMES.join(" and ")} onto every result row.`
           );
         }
 
