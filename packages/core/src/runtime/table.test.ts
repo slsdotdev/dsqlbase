@@ -9,6 +9,7 @@ import {
   NamespaceDefinition,
   TableDefinition,
   NodeRef,
+  TenantScopeDefinition,
 } from "../definition/index.js";
 
 describe("Table", () => {
@@ -273,5 +274,39 @@ describe("Table meta", () => {
     const definition = new TableDefinition("users", { columns }).meta({ key: "impostor" });
 
     expect(() => new Table(definition)).toThrow(/meta key "key", which is built in/);
+  });
+});
+
+describe("Table.tenantKeys", () => {
+  const ws = new TenantScopeDefinition({
+    workspaceId: new ColumnDefinition("workspace_id", { dataType: "uuid" }).notNull(),
+    regionId: new ColumnDefinition("region_id", { dataType: "uuid" }).notNull(),
+  });
+
+  it("pairs each claim with the column it fills, in declaration order", () => {
+    const table = new Table(
+      ws.table("invoices", {
+        id: new ColumnDefinition("id", { primaryKey: true }),
+        number: new ColumnDefinition("number").notNull(),
+      })
+    );
+
+    expect(table.tenantKeys.map(([claim]) => claim)).toEqual(["workspaceId", "regionId"]);
+    expect(table.tenantKeys.map(([, column]) => column.name)).toEqual([
+      "workspace_id",
+      "region_id",
+    ]);
+    // The claim is the field name; the column carries the database name, which may differ.
+    expect(table.tenantKeys[0]?.[1]).toBe(table.columns.workspaceId);
+  });
+
+  it("is empty for a table outside any scope", () => {
+    const table = new Table(
+      new TableDefinition("workspaces", {
+        columns: { id: new ColumnDefinition("id", { primaryKey: true }) },
+      })
+    );
+
+    expect(table.tenantKeys).toEqual([]);
   });
 });

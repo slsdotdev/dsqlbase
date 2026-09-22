@@ -8,6 +8,7 @@ export {
   NamespaceDefinition,
   SequenceDefinition,
   TableDefinition,
+  TenantScopeDefinition,
   ViewDefinition,
   RelationsDefinition,
   DefinitionNode,
@@ -19,6 +20,7 @@ export {
   type AnyRelationDefinition,
   type AnyTableDefinition,
   type AnyTableRelations,
+  type AnyTenantScopeDefinition,
   type ColumnCodec,
   type ColumnConfig,
   type DefinitionSchema,
@@ -29,6 +31,7 @@ export {
   type RelationsConfig,
   type RelationType,
   type TableConfig,
+  type TenantClaimColumns,
   type UpdateGuard,
 } from "./definition/index.js";
 export {

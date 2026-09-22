@@ -32,6 +32,15 @@ export type ReadOnly<T extends TypedObject> = T & {
   __type: { readOnly: true };
 };
 
+/**
+ * Marks a column as a tenant claim key: the runtime fills it on insert and filters every read
+ * by it, from the identity on the execution context. Always set together with {@link ReadOnly},
+ * and only by `tenantScope()` — there is no public builder for it.
+ */
+export type TenantKey<T extends TypedObject> = T & {
+  __type: { tenantKey: true };
+};
+
 export type ValueType<T extends TypedObject, TValue> = T & {
   __type: { valueType: TValue };
 };

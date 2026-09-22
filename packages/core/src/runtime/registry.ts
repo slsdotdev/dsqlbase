@@ -77,11 +77,22 @@ export class SchemaRegistry<
   private readonly _tables: Map<string, AnyTable>;
   private readonly _relations: Map<string, AnyTableRelations>;
 
+  /**
+   * Every tenant claim declared anywhere in this schema, mapped to the data type it is
+   * declared with. Empty when no table is inside a tenant scope.
+   *
+   * This is what `$identityClaims` picks an identity object apart by: a claim is identified by
+   * its field name across the whole schema, so the same name must mean the same type
+   * everywhere — two tables disagreeing is caught here rather than at the first query.
+   */
+  readonly claimKeys: Map<string, string>;
+
   constructor(definition: TDefinition) {
     const schema = this._validateAndTransformSchema(definition);
 
     this._tables = this._buildTables(schema);
     this._relations = this._buildRelations(schema);
+    this.claimKeys = this._buildClaimKeys(schema);
   }
 
   private _mergeTableRelations(
@@ -145,6 +156,37 @@ export class SchemaRegistry<
     }
 
     return tables;
+  }
+
+  private _buildClaimKeys(schema: Schema<TDefinition>): Map<string, string> {
+    const claims = new Map<string, string>();
+    const sources = new Map<string, string>();
+
+    for (const [key, def] of Object.entries<AnyTableDefinition>(schema.tables)) {
+      const table = this._tables.get(key);
+
+      if (!table) {
+        continue;
+      }
+
+      for (const [claim] of table.tenantKeys) {
+        const dataType = def.columns[claim]["_dataType"] as string;
+        const declared = claims.get(claim);
+
+        if (declared !== undefined && declared !== dataType) {
+          throw new Error(
+            `Claim "${claim}" is "${declared}" on table "${sources.get(claim)}" but "${dataType}" ` +
+              `on table "${def.name}". One claim name means one claim, so it must have the same ` +
+              `type on every table that declares it.`
+          );
+        }
+
+        claims.set(claim, dataType);
+        sources.set(claim, def.name);
+      }
+    }
+
+    return claims;
   }
 
   /**
