@@ -2,6 +2,7 @@ import { TypedObject } from "../utils/index.js";
 import { META_FIELD, Relation } from "../definition/index.js";
 import { SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
+import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
 import { JoinParams, SelectParams } from "./query.js";
@@ -132,6 +133,63 @@ export class OperationsFactory<
   }
 
   /**
+   * The tenant boundary for `table`, as a condition, or `undefined` when there is none to apply.
+   *
+   * A table with no claim columns is global and always yields `undefined`. Otherwise the
+   * identity on the context decides: present, every claim becomes an equality on its column;
+   * absent, an enforcing context refuses to build the operation at all, and a non-enforcing one
+   * runs unscoped.
+   *
+   * The refusal is what makes this a boundary rather than a convenience. It fires here, below
+   * the point where callers write queries, so it also covers a tenant table reached through a
+   * join — which the types cannot see, because a nested level is named by a relation rather than
+   * by the client.
+   */
+  private _tenantPredicate<T extends AnyTable>(table: T): SQLNode | undefined {
+    if (table.tenantKeys.length === 0) {
+      return undefined;
+    }
+
+    const identity = this._ctx.identity;
+
+    if (!identity) {
+      if (!this._ctx.tenancy.enforce) {
+        return undefined;
+      }
+
+      throw new TenancyError(
+        `Table "${table.name}" is tenant-scoped and this client carries no claims. ` +
+          `Derive one with $identityClaims(), or create the client with ` +
+          `tenancy: { enforce: false } if it is meant to run unscoped.`,
+        table.name
+      );
+    }
+
+    const conditions = table.tenantKeys.map(([claim, column]) => {
+      const value = identity[claim];
+
+      if (value === undefined || value === null) {
+        throw new TenancyError(
+          `Table "${table.name}" is scoped by claim "${claim}", which this client's identity ` +
+            `does not carry.`,
+          table.name,
+          claim
+        );
+      }
+
+      // Encoded by the column's own codec, so the predicate is written the way the column
+      // stored the value — the same rule every other comparison follows.
+      return sql.eq(column, column.param(value));
+    });
+
+    if (conditions.length === 1) {
+      return conditions[0];
+    }
+
+    return sql.and(conditions.map((condition) => sql.wrap(condition)));
+  }
+
+  /**
    * The single place a `WHERE` is assembled, for every select — root and every nested join
    * level — every update and every delete. It is called unconditionally, even when the caller
    * passed no `where`, because this is the seam predicates are injected into: a rule that only
@@ -139,12 +197,19 @@ export class OperationsFactory<
    *
    * Several nodes are AND-ed, each wrapped so an `OR` among them keeps its precedence. A lone
    * node is returned untouched, so the common case adds no parentheses.
+   *
+   * The tenant predicate leads, before anything the caller wrote and before anything a sibling
+   * feature appends afterwards (a join correlation, a keyset). Order is cosmetic to the planner
+   * and deliberate to a reader: the boundary is the first thing an `EXPLAIN` shows.
    */
   private _resolveWhere<T extends AnyTable>(
     table: T,
     where?: SQLNode | SQLNode[]
   ): SQLNode | undefined {
-    const conditions = (Array.isArray(where) ? where : [where]).filter(
+    const conditions = [
+      this._tenantPredicate(table),
+      ...(Array.isArray(where) ? where : [where]),
+    ].filter(
       (condition): condition is SQLNode => condition !== undefined && condition !== null
     );
 
@@ -200,6 +265,28 @@ export class OperationsFactory<
     return { columns, resolvers };
   }
 
+  /**
+   * The value a tenant claim column is inserted with, taken from the identity.
+   *
+   * Always required, in both modes: the column is `notNull` and nothing else can fill it, so an
+   * insert without claims would write a row into no tenant. Moving a row between tenants is not
+   * a model-client operation — it is raw SQL on an unscoped client, deliberately.
+   */
+  private _tenantValue<T extends AnyTable>(table: T, claim: string): unknown {
+    const value = this._ctx.identity?.[claim];
+
+    if (value === undefined || value === null) {
+      throw new TenancyError(
+        `Cannot insert into "${table.name}" without claim "${claim}": it is filled from the ` +
+          `client's identity, and this client carries none.`,
+        table.name,
+        claim
+      );
+    }
+
+    return value;
+  }
+
   private _resolveInsertEntries<T extends AnyTable>(
     table: T,
     data: FieldMutation[][]
@@ -220,6 +307,11 @@ export class OperationsFactory<
       for (const [fieldName, column] of columnEntries) {
         if (column.readOnly && values[fieldName] !== undefined) {
           throw new Error(`Cannot write read-only column "${fieldName}"`);
+        }
+
+        if (column.tenantKey) {
+          row.push(column.getInsertValue(this._tenantValue(table, fieldName)));
+          continue;
         }
 
         const value = column.getInsertValue(values[fieldName]);

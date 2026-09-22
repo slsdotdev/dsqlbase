@@ -11,7 +11,12 @@ export type {
   TableRelationFieldName,
 } from "./base.js";
 export { Column, type AnyColumn } from "./column.js";
-export { ExecutionContext, type ExecutionContextOptions } from "./context.js";
+export {
+  ExecutionContext,
+  type ExecutionContextOptions,
+  type TenancyOptions,
+} from "./context.js";
+export { TenancyError } from "./errors.js";
 export { ExecutableQuery } from "./executor.js";
 export {
   OperationsFactory,

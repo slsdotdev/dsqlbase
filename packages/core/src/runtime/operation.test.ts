@@ -4,10 +4,12 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
+  TenantScopeDefinition,
 } from "../definition/index.js";
-import { sql, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
+import { sql, SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
-import { OperationsFactory } from "./operation.js";
+import { TenancyError } from "./errors.js";
+import { FieldMutation, OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
 import { QueryBuilder } from "./query.js";
 
@@ -341,7 +343,10 @@ describe("OperationFactory / $$meta", () => {
     const users = registry.getTable("users");
     const operation = factory.createDeleteOperation(users, {
       mode: "one",
-      args: { where: sql`${users.columns.id} = ${sql.param(1)}`, return: [["id", users.columns.id]] },
+      args: {
+        where: sql`${users.columns.id} = ${sql.param(1)}`,
+        return: [["id", users.columns.id]],
+      },
     });
 
     expect(operation.resolve([{ id: 1 }])).toEqual({
@@ -612,5 +617,317 @@ describe("OperationFactory / read-only columns", () => {
       tenantId: "ws-1",
       $$meta: { key: "managed", table: "managed" },
     });
+  });
+});
+
+const ws = new TenantScopeDefinition({
+  workspaceId: new ColumnDefinition("workspace_id", {
+    dataType: "uuid",
+    // A codec that rewrites the value, so it is visible whether the predicate went through it.
+    codec: { encode: (value: string) => `ws:${value}`, decode: (raw: string) => raw },
+  }).notNull(),
+});
+
+const workspaces = new TableDefinition("workspaces", {
+  columns: {
+    id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+    name: new ColumnDefinition("name").notNull(),
+  },
+});
+
+const invoices = ws.table("invoices", {
+  id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+  number: new ColumnDefinition("number").notNull(),
+});
+
+const lineItems = ws.table("line_items", {
+  id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+  invoiceId: new ColumnDefinition("invoice_id", { dataType: "uuid" }).notNull(),
+});
+
+const workspaceRelations = new RelationsDefinition(workspaces, {
+  invoices: {
+    type: Relation.HAS_MANY,
+    target: invoices,
+    from: [workspaces.columns.id],
+    to: [invoices.columns.workspaceId],
+  },
+});
+
+const invoiceRelations = new RelationsDefinition(invoices, {
+  lineItems: {
+    type: Relation.HAS_MANY,
+    target: lineItems,
+    from: [invoices.columns.id],
+    to: [lineItems.columns.invoiceId],
+  },
+});
+
+const tenantRegistry = new SchemaRegistry({
+  workspaces,
+  invoices,
+  lineItems,
+  workspaceRelations,
+  invoiceRelations,
+});
+
+describe("OperationFactory / tenant predicate", () => {
+  const factoryWith = (options: { identity?: Record<string, unknown>; enforce?: boolean }) =>
+    new OperationsFactory(
+      new ExecutionContext({
+        schema: tenantRegistry,
+        dialect: mockDialect,
+        session: mockSession,
+        identity: options.identity,
+        tenancy: { enforce: options.enforce ?? true },
+      })
+    );
+
+  const scoped = () => factoryWith({ identity: { workspaceId: "w1" } });
+
+  const lastQuery = (spy: { mock: { calls: { where?: SQLNode }[][] } }) => {
+    const where = spy.mock.calls.at(-1)?.[0]?.where;
+    return where ? new SQLQuery(where).toQuery() : undefined;
+  };
+
+  beforeAll(() => {
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    mockDialect.buildDeleteQuery.mockReturnValue(sql`DELETE`);
+    mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
+  });
+
+  it("scopes a select that carries no where of its own", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    scoped().createSelectOperation(table, {
+      mode: "many",
+      args: { select: [["id", table.columns.id]] },
+    });
+
+    expect(lastQuery(mockDialect.buildSelectQuery)?.text).toBe(`"invoices"."workspace_id" = $1`);
+  });
+
+  it("encodes the claim through the column's codec", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    scoped().createSelectOperation(table, {
+      mode: "many",
+      args: { select: [["id", table.columns.id]] },
+    });
+
+    expect(lastQuery(mockDialect.buildSelectQuery)?.params).toEqual(["ws:w1"]);
+  });
+
+  it("puts the predicate before the caller's own condition", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    scoped().createSelectOperation(table, {
+      mode: "many",
+      args: {
+        select: [["id", table.columns.id]],
+        where: sql`${table.columns.number} = ${sql.param("INV-1")}`,
+      },
+    });
+
+    expect(lastQuery(mockDialect.buildSelectQuery)?.text).toBe(
+      `("invoices"."workspace_id" = $1) AND ("invoices"."number" = $2)`
+    );
+  });
+
+  it("leaves a global table alone", () => {
+    const table = tenantRegistry.getTable("workspaces");
+
+    scoped().createSelectOperation(table, {
+      mode: "many",
+      args: { select: [["id", table.columns.id]] },
+    });
+
+    expect(lastQuery(mockDialect.buildSelectQuery)).toBeUndefined();
+  });
+
+  it("scopes an update and a delete", () => {
+    const table = tenantRegistry.getTable("invoices");
+    const factory = scoped();
+
+    factory.createUpdateOperation(table, {
+      mode: "one",
+      args: {
+        set: [["number", "INV-2"]],
+        where: sql`${table.columns.id} = ${sql.param("i1")}`,
+      },
+    });
+
+    expect(lastQuery(mockDialect.buildUpdateQuery)?.text).toBe(
+      `("invoices"."workspace_id" = $1) AND ("invoices"."id" = $2)`
+    );
+
+    factory.createDeleteOperation(table, {
+      mode: "one",
+      args: { where: sql`${table.columns.id} = ${sql.param("i1")}` },
+    });
+
+    expect(lastQuery(mockDialect.buildDeleteQuery)?.text).toBe(
+      `("invoices"."workspace_id" = $1) AND ("invoices"."id" = $2)`
+    );
+  });
+
+  it("scopes every level of a nested join, not only the root", () => {
+    const table = tenantRegistry.getTable("workspaces");
+    const invoiceTable = tenantRegistry.getTable("invoices");
+
+    scoped().createSelectOperation(table, {
+      mode: "many",
+      args: {
+        select: [["id", table.columns.id]],
+        join: [
+          [
+            "invoices",
+            {
+              select: [["id", invoiceTable.columns.id]],
+              join: [["lineItems", { select: [] }]],
+            },
+          ],
+        ],
+      },
+    });
+
+    // The root is global, so only the two nested levels carry a predicate — a tenant table is
+    // guarded wherever it is reached, and a join is exactly where the types cannot help.
+    const params = mockDialect.buildSelectQuery.mock.calls.at(-1)?.[0];
+    const invoiceLevel = params?.join?.[0]?.params;
+    const lineItemLevel = invoiceLevel?.join?.[0]?.params;
+
+    expect(new SQLQuery(invoiceLevel?.where).toQuery().text).toBe(`"invoices"."workspace_id" = $1`);
+    expect(new SQLQuery(lineItemLevel?.where).toQuery().text).toBe(
+      `"line_items"."workspace_id" = $1`
+    );
+  });
+
+  it("refuses to build a scoped read with no claims when enforcing", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    expect(() =>
+      factoryWith({}).createSelectOperation(table, {
+        mode: "many",
+        args: { select: [["id", table.columns.id]] },
+      })
+    ).toThrow(TenancyError);
+  });
+
+  it("refuses a tenant table reached through a join, which the types cannot see", () => {
+    const table = tenantRegistry.getTable("workspaces");
+
+    expect(() =>
+      factoryWith({}).createSelectOperation(table, {
+        mode: "many",
+        args: {
+          select: [["id", table.columns.id]],
+          join: [["invoices", { select: [] }]],
+        },
+      })
+    ).toThrow(/Table "invoices" is tenant-scoped/);
+  });
+
+  it("runs unscoped when enforcement is off and there are no claims", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    factoryWith({ enforce: false }).createSelectOperation(table, {
+      mode: "many",
+      args: { select: [["id", table.columns.id]] },
+    });
+
+    expect(lastQuery(mockDialect.buildSelectQuery)).toBeUndefined();
+  });
+
+  it("names the claim an identity is missing", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    expect(() =>
+      factoryWith({ identity: { somethingElse: "x" } }).createSelectOperation(table, {
+        mode: "many",
+        args: { select: [["id", table.columns.id]] },
+      })
+    ).toThrow(/scoped by claim "workspaceId"/);
+  });
+
+  it("fills the claim column on insert", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    scoped().createInsertOperation(table, {
+      mode: "one",
+      args: { data: [[["number", "INV-1"]]] },
+    });
+
+    const params = mockDialect.buildInsertQuery.mock.calls.at(-1)?.[0];
+    const row = new SQLQuery(sql.join(params?.values?.[0] ?? [], ", ")).toQuery();
+
+    expect(params?.columns?.map((c) => (c as SQLIdentifier).name)).toEqual([
+      "workspace_id",
+      "id",
+      "number",
+    ]);
+    expect(row.params).toEqual(["ws:w1", "INV-1"]);
+  });
+
+  it("refuses an insert without claims in both modes", () => {
+    const table = tenantRegistry.getTable("invoices");
+    const args = { mode: "one" as const, args: { data: [[["number", "INV-1"] as FieldMutation]] } };
+
+    expect(() => factoryWith({}).createInsertOperation(table, args)).toThrow(TenancyError);
+    expect(() => factoryWith({ enforce: false }).createInsertOperation(table, args)).toThrow(
+      /Cannot insert into "invoices" without claim "workspaceId"/
+    );
+  });
+
+  it("refuses a caller-supplied value for the claim column", () => {
+    const table = tenantRegistry.getTable("invoices");
+
+    // A claim column is read-only, so this is the existing refusal — the claim always wins, and
+    // the normalizer drops the field before it ever gets here.
+    expect(() =>
+      scoped().createInsertOperation(table, {
+        mode: "one",
+        args: { data: [[["workspaceId", "w2"]]] },
+      })
+    ).toThrow(/Cannot write read-only column "workspaceId"/);
+  });
+});
+
+describe("OperationFactory / several claims", () => {
+  const region = new TenantScopeDefinition({
+    workspaceId: new ColumnDefinition("workspace_id", { dataType: "uuid" }).notNull(),
+    regionId: new ColumnDefinition("region_id", { dataType: "uuid" }).notNull(),
+  });
+
+  const reports = region.table("reports", {
+    id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+  });
+
+  const registry = new SchemaRegistry({ reports });
+
+  it("ANDs every claim, each wrapped", () => {
+    const factory = new OperationsFactory(
+      new ExecutionContext({
+        schema: registry,
+        dialect: mockDialect,
+        session: mockSession,
+        identity: { workspaceId: "w1", regionId: "r1" },
+      })
+    );
+
+    const table = registry.getTable("reports");
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+
+    factory.createSelectOperation(table, {
+      mode: "many",
+      args: { select: [["id", table.columns.id]] },
+    });
+
+    const where = mockDialect.buildSelectQuery.mock.calls.at(-1)?.[0]?.where;
+
+    expect(new SQLQuery(where).toQuery().text).toBe(
+      `("reports"."workspace_id" = $1) AND ("reports"."region_id" = $2)`
+    );
   });
 });
