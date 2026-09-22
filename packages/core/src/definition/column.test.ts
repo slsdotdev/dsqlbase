@@ -15,6 +15,20 @@ describe("ColumnDefinition", () => {
     expect(column.notNull).toBe(true);
   });
 
+  it("should mark a column read-only without changing its serialized form", () => {
+    const column = new ColumnDefinition("workspace_id").notNull().readOnly();
+
+    expect(column["_readOnly"]).toBe(true);
+    // `readOnly` is a client-side rule. Introspection cannot observe it on a real database, so
+    // putting it in `toJSON` would add a field the remote side can never produce.
+    expect(column.toJSON()).not.toHaveProperty("readOnly");
+  });
+
+  it("should default readOnly to false", () => {
+    expect(new ColumnDefinition("name")["_readOnly"]).toBe(false);
+    expect(new ColumnDefinition("name", { readOnly: true })["_readOnly"]).toBe(true);
+  });
+
   it("should set default value correctly", () => {
     const column = new ColumnDefinition("created_at")
       .$type<Date>()

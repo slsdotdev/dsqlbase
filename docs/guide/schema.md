@@ -22,7 +22,13 @@ The object key (`createdAt`) is the property name you use in queries; the first 
 
 ### Column modifiers
 
-Every column supports `.notNull()`, `.primaryKey()`, `.unique()`, `.default(value | sql)`, `.check(expr)`, `.$type<T>()` (narrow the TypeScript type without changing the SQL type), `.$onCreate(fn)` and `.$onUpdate(fn)` (client-side value hooks). `uuid()` adds `.defaultRandom()`; `timestamp()` / `datetime()` add `.defaultNow()`.
+Every column supports `.notNull()`, `.primaryKey()`, `.unique()`, `.readOnly()`, `.default(value | sql)`, `.check(expr)`, `.$type<T>()` (narrow the TypeScript type without changing the SQL type), `.$onCreate(fn)` and `.$onUpdate(fn)` (client-side value hooks). `uuid()` adds `.defaultRandom()`; `timestamp()` / `datetime()` add `.defaultNow()`.
+
+`.readOnly()` marks a column **system-managed**: it is read like any other — selectable,
+filterable, orderable — but it is not part of `create`'s `data` or `update`'s `set`, in the
+types or at runtime. A field that arrives there anyway, through an untyped spread, is dropped
+rather than refused. Use it for a value the application must not set; it changes nothing about
+the generated DDL, so migrations are unaffected.
 
 ### Table-level definitions
 

@@ -106,10 +106,18 @@ export type OptionalFieldsOf<T extends AnyTable> = {
     : K;
 }[FieldNamesOf<T>];
 
+/**
+ * Fields the caller may not write. They stay fully readable — selectable, filterable and
+ * orderable — and are only removed from the two mutation inputs.
+ */
+export type ReadOnlyFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
+}[FieldNamesOf<T>];
+
 export type CreateValuesOf<T extends AnyTable> = {
-  [K in RequiredFieldsOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: ValueTypeOf<ColumnTypeOf<T, K>>;
 } & {
-  [K in OptionalFieldsOf<T>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type ReturningResultOf<T extends AnyTable, TArgs> = TArgs extends {
@@ -138,7 +146,7 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 }>;
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{

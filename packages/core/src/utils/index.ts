@@ -7,6 +7,7 @@ export type {
   Optional,
   Prettify,
   PrimaryKey,
+  ReadOnly,
   TypedObject,
   Unique,
   ValueType,
