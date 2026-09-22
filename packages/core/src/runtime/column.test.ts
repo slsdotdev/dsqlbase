@@ -58,3 +58,24 @@ describe("Column", () => {
     });
   });
 });
+
+describe("Column / readOnly", () => {
+  const table = new Table(
+    new TableDefinition("invoices", {
+      columns: {
+        id: new ColumnDefinition("id", { primaryKey: true }),
+        workspaceId: new ColumnDefinition("workspace_id").notNull().readOnly(),
+        number: new ColumnDefinition("number").notNull(),
+      },
+    })
+  );
+
+  it("carries the definition's flag onto the runtime column", () => {
+    expect(table.columns.workspaceId.readOnly).toBe(true);
+  });
+
+  it("defaults to false for every other column", () => {
+    expect(table.columns.number.readOnly).toBe(false);
+    expect(table.columns.id.readOnly).toBe(false);
+  });
+});

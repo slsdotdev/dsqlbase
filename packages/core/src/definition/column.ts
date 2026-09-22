@@ -1,5 +1,13 @@
 import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
-import { HasDefault, NotNull, PrimaryKey, TypedObject, Unique, ValueType } from "../utils/index.js";
+import {
+  HasDefault,
+  NotNull,
+  PrimaryKey,
+  ReadOnly,
+  TypedObject,
+  Unique,
+  ValueType,
+} from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
@@ -30,6 +38,7 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
+  readOnly: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
   defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
@@ -49,6 +58,7 @@ export class ColumnDefinition<
   protected _notNull: boolean;
   protected _primaryKey: boolean;
   protected _unique: boolean;
+  protected _readOnly: boolean;
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
@@ -66,6 +76,7 @@ export class ColumnDefinition<
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
+    this._readOnly = config.readOnly ?? false;
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._domain = config.domain;
@@ -90,6 +101,16 @@ export class ColumnDefinition<
   public unique(): Unique<this> {
     this._unique = true;
     return this as Unique<this>;
+  }
+
+  /**
+   * Marks the column as system-managed: it is dropped from `create` and `update` inputs, both
+   * in the types and at runtime, while staying fully readable — selectable, filterable and
+   * orderable. Its value comes from whatever owns it, never from the caller.
+   */
+  public readOnly(): ReadOnly<this> {
+    this._readOnly = true;
+    return this as ReadOnly<this>;
   }
 
   public default(value: this["__type"]["valueType"]): HasDefault<this> {

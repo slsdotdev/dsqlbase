@@ -251,3 +251,48 @@ describe("table().meta()", () => {
     >();
   });
 });
+
+const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // `notNull` with no default: without the read-only marker this would be a *required* input.
+  workspaceId: uuid("workspace_id").notNull().readOnly(),
+  number: text("number").notNull(),
+  note: text("note"),
+});
+
+const invoiceContext = new ExecutionContext({
+  dialect: new QueryBuilder(),
+  schema: new SchemaRegistry({ invoices }),
+  session: mockSession,
+});
+
+const invoiceClient = new ModelClient(invoiceContext, invoiceContext.schema.getTables().invoices);
+
+describe("readOnly columns", () => {
+  it("drops the field from create data, so it is not a required input", () => {
+    const data = expectTypeOf(invoiceClient.create).parameter(0).toHaveProperty("data");
+
+    data.not.toHaveProperty("workspaceId");
+    data.toHaveProperty("number").toEqualTypeOf<string>();
+  });
+
+  it("drops the field from update set", () => {
+    expectTypeOf(invoiceClient.update)
+      .parameter(0)
+      .toHaveProperty("set")
+      .toEqualTypeOf<{ id?: string; number?: string; note?: string | null }>();
+  });
+
+  it("keeps the field readable, selectable and filterable", () => {
+    const query = invoiceClient.findOne({
+      where: { workspaceId: { eq: "ws-1" } },
+      select: { id: true, workspaceId: true },
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{
+      id: string;
+      workspaceId: string;
+      $$meta: Meta;
+    } | null>();
+  });
+});

@@ -269,6 +269,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
       }
 
+      // Read-only columns are dropped rather than refused: the types already exclude them, so a
+      // value here arrived through an untyped spread, and whatever owns the column wins anyway.
+      if (column.readOnly) {
+        continue;
+      }
+
       entries.push([fieldName, value]);
     }
 

@@ -20,6 +20,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly notNull: TConfig["notNull"];
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
+  readonly readOnly: TConfig["readOnly"];
 
   constructor(table: TTable, definition: ColumnDefinition<TName, TConfig>) {
     this.table = table;
@@ -27,6 +28,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];
+    this.readOnly = definition["_readOnly"];
 
     this.codec = definition["_codec"];
     this.onCreate = definition["_onCreate"];

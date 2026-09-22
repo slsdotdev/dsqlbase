@@ -28,6 +28,10 @@ Every method returns an `ExecutableQuery`; `await` it to run it, or pass it unaw
 
 `create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
 
+Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
+them, and a value that reaches them through an untyped spread is dropped. They stay fully
+readable — `select`, `where`, `orderBy` and the result row are unaffected.
+
 ## `QueryArgs`
 
 Defined in `packages/dsqlbase/src/client/model/base.ts` (the JSDoc there is the most detailed reference).

@@ -29,11 +29,33 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
 - `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. `SchemaRegistry._buildRelations` validates each relation when the client is built: non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected); both columns of a pair of the same `dataType`.
-- **Gap:** `_validateWhereExpression` in `operation.ts` returns `where[0]` when given an array. It is a stub — and the natural seam for injecting predicates below the normalizer (tenancy, soft delete).
 - A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - Selection accepts only real columns. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
+
+## The `WHERE` seam
+
+`OperationsFactory._resolveWhere(table, where?)` (`packages/core/src/runtime/operation.ts`) is
+the single place a `WHERE` is assembled, and it is called **unconditionally** — for every select
+(the root and every nested join level, since `_resolveJoinEntries` calls back into
+`_resolveSelectParams`), every update and every delete, whether or not the caller passed a
+filter. That is the point: a predicate injected here (a tenant boundary, a soft-delete rule)
+must apply to a `findMany()` with no arguments as much as to a filtered one, and a seam that
+only ran when the caller happened to filter would not be a rule at all.
+
+`SelectOperationArgs.where` / `UpdateOperationArgs.where` / `DeleteOperationArgs.where` accept
+`SQLNode | SQLNode[]`. The array is combined, not sampled:
+
+| Conditions | Result |
+|---|---|
+| none, or an empty array | `undefined` — no `WHERE` is rendered |
+| one | that node, untouched — no parentheses are added |
+| several | `sql.and` over each node **wrapped**, so an `OR` among them keeps its precedence |
+
+The normalizer folds a user `where` object into one node before it reaches here
+(`packages/dsqlbase/src/client/model/normalizer.ts`), so the array form is for callers that
+drive `OperationsFactory` directly — and for whatever the seam itself adds.
 
 ## Result resolution and `$$meta`
 
@@ -75,11 +97,31 @@ An absent `belongsTo` stays `null` and an empty `hasMany` stays `[]` — no row,
 
 Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only), `where` (`eq/neq/gt/gte/lt/lte/in/between/exists/beginsWith/endsWith/contains` plus `and/or/not`, or value shorthand), `orderBy` (object of field → `asc|desc`, relies on key insertion order), `distinct`, `limit`, `offset`, `join` (relations only). No count or aggregate, no keyset helpers, no row-value comparison in `sql.*`. **No default limit is applied** — the operations factory passes `limit` through unchanged. (The JSDoc used to promise a default of 100; it was wrong and has been removed.)
 
+## Read-only columns
+
+`.readOnly()` (`packages/core/src/definition/column.ts`) marks a column system-managed: it is
+readable, selectable, filterable and orderable like any other, and is removed from the two
+mutation inputs. The runtime `Column.readOnly` carries the flag; `toJSON` does not, because
+introspection cannot observe such a rule on a real database.
+
+Enforcement is deliberately split:
+
+- **The types** drop the field from `CreateValuesOf` and `UpdateValuesOf`
+  (`packages/dsqlbase/src/client/model/base.ts`), so a `notNull` column with no default stops
+  being a *required* input — which is the whole reason the marker exists.
+- **The normalizer** silently drops a read-only field from `data` / `set`
+  (`_getMutationEntries`). It can only have arrived through an untyped spread, and dropping it
+  keeps `create({ data: { ...input } })` working.
+- **Core throws.** `_resolveInsertEntries` and `_resolveUpdateEntries` refuse a read-only column
+  that carries a value, beside the existing primary-key refusal. Leniency belongs to the client;
+  a direct `OperationsFactory` caller gets an error.
+
+Nothing sets the flag for you yet — `tenantScope()` is its first producer.
+
 ## Known gaps (fix, do not design around)
 
 | Gap | Where | Affects |
 |---|---|---|
-| `_validateWhereExpression` stub | `operation.ts` | predicate injection seam |
 | No hooks / derived-client factory | `context.ts`, `transaction-client.ts` | tenancy/identity scoping |
 
 When a proposal needs one of these, name the fix as a prerequisite story. Public API may change; call out the changeset level.

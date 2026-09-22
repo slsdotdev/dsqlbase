@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { META_FIELD, Relation } from "../definition/index.js";
-import { SQLIdentifier, SQLNode, SQLStatement, SQLValue } from "../sql/index.js";
+import { SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
@@ -131,15 +131,32 @@ export class OperationsFactory<
     this._ctx = ctx;
   }
 
-  private _validateWhereExpression<T extends AnyTable>(
+  /**
+   * The single place a `WHERE` is assembled, for every select — root and every nested join
+   * level — every update and every delete. It is called unconditionally, even when the caller
+   * passed no `where`, because this is the seam predicates are injected into: a rule that only
+   * ran when the caller happened to filter would not be a rule.
+   *
+   * Several nodes are AND-ed, each wrapped so an `OR` among them keeps its precedence. A lone
+   * node is returned untouched, so the common case adds no parentheses.
+   */
+  private _resolveWhere<T extends AnyTable>(
     table: T,
-    where: SQLNode | SQLNode[]
-  ): SQLNode {
-    if (Array.isArray(where)) {
-      return where[0];
+    where?: SQLNode | SQLNode[]
+  ): SQLNode | undefined {
+    const conditions = (Array.isArray(where) ? where : [where]).filter(
+      (condition): condition is SQLNode => condition !== undefined && condition !== null
+    );
+
+    if (conditions.length === 0) {
+      return undefined;
     }
 
-    return where;
+    if (conditions.length === 1) {
+      return conditions[0];
+    }
+
+    return sql.and(conditions.map((condition) => sql.wrap(condition)));
   }
 
   private _validateOrderExpression<T extends AnyTable>(table: T, order: SQLNode[]): SQLNode[] {
@@ -201,6 +218,10 @@ export class OperationsFactory<
       const values = Object.fromEntries(record);
 
       for (const [fieldName, column] of columnEntries) {
+        if (column.readOnly && values[fieldName] !== undefined) {
+          throw new Error(`Cannot write read-only column "${fieldName}"`);
+        }
+
         const value = column.getInsertValue(values[fieldName]);
         row.push(value);
       }
@@ -228,6 +249,10 @@ export class OperationsFactory<
         throw new Error(`Cannot update primary key column "${key}"`);
       }
 
+      if (column.readOnly) {
+        throw new Error(`Cannot write read-only column "${key}"`);
+      }
+
       const param = column.getUpdateValue(value);
       entries.push([new SQLIdentifier(column.name), param]);
     }
@@ -244,7 +269,7 @@ export class OperationsFactory<
     const fields = this._resolveFields(table, args.select);
     resolvers.push(...fields.resolvers);
 
-    const where = args.where ? this._validateWhereExpression(table, args.where) : undefined;
+    const where = this._resolveWhere(table, args.where);
     const order = args.orderBy ? this._validateOrderExpression(table, args.orderBy) : undefined;
     const join = args.join ? this._resolveJoinEntries(table, args.join, resolvers) : undefined;
     const limit = mode === "one" ? 1 : args.limit;
@@ -453,7 +478,7 @@ export class OperationsFactory<
     const { name, args, mode } = config;
 
     const entries = this._resolveUpdateEntries(table, args.set);
-    const where = args.where ? this._validateWhereExpression(table, args.where) : undefined;
+    const where = this._resolveWhere(table, args.where);
     const selection = this._resolveFields(table, args.return);
 
     const query = this._ctx.dialect.buildUpdateQuery({
@@ -481,7 +506,7 @@ export class OperationsFactory<
   >(table: TTable, config: OperationRequest<TArgs, TMode>): DeleteOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
-    const where = args.where ? this._validateWhereExpression(table, args.where) : undefined;
+    const where = this._resolveWhere(table, args.where);
     const selection = this._resolveFields(table, args.return);
 
     const query = this._ctx.dialect.buildDeleteQuery({

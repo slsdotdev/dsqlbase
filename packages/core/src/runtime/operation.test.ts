@@ -5,7 +5,7 @@ import {
   RelationsDefinition,
   TableDefinition,
 } from "../definition/index.js";
-import { sql, SQLParam } from "../sql/index.js";
+import { sql, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
@@ -347,6 +347,270 @@ describe("OperationFactory / $$meta", () => {
     expect(operation.resolve([{ id: 1 }])).toEqual({
       id: 1,
       $$meta: { key: "users", table: "users" },
+    });
+  });
+});
+
+describe("OperationFactory / where seam", () => {
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: registry, dialect: mockDialect, session: mockSession })
+    );
+
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    mockDialect.buildDeleteQuery.mockReturnValue(sql`DELETE`);
+  });
+
+  const renderLastWhere = (spy: { mock: { calls: { where?: SQLNode }[][] } }) => {
+    const where = spy.mock.calls.at(-1)?.[0]?.where;
+    return where ? new SQLQuery(where).toQuery().text : undefined;
+  };
+
+  it("produces no WHERE when the caller passed none", () => {
+    const users = registry.getTable("users");
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: { select: [["id", users.columns.id]] },
+    });
+
+    expect(mockDialect.buildSelectQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ where: undefined })
+    );
+  });
+
+  it("leaves a single condition untouched, so no parentheses are added", () => {
+    const users = registry.getTable("users");
+    const where = sql`${users.columns.name} = ${sql.param("Alice")}`;
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: { select: [["id", users.columns.id]], where },
+    });
+
+    expect(mockDialect.buildSelectQuery).toHaveBeenCalledWith(expect.objectContaining({ where }));
+    expect(renderLastWhere(mockDialect.buildSelectQuery)).toBe(`"users"."name" = $1`);
+  });
+
+  it("AND-s an array of conditions instead of keeping only the first", () => {
+    const users = registry.getTable("users");
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: {
+        select: [["id", users.columns.id]],
+        where: [
+          sql`${users.columns.name} = ${sql.param("Alice")}`,
+          sql`${users.columns.email} = ${sql.param("a@example.com")}`,
+        ],
+      },
+    });
+
+    expect(renderLastWhere(mockDialect.buildSelectQuery)).toBe(
+      `("users"."name" = $1) AND ("users"."email" = $2)`
+    );
+  });
+
+  it("wraps each condition, so an OR among them keeps its precedence", () => {
+    const users = registry.getTable("users");
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: {
+        select: [["id", users.columns.id]],
+        where: [
+          sql`${users.columns.id} = ${sql.param(1)}`,
+          sql.or([
+            sql`${users.columns.name} = ${sql.param("Alice")}`,
+            sql`${users.columns.name} = ${sql.param("Alex")}`,
+          ]),
+        ],
+      },
+    });
+
+    expect(renderLastWhere(mockDialect.buildSelectQuery)).toBe(
+      `("users"."id" = $1) AND ("users"."name" = $2 OR "users"."name" = $3)`
+    );
+  });
+
+  it("treats an empty array as no WHERE at all", () => {
+    const users = registry.getTable("users");
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: { select: [["id", users.columns.id]], where: [] },
+    });
+
+    expect(mockDialect.buildSelectQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ where: undefined })
+    );
+  });
+
+  it("runs for every nested join level, not only the root", () => {
+    const users = registry.getTable("users");
+    const posts = registry.getTable("posts");
+
+    factory.createSelectOperation(users, {
+      mode: "many",
+      args: {
+        select: [["id", users.columns.id]],
+        join: [
+          [
+            "posts",
+            {
+              select: [["title", posts.columns.title]],
+              where: [
+                sql`${posts.columns.title} = ${sql.param("First")}`,
+                sql`${posts.columns.content} = ${sql.param("body")}`,
+              ],
+            },
+          ],
+        ],
+      },
+    });
+
+    const join = mockDialect.buildSelectQuery.mock.calls.at(-1)?.[0]?.join;
+    const nested = join?.[0]?.params.where;
+
+    expect(nested && new SQLQuery(nested).toQuery().text).toBe(
+      `("posts"."title" = $1) AND ("posts"."content" = $2)`
+    );
+  });
+
+  it("builds an update and a delete with no WHERE", () => {
+    const users = registry.getTable("users");
+
+    factory.createUpdateOperation(users, {
+      mode: "many",
+      args: { set: [["name", new SQLParam("Alice")]] },
+    });
+
+    expect(mockDialect.buildUpdateQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ where: undefined })
+    );
+
+    factory.createDeleteOperation(users, { mode: "many", args: {} });
+
+    expect(mockDialect.buildDeleteQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ where: undefined })
+    );
+  });
+
+  it("AND-s an array on update and delete too", () => {
+    const users = registry.getTable("users");
+    const where = [
+      sql`${users.columns.id} = ${sql.param(1)}`,
+      sql`${users.columns.name} = ${sql.param("Alice")}`,
+    ];
+
+    factory.createUpdateOperation(users, {
+      mode: "many",
+      args: { set: [["name", new SQLParam("Alex")]], where },
+    });
+
+    expect(renderLastWhere(mockDialect.buildUpdateQuery)).toBe(
+      `("users"."id" = $1) AND ("users"."name" = $2)`
+    );
+
+    factory.createDeleteOperation(users, { mode: "many", args: { where } });
+
+    expect(renderLastWhere(mockDialect.buildDeleteQuery)).toBe(
+      `("users"."id" = $1) AND ("users"."name" = $2)`
+    );
+  });
+});
+
+describe("OperationFactory / read-only columns", () => {
+  const managed = new TableDefinition("managed", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      tenantId: new ColumnDefinition("tenant_id").notNull().readOnly(),
+      name: new ColumnDefinition("name").notNull(),
+    },
+  });
+
+  const managedRegistry = new SchemaRegistry({ managed });
+
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: managedRegistry, dialect: mockDialect, session: mockSession })
+    );
+
+    mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+  });
+
+  it("refuses an insert that carries a value for a read-only column", () => {
+    const table = managedRegistry.getTable("managed");
+
+    expect(() =>
+      factory.createInsertOperation(table, {
+        mode: "one",
+        args: {
+          data: [
+            [
+              ["id", new SQLParam(1)],
+              ["tenantId", new SQLParam("ws-1")],
+              ["name", new SQLParam("Alice")],
+            ],
+          ],
+        },
+      })
+    ).toThrow(`Cannot write read-only column "tenantId"`);
+  });
+
+  it("allows an insert that leaves the read-only column alone", () => {
+    const table = managedRegistry.getTable("managed");
+
+    expect(() =>
+      factory.createInsertOperation(table, {
+        mode: "one",
+        args: {
+          data: [
+            [
+              ["id", new SQLParam(1)],
+              ["name", new SQLParam("Alice")],
+            ],
+          ],
+        },
+      })
+    ).not.toThrow();
+  });
+
+  it("refuses an update that sets a read-only column", () => {
+    const table = managedRegistry.getTable("managed");
+
+    expect(() =>
+      factory.createUpdateOperation(table, {
+        mode: "many",
+        args: { set: [["tenantId", new SQLParam("ws-2")]] },
+      })
+    ).toThrow(`Cannot write read-only column "tenantId"`);
+  });
+
+  it("keeps a read-only column readable", () => {
+    const table = managedRegistry.getTable("managed");
+
+    const operation = factory.createSelectOperation(table, {
+      mode: "one",
+      args: {
+        select: [
+          ["id", table.columns.id],
+          ["tenantId", table.columns.tenantId],
+        ],
+      },
+    });
+
+    expect(operation.resolve([{ id: 1, tenant_id: "ws-1" }])).toEqual({
+      id: 1,
+      tenantId: "ws-1",
+      $$meta: { key: "managed", table: "managed" },
     });
   });
 });

@@ -24,6 +24,14 @@ export type HasDefault<T extends TypedObject> = T & {
   __type: { hasDefault: true };
 };
 
+/**
+ * Marks a column as system-managed: readable, selectable, filterable and orderable, but never
+ * written through `create` or `update`. The value comes from the runtime, not from the caller.
+ */
+export type ReadOnly<T extends TypedObject> = T & {
+  __type: { readOnly: true };
+};
+
 export type ValueType<T extends TypedObject, TValue> = T & {
   __type: { valueType: TValue };
 };
