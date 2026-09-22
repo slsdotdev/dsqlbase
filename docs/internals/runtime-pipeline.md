@@ -14,22 +14,24 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 ```
 
 - `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations }`. There are **no hooks, middleware, or interceptors** anywhere in the chain.
-- The only "derived client" pattern is `packages/dsqlbase/src/client/transaction/transaction-client.ts`: build a new `ExecutionContext` with a different session, re-attach one `ModelClient` per table with `defineProperty`. Any scoped client (tenancy, identity) will copy this pattern until a shared factory exists.
-- Models are attached to `DatabaseClient` keyed by the schema **alias** (the export name), in `packages/dsqlbase/src/client/create.ts`. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the runtime `Table`. There is no reverse map from table name to alias and no models map on the context.
+- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session, then attach one `ModelClient` per table with `defineProperty`. Both `packages/dsqlbase/src/client/create.ts` and `packages/dsqlbase/src/client/transaction/transaction-client.ts` go through it, and any scoped client (tenancy, identity) should too. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
+- Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
 
-- `Column.primaryKey` exists for column-level `.primaryKey()`.
-- Table-level composite keys live in `TableDefinition._constraints` (`packages/core/src/definition/table.ts`) and are **not** exposed on the runtime `Table` (`packages/core/src/runtime/table.ts` exposes columns and relations only). Anything that needs "the key of this table" — node lookup, keyset cursor tiebreakers — has to add that.
+- `Table.primaryKey: AnyColumn[]` (`packages/core/src/runtime/table.ts`) is the key in key order, empty when the table declares none; `Table.isCompositeKey` is `primaryKey.length > 1`. Anything that needs "the key of this table" — node lookup, keyset cursor tiebreakers — reads it from there.
+- It is built from whichever source declares the key: the column-level `.primaryKey()` flag, or a `PrimaryKeyConstraintDefinition` in `TableDefinition._constraints` (`packages/core/src/definition/table.ts`), whose column refs carry DB names and resolve through `Table.getColumn`.
+- **A table has at most one primary key.** Two flagged columns, a flagged column alongside a table-level constraint, or two table-level constraints all throw when the `Table` is built. The migration path never touches `Table`, so the `MULTIPLE_PRIMARY_KEYS` validation rule (`packages/migration/src/validation/rules/table.ts`) catches the same thing there. Both are needed because `packages/migration/src/ddl/printer.ts` prints each source independently — inline `PRIMARY KEY` per flagged column, a `PRIMARY KEY (...)` clause per constraint — so more than one produced DDL Postgres rejects. A composite key is one constraint over several columns: `table.primaryKey((c) => [...])`.
 - `OperationsFactory` refuses updates to PK columns.
 
 ## Relations and joins
 
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
-- **Gap:** only `from[0]` / `to[0]` are used; composite relations are silently truncated.
+- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. `SchemaRegistry._buildRelations` validates each relation when the client is built: non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected); both columns of a pair of the same `dataType`.
 - **Gap:** `_validateWhereExpression` in `operation.ts` returns `where[0]` when given an array. It is a stub — and the natural seam for injecting predicates below the normalizer (tenancy, soft delete).
-- Joins are only allowed on declared relations. **Gap:** inner queries use raw table names with no aliasing, so a self-join or the same table twice at one level would collide.
+- A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
+- Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - Selection accepts only real columns. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
 
 ## Query args surface
@@ -40,10 +42,6 @@ Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only)
 
 | Gap | Where | Affects |
 |---|---|---|
-| Codec not applied to where-clause values | `normalizer.ts` → `sql.eq/...` | any codec that changes wire format; see [Codec boundary](./codec-boundary.md) |
-| Composite PK invisible at runtime | `runtime/table.ts` | pagination tiebreakers, node lookup |
-| First-column-only relation joins | `operation.ts` | composite relations |
-| No table aliasing in joins | `query.ts` | self-joins, repeated tables |
 | `_validateWhereExpression` stub | `operation.ts` | predicate injection seam |
 | No hooks / derived-client factory | `context.ts`, `transaction-client.ts` | tenancy/identity scoping |
 
@@ -53,4 +51,5 @@ When a proposal needs one of these, name the fix as a prerequisite story. Public
 
 - [Architecture](./architecture.md)
 - [Codec boundary](./codec-boundary.md)
+- [Select-tree aliasing](./select-tree-aliasing.md)
 - [Querying (guide)](../guide/querying.md)

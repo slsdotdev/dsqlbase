@@ -28,7 +28,20 @@ export const taskRelations = relations(tasks, {
 
 - `hasMany` → the joined field is an array (`json_agg`).
 - `hasOne` and `belongsTo` → the joined field is a single object or `null` (`row_to_json`).
-- `from` is on the source table, `to` on the target; both are arrays for future composite support.
+- `from` is on the source table, `to` on the target; both are arrays, and every pair is correlated.
+- **Multi-column relations work.** Every `from[i]` / `to[i]` pair is correlated, so a relation can key on more than one column:
+
+```ts
+export const taskRelations = relations(tasks, {
+  assigneeMembership: belongsTo(members, {
+    from: [tasks.columns.teamId, tasks.columns.assigneeId],
+    to: [members.columns.teamId, members.columns.userId],
+  }),
+});
+```
+
+  `createClient` rejects a relation whose sides differ in length, whose columns are not declared on the side they are listed under, or whose paired columns have different types.
+- **A relation may point at its own table.** `parent: belongsTo(tasks, { from: [tasks.columns.parentId], to: [tasks.columns.id] })` works: each level of a query is rendered under its own alias, so the two sides stay distinct. The same holds for joining two tables that share a name in different schemas.
 
 Use them in queries:
 
@@ -44,10 +57,11 @@ const user = await dsql.users.findOne({
 
 Nested `where` / `select` / `orderBy` / `limit` / `join` all work inside a join, because each join is a full sub-select. See [Querying](./querying.md).
 
+- **A relation may not be named after a column of the same table.** Columns and relations share one field namespace, because `select`, `join` and the keys of a result row all address them as fields of the same model. `createClient` throws when they collide, naming both.
+
 ## What relations do not do
 
 - **No foreign keys are emitted.** Relations are a runtime construct; the migration module ignores them. Declaring `belongsTo` does not create a `REFERENCES` clause. If you want referential integrity in the database, that is a schema feature tracked separately (see [DSQL capabilities](../internals/dsql-capabilities.md) — DSQL does support FKs now).
-- **Only the first column pair is used** in `from` / `to` today. Composite relations are accepted by the types and silently truncated at runtime. This is a known gap listed in [Runtime pipeline](../internals/runtime-pipeline.md).
 - **Joins are only allowed on declared relations.** Ad-hoc joins go through `$query` with the `sql` tag.
 
 ## Related

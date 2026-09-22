@@ -3,8 +3,10 @@ import { AnyColumnDefinition, AnyTableDefinition } from "@dsqlbase/core/definiti
 import { SerializedObject } from "../../base.js";
 import { ValidationContext } from "../context.js";
 import {
+  duplicateColumnName,
   duplicateIndexCoverage,
   emptyConstraintColumns,
+  multiplePrimaryKeys,
   redundantUniqueOnPk,
   tableIdentifiersTooLong,
   tableNoPrimaryKey,
@@ -75,6 +77,115 @@ describe("tableNoPrimaryKey", () => {
     tableNoPrimaryKey(table, context);
     expect(context.issues).toHaveLength(1);
     expect(context.issues[0]?.code).toBe("TABLE_NO_PRIMARY_KEY");
+  });
+});
+
+describe("multiplePrimaryKeys", () => {
+  it("does not report a single column-level primary key", () => {
+    const table = baseTable({ columns: [baseColumn({ name: "id", primaryKey: true })] });
+    const context = ctxFor(table);
+    multiplePrimaryKeys(table, context);
+    expect(context.issues).toEqual([]);
+  });
+
+  it("does not report a single composite primary key constraint", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "team_id" }),
+        baseColumn({ name: "user_id" }),
+      ],
+      constraints: [
+        {
+          kind: "PRIMARY_KEY_CONSTRAINT",
+          name: "team_members_pk",
+          columns: ["team_id", "user_id"],
+          include: null,
+        },
+      ],
+    } as Partial<Table>);
+    const context = ctxFor(table);
+    multiplePrimaryKeys(table, context);
+    expect(context.issues).toEqual([]);
+  });
+
+  it("reports two columns flagged as primary key", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "team_id", primaryKey: true }),
+        baseColumn({ name: "user_id", primaryKey: true }),
+      ],
+    });
+    const context = ctxFor(table);
+    multiplePrimaryKeys(table, context);
+
+    expect(context.issues).toHaveLength(1);
+    expect(context.issues[0]?.code).toBe("MULTIPLE_PRIMARY_KEYS");
+    expect(context.issues[0]?.level).toBe("error");
+    expect(context.issues[0]?.message).toContain('column "team_id", column "user_id"');
+  });
+
+  it("reports a flagged column combined with a table-level constraint", () => {
+    const table = baseTable({
+      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "team_id" })],
+      constraints: [
+        {
+          kind: "PRIMARY_KEY_CONSTRAINT",
+          name: "users_pk",
+          columns: ["team_id"],
+          include: null,
+        },
+      ],
+    } as Partial<Table>);
+    const context = ctxFor(table);
+    multiplePrimaryKeys(table, context);
+
+    expect(context.issues).toHaveLength(1);
+    expect(context.issues[0]?.code).toBe("MULTIPLE_PRIMARY_KEYS");
+    expect(context.issues[0]?.message).toContain('column "id", constraint "users_pk"');
+  });
+});
+
+describe("duplicateColumnName", () => {
+  it("does not report distinct column names", () => {
+    const table = baseTable({
+      columns: [baseColumn({ name: "id", primaryKey: true }), baseColumn({ name: "email" })],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+    expect(context.issues).toEqual([]);
+  });
+
+  it("reports a repeated column name once", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "id", primaryKey: true }),
+        baseColumn({ name: "display_name" }),
+        baseColumn({ name: "display_name" }),
+        baseColumn({ name: "display_name" }),
+      ],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+
+    expect(context.issues).toHaveLength(1);
+    expect(context.issues[0]?.code).toBe("DUPLICATE_COLUMN_NAME");
+    expect(context.issues[0]?.level).toBe("error");
+    expect(context.issues[0]?.message).toContain('"display_name"');
+  });
+
+  it("reports each distinct duplicate separately", () => {
+    const table = baseTable({
+      columns: [
+        baseColumn({ name: "a" }),
+        baseColumn({ name: "a" }),
+        baseColumn({ name: "b" }),
+        baseColumn({ name: "b" }),
+      ],
+    });
+    const context = ctxFor(table);
+    duplicateColumnName(table, context);
+
+    expect(context.issues).toHaveLength(2);
   });
 });
 

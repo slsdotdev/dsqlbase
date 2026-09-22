@@ -62,10 +62,10 @@ export async function seedMembers(
 
 export async function seedProjects(client: TestClient, teams: SeededData["teams"]) {
   const query = sql`
-    INSERT INTO "projects" ("team_id", "name", "key", "description", "is_archived") VALUES
-      (${teams[0].id}, 'API Platform', 'API', 'Core API services', ${true}),
-      (${teams[0].id}, 'Web Dashboard', 'WEB', 'Admin dashboard', DEFAULT),
-      (${teams[1].id}, 'Design System', 'DSN', 'Shared component library', DEFAULT)
+    INSERT INTO "projects" ("team_id", "name", "key", "description", "is_archived", "budget_hours") VALUES
+      (${teams[0].id}, 'API Platform', 'API', 'Core API services', ${true}, 'PT8H'),
+      (${teams[0].id}, 'Web Dashboard', 'WEB', 'Admin dashboard', DEFAULT, 'PT40H'),
+      (${teams[1].id}, 'Design System', 'DSN', 'Shared component library', DEFAULT, NULL)
     RETURNING "id", "team_id", "name", "key"
   `;
   return await client.$query<{ id: string; teamId: string; name: string; key: string }>(query);
@@ -78,14 +78,15 @@ export async function seedTasks(
 ) {
   const query = sql`
     INSERT INTO "tasks" 
-      ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date") 
+      ("project_id", "assignee_id", "task_number", "title", "status", "priority", "due_date",
+       "estimate_seconds", "completed_at") 
     VALUES
-      (${projects[0].id}, ${users[0].id}, 1, 'Setup authentication', 'in_progress', 'high', '2026-05-01'),
-      (${projects[0].id}, ${users[1].id}, 2, 'Implement rate limiting', 'todo', 'medium', NULL),
-      (${projects[0].id}, NULL, 3, 'Write API documentation', 'todo', 'low', '2026-06-01'),
-      (${projects[1].id}, ${users[2].id}, 1, 'Dashboard layout', 'done', 'high', NULL),
-      (${projects[1].id}, ${users[1].id}, 2, 'User settings page', 'in_progress', 'medium', '2026-05-15'),
-      (${projects[2].id}, ${users[3].id}, 1, 'Button component', 'done', 'high', NULL)
+      (${projects[0].id}, ${users[0].id}, 1, 'Setup authentication', 'in_progress', 'high', '2026-05-01', 9007199254740993, NULL),
+      (${projects[0].id}, ${users[1].id}, 2, 'Implement rate limiting', 'todo', 'medium', NULL, 3600, NULL),
+      (${projects[0].id}, NULL, 3, 'Write API documentation', 'todo', 'low', '2026-06-01', NULL, NULL),
+      (${projects[1].id}, ${users[2].id}, 1, 'Dashboard layout', 'done', 'high', NULL, 7200, '2026-03-04T05:06:07Z'),
+      (${projects[1].id}, ${users[1].id}, 2, 'User settings page', 'in_progress', 'medium', '2026-05-15', NULL, NULL),
+      (${projects[2].id}, ${users[3].id}, 1, 'Button component', 'done', 'high', NULL, 7200, '2026-04-05T06:07:08Z')
     RETURNING "id", "project_id", "assignee_id", "task_number", "title", "status", "priority"
   `;
 
@@ -98,6 +99,20 @@ export async function seedTasks(
     status: string;
     priority: string;
   }>(query);
+
+  // Denormalise the owning team so the composite relation has both of its columns.
+  await client.$query(
+    sql`UPDATE "tasks" SET "team_id" = "projects"."team_id"
+        FROM "projects" WHERE "tasks"."project_id" = "projects"."id"`
+  );
+
+  // Give the self-relation something to resolve: tasks 2 and 3 are children of task 1.
+  await client.$query(
+    sql`UPDATE "tasks" SET "parent_id" = ${rows[0].id} WHERE "id" IN (${sql.join(
+      [sql.param(rows[1].id), sql.param(rows[2].id)],
+      ", "
+    )})`
+  );
 
   return rows.map((r) => ({
     id: r.id,

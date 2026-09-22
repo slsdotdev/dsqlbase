@@ -1,12 +1,34 @@
 import { sql, SQLNode, SQLQuery } from "../sql/index.js";
+import { SQLScope } from "../sql/nodes.js";
 
 export interface JoinParams {
   alias: string;
   type: "one" | "many";
-  from: SQLNode;
-  to: SQLNode;
+  /** Columns on the parent level. Paired positionally with {@link JoinParams.to}. */
+  from: SQLNode[];
+  /** Columns on the joined level. Paired positionally with {@link JoinParams.from}. */
+  to: SQLNode[];
   params: SelectParams;
 }
+
+/**
+ * Hands out the table and JSON-wrapper aliases for one query build. Kept per build rather
+ * than on the builder so `QueryBuilder` stays stateless and safe to share across a client.
+ */
+interface AliasAllocator {
+  table(): string;
+  json(): string;
+}
+
+const createAliasAllocator = (): AliasAllocator => {
+  let tables = 0;
+  let wrappers = 0;
+
+  return {
+    table: () => `__t${tables++}`,
+    json: () => `__j${wrappers++}`,
+  };
+};
 
 export interface SelectParams {
   table: SQLNode;
@@ -58,43 +80,60 @@ export class QueryBuilder {
   }
 
   /**
-   * Builds a lateral join for the given join parameters. This is used to implement relations between tables.
+   * Correlates a joined level to its parent, over every column pair.
+   *
+   * The parent-side columns are wrapped in the parent's scope so they keep the parent's
+   * alias even though the predicate is rendered inside the joined level, where the same
+   * table may be bound to a different alias. That is what makes a self-join correct.
+   */
+  private _buildCorrelation(join: JoinParams, parentScope: ReadonlyMap<unknown, string>): SQLNode {
+    if (join.from.length === 0 || join.from.length !== join.to.length) {
+      throw new Error(
+        `Join "${join.alias}" must correlate an equal, non-zero number of columns ` +
+          `(got ${join.from.length} from, ${join.to.length} to)`
+      );
+    }
+
+    const pairs = join.to.map((to, index) => sql.eq(to, new SQLScope(parentScope, join.from[index])));
+
+    return pairs.length === 1 ? pairs[0] : sql.and(pairs);
+  }
+
+  /**
+   * Builds a lateral join for the given join parameters. This is used to implement relations
+   * between tables.
    *
    * @example
-   * Given a `tasks` table with a relation to an `assignee` in the `users` table, the following join definition:
-   * ```ts
-   * const join: JoinParams = {
-   *   alias: "assignee",
-   *   type: "one",
-   *   from: sql`${tasks.assigneeId}`,
-   *   to: sql`${users.id}`,
-   *   params: {
-   *     table: users,
-   *     select: [users.id, users.name, users.email],
-   *     where: sql`${users.id} = ${tasks.assigneeId}`,
-   *   },
-   * }
-   * ```
-   * would produce the following SQL:
+   * Given a `tasks` table with a relation to an `assignee` in the `users` table, the join
+   * produces:
    *
    * ```sql
-   * SELECT "id", "title", "description", "__join_assignee"."data" AS "assignee" FROM "tasks"
+   * SELECT "__t0"."id", "__join_assignee"."data" AS "assignee" FROM "tasks" AS "__t0"
    *  LEFT JOIN LATERAL (
-   *    SELECT row_to_json("__t".*) AS "data"
+   *    SELECT row_to_json("__j0".*) AS "data"
    *      FROM (
-   *        SELECT "id", "name", "email"
-   *        FROM "users"
-   *        WHERE "users"."id" = "tasks"."assignee_id"
-   *      ) AS "__t"
+   *        SELECT "__t1"."name"
+   *        FROM "users" AS "__t1"
+   *        WHERE "__t1"."id" = "__t0"."assignee_id"
+   *      ) AS "__j0"
    *  ) AS "__join_assignee"
    * ON true
    * ```
    **/
-  private _buildLateralJoin(join: JoinParams): SQLNode {
+  private _buildLateralJoin(
+    join: JoinParams,
+    parentScope: ReadonlyMap<unknown, string>,
+    alloc: AliasAllocator
+  ): SQLNode {
     const alias = sql.identifier(`__join_${join.alias}`);
+    const innerAlias = sql.identifier(alloc.json());
 
-    const innerAlias = sql.identifier(`__t`);
-    const innerQuery = this.buildSelectQuery(join.params);
+    const correlation = this._buildCorrelation(join, parentScope);
+    const where = join.params.where
+      ? sql.and([correlation, sql.wrap(join.params.where)])
+      : correlation;
+
+    const innerQuery = this._buildSelect({ ...join.params, where }, alloc);
 
     const subquery = sql`SELECT`;
 
@@ -110,7 +149,22 @@ export class QueryBuilder {
   }
 
   buildSelectQuery(params: SelectParams): SQLQuery {
+    return this._buildSelect(params, createAliasAllocator());
+  }
+
+  /**
+   * Renders one level of a select tree.
+   *
+   * Every level gets its own `FROM ... AS "__t<n>"` and binds its table to that alias for
+   * the clauses that qualify columns. Column nodes resolve their qualifier from the binding
+   * in scope, so nothing above this module needs to know an alias exists.
+   */
+  private _buildSelect(params: SelectParams, alloc: AliasAllocator): SQLQuery {
     const { table, select, distinct, where, order, limit, offset, join } = params;
+
+    const tableAlias = alloc.table();
+    const scope: ReadonlyMap<unknown, string> = new Map([[table, tableAlias]]);
+    const scoped = (node: SQLNode) => new SQLScope(scope, node);
 
     const query = sql`SELECT`;
 
@@ -118,22 +172,24 @@ export class QueryBuilder {
       query.append(sql` DISTINCT`);
     }
 
-    const selection = this._getSelection(select, join?.map(({ alias }) => alias) ?? []);
-    query.append(sql` ${selection} FROM ${table}`);
+    const selection = this._getSelection(select.map(scoped), join?.map(({ alias }) => alias) ?? []);
+
+    // `table` renders as a source here — schema-qualified, never aliased — and the alias is
+    // introduced alongside it.
+    query.append(sql` ${selection} FROM ${table} AS ${sql.identifier(tableAlias)}`);
 
     if (join) {
       for (const joinEntry of join) {
-        const joinNode = this._buildLateralJoin(joinEntry);
-        query.append(sql` ${joinNode}`);
+        query.append(sql` ${this._buildLateralJoin(joinEntry, scope, alloc)}`);
       }
     }
 
     if (where) {
-      query.append(sql` WHERE ${where}`);
+      query.append(sql` WHERE ${scoped(where)}`);
     }
 
     if (order && order.length > 0) {
-      query.append(sql` ORDER BY ${sql.join(order, ", ")}`);
+      query.append(sql` ORDER BY ${scoped(sql.join(order, ", "))}`);
     }
 
     if (limit !== undefined) {

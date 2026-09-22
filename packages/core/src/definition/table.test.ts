@@ -69,6 +69,51 @@ describe("Table", () => {
     });
   });
 
+  it("should reject two fields mapping to the same column", () => {
+    expect(
+      () =>
+        new TableDefinition("users", {
+          columns: {
+            name: new ColumnDefinition("display_name"),
+            displayName: new ColumnDefinition("display_name"),
+          },
+        })
+    ).toThrow(
+      /maps fields "name" and "displayName" to the same column "display_name"/
+    );
+  });
+
+  it("should accept fields whose aliases differ from distinct column names", () => {
+    const users = new TableDefinition("users", {
+      columns: {
+        displayName: new ColumnDefinition("display_name"),
+        createdAt: new ColumnDefinition("created_at"),
+      },
+    });
+
+    expect(Object.keys(users.columns)).toEqual(["displayName", "createdAt"]);
+  });
+
+  it("should add composite primary key constraint", () => {
+    const members = new TableDefinition("team_members", {
+      columns: {
+        teamId: new ColumnDefinition("team_id").notNull(),
+        userId: new ColumnDefinition("user_id").notNull(),
+      },
+    });
+
+    members.primaryKey((c) => [c.teamId, c.userId]);
+
+    const json = members.toJSON();
+
+    expect(json.constraints).toHaveLength(1);
+    expect(json.constraints?.[0]).toMatchObject({
+      kind: "PRIMARY_KEY_CONSTRAINT",
+      name: "team_members_primary_key",
+      columns: ["team_id", "user_id"],
+    });
+  });
+
   it("should serialize index with columns", () => {
     const tasks = new TableDefinition("tasks", {
       columns: {

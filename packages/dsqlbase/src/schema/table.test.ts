@@ -70,4 +70,14 @@ describe("TableDefinition", () => {
       indexes: [],
     });
   });
+
+  it("rejects two fields mapping to the same column", () => {
+    expect(() =>
+      table("users", {
+        id: uuid("id").primaryKey(),
+        name: text("display_name"),
+        displayName: text("display_name"),
+      })
+    ).toThrow(/maps fields "name" and "displayName" to the same column "display_name"/);
+  });
 });

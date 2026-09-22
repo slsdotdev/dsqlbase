@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   datetime,
@@ -82,13 +83,16 @@ const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
+  teamId: uuid("team_id"),
   assigneeId: uuid("assignee_id"),
+  parentId: uuid("parent_id"),
   taskNumber: text("task_number").notNull(),
   title: text("title").notNull(),
   description: varchar("description", 5000),
   status: taskStatus.column("status").notNull(),
   priority: priorityLevel.column("priority").notNull(),
   dueDate: date("due_date"),
+  estimateSeconds: bigint("estimate_seconds"),
   completedAt: datetime("completed_at"),
   deletedAt: datetime("deleted_at"),
   createdAt: datetime("created_at").notNull().defaultNow(),
@@ -155,6 +159,20 @@ const taskRelations = relations(tasks, {
   assignee: belongsTo(users, {
     from: [tasks.columns.assigneeId],
     to: [users.columns.id],
+  }),
+  // Self-referential: both sides of the join are the same table.
+  parent: belongsTo(tasks, {
+    from: [tasks.columns.parentId],
+    to: [tasks.columns.id],
+  }),
+  subtasks: hasMany(tasks, {
+    from: [tasks.columns.id],
+    to: [tasks.columns.parentId],
+  }),
+  // Two-column relation: the assignee's membership record within this task's team.
+  assigneeMembership: belongsTo(members, {
+    from: [tasks.columns.teamId, tasks.columns.assigneeId],
+    to: [members.columns.teamId, members.columns.userId],
   }),
 });
 

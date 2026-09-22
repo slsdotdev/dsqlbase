@@ -18,7 +18,7 @@ export const users = table("users", {
 });
 ```
 
-The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
+The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. Field names are unique per table across columns *and* [relations](./relations.md) — the client addresses both as fields of one model. **Two fields may not map to the same column name** — `table()` throws when they do, because the result resolver reads rows by column name and one field would silently shadow the other. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
 
 ### Column modifiers
 
@@ -34,6 +34,8 @@ tasks.index("tasks_due_idx").columns((c) => [c.dueDate]).include((c) => [c.statu
 ```
 
 Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. Partial (`WHERE`) and expression indexes are not modelled yet.
+
+**A table has at most one primary key.** Use `.primaryKey()` on a single column, or `table.primaryKey((c) => [...])` for a composite key — never both, and never two of either. Declaring more than one is rejected when the client is created and by the migration validator (`MULTIPLE_PRIMARY_KEYS`); SQL allows only one `PRIMARY KEY` per table.
 
 ## Column types
 

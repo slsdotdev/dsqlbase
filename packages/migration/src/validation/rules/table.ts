@@ -19,6 +19,50 @@ export const tableNoPrimaryKey: TableRule = (table, context) => {
   });
 };
 
+export const multiplePrimaryKeys: TableRule = (table, context) => {
+  const declarations = [
+    ...table.columns.filter((col) => col.primaryKey).map((col) => `column "${col.name}"`),
+    ...(table.constraints ?? [])
+      .filter((c) => c.kind === "PRIMARY_KEY_CONSTRAINT")
+      .map((c) => `constraint "${c.name}"`),
+  ];
+
+  if (declarations.length < 2) return;
+
+  context.report({
+    level: "error",
+    code: "MULTIPLE_PRIMARY_KEYS",
+    message: `Table "${table.name}" declares more than one primary key (${declarations.join(", ")}).`,
+    path: [table.namespace, table.name],
+    hint: `A table has at most one primary key. Use a single table-level primary key constraint for a composite key.`,
+  });
+};
+
+/**
+ * The high-level builders reject this when the table is declared, but `validate` also
+ * accepts a `SerializedSchema` that never went through them.
+ */
+export const duplicateColumnName: TableRule = (table, context) => {
+  const seen = new Set<string>();
+  const reported = new Set<string>();
+
+  for (const column of table.columns) {
+    if (seen.has(column.name) && !reported.has(column.name)) {
+      reported.add(column.name);
+
+      context.report({
+        level: "error",
+        code: "DUPLICATE_COLUMN_NAME",
+        message: `Table "${table.name}" declares column "${column.name}" more than once.`,
+        path: [table.namespace, table.name, "columns", column.name],
+        hint: `Every field on a table must map to a distinct column name.`,
+      });
+    }
+
+    seen.add(column.name);
+  }
+};
+
 export const unknownColumnReference: TableRule = (table, context) => {
   const columnNames = new Set(table.columns.map((c) => c.name));
 

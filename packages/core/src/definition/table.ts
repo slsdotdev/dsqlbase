@@ -43,6 +43,30 @@ export class TableDefinition<
 
     this._namespace = config.namespace;
     this.columns = config.columns as Readonly<TColumns>;
+
+    this._assertDistinctColumnNames();
+  }
+
+  /**
+   * Two fields mapping to one database column is always a mistake, and a silent one: the
+   * result resolver reads a row by column name (`packages/core/src/runtime/operation.ts`),
+   * so one field would shadow the other, and `toJSON` would emit the column twice.
+   */
+  private _assertDistinctColumnNames(): void {
+    const fieldsByColumn = new Map<string, string>();
+
+    for (const [field, column] of Object.entries(this.columns)) {
+      const existing = fieldsByColumn.get(column.name);
+
+      if (existing !== undefined) {
+        throw new Error(
+          `Table "${this.name}" maps fields "${existing}" and "${field}" to the same column ` +
+            `"${column.name}". Every field must map to a distinct column.`
+        );
+      }
+
+      fieldsByColumn.set(column.name, field);
+    }
   }
 
   /** @internal */

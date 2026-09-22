@@ -1,12 +1,11 @@
 import {
-  AnyTable,
   DefinitionSchema,
   ExecutionContext,
   QueryBuilder,
   SchemaRegistry,
   Session,
 } from "@dsqlbase/core";
-import { ModelClient } from "./model/client.js";
+import { attachModels } from "./database/base.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
 export interface ClientOptions<TSchema extends DefinitionSchema> {
@@ -94,16 +93,7 @@ export function createClient<TSchema extends DefinitionSchema>(
   });
 
   const dbClient = new DatabaseClient(context);
-
-  for (const [tableName, table] of Object.entries<AnyTable>(schema.getTables())) {
-    const modelClient = new ModelClient(context, table);
-
-    Object.defineProperty(dbClient, tableName, {
-      value: modelClient,
-      writable: false,
-      enumerable: true,
-    });
-  }
+  attachModels(dbClient, context);
 
   return dbClient as QueryClient<TSchema>;
 }

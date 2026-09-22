@@ -163,7 +163,7 @@ export class PrimaryKeyConstraintDefinition<
       columns: ColumnRefs<TTable["columns"]>
     ) => ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][]
   ): this {
-    this._columns = cb(this._table._getColumnRefs());
+    this._include = cb(this._table._getColumnRefs());
     return this;
   }
 

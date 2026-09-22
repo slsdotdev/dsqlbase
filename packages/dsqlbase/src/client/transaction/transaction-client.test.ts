@@ -17,6 +17,12 @@ const posts = table("posts", {
   title: text("title").notNull(),
 });
 
+// Exported below as `members`, so the schema alias differs from the table name.
+const teamMembers = table("team_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+});
+
 const userRelations = relations(users, {
   posts: hasMany(posts, {
     from: [users.columns.id],
@@ -31,7 +37,7 @@ const postRelations = relations(posts, {
   }),
 });
 
-const schema = { users, posts, userRelations, postRelations };
+const schema = { users, posts, members: teamMembers, userRelations, postRelations };
 
 const createMockSession = () => {
   const txSessions: {
@@ -136,6 +142,23 @@ describe("createTransactionRunner via $transaction", () => {
 
       expect(txClient.users).toBeInstanceOf(ModelClient);
       expect(txClient.posts).toBeInstanceOf(ModelClient);
+    });
+
+    // The transaction client goes through the same attachModels helper as createClient,
+    // so it must key models by alias only, not by the database table name too.
+    it("keys models by schema alias, not by table name", async () => {
+      let txClient = {} as TxClient<typeof schema>;
+
+      await dsql.$transaction(async (tx) => {
+        txClient = tx;
+        return null;
+      });
+
+      expect(txClient.members).toBeInstanceOf(ModelClient);
+      expect(Object.hasOwn(txClient, "team_members")).toBe(false);
+
+      const models = Object.entries(txClient).filter(([, v]) => v instanceof ModelClient);
+      expect(models.map(([alias]) => alias).sort()).toEqual(["members", "posts", "users"]);
     });
 
     it("returns the callback's resolved value", async () => {

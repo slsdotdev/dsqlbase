@@ -24,7 +24,7 @@ Run from the repo root (Turbo fans them out across workspaces):
 | `npm run coverage` | Vitest with `--coverage` (v8). |
 | `npm run changeset` / `npm run publish` | Versioning + publishing via Changesets. |
 
-Per package: `cd packages/<pkg>` then `npm test`, `npx vitest run path/to/file.test.ts`, or `npx vitest run -t "name"`. `packages/dsqlbase` runs `vitest run --typecheck` — type-level tests are part of the suite. Details: `docs/internals/testing.md`.
+Per package: `cd packages/<pkg>` then `npm test`, `npx vitest run path/to/file.test.ts`, or `npx vitest run -t "name"`. `packages/dsqlbase` enables `test.typecheck` in its `vitest.config.ts`, so type-level tests (`*.types.test.ts`) run as part of `npm test`. Details: `docs/internals/testing.md`.
 
 ## Rules
 

@@ -96,44 +96,47 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
       }
 
+      // Comparison values go through `column.param` so the column's codec writes them the
+      // same way it wrote them on insert. Pattern operators below stay raw: they compare
+      // against a `LIKE` pattern, not a column value.
       if (isFilterType(condition, "eq")) {
-        expressions.push(sql.eq(column, condition.eq));
+        expressions.push(sql.eq(column, column.param(condition.eq)));
         continue;
       }
 
       if (isFilterType(condition, "neq")) {
-        expressions.push(sql.ne(column, condition.neq));
+        expressions.push(sql.ne(column, column.param(condition.neq)));
         continue;
       }
 
       if (isFilterType(condition, "gt")) {
-        expressions.push(sql.gt(column, condition.gt));
+        expressions.push(sql.gt(column, column.param(condition.gt)));
         continue;
       }
 
       if (isFilterType(condition, "gte")) {
-        expressions.push(sql.gte(column, condition.gte));
+        expressions.push(sql.gte(column, column.param(condition.gte)));
         continue;
       }
 
       if (isFilterType(condition, "lt")) {
-        expressions.push(sql.lt(column, condition.lt));
+        expressions.push(sql.lt(column, column.param(condition.lt)));
         continue;
       }
 
       if (isFilterType(condition, "lte")) {
-        expressions.push(sql.lte(column, condition.lte));
+        expressions.push(sql.lte(column, column.param(condition.lte)));
         continue;
       }
 
       if (isFilterType(condition, "in")) {
-        expressions.push(sql.in(column, condition.in));
+        expressions.push(sql.in(column, condition.in.map((value) => column.param(value))));
         continue;
       }
 
       if (isFilterType(condition, "between")) {
         expressions.push(
-          sql`${column} BETWEEN ${sql.param(condition.between[0])} AND ${sql.param(
+          sql`${column} BETWEEN ${column.param(condition.between[0])} AND ${column.param(
             condition.between[1]
           )}`
         );
@@ -164,7 +167,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      expressions.push(sql.eq(column, condition as SQLValue));
+      // Value shorthand: `{ id: "123" }` means `{ id: { eq: "123" } }`.
+      expressions.push(sql.eq(column, column.param(condition as SQLValue)));
     }
 
     return sql.and(expressions);

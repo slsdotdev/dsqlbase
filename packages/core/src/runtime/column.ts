@@ -45,6 +45,26 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     return this.codec.decode(value);
   }
 
+  /**
+   * Wraps a value as a parameter encoded by this column's codec.
+   *
+   * This is the filter counterpart to {@link Column.getInsertValue} and
+   * {@link Column.getUpdateValue}: a `date`, `bigint` or `interval` column only matches if
+   * the value on the wire is written the same way it was stored. A value that is already an
+   * `SQLNode` — another column, a sub-expression — is passed through untouched, since it is
+   * SQL rather than a value to encode.
+   *
+   * Also the way to filter by a codec column in raw `$query`:
+   * ``sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}` ``
+   */
+  public param(value: TConfig["valueType"] | SQLNode): SQLNode {
+    if (isSQLNode(value)) {
+      return value;
+    }
+
+    return new SQLParam(value, this.codec.encode);
+  }
+
   public getInsertValue(
     value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined
   ) {
@@ -84,6 +104,9 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   toSQL(ctx: SQLContext): SQLStatement {
-    return sql.join([sql.identifier(this.table.name), sql.identifier(this.name)], ".").toSQL(ctx);
+    // The table decides how it is named here: an alias when one is bound for it in this
+    // scope, otherwise its plain name. Outside a select tree nothing is bound, so this
+    // renders `"table"."column"` exactly as it always has.
+    return sql.join([this.table.ref(), sql.identifier(this.name)], ".").toSQL(ctx);
   }
 }
