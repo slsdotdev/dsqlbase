@@ -13,10 +13,11 @@ _Audience: contributors and agents._
 
 ## Design workflow
 
-1. **Proposal first.** Non-trivial work starts as `.claude/proposals/<name>.md` (tracked). A proposal states the problem, the decision, rejected alternatives, and ends with a `## Docs` section (below).
+1. **Proposal first.** Non-trivial work starts as `.claude/proposals/<name>.md`. A proposal states the problem, the decision, rejected alternatives, and ends with a `## Docs` section (below).
 2. **Gaps are prerequisites.** If a feature needs a known deficiency fixed (see [Runtime pipeline → Known gaps](./runtime-pipeline.md#known-gaps-fix-do-not-design-around)), the fix is a prerequisite story in the proposal — do not bend the feature to avoid it. Public API may change; name the changeset level.
 3. **Epics** for multi-story work live in `.claude/epics/<name>.md` and record what shipped vs. what was proposed.
-4. **On acceptance**, durable design text moves into `docs/internals/`, a condensed record is added to [`docs/decisions/`](../decisions/README.md), and the proposal file is deleted.
+4. **Proposals and epics are untracked** (`.claude/` is gitignored, apart from configuration). They are one author's working notes, not a deliverable, and they go stale the moment the code lands. Nothing outside `.claude/` may depend on one: a decision record names its proposal for the author's own reference but must stand on its own.
+5. **On acceptance**, durable design text moves into `docs/internals/`, a condensed record is added to [`docs/decisions/`](../decisions/README.md), and the proposal file is deleted. Whatever reasoning is worth keeping — rejected alternatives above all — has to be carried across first, because the proposal is about to vanish with no history behind it.
 
 ## Documentation
 

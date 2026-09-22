@@ -19,8 +19,8 @@ Read this directory before proposing or implementing anything. Every page cites 
 
 | Stage | Location |
 |---|---|
-| Draft design | `.claude/proposals/<name>.md` (tracked) |
-| Multi-story work in progress | `.claude/epics/<name>.md` |
+| Draft design | `.claude/proposals/<name>.md` (untracked working notes) |
+| Multi-story work in progress | `.claude/epics/<name>.md` (untracked working notes) |
 | Accepted and implemented | condensed into [`docs/decisions/`](../decisions/README.md); durable design text moves into this directory; proposal deleted |
 
 ## Related

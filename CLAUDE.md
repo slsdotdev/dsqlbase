@@ -29,7 +29,7 @@ Per package: `cd packages/<pkg>` then `npm test`, `npx vitest run path/to/file.t
 ## Rules
 
 - **Branch off `main`** before any change; `main` is the release branch.
-- **Proposal before non-trivial work**: write `.claude/proposals/<name>.md` first. Multi-story work is tracked in `.claude/epics/<name>.md`. On acceptance, design text moves to `docs/internals/`, a record is added to `docs/decisions/`, and the proposal is deleted.
+- **Proposal before non-trivial work**: write `.claude/proposals/<name>.md` first. Multi-story work is tracked in `.claude/epics/<name>.md`. Both are **untracked working notes** — `.claude/` is gitignored, so nothing outside it may depend on one. On acceptance, design text moves to `docs/internals/`, a record is added to `docs/decisions/`, and the proposal is deleted; carry the reasoning worth keeping across first, since there is no history to recover it from.
 - **Known gaps are prerequisites, not constraints.** If a feature needs a deficiency listed in `docs/internals/runtime-pipeline.md` fixed, the fix is a prerequisite story; do not design around it. Public API may break — say so and name the changeset level.
 - **Docs definition of done** (full text in `docs/internals/conventions.md#documentation`): every proposal ends with a `## Docs` section; every story names the docs pages it changes and is not done until they are updated in the same PR; every changeset body carries a `Docs:` line (pages touched, or `Docs: none — <reason>`); a change that alters a documented claim fixes the doc in the same change.
 - **Changesets** for every published-package change (`npm run changeset`); never bump `version` by hand.

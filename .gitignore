@@ -150,6 +150,8 @@ codegen/
 
 
 
-# Claude Code
+# Claude Code — working artifacts, not deliverables. Accepted designs land in docs/.
 .claude/plans/
 .claude/prime/
+.claude/proposals/
+.claude/epics/
