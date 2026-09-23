@@ -8,7 +8,10 @@ import {
 import { attachModels } from "./database/base.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
-export interface ClientOptions<TSchema extends DefinitionSchema> {
+export interface ClientOptions<
+  TSchema extends DefinitionSchema,
+  TEnforce extends boolean = true,
+> {
   /**
    * Definition schema for the database, including relations configuration.
    */
@@ -18,6 +21,22 @@ export interface ClientOptions<TSchema extends DefinitionSchema> {
    * Session object for managing database connections and transactions.
    */
   session: Session;
+
+  /**
+   * How tables declared inside a `tenantScope()` behave on this client.
+   *
+   * With `enforce` on, which is the default, they are absent from the base client's type and
+   * refuse to build a query until the client is scoped with `$identityClaims`. Set it to
+   * `false` for a process that is meant to run unscoped — an internal worker rather than a
+   * request handler — and every tenant table becomes readable across tenants.
+   *
+   * It is decided here, per client, rather than per call: a per-call escape hatch is a thing to
+   * forget, and the processes that need one are separate deployments anyway. Inserting into a
+   * tenant table still requires claims in both modes.
+   */
+  tenancy?: {
+    enforce?: TEnforce;
+  };
 }
 
 /**
@@ -80,9 +99,9 @@ export interface ClientOptions<TSchema extends DefinitionSchema> {
  * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
-export function createClient<TSchema extends DefinitionSchema>(
-  options: ClientOptions<TSchema>
-): QueryClient<TSchema> {
+export function createClient<TSchema extends DefinitionSchema, TEnforce extends boolean = true>(
+  options: ClientOptions<TSchema, TEnforce>
+): QueryClient<TSchema, TEnforce> {
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
@@ -90,10 +109,11 @@ export function createClient<TSchema extends DefinitionSchema>(
     schema,
     dialect,
     session: options.session,
+    tenancy: options.tenancy,
   });
 
   const dbClient = new DatabaseClient(context);
   attachModels(dbClient, context);
 
-  return dbClient as QueryClient<TSchema>;
+  return dbClient as unknown as QueryClient<TSchema, TEnforce>;
 }

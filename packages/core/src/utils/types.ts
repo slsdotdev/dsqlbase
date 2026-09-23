@@ -6,6 +6,20 @@ export type Optional<T, K extends keyof T> = {
   [P in K]?: T[P];
 } & Omit<T, K>;
 
+/**
+ * Collapses a union of object types into their intersection.
+ *
+ * Used to gather one claim object out of the per-table claim objects a schema yields: a table
+ * with no claims contributes `{}` and drops out, and two tables declaring the same claim with
+ * different value types collapse it to `never`, which is the type-level mirror of the
+ * registry's data-type check.
+ */
+export type UnionToIntersection<T> = (T extends unknown ? (arg: T) => void : never) extends (
+  arg: infer I
+) => void
+  ? I
+  : never;
+
 export interface TypedObject<T = unknown> {
   readonly __type: T;
 }

@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "@dsqlbase/core";
+import type { Session, SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
-import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import {
+  belongsTo,
+  hasMany,
+  relations,
+  table,
+  tenantScope,
+  text,
+  uuid,
+} from "../../schema/index.js";
 import { TxClient } from "./transaction-client.js";
 
 const users = table("users", {
@@ -230,5 +238,77 @@ describe("createTransactionRunner via $transaction", () => {
       expect(session.beginTransaction).toHaveBeenCalledTimes(2);
       expect(session.txSessions).toHaveLength(2);
     });
+  });
+});
+
+const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+
+const invoices = ws.table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: text("number").notNull(),
+});
+
+const tenantSchema = { invoices };
+
+describe("transactions on a scoped client", () => {
+  const setup = () => {
+    const statements: SQLStatement[] = [];
+    const record = vi.fn(async (query: SQLStatement) => {
+      statements.push(query);
+      return [];
+    });
+
+    const session = {
+      execute: record,
+      beginTransaction: vi.fn(async () => ({
+        execute: record,
+        commit: vi.fn().mockResolvedValue(null),
+        rollback: vi.fn().mockResolvedValue(null),
+      })),
+    } as unknown as Session;
+
+    return {
+      dsql: createClient({ schema: tenantSchema, session, tenancy: { enforce: false } }),
+      last: () => statements.at(-1),
+    };
+  };
+
+  const scopedSelect =
+    `SELECT "__t0"."workspace_id", "__t0"."id", "__t0"."number" ` +
+    `FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`;
+
+  it("carries the identity into a transaction opened on a scoped client", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$identityClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
+      await tx.invoices.findMany({});
+    });
+
+    // The transaction context spreads the parent's, so the identity comes along with it.
+    expect(last()?.text).toBe(scopedSelect);
+    expect(last()?.params).toEqual(["w1"]);
+  });
+
+  it("keeps a scoped query's predicate when it is batched into an unscoped transaction", async () => {
+    const { dsql, last } = setup();
+
+    const query = dsql.$identityClaims({ workspaceId: "w1" }).invoices.findMany({});
+
+    await dsql.$transaction([query]);
+
+    // Safe because the SQL was baked when the scoped client built it; batching only swaps the
+    // session the operation runs on.
+    expect(last()?.text).toBe(scopedSelect);
+    expect(last()?.params).toEqual(["w1"]);
+  });
+
+  it("leaves an unscoped transaction unscoped", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$transaction(async (tx) => {
+      await tx.invoices.findMany({});
+    });
+
+    expect(last()?.text).not.toContain("WHERE");
   });
 });

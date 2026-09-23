@@ -11,6 +11,7 @@ export type {
   TenantKey,
   TypedObject,
   Unique,
+  UnionToIntersection,
   ValueType,
   WithDomain,
   WithMeta,

@@ -5,6 +5,7 @@ import {
   ExecutionContext,
   SQLQuery,
   SQLStatement,
+  TenancyError,
 } from "@dsqlbase/core";
 import { ModelClient } from "../model/client.js";
 
@@ -18,7 +19,23 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     this._ctx = ctx;
   }
 
+  /**
+   * Raw SQL bypasses every seam the operations factory applies, the tenant predicate included,
+   * so a scoped client does not carry it. The types remove it; this is the runtime half, for
+   * callers reaching it through a widened type.
+   */
+  private _assertUnscoped(method: string): void {
+    if (this._ctx.identity) {
+      throw new TenancyError(
+        `${method} is not available on an identity-scoped client: raw SQL is not tenant-safe. ` +
+          `Use it on the base client, where that is plain to read.`
+      );
+    }
+  }
+
   $query<T = unknown>(sql: SQLQuery) {
+    this._assertUnscoped("$query");
+
     return new ExecutableQuery<T[]>(
       {
         mode: "many",
@@ -33,6 +50,8 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   async $execute<T = unknown>(query: SQLStatement): Promise<T[]> {
+    this._assertUnscoped("$execute");
+
     return this._ctx.session.execute<T>(query);
   }
 }

@@ -12,6 +12,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0002](./0002-migration-consolidation.md) | Migration module consolidation (v1 shape) | 2026-09-19 | accepted |
 | [0003](./0003-select-tree-aliasing.md) | Table aliasing in select trees | 2026-09-21 | accepted provisionally |
 | [0004](./0004-record-meta.md) | `$$meta` on every result row | 2026-09-22 | accepted |
+| [0005](./0005-tenant-client-visibility.md) | Tenant table visibility on the client | 2026-09-23 | accepted provisionally |
 
 ## Template
 
