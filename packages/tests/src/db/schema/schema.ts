@@ -14,6 +14,7 @@ import {
   hasMany,
   belongsTo,
   sequence,
+  tenantScope,
   $enum,
 } from "dsqlbase/schema";
 
@@ -109,6 +110,80 @@ tasks
   .columns((c) => [c.dueDate])
   .include((c) => [c.status]);
 
+/**
+ * A second, tenant-scoped half of the fixture, kept apart from the tables above so every other
+ * spec keeps running against an unscoped client.
+ *
+ * `workspaces` is global and owns tenant-scoped `documents`, which in turn own tenant-scoped
+ * `comments` — so a scoped read has to carry the predicate into two nested levels, not just the
+ * one below the root.
+ */
+const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+
+const workspaces = table("workspaces", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+});
+
+const documents = ws
+  .table("documents", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Points at a global table, so a join from `users` correlates on something other than the
+    // claim column — the only shape where the tenant predicate, rather than the correlation,
+    // is what keeps another workspace's rows out.
+    authorId: uuid("author_id"),
+    title: text("title").notNull(),
+    body: varchar("body", 5000),
+    createdAt: datetime("created_at").notNull().defaultNow(),
+  })
+  .meta({ __typename: "Document" });
+
+// Keyed under an alias that differs from its database name, like `members` above.
+const comments = ws.table("document_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  documentId: uuid("document_id").notNull(),
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+});
+
+// The claim column leads, which is the shape the guide recommends for a tenant table.
+documents.index("documents_workspace_idx").columns((c) => [c.workspaceId, c.id]);
+comments.index("document_comments_workspace_idx").columns((c) => [c.workspaceId, c.documentId]);
+
+const workspaceRelations = relations(workspaces, {
+  documents: hasMany(documents, {
+    from: [workspaces.columns.id],
+    to: [documents.columns.workspaceId],
+  }),
+});
+
+const documentRelations = relations(documents, {
+  workspace: belongsTo(workspaces, {
+    from: [documents.columns.workspaceId],
+    to: [workspaces.columns.id],
+  }),
+  comments: hasMany(comments, {
+    from: [documents.columns.id],
+    to: [comments.columns.documentId],
+  }),
+});
+
+const commentRelations = relations(comments, {
+  document: belongsTo(documents, {
+    from: [comments.columns.documentId],
+    to: [documents.columns.id],
+  }),
+});
+
+// A second declaration for `users`, merged with `userRelations` by the registry.
+const userDocumentRelations = relations(users, {
+  authoredDocuments: hasMany(documents, {
+    from: [users.columns.id],
+    to: [documents.columns.authorId],
+  }),
+});
+
 const userRelations = relations(users, {
   membership: hasOne(members, {
     from: [users.columns.id],
@@ -184,6 +259,10 @@ export {
   users,
   projects,
   tasks,
+  ws,
+  workspaces,
+  documents,
+  comments,
   taskStatus,
   priorityLevel,
   taskNumberSeq,
@@ -192,4 +271,8 @@ export {
   teamRelations,
   projectRelations,
   taskRelations,
+  workspaceRelations,
+  documentRelations,
+  commentRelations,
+  userDocumentRelations,
 };

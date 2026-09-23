@@ -15,6 +15,9 @@ export interface SeededData {
     status: string;
     priority: string;
   }[];
+  workspaces: { id: string; name: string; slug: string }[];
+  documents: { id: string; workspaceId: string; authorId: string | null; title: string }[];
+  comments: { id: string; workspaceId: string; documentId: string; author: string }[];
 }
 
 export async function seedTeams(client: TestClient) {
@@ -125,6 +128,72 @@ export async function seedTasks(
   }));
 }
 
+export async function seedWorkspaces(client: TestClient) {
+  const query = sql`
+    INSERT INTO "workspaces" ("name", "slug") VALUES
+      ('Acme', 'acme'),
+      ('Globex', 'globex')
+    RETURNING "id", "name", "slug"
+  `;
+
+  return await client.$query<{ id: string; name: string; slug: string }>(query);
+}
+
+export async function seedDocuments(
+  client: TestClient,
+  workspaces: SeededData["workspaces"],
+  users: SeededData["users"]
+) {
+  // The same author writes in both workspaces, so a join from `users` reaches documents the
+  // scoped client must not see.
+  const query = sql`
+    INSERT INTO "documents" ("workspace_id", "author_id", "title", "body") VALUES
+      (${workspaces[0].id}, ${users[0].id}, 'Acme roadmap', 'Where Acme is going'),
+      (${workspaces[0].id}, ${users[1].id}, 'Acme onboarding', 'How to start at Acme'),
+      (${workspaces[1].id}, ${users[0].id}, 'Globex roadmap', 'Where Globex is going')
+    RETURNING "id", "workspace_id", "author_id", "title"
+  `;
+
+  const rows = await client.$query<{
+    id: string;
+    workspace_id: string;
+    author_id: string | null;
+    title: string;
+  }>(query);
+
+  return rows.map((row) => ({
+    id: row.id,
+    workspaceId: row.workspace_id,
+    authorId: row.author_id,
+    title: row.title,
+  }));
+}
+
+export async function seedComments(client: TestClient, documents: SeededData["documents"]) {
+  const query = sql`
+    INSERT INTO "document_comments" ("workspace_id", "document_id", "author", "body") VALUES
+      (${documents[0].workspaceId}, ${documents[0].id}, 'alice', 'Looks good'),
+      (${documents[0].workspaceId}, ${documents[0].id}, 'bob', 'One question'),
+      (${documents[1].workspaceId}, ${documents[1].id}, 'alice', 'Ship it'),
+      (${documents[2].workspaceId}, ${documents[2].id}, 'carol', 'Globex only')
+    RETURNING "id", "workspace_id", "document_id", "author"
+  `;
+
+  const rows = await client.$query<{
+    id: string;
+    workspace_id: string;
+    document_id: string;
+    author: string;
+  }>(query);
+
+  return rows.map((row) => ({
+    id: row.id,
+    workspaceId: row.workspace_id,
+    documentId: row.document_id,
+    author: row.author,
+  }));
+}
+
 export async function seedData(client: TestClient): Promise<SeededData> {
   const teams = await seedTeams(client);
   const users = await seedUsers(client);
@@ -132,5 +201,11 @@ export async function seedData(client: TestClient): Promise<SeededData> {
   const projects = await seedProjects(client, teams);
   const tasks = await seedTasks(client, projects, users);
 
-  return { teams, users, members, projects, tasks };
+  // Seeded through raw SQL like everything else, so the rows exist regardless of what the model
+  // clients would or would not allow — which is the point of the isolation specs.
+  const workspaces = await seedWorkspaces(client);
+  const documents = await seedDocuments(client, workspaces, users);
+  const comments = await seedComments(client, documents);
+
+  return { teams, users, members, projects, tasks, workspaces, documents, comments };
 }
