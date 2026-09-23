@@ -16,6 +16,7 @@ export const Kind = Object.freeze({
   CHECK_CONSTRAINT: "CHECK_CONSTRAINT",
   UNIQUE_CONSTRAINT: "UNIQUE_CONSTRAINT",
   PRIMARY_KEY_CONSTRAINT: "PRIMARY_KEY_CONSTRAINT",
+  TENANT_SCOPE: "TENANT_SCOPE",
 } as const);
 
 export const Relation = Object.freeze({

@@ -55,6 +55,7 @@ export class TableDefinition<
 
     this._assertReservedFieldNames();
     this._assertDistinctColumnNames();
+    this._assertTenantKeys();
   }
 
   /**
@@ -92,6 +93,34 @@ export class TableDefinition<
       }
 
       fieldsByColumn.set(column.name, field);
+    }
+  }
+
+  /**
+   * A tenant claim column is filled by the runtime on every insert and AND-ed into every read,
+   * so it can be neither null nor writable by the caller. `tenantScope()` sets both flags when
+   * it hands the column over; this catches a column configured as a claim key any other way,
+   * and catches it here — where the error can name the definition the author wrote.
+   */
+  private _assertTenantKeys(): void {
+    for (const [field, column] of Object.entries(this.columns)) {
+      if (!column["_tenantKey"]) {
+        continue;
+      }
+
+      if (!column["_notNull"]) {
+        throw new Error(
+          `Table "${this.name}" declares claim "${field}" as nullable. A claim column is ` +
+            `filled by the runtime on every insert, so it is never null.`
+        );
+      }
+
+      if (!column["_readOnly"]) {
+        throw new Error(
+          `Table "${this.name}" declares claim "${field}" as writable. A claim column's value ` +
+            `comes from the identity on the client, never from the caller.`
+        );
+      }
     }
   }
 

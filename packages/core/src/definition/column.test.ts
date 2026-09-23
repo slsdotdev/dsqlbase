@@ -29,6 +29,28 @@ describe("ColumnDefinition", () => {
     expect(new ColumnDefinition("name", { readOnly: true })["_readOnly"]).toBe(true);
   });
 
+  it("should default tenantKey to false and keep it out of the serialized form", () => {
+    const column = new ColumnDefinition("workspace_id").notNull();
+
+    expect(column["_tenantKey"]).toBe(false);
+    expect(new ColumnDefinition("workspace_id", { tenantKey: true })["_tenantKey"]).toBe(true);
+    // Like `readOnly`: a client-side rule a real database cannot report.
+    expect(column.toJSON()).not.toHaveProperty("tenantKey");
+  });
+
+  it("should clone into an independent definition", () => {
+    const column = new ColumnDefinition("workspace_id").notNull().unique();
+    const copy = column.clone();
+
+    expect(copy).not.toBe(column);
+    expect(copy.name).toBe("workspace_id");
+    expect(copy.toJSON()).toEqual(column.toJSON());
+
+    // The builders mutate in place, so the copy has to be the only thing a later change hits.
+    copy.readOnly();
+    expect(column["_readOnly"]).toBe(false);
+  });
+
   it("should set default value correctly", () => {
     const column = new ColumnDefinition("created_at")
       .$type<Date>()

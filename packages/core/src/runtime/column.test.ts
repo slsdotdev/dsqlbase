@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ColumnDefinition, TableDefinition } from "../definition/index.js";
+import { ColumnDefinition, TableDefinition, TenantScopeDefinition } from "../definition/index.js";
 import { sql, SQLParam } from "../sql/index.js";
 import { Table } from "./table.js";
 
@@ -77,5 +77,29 @@ describe("Column / readOnly", () => {
   it("defaults to false for every other column", () => {
     expect(table.columns.number.readOnly).toBe(false);
     expect(table.columns.id.readOnly).toBe(false);
+  });
+});
+
+describe("Column / tenantKey", () => {
+  const ws = new TenantScopeDefinition({
+    workspaceId: new ColumnDefinition("workspace_id").notNull(),
+  });
+
+  const table = new Table(
+    ws.table("invoices", {
+      id: new ColumnDefinition("id", { primaryKey: true }),
+      number: new ColumnDefinition("number").notNull(),
+    })
+  );
+
+  it("carries the scope's marker onto the runtime column", () => {
+    expect(table.columns.workspaceId.tenantKey).toBe(true);
+    // A claim column is system-managed by construction; the scope sets both flags.
+    expect(table.columns.workspaceId.readOnly).toBe(true);
+  });
+
+  it("defaults to false for every other column", () => {
+    expect(table.columns.number.tenantKey).toBe(false);
+    expect(table.columns.id.tenantKey).toBe(false);
   });
 });

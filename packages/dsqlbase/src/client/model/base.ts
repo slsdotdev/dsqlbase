@@ -114,6 +114,14 @@ export type ReadOnlyFieldsOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
 }[FieldNamesOf<T>];
 
+/**
+ * The claim fields a table is scoped by — the keys an identity must carry for it to be
+ * readable. Empty for a global table.
+ */
+export type TenantKeysOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { tenantKey: true } ? K : never;
+}[FieldNamesOf<T>];
+
 export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: ValueTypeOf<ColumnTypeOf<T, K>>;
 } & {

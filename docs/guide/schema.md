@@ -30,6 +30,29 @@ types or at runtime. A field that arrives there anyway, through an untyped sprea
 rather than refused. Use it for a value the application must not set; it changes nothing about
 the generated DDL, so migrations are unaffected.
 
+### Tenant scopes
+
+`tenantScope(claims)` declares a set of claim columns shared by every table inside one tenant
+boundary. The columns it hands a table are read-only *and* filled by the client, from the
+identity it was scoped to:
+
+```ts
+const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+
+const invoices = ws.table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: text("number").notNull(),
+});
+```
+
+Every claim column must be `notNull`, a table may not redeclare one, and one claim name must
+have the same type on every table that declares it. The claim key is the field name, not the
+column name. A composite primary key including the claim — `(workspace_id, id)` — is allowed.
+
+Claim columns are ordinary columns in the emitted DDL: no foreign key, no index, nothing a
+migration treats specially. Declare the index yourself, leading with the claim. The full rules,
+and what a scoped client can do, are in [Tenancy](./tenancy.md).
+
 ### Table-level definitions
 
 ```ts

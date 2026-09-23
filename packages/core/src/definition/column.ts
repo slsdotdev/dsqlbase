@@ -39,6 +39,7 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   primaryKey: boolean;
   unique: boolean;
   readOnly: boolean;
+  tenantKey: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
   defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
@@ -59,6 +60,7 @@ export class ColumnDefinition<
   protected _primaryKey: boolean;
   protected _unique: boolean;
   protected _readOnly: boolean;
+  protected _tenantKey: boolean;
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
@@ -77,6 +79,7 @@ export class ColumnDefinition<
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
     this._readOnly = config.readOnly ?? false;
+    this._tenantKey = config.tenantKey ?? false;
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._domain = config.domain;
@@ -111,6 +114,18 @@ export class ColumnDefinition<
   public readOnly(): ReadOnly<this> {
     this._readOnly = true;
     return this as ReadOnly<this>;
+  }
+
+  /**
+   * A copy of this definition, of the same class, carrying the same configuration.
+   *
+   * A `ColumnDefinition` belongs to the table it is declared on: the builders mutate it in
+   * place, so one instance shared by two tables would let a later `.check()` on one reach the
+   * other. Anything that hands the same declaration to several tables — `tenantScope().columns()`
+   * is the first — copies it here instead.
+   */
+  public clone(): this {
+    return Object.assign(Object.create(Object.getPrototypeOf(this) as object), this) as this;
   }
 
   public default(value: this["__type"]["valueType"]): HasDefault<this> {
