@@ -354,6 +354,47 @@ describe("SchemaRegistry", () => {
   });
 });
 
+describe("SchemaRegistry over a shared schema", () => {
+  it("can be built twice from one schema object", () => {
+    const extra = new RelationsDefinition(users, {
+      recentPosts: {
+        type: Relation.HAS_MANY,
+        target: posts,
+        from: [users.columns.id],
+        to: [posts.columns.authorId],
+      },
+    });
+
+    const schema = { users, posts, usersRelations, extra };
+
+    // Merging two `relations()` declarations used to mutate the definition, so the second
+    // registry re-merged what the first had already merged and reported a duplicate. Two
+    // clients over one schema — an enforcing one and an unscoped one — is ordinary.
+    expect(() => new SchemaRegistry(schema)).not.toThrow();
+    expect(() => new SchemaRegistry(schema)).not.toThrow();
+
+    expect(Object.keys(new SchemaRegistry(schema).getRelations("users")).sort()).toEqual([
+      "posts",
+      "recentPosts",
+    ]);
+  });
+
+  it("still rejects the same relation name declared twice", () => {
+    const clash = new RelationsDefinition(users, {
+      posts: {
+        type: Relation.HAS_MANY,
+        target: posts,
+        from: [users.columns.id],
+        to: [posts.columns.authorId],
+      },
+    });
+
+    expect(() => new SchemaRegistry({ users, posts, usersRelations, clash })).toThrow(
+      /Duplicate relation name: posts/
+    );
+  });
+});
+
 describe("SchemaRegistry.claimKeys", () => {
   const ws = new TenantScopeDefinition({
     workspaceId: new ColumnDefinition("workspace_id", { dataType: "uuid" }).notNull(),

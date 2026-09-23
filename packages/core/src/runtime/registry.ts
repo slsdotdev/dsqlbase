@@ -95,6 +95,14 @@ export class SchemaRegistry<
     this.claimKeys = this._buildClaimKeys(schema);
   }
 
+  /**
+   * Merges a second `relations()` declaration for the same table into the first.
+   *
+   * Merges into a copy, never into the definition: `relations()` objects belong to the schema
+   * module, so mutating one would mean a second registry over the same schema re-merges what
+   * the first already merged and reports every name as a duplicate. Two clients over one
+   * schema is an ordinary thing to want — an enforcing one and an unscoped one, for instance.
+   */
   private _mergeTableRelations(
     existing: AnyRelationDefinition["__type"]["relations"],
     newRelations: AnyRelationDefinition["__type"]["relations"]
@@ -127,7 +135,9 @@ export class SchemaRegistry<
           continue;
         }
 
-        relations[tableName] = node.relations;
+        relations[tableName] = {
+          ...node.relations,
+        } as SchemaRelationDefinitions<TDefinition>[DefinitionRelationsTableName<TDefinition>];
 
         continue;
       }
