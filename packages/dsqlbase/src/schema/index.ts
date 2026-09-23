@@ -43,4 +43,5 @@ export { tenantScope } from "./tenant.js";
 export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 
 export { type Duration } from "./utils/duration.js";
+export { type GlobalId, type GlobalIdErrorCode } from "./utils/global-id.js";
 export { type DateTimeMode } from "./utils/date.js";
