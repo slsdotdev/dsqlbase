@@ -32,6 +32,21 @@ Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
 readable — `select`, `where`, `orderBy` and the result row are unaffected.
 
+On a client scoped with `$identityClaims`, every one of these methods also carries a tenant
+predicate. It is AND-ed in **ahead of** the `where` you wrote, at the root and at every joined
+level:
+
+```sql
+SELECT … FROM "invoices"
+WHERE ("invoices"."workspace_id" = $1) AND ("invoices"."number" LIKE $2)
+```
+
+The claim column is filterable and orderable like any other, but filtering by it cannot widen
+the scope — `where: { workspaceId: other }` becomes two conflicting equalities and returns
+nothing. Reaching a tenant table from a client with no claims throws a `TenancyError` when the
+query is built, including through a join, which the types cannot see. See
+[Tenancy](./tenancy.md).
+
 ## `QueryArgs`
 
 Defined in `packages/dsqlbase/src/client/model/base.ts` (the JSDoc there is the most detailed reference).
@@ -110,6 +125,10 @@ const rows = await dsql.$query<{ n: number }>(
 const raw = await dsql.$execute<{ n: number }>({ text: "select 1 as n", params: [] });
 ```
 
+Neither exists on a client scoped with `$identityClaims`: raw SQL bypasses every seam the
+factory applies, the tenant predicate included, so it is offered only where that is plain to
+read.
+
 - `$query(SQLQuery)` — build with the `sql` tagged template; parameters are bound automatically. Returns an `ExecutableQuery`, so it can join a `$transaction([...])` batch.
 - `$execute(SQLStatement)` — pass `{ text, params }` straight to the session.
 
@@ -123,5 +142,6 @@ await dsql.$query(sql`select * from "tasks" where ${tasks.columns.dueDate} > ${t
 
 - [Relations](./relations.md)
 - [Transactions](./transactions.md)
+- [Tenancy](./tenancy.md)
 - [Sessions](./sessions.md)
-- [Runtime pipeline](../internals/runtime-pipeline.md) — how these calls become SQL, and current gaps
+- [Runtime pipeline](../internals/runtime-pipeline.md) — how these calls become SQL

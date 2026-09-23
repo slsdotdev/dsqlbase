@@ -73,9 +73,35 @@ const recent = await dsql.projects.findMany({
 });
 ```
 
+## Multi-tenant schemas
+
+If rows belong to a workspace, organisation or account, declare that boundary once and let the
+client apply it. Aurora DSQL has no row-level security, so this is the layer that enforces it.
+
+```ts
+import { tenantScope, uuid } from "dsqlbase/schema";
+
+const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+
+export const invoices = ws.table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: text("number").notNull(),
+});
+
+// Per request:
+const db = dsql.$identityClaims({ workspaceId: claims.workspace_id });
+
+await db.invoices.findMany({});                            // … WHERE "workspace_id" = $1
+await db.invoices.create({ data: { number: "INV-1" } });   // workspace_id filled from the claim
+```
+
+The claim column is readable and filterable but never writable, the predicate applies to nested
+joins as well as root queries, and a tenant table is absent from an unscoped client — in the
+types and at runtime. See the [tenancy guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/tenancy.md).
+
 ## Links
 
-- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, migrations, DSQL notes
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, tenancy, migrations, DSQL notes
 - [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)

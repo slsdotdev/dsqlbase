@@ -24,6 +24,26 @@ await dsql.$transaction(async (tx) => {
 
 The session passed to `createClient` must implement `beginTransaction()`; both provided sessions do.
 
+## Scoped transactions
+
+A transaction opened on a client scoped with [`$identityClaims`](./tenancy.md) is scoped too: the transaction context carries the identity, so every query inside it gets the tenant predicate, and a write lands in the right tenant.
+
+```ts
+const db = dsql.$identityClaims({ workspaceId });
+
+await db.$transaction(async (tx) => {
+  await tx.invoices.create({ data: { number: "INV-2" } });
+});
+```
+
+Scope first, then open the transaction — a transaction client has no `$identityClaims` of its own, so there is one order rather than two.
+
+Batching a scoped query into an unscoped transaction is safe. An `ExecutableQuery` has its SQL fixed when the client builds it, and `$transaction([...])` only swaps the session each operation runs on, so the predicate is already baked in:
+
+```ts
+await dsql.$transaction([db.invoices.findMany({})]);   // still scoped to `workspaceId`
+```
+
 ## Intended contents
 
 - OCC retry policy (`maxRetries: 3`, `delay: 50`, `maxDelay: 1000` in `occ-retry.ts`). Not configurable from `$transaction` yet; exposing the options is client work.
@@ -33,5 +53,6 @@ The session passed to `createClient` must implement `beginTransaction()`; both p
 ## Related
 
 - [Querying](./querying.md)
+- [Tenancy](./tenancy.md)
 - [Sessions](./sessions.md)
 - [DSQL notes](./dsql-notes.md)

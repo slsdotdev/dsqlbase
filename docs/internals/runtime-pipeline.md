@@ -13,8 +13,9 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
   → Session.execute    consumer-supplied
 ```
 
-- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations }`. There are **no hooks, middleware, or interceptors** anywhere in the chain.
-- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session, then attach one `ModelClient` per table with `defineProperty`. Both `packages/dsqlbase/src/client/create.ts` and `packages/dsqlbase/src/client/transaction/transaction-client.ts` go through it, and any scoped client (tenancy, identity) should too. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
+- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
+- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or identity, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$identityClaims` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
+- **Every table is attached to every client.** Which tables a client may address is decided by its *type* (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
 - Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
@@ -56,6 +57,40 @@ only ran when the caller happened to filter would not be a rule at all.
 The normalizer folds a user `where` object into one node before it reaches here
 (`packages/dsqlbase/src/client/model/normalizer.ts`), so the array form is for callers that
 drive `OperationsFactory` directly — and for whatever the seam itself adds.
+
+### Order
+
+The tenant predicate leads, then the caller's `where`, then whatever a sibling feature appends
+afterwards — a join correlation (added by `QueryBuilder`, which owns aliasing), and in future a
+keyset. Order is cosmetic to the planner and deliberate for a reader: the boundary is the first
+thing an `EXPLAIN` shows.
+
+### The tenant predicate
+
+`_tenantPredicate(table)` is what the seam injects today. A table with no `tenantKeys` is global
+and yields nothing. Otherwise `ExecutionContext.identity` decides:
+
+| Identity | `tenancy.enforce` | Result |
+|---|---|---|
+| present | either | one equality per claim, AND-ed; a missing claim throws `TenancyError(table, claim)` |
+| absent | `true` (default) | `TenancyError(table)` — the operation is not built |
+| absent | `false` | `undefined` — the query runs unscoped |
+
+Values go through `Column.param`, so a claim is encoded by its column's codec like any other
+comparison ([codec boundary](./codec-boundary.md)). Throwing happens at **build** time — when
+`findMany()` is called, before `execute` — so a missing identity never reaches the database.
+
+This is also the only guard on a tenant table reached through a join. A nested level is named by
+a relation rather than by the client, so no type can see it; the factory can, because every
+level passes through `_resolveSelectParams`.
+
+### Insert fill
+
+`_resolveInsertEntries` fills each `tenantKeys` column from the identity, ahead of the generic
+`getInsertValue` fallback, so `onCreate` and `DEFAULT` never apply to one. It throws in **both**
+modes when there are no claims: the column is `notNull` and nothing else can fill it, so the
+alternative is a row in no tenant. A caller-supplied value is already refused by the read-only
+rule below — the claim wins.
 
 ## Result resolution and `$$meta`
 
@@ -116,15 +151,14 @@ Enforcement is deliberately split:
   that carries a value, beside the existing primary-key refusal. Leniency belongs to the client;
   a direct `OperationsFactory` caller gets an error.
 
-Nothing sets the flag for you yet — `tenantScope()` is its first producer.
+`tenantScope()` is the flag's other producer: a claim column is read-only by construction, since
+its value comes from the client's identity.
 
 ## Known gaps (fix, do not design around)
 
-| Gap | Where | Affects |
-|---|---|---|
-| No hooks / derived-client factory | `context.ts`, `transaction-client.ts` | tenancy/identity scoping |
-
-When a proposal needs one of these, name the fix as a prerequisite story. Public API may change; call out the changeset level.
+None open. When one is found, add it here with the code path it lives in and what it blocks; a
+proposal that needs it names the fix as a prerequisite story rather than designing around it.
+Public API may change; call out the changeset level.
 
 ## Related
 
@@ -132,3 +166,5 @@ When a proposal needs one of these, name the fix as a prerequisite story. Public
 - [Codec boundary](./codec-boundary.md)
 - [Select-tree aliasing](./select-tree-aliasing.md)
 - [Querying (guide)](../guide/querying.md)
+- [Tenancy (guide)](../guide/tenancy.md)
+- [0005 — Tenant table visibility on the client](../decisions/0005-tenant-client-visibility.md)

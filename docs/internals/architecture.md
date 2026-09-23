@@ -26,11 +26,12 @@ Sub-entrypoints `./definition`, `./runtime`, `./sql`, `./utils`, all re-exported
 
 Entrypoints: `.`, `./schema`, `./client`, `./pg`, `./pglite`.
 
-- **`schema/`** — user-facing builders: one file per column type under `columns/`, plus `table.ts`, `relations.ts` (`hasMany` / `hasOne` / `belongsTo`), `domain.ts` (`domain`, `$enum`), `sequence.ts`, `namespace.ts`. Each column wraps a `core` `ColumnDefinition` with PG-specific options and a codec.
+- **`schema/`** — user-facing builders: one file per column type under `columns/`, plus `table.ts`, `relations.ts` (`hasMany` / `hasOne` / `belongsTo`), `domain.ts` (`domain`, `$enum`), `sequence.ts`, `namespace.ts`, `tenant.ts` (`tenantScope`). Each column wraps a `core` `ColumnDefinition` with PG-specific options and a codec.
 - **`client/`** — `create.ts` builds `SchemaRegistry` + `QueryBuilder` + `ExecutionContext` and attaches one `ModelClient` per table as a non-writable property on a `DatabaseClient`. `model/base.ts` holds the `QueryArgs` types and their JSDoc; `model/client.ts` the `findOne` / `findMany` / `create` / `update` / `delete` methods; `model/normalizer.ts` turns args into SQL nodes. `database/base.ts` exposes `$query(SQLQuery)` and `$execute(SQLStatement)`. `transaction/` implements `$transaction` and OCC retry.
+- **Two derived clients, one mechanism.** A transaction client swaps the context's `session`; an identity client (`DatabaseClient.$identityClaims`) sets its `identity`. Both build a fresh `ExecutionContext` from the parent's and re-attach models through `attachModels`, so they compose in one direction: scope, then transact. Which tables a derived client may address is a property of its *type* (`database/index.ts`), while the runtime refusal lives in `core`'s operations factory — see [0005](../decisions/0005-tenant-client-visibility.md).
 - **`pg/`**, **`pglite/`** — `Session` implementations over `pg.Pool` and `PGlite`, each with `beginTransaction()`.
 
-The root `index.ts` re-exports `createClient`, `sql`, `SQLQuery`, and the `Session` / `SQLStatement` types.
+The root `index.ts` re-exports `createClient`, `sql`, `SQLQuery`, `TenancyError`, and the `Session` / `SQLStatement` types.
 
 ## `@dsqlbase/migration` (`packages/migration/src/`)
 
