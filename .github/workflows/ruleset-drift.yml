@@ -1,0 +1,43 @@
+name: Ruleset drift
+
+# Fails when a live repository ruleset differs from its committed definition under
+# .github/rulesets/. GitHub does not apply those files; an admin does (see
+# docs/internals/conventions.md), and this check notices when the two disagree — a change made
+# in the UI, or a committed change not yet applied.
+#
+# It only reads: the token is read-only, which is also why `bypass_actors` (hidden from a
+# read-only caller) are not compared. Written to the same rules as quality-gate.yml, since it
+# runs pull request code: `pull_request` only, no persisted credentials, pinned actions.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ruleset-drift-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruleset-drift:
+    name: Rulesets match .github/rulesets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - run: node .github/rulesets/check.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

@@ -1,0 +1,53 @@
+name: Quality gate
+
+# Every pull request into main must pass this before it merges.
+#
+# This repository is public and accepts pull requests from forks, so this workflow runs code
+# nobody has reviewed yet. It is written to be safe for that:
+#
+# - `pull_request`, never `pull_request_target`: a fork's run gets a read-only token and no
+#   secrets, and runs in the fork's context rather than the base repository's.
+# - The token is read-only below, and checkout does not leave it in `.git/config`.
+# - No `${{ github.event.* }}` text a pull request author controls (title, body, branch name)
+#   is interpolated into a `run:` step, where it would be executed as shell.
+# - Third-party actions are pinned to a full commit SHA, so a moved tag cannot change what runs.
+# - No dependency cache: nothing this run writes is restored into another.
+#
+# Publishing lives in release.yml, which runs only on pushes to main.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+  HUSKY: 0
+
+jobs:
+  quality-gate:
+    name: Build, lint, typecheck, test, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run e2e
