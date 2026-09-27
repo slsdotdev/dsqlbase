@@ -120,6 +120,37 @@ describe("RequestNormalizer where clauses", () => {
     });
   });
 
+  // `where: {}` used to render a bare `WHERE ` — invalid SQL. A resolver forwarding an empty
+  // filter object is ordinary, so reads treat it as no filter; the operations that require a
+  // `where` refuse it instead, since there it would reach an arbitrary row, or every row.
+  describe("an empty where", () => {
+    it.each([
+      ["findMany", () => dsql.events.findMany({ where: {} })],
+      ["count", () => dsql.events.count({ where: {} })],
+      ["paginate", () => dsql.events.paginate({ where: {} })],
+      ["an empty and group", () => dsql.events.findMany({ where: { and: [] } })],
+      ["an empty or group", () => dsql.events.findMany({ where: { or: [{}] } })],
+    ])("%s selects every row", async (_, run) => {
+      await run();
+      expect(text_()).not.toContain("WHERE");
+    });
+
+    it("keeps the other conditions beside an empty group", async () => {
+      await dsql.events.findMany({ where: { name: "a", or: [] } });
+      expect(text_()).toContain(`WHERE "__t0"."name" = $1`);
+      expect(text_()).not.toContain("()");
+    });
+
+    it.each([
+      ["findOne", () => dsql.events.findOne({ where: {} })],
+      ["update", () => dsql.events.update({ set: { name: "x" }, where: {} })],
+      ["delete", () => dsql.events.delete({ where: {} })],
+    ])("%s refuses it before any SQL", (operation, run) => {
+      expect(run).toThrow(`${operation} on "events" needs a where`);
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   // The built-in `pg` / PGlite drivers happen to coerce JS Dates and BigInts themselves, so
   // the columns above would also have worked unencoded. A codec that rewrites the value is
   // the case that cannot work without this — and the one `guid` columns will rely on.

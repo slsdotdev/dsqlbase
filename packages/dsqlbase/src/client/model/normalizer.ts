@@ -89,24 +89,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     const expressions: SQLNode[] = [];
 
     for (const [fieldName, condition] of Object.entries(where)) {
-      if (fieldName === "and" && Array.isArray(condition)) {
-        const exp = sql.and(
-          condition
-            .map((expr) => this._getWhereExpression(table, expr))
-            .filter(Boolean) as SQLNode[]
-        );
-        expressions.push(sql.wrap(exp));
+      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
+        const children = condition
+          .map((expr) => this._getWhereExpression(table, expr))
+          .filter(Boolean) as SQLNode[];
 
-        continue;
-      }
-
-      if (fieldName === "or" && Array.isArray(condition)) {
-        const exp = sql.or(
-          condition
-            .map((expr) => this._getWhereExpression(table, expr))
-            .filter(Boolean) as SQLNode[]
-        );
-        expressions.push(sql.wrap(exp));
+        // An empty group constrains nothing; left in, it would render as `()`.
+        if (children.length > 0) {
+          expressions.push(sql.wrap(fieldName === "and" ? sql.and(children) : sql.or(children)));
+        }
 
         continue;
       }
@@ -208,7 +199,30 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       expressions.push(sql.eq(column, column.param(condition as SQLValue)));
     }
 
-    return sql.and(expressions);
+    // `{}` selects everything, the same as no `where` at all — not an empty `WHERE`.
+    return expressions.length > 0 ? sql.and(expressions) : undefined;
+  }
+
+  /**
+   * The `where` of an operation that requires one — `findOne`, `update`, `delete` — refusing a
+   * filter that selects nothing in particular. `{}` means "every row" everywhere else; here it
+   * would pick an arbitrary row to read, or every row to change.
+   */
+  private _getRequiredWhere<TTable extends AnyTable>(
+    table: TTable,
+    where: WhereExpressionOf<TTable> | null | undefined,
+    operation: string
+  ): SQLNode {
+    const expression = this._getWhereExpression(table, where);
+
+    if (!expression) {
+      throw new Error(
+        `${operation} on "${table.name}" needs a where that names the rows it applies to; ` +
+          `an empty one would match every row.`
+      );
+    }
+
+    return expression;
   }
 
   private _getSelectionEntries<TTable extends AnyTable>(
@@ -409,10 +423,14 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TArgs extends QueryArgs<TTable, this["__type"]>,
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<SelectOperationArgs, TMode> {
-    return {
-      mode,
-      args: this._getSelectArgs(table, args),
-    };
+    const request = this._getSelectArgs(table, args);
+
+    // `findOne` requires a where by type; one that selects nothing in particular is refused.
+    if (mode === "one") {
+      request.where = this._getRequiredWhere(table, args.where, "findOne");
+    }
+
+    return { mode, args: request };
   }
 
   /**
@@ -522,7 +540,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<UpdateOperationArgs, TMode> {
     const values = this._getMutationEntries(table, args.set);
-    const where = this._getWhereExpression(table, args.where);
+    const where = this._getRequiredWhere(table, args.where, "update");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {
@@ -540,7 +558,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TArgs extends DeleteArgs<TTable>,
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<DeleteOperationArgs, TMode> {
-    const where = this._getWhereExpression(table, args.where);
+    const where = this._getRequiredWhere(table, args.where, "delete");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {

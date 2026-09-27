@@ -27,6 +27,8 @@ Every method returns an `ExecutableQuery`; `await` it to run it, or pass it unaw
 | `delete({ where, return? })`      |                                                 | deleted rows                             |
 
 `create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
+An empty `where: {}` does not count: `findOne`, `update` and `delete` refuse it when the query is built,
+before any SQL runs.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
@@ -71,6 +73,7 @@ const tasks = await dsql.tasks.findMany({
 
 - **`select`** — real columns only; omit for all columns. Virtual or computed fields are not supported yet.
 - **`where`** — per field: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `between`, `exists` (null check), `beginsWith`, `endsWith`, `contains`; combinators `and`, `or`, `not`. A bare value is shorthand for `eq`.
+  An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
   Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
