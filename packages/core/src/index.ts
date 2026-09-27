@@ -36,6 +36,7 @@ export {
 } from "./definition/index.js";
 export {
   Column,
+  CompositeQuery,
   ExecutionContext,
   ExecutableQuery,
   OperationsFactory,
@@ -46,12 +47,15 @@ export {
   type AnyColumn,
   type AnySchema,
   type AnyTable,
+  type CountOperation,
+  type CountOperationArgs,
   type DefinitionRelationsTableName,
   type DefinitionTableName,
   type DefinitionTableRelations,
   type DeleteOperation,
   type DeleteOperationArgs,
   type DeleteParams,
+  type Executable,
   type ExecutionContextOptions,
   type FieldMutation,
   type FieldRelationConfig,
@@ -95,4 +99,6 @@ export {
   type SQLStatement,
   type SQLContext,
   type SQLValue,
+  type KeysetKey,
+  type KeysetBound,
 } from "./sql/index.js";

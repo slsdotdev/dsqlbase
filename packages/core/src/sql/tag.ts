@@ -146,4 +146,73 @@ sql.notExists = (query: SQLQuery) => {
   return sql`NOT EXISTS ${sql.wrap(query)}`;
 };
 
+/** One order key of a keyset: the expression it sorts by and which way. */
+export interface KeysetKey {
+  node: SQLNode;
+  direction: "asc" | "desc";
+  /** Whether the key can hold `NULL`. Nullable keys are not supported yet. */
+  nullable?: boolean;
+}
+
+/** Which side of the cursor row a page reads: rows sorting after it, or before it. */
+export type KeysetBound = "after" | "before";
+
+/**
+ * The predicate selecting every row that sorts strictly after (or before) a cursor row, under
+ * the total order `keys`.
+ *
+ * Expanded key by key — `k0 > $a OR (k0 = $a AND (k1 > $b OR ...))` — rather than written as a
+ * row-value comparison, so mixed directions need no special case and nothing depends on DSQL
+ * supporting `(a, b) > ($1, $2)`.
+ *
+ * `values` are the database's own text for each key, bound as bare parameters: the server
+ * parses them against the column's type, so no codec may touch them. A codec that decodes to a
+ * JS value can lose precision (a `Date` has milliseconds, a `timestamptz` microseconds), and a
+ * cursor rebuilt from the lossy value skips rows.
+ */
+sql.keyset = (keys: KeysetKey[], values: string[], bound: KeysetBound): SQLNode => {
+  if (keys.length === 0) {
+    throw new Error("A keyset needs at least one order key.");
+  }
+
+  if (keys.length !== values.length) {
+    throw new Error(
+      `A keyset pairs every key with one value (got ${keys.length} keys, ${values.length} values).`
+    );
+  }
+
+  for (const [index, key] of keys.entries()) {
+    if (key.nullable) {
+      throw new Error(`Keyset key ${index} is nullable; nullable order keys are not supported.`);
+    }
+
+    if (values[index] === null || values[index] === undefined) {
+      throw new Error(`Keyset value ${index} is null; nullable order keys are not supported.`);
+    }
+  }
+
+  const past = (index: number) => {
+    const { node, direction } = keys[index];
+    const ascending = direction === "asc";
+
+    return ascending === (bound === "after")
+      ? sql.gt(node, values[index])
+      : sql.lt(node, values[index]);
+  };
+
+  // Built from the last key outwards, so each level wraps the one after it. The last key is a
+  // single comparison; every level above it is an `OR`, which needs parentheses to keep its
+  // precedence inside the surrounding `AND`.
+  let predicate: SQLNode = past(keys.length - 1);
+
+  for (let index = keys.length - 2; index >= 0; index--) {
+    const inner = index === keys.length - 2 ? predicate : sql.wrap(predicate);
+    const tie = sql.and([sql.eq(keys[index].node, values[index]), inner]);
+
+    predicate = sql.or([past(index), sql.wrap(tie)]);
+  }
+
+  return predicate;
+};
+
 export { sql };

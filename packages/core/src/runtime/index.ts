@@ -17,9 +17,11 @@ export {
   type TenancyOptions,
 } from "./context.js";
 export { TenancyError } from "./errors.js";
-export { ExecutableQuery } from "./executor.js";
+export { CompositeQuery, ExecutableQuery, type Executable } from "./executor.js";
 export {
   OperationsFactory,
+  type CountOperation,
+  type CountOperationArgs,
   type DeleteOperation,
   type DeleteOperationArgs,
   type FieldMutation,
