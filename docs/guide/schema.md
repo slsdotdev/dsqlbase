@@ -87,6 +87,10 @@ tasks
   .include((c) => [c.status]);
 ```
 
+Each of these returns the index or constraint it declares, not the table, so call them as
+separate statements after `table(...)` — chained onto it, the variable would hold the
+constraint, and nothing would register the table.
+
 Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. Partial (`WHERE`) and expression indexes are not modelled yet.
 
 **A table has at most one primary key.** Use `.primaryKey()` on a single column, or `table.primaryKey((c) => [...])` for a composite key — never both, and never two of either. Declaring more than one is rejected when the client is created and by the migration validator (`MULTIPLE_PRIMARY_KEYS`); SQL allows only one `PRIMARY KEY` per table.
