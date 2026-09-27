@@ -6,7 +6,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test:e2e": "vitest run"
+    "test:e2e": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@dsqlbase/core": "^0.1.6",

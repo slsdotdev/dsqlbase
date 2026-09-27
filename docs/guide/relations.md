@@ -42,6 +42,9 @@ export const taskRelations = relations(tasks, {
 
 `createClient` rejects a relation whose sides differ in length, whose columns are not declared on the side they are listed under, or whose paired columns have different types.
 
+- **A table's relations may be split across several `relations()` blocks** — say, one per
+  module. They are merged into one set, in the types as at runtime; declaring the same relation
+  name in two blocks is rejected by `createClient`.
 - **A relation may point at its own table.** `parent: belongsTo(tasks, { from: [tasks.columns.parentId], to: [tasks.columns.id] })` works: each level of a query is rendered under its own alias, so the two sides stay distinct. The same holds for joining two tables that share a name in different schemas.
 
 Use them in queries:
