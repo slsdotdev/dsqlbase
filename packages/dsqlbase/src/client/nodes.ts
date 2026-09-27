@@ -1,5 +1,6 @@
 import {
   AnyColumn,
+  AnyFieldRelation,
   AnyTable,
   ColumnCodec,
   DefinitionSchema,
@@ -62,6 +63,8 @@ interface GuidColumn {
   readonly table: AnyTable;
   readonly field: string;
   readonly column: AnyColumn;
+  /** The declaration, kept only to key relation pairs by identity. */
+  readonly definition: object;
   readonly key: string;
 }
 
@@ -117,9 +120,69 @@ export function registerNodes(
     bindGuidCodec(guidColumn.column, binding);
   }
 
+  validateRelationPairs(registry, new Map(guidColumns.map((c) => [c.definition, c.key])));
+
   NODES.set(registry, nodes);
 
   return nodes;
+}
+
+/**
+ * Refuses a relation that pairs a guid column with something it cannot agree with.
+ *
+ * `article.authorId === article.author.id` is the promise a keyed guid column makes, and it
+ * only holds if both sides of every pair wrap with the same node. A guid paired with a plain
+ * uuid leaves one side wrapped and the other raw; two guids with different keys produce two
+ * different strings for one row. Neither breaks the SQL — a join correlates on raw columns —
+ * which is exactly why it has to be caught when the client is built rather than in production.
+ */
+function validateRelationPairs(
+  registry: SchemaRegistry<DefinitionSchema>,
+  keys: Map<object, string>
+): void {
+  for (const [alias] of registry.getTableEntries()) {
+    if (!registry.hasRelations(alias)) {
+      continue;
+    }
+
+    const relations = registry.getRelations(alias) as Record<string, AnyFieldRelation>;
+
+    for (const [field, relation] of Object.entries(relations)) {
+      const label = `Relation "${field}" on table "${alias}"`;
+      const target = relation.target.name;
+
+      for (const [index, fromColumn] of relation.from.entries()) {
+        const toColumn = relation.to[index];
+
+        if (!toColumn) {
+          continue;
+        }
+
+        const fromKey = keys.get(fromColumn);
+        const toKey = keys.get(toColumn);
+
+        if (fromKey === undefined && toKey === undefined) {
+          continue;
+        }
+
+        const pair = `"${alias}.${fromColumn.name}" and "${target}.${toColumn.name}"`;
+
+        if (fromKey === undefined || toKey === undefined) {
+          throw new Error(
+            `${label} pairs ${pair}, but only one of them carries global ids. ` +
+              `Both sides of a pair must be guid() columns, or neither.`
+          );
+        }
+
+        if (fromKey !== toKey) {
+          throw new Error(
+            `${label} pairs ${pair}, which carry global ids for "${fromKey}" and "${toKey}". ` +
+              `Both sides of a pair must name the same node.`
+          );
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -211,6 +274,7 @@ function collectGuidColumns(
         table,
         field,
         column,
+        definition,
         key: (definition["_guidKey"] as string | undefined) ?? alias,
       });
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SchemaRegistry, sql, type DefinitionSchema, type SQLNode } from "@dsqlbase/core";
 import { getGuidBinding, getNodes, registerNodes } from "./nodes.js";
-import { guid, table, text, uuid } from "../schema/index.js";
+import { belongsTo, guid, relations, table, text, uuid } from "../schema/index.js";
 import { encodeGlobalId } from "../schema/utils/global-id.js";
 
 function register<TSchema extends DefinitionSchema>(schema: TSchema) {
@@ -304,5 +304,90 @@ describe("the bound codec", () => {
     const authors = table("authors", { id: guid("id").primaryKey() });
 
     expect(new SchemaRegistry({ authors }).getTable("authors").columns.id.resolve(UUID)).toBe(UUID);
+  });
+});
+
+describe("guid relation pairs", () => {
+  const authors = () => table("authors", { id: guid("id").primaryKey() });
+  const teams = () => table("teams", { id: uuid("id").primaryKey() });
+
+  it("accepts a pair that names the same node", () => {
+    const a = authors();
+    const articles = table("articles", {
+      id: guid("id").primaryKey(),
+      authorId: guid("author_id", "authors").notNull(),
+    });
+
+    const articleRelations = relations(articles, {
+      author: belongsTo(a, { from: [articles.columns.authorId], to: [a.columns.id] }),
+    });
+
+    expect(() => register({ authors: a, articles, articleRelations })).not.toThrow();
+  });
+
+  it("rejects a guid paired with a plain uuid", () => {
+    // The mistake it catches: a relation to a node whose key column was left as `uuid()`.
+    // The join still works — SQL correlates on raw columns — but `draft.authorId` reads back
+    // raw while `draft.author.id` reads back wrapped, so they never compare equal.
+    const a = authors();
+    const drafts = table("drafts", {
+      id: uuid("id").primaryKey(),
+      authorId: uuid("author_id").notNull(),
+    });
+
+    const draftRelations = relations(drafts, {
+      author: belongsTo(a, { from: [drafts.columns.authorId], to: [a.columns.id] }),
+    });
+
+    expect(() => register({ authors: a, drafts, draftRelations })).toThrow(
+      /only one of them carries global ids/
+    );
+  });
+
+  it("rejects a guid paired with a guid for another node", () => {
+    const a = authors();
+    const articles = table("articles", {
+      id: guid("id").primaryKey(),
+      // Points at the wrong node: two different strings for one row.
+      authorId: guid("author_id", "articles").notNull(),
+    });
+
+    const articleRelations = relations(articles, {
+      author: belongsTo(a, { from: [articles.columns.authorId], to: [a.columns.id] }),
+    });
+
+    expect(() => register({ authors: a, articles, articleRelations })).toThrow(
+      /carry global ids for "articles" and "authors"/
+    );
+  });
+
+  it("names both sides of the offending pair", () => {
+    const a = authors();
+    const drafts = table("drafts", {
+      id: uuid("id").primaryKey(),
+      authorId: uuid("author_id").notNull(),
+    });
+
+    const draftRelations = relations(drafts, {
+      author: belongsTo(a, { from: [drafts.columns.authorId], to: [a.columns.id] }),
+    });
+
+    expect(() => register({ authors: a, drafts, draftRelations })).toThrow(
+      /"drafts\.author_id" and "authors\.id"/
+    );
+  });
+
+  it("leaves a relation between two plain uuid columns alone", () => {
+    const t = teams();
+    const users = table("users", {
+      id: uuid("id").primaryKey(),
+      teamId: uuid("team_id").notNull(),
+    });
+
+    const userRelations = relations(users, {
+      team: belongsTo(t, { from: [users.columns.teamId], to: [t.columns.id] }),
+    });
+
+    expect(() => register({ teams: t, users, userRelations })).not.toThrow();
   });
 });
