@@ -9,5 +9,5 @@ export default defineConfig(
   tseslint.configs.strict,
   tseslint.configs.stylistic,
   turbo,
-  prettier,
+  prettier
 );

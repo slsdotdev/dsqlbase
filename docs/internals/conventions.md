@@ -8,7 +8,8 @@ _Audience: contributors and agents._
 - **TypeScript**: root `tsconfig.json` is `noEmit`, strict, ESNext, `module: "nodenext"`; package configs extend it and emit to `dist/`. Imports use explicit `.js` extensions even from `.ts` files (required by `nodenext`).
 - **ESLint**: one flat config at the root (`eslint.config.mjs`) applying `typescript-eslint` strict + stylistic to every package. No per-package config.
 - **Husky**: pre-commit runs `npm run lint`. Do not bypass it.
-- **Changesets**: when a published package changes, add a changeset (`npm run changeset`); never bump `version` by hand. `@dsqlbase/core`, `@dsqlbase/migration`, and `dsqlbase` are a `fixed` group and version together. CI (`.github/workflows/release.yml`) builds, lints, tests, and publishes from `main`.
+- **Changesets**: when a published package changes, add a changeset (`npm run changeset`); never bump `version` by hand. `@dsqlbase/core`, `@dsqlbase/migration`, and `dsqlbase` are a `fixed` group and version together. CI (`.github/workflows/release.yml`) builds, lints, tests, and publishes from `main`, and runs only on pushes to it.
+- **Quality gate**: every pull request into `main` runs `.github/workflows/quality-gate.yml` — `npm ci`, build, lint, typecheck, unit tests and the PGlite e2e specs — and must pass before it merges. The repository is public and takes pull requests from forks, so the workflow runs unreviewed code and is kept safe for it: `pull_request` only (never `pull_request_target`), a read-only token not persisted to `.git/config`, no pull-request text interpolated into a `run:` step, no dependency cache, and every action pinned to a commit SHA. Keep all of those when editing any workflow; Dependabot (`.github/dependabot.yml`) proposes the SHA bumps.
 - **Branches**: work on a branch off `main`; `main` is the release branch.
 
 ## Design workflow

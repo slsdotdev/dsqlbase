@@ -6,13 +6,13 @@ _Audience: contributors and agents._
 
 From the repo root (Turbo fans out across workspaces):
 
-| Command             | Purpose                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `npm test`          | Vitest in every package (builds dependencies first)                                                                 |
-| `npm run coverage`  | Vitest with `--coverage` (v8)                                                                                       |
-| `npm run e2e`       | `test:e2e` in `packages/tests` (PGlite)                                                                             |
-| `npm run lint`      | ESLint across packages; also runs in the Husky pre-commit hook                                                      |
-| `npm run typecheck` | `tsc --noEmit` over `packages/tests`, whose specs no other task type-checks (builds dependencies first; runs in CI) |
+| Command             | Purpose                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `npm test`          | Vitest in every package (builds dependencies first)                                                     |
+| `npm run coverage`  | Vitest with `--coverage` (v8)                                                                           |
+| `npm run e2e`       | `test:e2e` in `packages/tests` (PGlite)                                                                 |
+| `npm run lint`      | ESLint across packages; also runs in the Husky pre-commit hook                                          |
+| `npm run typecheck` | `tsc --noEmit` over `packages/tests`, whose specs no other task type-checks (builds dependencies first) |
 
 Per package (`cd packages/<pkg>`):
 
@@ -26,6 +26,7 @@ Per package (`cd packages/<pkg>`):
 - Unit tests sit next to the source (`foo.ts` / `foo.test.ts`).
 - Type-level tests sit next to the source too, as `foo.types.test.ts`, and use `expectTypeOf` / `assertType`. They only run where `test.typecheck` is enabled — today that is `packages/dsqlbase`.
 - `packages/tests/src/specs/` holds end-to-end specs that run the full schema → migration → client stack against in-process PGlite. `src/db/schema/schema.ts` is the shared fixture; `src/db/client.ts` and `src/db/migrate.ts` are the reference wiring.
+- Every pull request runs all of the above except coverage — build, lint, typecheck, unit and e2e — in the quality gate ([Conventions](./conventions.md)), and must pass it to merge.
 - There is no DSQL cluster in CI. Anything that only DSQL can answer is listed in [DSQL capabilities → To verify](./dsql-capabilities.md#to-verify-on-a-real-dsql-cluster).
 
 ## Conventions
