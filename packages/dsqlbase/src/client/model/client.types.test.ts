@@ -70,8 +70,8 @@ const client = new ModelClient(context, tables.users);
  * Every result record carries `$$meta`. Neither fixture table declares `table().meta()`, so
  * only the built-ins are present; the declared half is covered separately below.
  */
-interface Meta {
-  key: string;
+interface Meta<TAlias extends string> {
+  key: TAlias;
   table: string;
   schema?: string;
 }
@@ -92,7 +92,7 @@ describe("ModelClient", () => {
     });
 
     expect(query).toBeInstanceOf(ExecutableQuery);
-    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta } | null>();
+    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> } | null>();
   });
 
   it("should infer return type as null if no fields are selected", async () => {
@@ -126,7 +126,7 @@ describe("ModelClient", () => {
       emailAddress: string;
       phoneNumber: string | null;
       address: string | null;
-      $$meta: Meta;
+      $$meta: Meta<"users">;
     } | null>();
   });
 
@@ -143,7 +143,7 @@ describe("ModelClient", () => {
       ExecutableQuery<{
         id: string;
         firstName: string;
-        $$meta: Meta;
+        $$meta: Meta<"users">;
       } | null>
     >();
   });
@@ -161,7 +161,9 @@ describe("ModelClient", () => {
       orderBy: { lastName: "asc" },
     });
 
-    expectTypeOf(query.$typeOf).toEqualTypeOf<{ id: string; lastName: string; $$meta: Meta }[]>();
+    expectTypeOf(query.$typeOf).toEqualTypeOf<
+      { id: string; lastName: string; $$meta: Meta<"users"> }[]
+    >();
   });
 
   it("should infer joined relations", async () => {
@@ -190,11 +192,11 @@ describe("ModelClient", () => {
       id: string;
       firstName: string;
       lastName: string;
-      $$meta: Meta;
+      $$meta: Meta<"users">;
       contacts: {
         type: string;
         value: string;
-        $$meta: Meta;
+        $$meta: Meta<"contacts">;
         owner: {
           id: string;
           firstName: string;
@@ -202,7 +204,7 @@ describe("ModelClient", () => {
           emailAddress: string;
           phoneNumber: string | null;
           address: string | null;
-          $$meta: Meta;
+          $$meta: Meta<"users">;
         } | null;
       }[];
     } | null>();
@@ -237,7 +239,7 @@ describe("table().meta()", () => {
 
     expectTypeOf(query.$typeOf).toEqualTypeOf<{
       id: string;
-      $$meta: { key: string; table: string; schema?: string; __typename: string };
+      $$meta: { key: "orgs"; table: string; schema?: string; __typename: string };
     } | null>();
   });
 
@@ -250,10 +252,11 @@ describe("table().meta()", () => {
     expectTypeOf(query.$typeOf).toEqualTypeOf<
       {
         id: string;
-        $$meta: { key: string; table: string; schema?: string; __typename: string };
+        // The literal alias, not `string` — it is what a row union narrows on.
+        $$meta: { key: "orgs"; table: string; schema?: string; __typename: string };
         employees: {
           id: string;
-          $$meta: { key: string; table: string; schema?: string; __typename: string };
+          $$meta: { key: "employees"; table: string; schema?: string; __typename: string };
         }[];
       }[]
     >();
@@ -300,7 +303,7 @@ describe("readOnly columns", () => {
     expectTypeOf(query.$typeOf).toEqualTypeOf<{
       id: string;
       workspaceId: string;
-      $$meta: Meta;
+      $$meta: Meta<"invoices">;
     } | null>();
   });
 });
@@ -319,7 +322,10 @@ const documentContext = new ExecutionContext({
   identity: { workspaceId: "w1" },
 });
 
-const documentClient = new ModelClient(documentContext, documentContext.schema.getTables().documents);
+const documentClient = new ModelClient(
+  documentContext,
+  documentContext.schema.getTables().documents
+);
 
 describe("tenant claim columns", () => {
   // A claim column is read-only by construction, so it follows the `readOnly` rules above. What
@@ -347,7 +353,7 @@ describe("tenant claim columns", () => {
     expectTypeOf(query.$typeOf).toEqualTypeOf<{
       id: string;
       workspaceId: string;
-      $$meta: Meta;
+      $$meta: Meta<"documents">;
     } | null>();
   });
 });

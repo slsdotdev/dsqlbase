@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { SchemaRegistry, sql, type SQLNode } from "@dsqlbase/core";
+import { SchemaRegistry, sql, type DefinitionSchema, type SQLNode } from "@dsqlbase/core";
 import { getGuidBinding, getNodes, registerNodes } from "./nodes.js";
 import { guid, table, text, uuid } from "../schema/index.js";
 import { encodeGlobalId } from "../schema/utils/global-id.js";
 
-function register(schema: Record<string, unknown>) {
-  const registry = new SchemaRegistry(schema as never);
+function register<TSchema extends DefinitionSchema>(schema: TSchema) {
+  const registry = new SchemaRegistry(schema);
+  const nodes = registerNodes(registry as SchemaRegistry<DefinitionSchema>, schema);
 
-  return { registry, nodes: registerNodes(registry, schema as never) };
+  return { registry, nodes };
 }
 
 describe("registerNodes", () => {

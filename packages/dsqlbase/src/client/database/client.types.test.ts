@@ -1,8 +1,10 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema as CoreSchema, Session } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { relations, hasMany, table, tenantScope, text, uuid } from "../../schema/index.js";
+import { guid, relations, hasMany, table, tenantScope, text, uuid } from "../../schema/index.js";
 import type { ClaimsOf } from "./index.js";
+import type { NodeAliasesOf } from "../model/base.js";
+import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const ws = tenantScope({
   workspaceId: uuid("workspace_id").notNull(),
@@ -117,5 +119,135 @@ describe("$identityClaims", () => {
     const token = { workspaceId: "w1", sub: "user-1", exp: 123 };
 
     expectTypeOf(dsql.$identityClaims({ ...token })).toHaveProperty("invoices");
+  });
+});
+
+/* -------------------------------------------------------------------------------------------
+ * Global ids
+ * ---------------------------------------------------------------------------------------- */
+
+const authors = table("authors", {
+  id: guid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+const articles = table("articles", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("author_id", "authors").notNull(),
+  title: text("title").notNull(),
+});
+
+// Not a node: a uuid primary key is just a uuid primary key.
+const teams = table("teams", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+// Not a node either: `guid()` can only name one column, so a composite key has no id.
+const memberships = table("memberships", {
+  authorId: guid("author_id", "authors"),
+  teamId: uuid("team_id"),
+}).primaryKey((c) => [c.authorId, c.teamId]);
+
+const nodeSchema = { authors, articles, teams, memberships };
+type NodeSchema = CoreSchema<typeof nodeSchema>;
+
+// Its own session: these assertions really call through, so it has to answer like a driver.
+const nodeSession = { execute: vi.fn(async () => []) } as unknown as Session;
+
+const nodes = createClient({ schema: nodeSchema, session: nodeSession });
+
+const someAuthorId = encodeGlobalId("authors", { id: "3f1c0e3e-0a3f-4a1e-9c2e-8b5f1d2a7c44" });
+
+describe("NodeAliasesOf", () => {
+  it("is every table whose primary key is a single guid column", () => {
+    expectTypeOf<NodeAliasesOf<NodeSchema>>().toEqualTypeOf<"authors" | "articles">();
+  });
+});
+
+describe("$findByGlobalId", () => {
+  it("returns a union over every node, discriminated by $$meta.key", async () => {
+    const record = await nodes.$findByGlobalId({ id: someAuthorId });
+
+    expectTypeOf(record).toExtend<{ $$key: "authors" | "articles" } | null>();
+
+    if (record?.$$key === "authors") {
+      expectTypeOf(record.name).toEqualTypeOf<string>();
+    }
+
+    if (record?.$$key === "articles") {
+      expectTypeOf(record.title).toEqualTypeOf<string>();
+    }
+  });
+
+  it("applies a per-alias select to that branch alone", async () => {
+    const record = await nodes.$findByGlobalId({
+      id: someAuthorId,
+      on: { authors: { select: { name: true } } },
+    });
+
+    if (record?.$$key === "authors") {
+      expectTypeOf(record.name).toEqualTypeOf<string>();
+      // Deselected, so it is gone from this branch.
+      expectTypeOf(record).not.toHaveProperty("id");
+    }
+
+    if (record?.$$key === "articles") {
+      // Untouched by the other branch's select.
+      expectTypeOf(record.title).toEqualTypeOf<string>();
+      expectTypeOf(record.authorId).toEqualTypeOf<string>();
+    }
+  });
+
+  it("drops a member the `on` map excluded", async () => {
+    const record = await nodes.$findByGlobalId({ id: someAuthorId, on: { articles: false } });
+
+    expectTypeOf(record).toExtend<{ $$key: "authors" } | null>();
+  });
+
+  it("does not accept a table that is not a node", () => {
+    // @ts-expect-error `teams` has a uuid key, so no id can name it.
+    nodes.$findByGlobalId({ id: someAuthorId, on: { teams: true } });
+    // @ts-expect-error a composite key cannot be a node.
+    nodes.$findByGlobalId({ id: someAuthorId, on: { memberships: true } });
+  });
+
+  it("does not accept a field the branch does not have", () => {
+    // @ts-expect-error `title` is on articles, not authors.
+    nodes.$findByGlobalId({ id: someAuthorId, on: { authors: { select: { title: true } } } });
+  });
+});
+
+describe("$listByGlobalId", () => {
+  it("returns one entry per id, each nullable", async () => {
+    const records = await nodes.$listByGlobalId({ ids: [someAuthorId] });
+
+    expectTypeOf(records).toExtend<unknown[]>();
+    expectTypeOf(records[0]).toExtend<{ $$key: "authors" | "articles" } | null | undefined>();
+  });
+
+  it("keeps the node key in the result even when select leaves it out", async () => {
+    const records = await nodes.$listByGlobalId({
+      ids: [someAuthorId],
+      on: { authors: { select: { name: true } } },
+    });
+
+    const record = records[0];
+
+    if (record?.$$key === "authors") {
+      expectTypeOf(record.name).toEqualTypeOf<string>();
+      // Always projected — it is what puts a row back against the id that asked for it.
+      expectTypeOf(record.id).toEqualTypeOf<string>();
+    }
+  });
+});
+
+describe("global id lookups and client derivation", () => {
+  it("survive scoping, unlike raw SQL", () => {
+    const identity = nodes.$identityClaims({});
+
+    expectTypeOf(identity).toHaveProperty("$findByGlobalId");
+    expectTypeOf(identity).toHaveProperty("$listByGlobalId");
+    expectTypeOf(identity).not.toHaveProperty("$query");
   });
 });

@@ -15,6 +15,7 @@ import {
   DeleteArgs,
   QueryResultOf,
   ReturningResultOf,
+  type AliasOf,
 } from "./base.js";
 import { RequestNormalizer } from "./normalizer.js";
 
@@ -110,7 +111,9 @@ export class ModelClient<
 
   public create<TArgs extends CreateArgs<TTable>>(
     args: TArgs
-  ): ExecutableQuery<OperationResult<"one", ReturningResultOf<TTable, TArgs>>> {
+  ): ExecutableQuery<
+    OperationResult<"one", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
+  > {
     const request = this._normalizer.normalizeInsert(this._table, args, "one");
     const operation = this._ctx.operations.createInsertOperation(this._table, request);
 
@@ -133,7 +136,9 @@ export class ModelClient<
 
   public update<TArgs extends UpdateArgs<TTable>>(
     args: TArgs
-  ): ExecutableQuery<OperationResult<"one", ReturningResultOf<TTable, TArgs>>> {
+  ): ExecutableQuery<
+    OperationResult<"one", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
+  > {
     const request = this._normalizer.normalizeUpdate(this._table, args, "one");
     const operation = this._ctx.operations.createUpdateOperation(this._table, request);
 
@@ -162,7 +167,9 @@ export class ModelClient<
 
   public delete<TArgs extends DeleteArgs<TTable>>(
     args: TArgs
-  ): ExecutableQuery<OperationResult<"one", ReturningResultOf<TTable, TArgs>>> {
+  ): ExecutableQuery<
+    OperationResult<"one", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
+  > {
     const request = this._normalizer.normalizeDelete(this._table, args, "one");
     const operation = this._ctx.operations.createDeleteOperation(this._table, request);
 
