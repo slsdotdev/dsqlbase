@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SchemaRegistry } from "@dsqlbase/core";
+import { SchemaRegistry, sql, type SQLNode } from "@dsqlbase/core";
 import { getGuidBinding, getNodes, registerNodes } from "./nodes.js";
 import { guid, table, text, uuid } from "../schema/index.js";
+import { encodeGlobalId } from "../schema/utils/global-id.js";
 
 function register(schema: Record<string, unknown>) {
   const registry = new SchemaRegistry(schema as never);
@@ -192,5 +193,115 @@ describe("getNodes", () => {
     const authors = table("authors", { id: guid("id").primaryKey() });
 
     expect(getNodes(new SchemaRegistry({ authors }))).toEqual(new Map());
+  });
+});
+
+describe("the bound codec", () => {
+  const UUID = "3f1c0e3e-0a3f-4a1e-9c2e-8b5f1d2a7c44";
+
+  /**
+   * The value a node would actually send to the driver.
+   *
+   * A codec runs when the parameter is *rendered*, not when it is built, so asserting on a
+   * freshly built `SQLParam` would pass whether or not anything is bound.
+   */
+  function bound(node: SQLNode): unknown {
+    return sql`${node}`.toQuery().params[0];
+  }
+
+  function fixture() {
+    const authors = table("authors", { id: guid("id").primaryKey() });
+    const articles = table("articles", {
+      id: guid("id").primaryKey(),
+      authorId: guid("author_id", "authors").notNull(),
+      slug: text("slug").notNull(),
+    });
+
+    const { registry } = register({ authors, articles });
+
+    return { authors: registry.getTable("authors"), articles: registry.getTable("articles") };
+  }
+
+  it("should wrap a value read off a row", () => {
+    const { articles } = fixture();
+
+    expect(articles.columns.id.resolve(UUID)).toBe(encodeGlobalId("articles", { id: UUID }));
+  });
+
+  it("should wrap a reference column with the node it points at, not its own table", () => {
+    // This is what makes `article.authorId === article.author.id` hold: both sides wrap with
+    // the authors node, so the two strings are the same without the caller unwrapping either.
+    const { authors, articles } = fixture();
+
+    // Asserted against the authors-keyed value, not merely against the other column: two
+    // identity codecs would agree with each other and prove nothing.
+    expect(articles.columns.authorId.resolve(UUID)).toBe(encodeGlobalId("authors", { id: UUID }));
+    expect(articles.columns.authorId.resolve(UUID)).toBe(authors.columns.id.resolve(UUID));
+    expect(articles.columns.authorId.resolve(UUID)).not.toBe(articles.columns.id.resolve(UUID));
+  });
+
+  it("should leave a non-guid column alone", () => {
+    const { articles } = fixture();
+
+    expect(articles.columns.slug.resolve("a-slug")).toBe("a-slug");
+  });
+
+  it("should unwrap a global id written to the column", () => {
+    const { articles } = fixture();
+    const id = encodeGlobalId("articles", { id: UUID });
+
+    expect(bound(articles.columns.id.getInsertValue(id))).toBe(UUID);
+    expect(bound(articles.columns.id.getUpdateValue(id))).toBe(UUID);
+  });
+
+  it("should unwrap a global id used as a filter value", () => {
+    // The filter path is separate from the write path and has its own history of being
+    // missed, so it gets its own assertion rather than riding on the insert one.
+    const { articles } = fixture();
+    const id = encodeGlobalId("articles", { id: UUID });
+
+    expect(bound(articles.columns.id.param(id))).toBe(UUID);
+  });
+
+  it("should accept a raw uuid on either path", () => {
+    // Lenient on input: ids reach an application from places that never went through the ORM.
+    const { articles } = fixture();
+
+    expect(bound(articles.columns.id.param(UUID))).toBe(UUID);
+    expect(bound(articles.columns.id.getInsertValue(UUID))).toBe(UUID);
+  });
+
+  it("should refuse a global id from another table", () => {
+    // The wrong-table safety net. A bare uuid would simply have matched nothing.
+    const { articles } = fixture();
+    const id = encodeGlobalId("authors", { id: UUID });
+
+    expect(() => bound(articles.columns.id.param(id))).toThrow(
+      expect.objectContaining({ code: "key_mismatch" })
+    );
+  });
+
+  it("should refuse a payload naming the right table but the wrong key field", () => {
+    const { articles } = fixture();
+    const forged = encodeGlobalId("articles", { slug: "a-slug" });
+
+    expect(() => bound(articles.columns.id.param(forged))).toThrow(
+      /carries "slug" rather than its key "id"/
+    );
+  });
+
+  it("should round-trip through the column", () => {
+    const { articles } = fixture();
+    const wrapped = articles.columns.id.resolve(UUID);
+
+    expect(bound(articles.columns.id.param(wrapped))).toBe(UUID);
+  });
+
+  it("should leave a column raw when the registry was never registered", () => {
+    // A `SchemaRegistry` built by hand has no bind pass, so a guid column behaves exactly
+    // like the uuid column it serializes as.
+    const authors = table("authors", { id: guid("id").primaryKey() });
+
+    expect(new SchemaRegistry({ authors }).getTable("authors").columns.id.resolve(UUID)).toBe(UUID);
   });
 });

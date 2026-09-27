@@ -1,11 +1,18 @@
 import {
   AnyColumn,
   AnyTable,
+  ColumnCodec,
   DefinitionSchema,
   SchemaRegistry,
   TableDefinition,
 } from "@dsqlbase/core";
 import { GuidColumnDefinition } from "../schema/columns/guid.js";
+import {
+  GlobalIdError,
+  decodeGlobalId,
+  encodeGlobalId,
+  isGlobalId,
+} from "../schema/utils/global-id.js";
 
 /**
  * Stamped on every runtime column declared with `guid()`, carrying what its values need in
@@ -104,12 +111,73 @@ export function registerNodes(
       );
     }
 
-    setGuidBinding(guidColumn.column, { key: node.key, keyField: node.keyField });
+    const binding: GuidBinding = { key: node.key, keyField: node.keyField };
+
+    setGuidBinding(guidColumn.column, binding);
+    bindGuidCodec(guidColumn.column, binding);
   }
 
   NODES.set(registry, nodes);
 
   return nodes;
+}
+
+/**
+ * Replaces a guid column's codec with one that wraps on the way out and unwraps on the way in.
+ *
+ * `Column` funnels every direction through this one object — `resolve` decodes a row value,
+ * `getInsertValue` / `getUpdateValue` encode a written one, and `param` encodes a filter value —
+ * so swapping it here covers reads, writes and `where` without touching the pipeline.
+ *
+ * Written onto the built column rather than onto the definition. The definition is the user's
+ * object and may be shared by two clients; a binding depends on the alias it was exported
+ * under, so binding there would let one client silently re-key the other's ids.
+ */
+function bindGuidCodec(column: AnyColumn, binding: GuidBinding): void {
+  const { key, keyField } = binding;
+  const base = column.codec as ColumnCodec<unknown, unknown>;
+
+  const codec: ColumnCodec<unknown, unknown> = {
+    decode: (raw) => encodeGlobalId(key, { [keyField]: base.decode(raw) as string }),
+    encode: (value) => base.encode(unwrap(value, key, keyField)),
+  };
+
+  // `codec` is declared readonly on `Column`, which is a compile-time rule; the property
+  // itself is an ordinary own property. Same escape hatch as the `column["_tenantKey"]`
+  // writes in `tenantScope().columns()`.
+  Object.defineProperty(column, "codec", {
+    value: codec,
+    enumerable: true,
+    writable: false,
+    configurable: true,
+  });
+}
+
+/**
+ * Reads a written or filtered value back down to what the column stores.
+ *
+ * Lenient by design: a raw uuid is accepted, because ids reach an application from places
+ * that never went through the ORM. A *wrapped* id, though, is checked — that is the whole
+ * point of carrying the table in the value. `decodeGlobalId` catches the wrong table; the
+ * field check below catches a payload that names the right table but the wrong key.
+ */
+function unwrap(value: unknown, key: string, keyField: string): unknown {
+  if (!isGlobalId(value)) {
+    return value;
+  }
+
+  const { pk } = decodeGlobalId(value, key);
+
+  if (!Object.hasOwn(pk, keyField)) {
+    throw new GlobalIdError(
+      "key_mismatch",
+      `Global id for "${key}" carries ${Object.keys(pk)
+        .map((field) => `"${field}"`)
+        .join(", ")} rather than its key "${keyField}".`
+    );
+  }
+
+  return pk[keyField];
 }
 
 function collectGuidColumns(
