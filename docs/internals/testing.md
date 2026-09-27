@@ -6,12 +6,13 @@ _Audience: contributors and agents._
 
 From the repo root (Turbo fans out across workspaces):
 
-| Command            | Purpose                                                        |
-| ------------------ | -------------------------------------------------------------- |
-| `npm test`         | Vitest in every package (builds dependencies first)            |
-| `npm run coverage` | Vitest with `--coverage` (v8)                                  |
-| `npm run e2e`      | `test:e2e` in `packages/tests` (PGlite)                        |
-| `npm run lint`     | ESLint across packages; also runs in the Husky pre-commit hook |
+| Command             | Purpose                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `npm test`          | Vitest in every package (builds dependencies first)                                                                 |
+| `npm run coverage`  | Vitest with `--coverage` (v8)                                                                                       |
+| `npm run e2e`       | `test:e2e` in `packages/tests` (PGlite)                                                                             |
+| `npm run lint`      | ESLint across packages; also runs in the Husky pre-commit hook                                                      |
+| `npm run typecheck` | `tsc --noEmit` over `packages/tests`, whose specs no other task type-checks (builds dependencies first; runs in CI) |
 
 Per package (`cd packages/<pkg>`):
 

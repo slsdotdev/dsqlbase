@@ -7,6 +7,7 @@ import {
   RelationsDefinition,
   TableDefinition,
 } from "../definition/index.js";
+import { UnionToIntersection } from "../utils/types.js";
 
 /**
  * Schema Definition Types
@@ -27,10 +28,20 @@ export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> =
     : never;
 }[keyof TDefinition];
 
+/**
+ * Every relation declared for `TTableName`, as one object.
+ *
+ * A table may be given several `relations()` blocks — the registry merges them, refusing a
+ * name declared twice. Matching the blocks yields one map per block, as a union; `keyof` a
+ * union keeps only the keys every member shares, so left as a union a table with two blocks
+ * would have no relation names at all. The union is therefore collapsed into the merge the
+ * registry performs. A table with no block still yields `never`: the intersection of nothing is
+ * `unknown`, which the final check rejects.
+ */
 export type DefinitionTableRelations<
   TDefinition extends DefinitionSchema,
   TTableName extends string,
-> =
+> = UnionToIntersection<
   TDefinition extends Record<string, infer Def>
     ? Def extends RelationsDefinition<infer TTable, infer R>
       ? TTable extends TableDefinition<TTableName, infer _, infer __>
@@ -39,7 +50,10 @@ export type DefinitionTableRelations<
           : never
         : never
       : never
-    : never;
+    : never
+> extends infer TMerged extends AnyTableRelations
+  ? TMerged
+  : never;
 
 export type SchemaTableDefinitions<TDefinition extends DefinitionSchema> = {
   [K in DefinitionTableName<TDefinition>]: TDefinition[K] extends AnyTableDefinition

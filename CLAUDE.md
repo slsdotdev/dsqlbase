@@ -21,6 +21,7 @@ Run from the repo root (Turbo fans them out across workspaces):
 | `npm test` | Vitest in every package. |
 | `npm run e2e` | PGlite end-to-end specs in `packages/tests`. |
 | `npm run lint` | ESLint across packages. Runs automatically via Husky pre-commit. |
+| `npm run typecheck` | `tsc --noEmit` over `packages/tests` (its specs are otherwise never type-checked). Runs in CI. |
 | `npm run coverage` | Vitest with `--coverage` (v8). |
 | `npm run changeset` / `npm run publish` | Versioning + publishing via Changesets. |
 

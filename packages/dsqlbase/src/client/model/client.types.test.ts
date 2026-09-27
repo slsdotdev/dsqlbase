@@ -357,3 +357,64 @@ describe("tenant claim columns", () => {
     } | null>();
   });
 });
+
+// A table given two `relations()` blocks, which the registry merges. The types used to see a
+// union of the two maps, whose `keyof` is only the keys they share — here none — so every
+// relation on `people` was `never`.
+const people = table("people", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+const notes = table("notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  personId: uuid("person_id").notNull(),
+  body: text("body").notNull(),
+});
+
+const badges = table("badges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  personId: uuid("person_id").notNull(),
+  label: text("label").notNull(),
+});
+
+const personNotes = relations(people, {
+  notes: hasMany(notes, { from: [people.columns.id], to: [notes.columns.personId] }),
+});
+
+const personBadges = relations(people, {
+  badges: hasMany(badges, { from: [people.columns.id], to: [badges.columns.personId] }),
+});
+
+const splitContext = new ExecutionContext({
+  dialect: new QueryBuilder(),
+  schema: new SchemaRegistry({ people, notes, badges, personNotes, personBadges }),
+  session: mockSession,
+});
+
+const peopleClient = new ModelClient(splitContext, splitContext.schema.getTables().people);
+
+describe("relations split across several blocks", () => {
+  it("joins a relation from each block and types both results", () => {
+    const query = peopleClient.findMany({
+      select: { name: true },
+      join: { notes: { select: { body: true } }, badges: { select: { label: true } } },
+    });
+
+    expectTypeOf(query.$typeOf).toEqualTypeOf<
+      {
+        name: string;
+        $$meta: Meta<"people">;
+        notes: { body: string; $$meta: Meta<"notes"> }[];
+        badges: { label: string; $$meta: Meta<"badges"> }[];
+      }[]
+    >();
+  });
+
+  it("still refuses a relation neither block declares", () => {
+    expectTypeOf(() => {
+      // @ts-expect-error `friends` is in neither block.
+      void peopleClient.findMany({ join: { friends: true } });
+    }).toBeFunction();
+  });
+});
