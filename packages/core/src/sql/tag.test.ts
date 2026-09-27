@@ -175,17 +175,76 @@ describe("sql.keyset", () => {
     );
   });
 
-  it("refuses a nullable key", () => {
-    expect(() =>
-      sql.keyset([{ node: id, direction: "asc", nullable: true }], ["7"], "after")
-    ).toThrow(/nullable order keys are not supported/);
-  });
-
-  it("refuses a null value", () => {
-    const values = [null] as unknown as string[];
+  it("refuses a null value for a key that is not nullable", () => {
+    const values = [null];
 
     expect(() => sql.keyset([{ node: id, direction: "asc" }], values, "after")).toThrow(
-      /nullable order keys are not supported/
+      /null, but its key is not nullable/
     );
+  });
+
+  describe("nullable keys", () => {
+    const due = sql.identifier("due");
+    const nullableAsc = [
+      { node: due, direction: "asc" as const, nullable: true },
+      { node: id, direction: "asc" as const },
+    ];
+    const nullableDesc = [
+      { node: due, direction: "desc" as const, nullable: true },
+      { node: id, direction: "desc" as const },
+    ];
+
+    it("ascending past a value, reaches the nulls sorted last", () => {
+      const query = render(sql.keyset(nullableAsc, ["2026-05-01", "7"], "after"));
+
+      expect(query.text).toBe(`"due" > $1 OR "due" IS NULL OR ("due" = $2 AND "id" > $3)`);
+      expect(query.params).toEqual(["2026-05-01", "2026-05-01", "7"]);
+    });
+
+    it("ascending past a null, stays among the nulls", () => {
+      const query = render(sql.keyset(nullableAsc, [null, "7"], "after"));
+
+      expect(query.text).toBe(`"due" IS NULL AND "id" > $1`);
+      expect(query.params).toEqual(["7"]);
+    });
+
+    it("descending past a value, leaves the nulls sorted first behind", () => {
+      expect(render(sql.keyset(nullableDesc, ["2026-05-01", "7"], "after")).text).toBe(
+        `"due" < $1 OR ("due" = $2 AND "id" < $3)`
+      );
+    });
+
+    it("descending past a null, reaches every value", () => {
+      expect(render(sql.keyset(nullableDesc, [null, "7"], "after")).text).toBe(
+        `"due" IS NOT NULL OR ("due" IS NULL AND "id" < $1)`
+      );
+    });
+
+    it("before a cursor, reads the flipped order, nulls included", () => {
+      expect(render(sql.keyset(nullableAsc, ["2026-05-01", "7"], "before")).text).toBe(
+        `"due" < $1 OR ("due" = $2 AND "id" < $3)`
+      );
+      expect(render(sql.keyset(nullableAsc, [null, "7"], "before")).text).toBe(
+        `"due" IS NOT NULL OR ("due" IS NULL AND "id" < $1)`
+      );
+    });
+
+    it("keeps an OR below a null tie in parentheses", () => {
+      const keys = [
+        { node: a, direction: "asc" as const, nullable: true },
+        { node: b, direction: "desc" as const, nullable: true },
+        { node: id, direction: "asc" as const },
+      ];
+
+      expect(render(sql.keyset(keys, [null, "y", "7"], "after")).text).toBe(
+        `"a" IS NULL AND ("b" < $1 OR ("b" = $2 AND "id" > $3))`
+      );
+    });
+
+    it("matches nothing when no row can sort past the cursor", () => {
+      const keys = [{ node: due, direction: "asc" as const, nullable: true }];
+
+      expect(render(sql.keyset(keys, [null], "after")).text).toBe("FALSE");
+    });
   });
 });

@@ -150,7 +150,8 @@ no opinion about cursors; the client owns the cursor format and the page shape.
   a cursor row. It is expanded key by key, `k0 > $a OR (k0 = $a AND (k1 > $b OR …))`, so mixed
   directions need no special case and nothing relies on row-value comparison. `bound: "before"`
   flips every comparison. Values are bound as bare parameters, never through a codec: they are
-  already the database's own text. Nullable keys are refused.
+  already the database's own text. A nullable key adds `IS NULL` / `IS NOT NULL` branches, for
+  nulls sorted last ascending and first descending — a `null` cursor value is valid only there.
 - `SelectOperationArgs.keys` — columns projected a second time at the **root** level as
   `col::text AS "__k<n>"`, aliased like every other reference in the level. No resolver reads
   them, so they reach the raw driver row and never a result record. A join level asking for
@@ -167,11 +168,13 @@ no opinion about cursors; the client owns the cursor format and the page shape.
 **Client** (`packages/dsqlbase`):
 
 - `RequestNormalizer.normalizePaginate` resolves the total order — the caller's `orderBy`, then
-  every primary-key column not already named, in the direction of the last key — refuses what
-  cannot be paged (no primary key, a nullable key, `after` with `before`, a bad or oversized
-  `limit`), decodes the cursor, and returns the select with `where: [callerWhere, keyset]`, the
-  order (flipped for `before`), `keys`, and `limit + 1`. It also returns `callerWhere` alone —
-  the very node the page filters by — for the count.
+  every primary-key column not already named, in the direction of the last key, each marked
+  nullable unless `notNull` or part of the primary key — refuses what cannot be paged (no
+  primary key, `after` with `before`, a bad or oversized `limit`, a `null` cursor value for a
+  key that cannot hold one), decodes the cursor, and returns the select with
+  `where: [callerWhere, keyset]`, the order (flipped for `before`; a nullable key renders
+  `ASC NULLS LAST` / `DESC NULLS FIRST`), `keys`, and `limit + 1`. It also returns
+  `callerWhere` alone — the very node the page filters by — for the count.
 - `ModelClient.paginate` builds the select and wraps its `resolve`: `shapePage`
   (`client/pagination/page.ts`) drops the extra row into `hasNextPage` / `hasPreviousPage`,
   resolves the rest, stamps each record's cursor from its `__k<n>` columns, reverses a `before`

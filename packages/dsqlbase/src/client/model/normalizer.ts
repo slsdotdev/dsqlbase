@@ -48,6 +48,8 @@ interface OrderKey {
   field: string;
   column: AnyColumn;
   direction: "asc" | "desc";
+  /** Set on a page's keys only: whether the key can hold `NULL`, so its nulls must be placed. */
+  nullable?: boolean;
 }
 
 const flip = (direction: "asc" | "desc"): "asc" | "desc" => (direction === "asc" ? "desc" : "asc");
@@ -64,7 +66,7 @@ export interface PaginateRequest {
   take: number;
   bound: KeysetBound;
   /** The key values of the cursor row, when the call passed a cursor. */
-  cursor?: string[];
+  cursor?: (string | null)[];
 }
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
@@ -272,10 +274,20 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return keys;
   }
 
+  /**
+   * `ORDER BY` terms. A nullable page key states its null placement — Postgres's own default,
+   * last ascending and first descending — so the order never depends on a server setting and
+   * always agrees with the keyset predicate. Flipping a direction flips the placement with it,
+   * which is what makes a page read backwards the exact reverse of one read forwards.
+   */
   private _renderOrderKeys(keys: OrderKey[]): SQLNode[] {
-    return keys.map(({ column, direction }) =>
-      direction === "asc" ? sql`${column} ASC` : sql`${column} DESC`
-    );
+    return keys.map(({ column, direction, nullable }) => {
+      if (!nullable) {
+        return direction === "asc" ? sql`${column} ASC` : sql`${column} DESC`;
+      }
+
+      return direction === "asc" ? sql`${column} ASC NULLS LAST` : sql`${column} DESC NULLS FIRST`;
+    });
   }
 
   private _getOrderByEntries<TTable extends AnyTable>(
@@ -315,17 +327,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
-    for (const { field, column } of keys) {
-      // A primary-key column cannot hold NULL, whether or not it was also marked notNull.
-      if (!column.notNull && !table.primaryKey.includes(column)) {
-        throw new Error(
-          `Cannot paginate "${table.name}" by "${field}": it is nullable, and nullable order ` +
-            `keys are not supported yet.`
-        );
-      }
-    }
-
-    return keys;
+    // A primary-key column cannot hold NULL, whether or not it was also marked notNull.
+    return keys.map((key) => ({
+      ...key,
+      nullable: !key.column.notNull && !table.primaryKey.includes(key.column),
+    }));
   }
 
   private _getPageSize(limit: number | undefined): number {
@@ -456,26 +462,24 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     const bound = before != null ? "before" : "after";
     const token = after ?? before ?? undefined;
 
-    let cursor: string[] | undefined;
+    let cursor: (string | null)[] | undefined;
 
     if (token !== undefined) {
-      const values = decodeCursor(token, signature, keys.length);
+      cursor = decodeCursor(token, signature, keys.length);
 
-      if (values.some((value) => value === null)) {
+      if (cursor.some((value, index) => value === null && !keys[index].nullable)) {
         throw new InvalidCursorError(
           "format",
-          `"${token}" carries a null key, and nullable order keys are not supported yet.`
+          `"${token}" carries a null for a key that cannot hold one.`
         );
       }
-
-      cursor = values as string[];
     }
 
     const base = this._getSelectArgs(table, { select: args.select, join: args.join });
     const where = this._getWhereExpression(table, args.where);
     const keyset = cursor
       ? sql.keyset(
-          keys.map(({ column, direction }) => ({ node: column, direction })),
+          keys.map(({ column, direction, nullable }) => ({ node: column, direction, nullable })),
           cursor,
           bound
         )

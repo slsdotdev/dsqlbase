@@ -29,16 +29,20 @@ page.endCursor; // the last item's cursor, or null on an empty page
 A page is read under a **total order**: the `orderBy` you wrote, then every primary-key column you did not already name. Two rows never tie, so every row has exactly one position and a cursor names it unambiguously. An appended key runs in the direction of your last one, or ascending when you gave no `orderBy`.
 
 ```ts
-orderBy: {
-  createdAt: "desc";
-}
+await dsql.tasks.paginate({ orderBy: { createdAt: "desc" } });
 // runs as ORDER BY created_at DESC, id DESC
 ```
 
-Rules, all checked when the query is built, before any SQL runs:
+**The table needs a primary key**, single or composite; one without is refused when the query is built, before any SQL runs.
 
-- **The table needs a primary key**, single or composite. One without is refused.
-- **Order keys must be `notNull`** for now. Ordering a page by a nullable column is refused, naming the column; supporting it is planned. Primary-key columns always qualify.
+**Nullable order keys** sort their nulls where Postgres does by default — **last ascending, first descending** — and `paginate` writes that placement into the `ORDER BY` explicitly, so it never depends on a server setting:
+
+```ts
+await dsql.tasks.paginate({ orderBy: { dueDate: "asc" } });
+// runs as ORDER BY due_date ASC NULLS LAST, id ASC
+```
+
+A page crosses from values into nulls, or through a long run of nulls, like any other tie: the primary key orders the rows within it, and a cursor taken on a row whose key is null carries that null. This is the same order `findMany` returns under the same `orderBy`, so the two agree row for row.
 
 ## Cursors
 

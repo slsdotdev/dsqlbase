@@ -201,6 +201,71 @@ describe("keyset pagination", () => {
     });
   });
 
+  describe("a nullable order key", () => {
+    /**
+     * `dueDate` is null on most tasks. A few more get one shared date, so a walk crosses ties on
+     * a value as well as the long run of nulls — which sort last ascending and first descending,
+     * as `findMany` sorts them by default.
+     */
+    beforeEach(async () => {
+      await getClient().$query(
+        sql`UPDATE "tasks" SET "due_date" = '2026-07-01' WHERE "title" IN ('Bulk 0', 'Bulk 4', 'Bulk 8', 'Bulk 12')`
+      );
+    });
+
+    it.each(["asc", "desc"] as const)(
+      "%s: forward and backward, returns every row exactly once in findMany's order",
+      async (direction) => {
+        const client = getClient();
+        const expected = await client.tasks.findMany({
+          select: { id: true },
+          orderBy: { dueDate: direction, id: direction },
+        });
+        const read = (cursor: { after?: string | null; before?: string | null }) =>
+          client.tasks.paginate({
+            select: { id: true },
+            orderBy: { dueDate: direction },
+            limit: 4,
+            ...cursor,
+          });
+
+        const forward = await walk((after) => read({ after }), "forward");
+        const backward = await walk(
+          (before) => read({ before }),
+          "backward",
+          forward.at(-1)?.endCursor ?? null
+        );
+
+        const all = expected.map((task) => task.id);
+
+        expect(all).toHaveLength(31);
+        expect(ids(forward)).toEqual(all);
+        expect(ids([...backward].reverse())).toEqual(all.slice(0, -1));
+      }
+    );
+
+    it("between other keys, matches findMany under the same order", async () => {
+      const client = getClient();
+      const expected = await client.tasks.findMany({
+        select: { id: true },
+        orderBy: { status: "asc", dueDate: "desc", id: "desc" },
+      });
+
+      const pages = await walk(
+        (after) =>
+          client.tasks.paginate({
+            select: { id: true },
+            orderBy: { status: "asc", dueDate: "desc" },
+            limit: 3,
+            after,
+          }),
+        "forward"
+      );
+
+      expect(ids(pages)).toEqual(expected.map((task) => task.id));
+    });
+  });
+
   describe("a page", () => {
     it("carries joins on its items", async () => {
       const page = await getClient().tasks.paginate({

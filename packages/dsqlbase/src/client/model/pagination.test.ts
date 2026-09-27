@@ -175,6 +175,78 @@ describe("ModelClient.paginate / the select it builds", () => {
   });
 });
 
+describe("ModelClient.paginate / nullable order keys", () => {
+  /** A raw `tasks` row ordered by `dueDate`, whose first hidden key is the due date's text. */
+  const dueRow = (n: number, due: string | null) => ({
+    ...row(n),
+    due_date: due,
+    __k0: due,
+    __k1: `id-${n}`,
+  });
+
+  it("places the nulls explicitly: last ascending", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 2 });
+
+    expect(last()?.text).toContain(
+      `ORDER BY "__t0"."due_date" ASC NULLS LAST, "__t0"."id" ASC LIMIT`
+    );
+  });
+
+  it("places the nulls explicitly: first descending", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.tasks.paginate({ orderBy: { dueDate: "desc" }, limit: 2 });
+
+    expect(last()?.text).toContain(
+      `ORDER BY "__t0"."due_date" DESC NULLS FIRST, "__t0"."id" DESC LIMIT`
+    );
+  });
+
+  it("leaves a key that cannot hold NULL without a placement", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.tasks.paginate({ orderBy: { createdAt: "asc" }, limit: 2 });
+
+    expect(last()?.text).not.toContain("NULLS");
+  });
+
+  it("continues past a value into the nulls sorted after it", async () => {
+    const { dsql, last } = setup({ rows: [dueRow(1, "2026-05-01"), dueRow(2, null)] });
+
+    const first = await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1 });
+    await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1, after: first.endCursor });
+
+    expect(last()?.text).toContain(
+      `WHERE "__t0"."due_date" > $1 OR "__t0"."due_date" IS NULL OR ` +
+        `("__t0"."due_date" = $2 AND "__t0"."id" > $3)`
+    );
+  });
+
+  it("continues from a null among the nulls, carrying the null in the cursor", async () => {
+    const { dsql, last } = setup({ rows: [dueRow(1, null), dueRow(2, null)] });
+
+    const first = await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1 });
+    await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1, after: first.endCursor });
+
+    expect(last()?.text).toContain(`WHERE "__t0"."due_date" IS NULL AND "__t0"."id" > $1`);
+    expect(last()?.params).toEqual(["id-1", 2]);
+  });
+
+  it("reads before a null with the order and its null placement flipped", async () => {
+    const { dsql, last } = setup({ rows: [dueRow(1, null), dueRow(2, null)] });
+
+    const first = await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1 });
+    await dsql.tasks.paginate({ orderBy: { dueDate: "asc" }, limit: 1, before: first.endCursor });
+
+    expect(last()?.text).toContain(
+      `WHERE "__t0"."due_date" IS NOT NULL OR ("__t0"."due_date" IS NULL AND "__t0"."id" < $1) ` +
+        `ORDER BY "__t0"."due_date" DESC NULLS FIRST, "__t0"."id" DESC`
+    );
+  });
+});
+
 describe("ModelClient.paginate / the page it returns", () => {
   it("keeps `limit` rows and reports the extra one as a next page", async () => {
     const { dsql } = setup({ rows: [row(1), row(2), row(3)] });
@@ -360,14 +432,6 @@ describe("ModelClient.paginate / refusals", () => {
     expect(() => dsql.logs.paginate({})).toThrow(/no primary key/);
   });
 
-  it("refuses a nullable order key", () => {
-    const { dsql } = setup();
-
-    expect(() => dsql.tasks.paginate({ orderBy: { dueDate: "asc" } })).toThrow(
-      /"dueDate": it is nullable/
-    );
-  });
-
   it("refuses a cursor taken under another order", async () => {
     const { dsql } = setup();
     const cursor = await cursorOf({ createdAt: "desc" });
@@ -377,13 +441,13 @@ describe("ModelClient.paginate / refusals", () => {
     );
   });
 
-  it("refuses a cursor carrying a null key", async () => {
+  it("refuses a cursor carrying a null for a key that cannot hold one", async () => {
     const { dsql } = setup({ rows: [{ ...row(1), __k0: null }, row(2)] });
     const page = await dsql.tasks.paginate({ orderBy: { createdAt: "desc" }, limit: 1 });
 
     expect(() =>
       dsql.tasks.paginate({ orderBy: { createdAt: "desc" }, after: page.endCursor })
-    ).toThrow(/null key/);
+    ).toThrow(InvalidCursorError);
   });
 });
 

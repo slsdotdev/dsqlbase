@@ -119,7 +119,7 @@ export class ModelClient<
    * * A cursor is only valid under the `orderBy` it was taken with; `where`, `select` and
    *   `join` are passed again on every page and may change between pages.
    * * `count: true` adds `totalCount`, from a second statement over the same `where`.
-   * * Nullable order keys are not supported yet.
+   * * A nullable order key sorts its nulls last ascending and first descending.
    *
    * @throws {InvalidCursorError} when `after` or `before` is not a cursor for this order.
    */
