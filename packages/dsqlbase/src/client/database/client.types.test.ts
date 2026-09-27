@@ -205,16 +205,25 @@ describe("$findByGlobalId", () => {
     expectTypeOf(record).toExtend<{ $$key: "authors" } | null>();
   });
 
+  // The rejected calls sit in arrows that are never invoked: this file also runs, and a real
+  // call would reach the normalizer and reject with nothing awaiting it.
   it("does not accept a table that is not a node", () => {
-    // @ts-expect-error `teams` has a uuid key, so no id can name it.
-    nodes.$findByGlobalId({ id: someAuthorId, on: { teams: true } });
-    // @ts-expect-error a composite key cannot be a node.
-    nodes.$findByGlobalId({ id: someAuthorId, on: { memberships: true } });
+    expectTypeOf(() => {
+      // @ts-expect-error `teams` has a uuid key, so no id can name it.
+      void nodes.$findByGlobalId({ id: someAuthorId, on: { teams: true } });
+      // @ts-expect-error a composite key cannot be a node.
+      void nodes.$findByGlobalId({ id: someAuthorId, on: { memberships: true } });
+    }).toBeFunction();
   });
 
   it("does not accept a field the branch does not have", () => {
-    // @ts-expect-error `title` is on articles, not authors.
-    nodes.$findByGlobalId({ id: someAuthorId, on: { authors: { select: { title: true } } } });
+    expectTypeOf(() => {
+      void nodes.$findByGlobalId({
+        id: someAuthorId,
+        // @ts-expect-error `title` is on articles, not authors.
+        on: { authors: { select: { title: true } } },
+      });
+    }).toBeFunction();
   });
 });
 
