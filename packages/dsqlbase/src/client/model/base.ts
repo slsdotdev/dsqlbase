@@ -370,6 +370,73 @@ export interface FindOneArgs<TTable extends AnyTable, TSchema extends AnySchema>
   where: WhereExpressionOf<TTable>;
 }
 
+export interface PaginateArgs<TTable extends AnyTable, TSchema extends AnySchema> extends Pick<
+  QueryArgs<TTable, TSchema>,
+  "select" | "where" | "orderBy" | "join"
+> {
+  /**
+   * The number of records on the page. Defaults to the client's `pagination.defaultLimit`
+   * (100 unless configured), and may not exceed its `pagination.maxLimit` when one is set.
+   */
+  limit?: number;
+
+  /**
+   * Read the page that follows this cursor — a `startCursor`, `endCursor` or record
+   * `$$meta.cursor` from an earlier page taken under the same `orderBy`.
+   */
+  after?: string | null;
+
+  /** Read the page that precedes this cursor. Never together with `after`. */
+  before?: string | null;
+
+  /**
+   * Also count every record `where` selects, as `totalCount`. A second statement, and a full
+   * read of the filtered rows on every page — hence opt-in.
+   */
+  count?: boolean;
+}
+
+/** One record of a page: a query result whose `$$meta` also carries its own cursor. */
+export type PageItemOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TArgs extends PaginateArgs<TTable, TSchema>,
+> = Prettify<
+  Omit<QueryResultOf<TTable, TSchema, TArgs>, "$$meta"> & {
+    $$meta: Prettify<RecordMetaOf<TTable, AliasOf<TSchema, TTable>> & { cursor: string }>;
+  }
+>;
+
+// Keyed on whether the caller wrote `count` at all: `TArgs["count"]` would read the constraint's
+// `boolean | undefined` when they left it out. A `count` typed `boolean` is "maybe".
+type TotalCountOf<TArgs> = "count" extends keyof TArgs
+  ? [TArgs["count" & keyof TArgs]] extends [true]
+    ? { totalCount: number }
+    : [TArgs["count" & keyof TArgs]] extends [false | undefined]
+      ? unknown
+      : { totalCount?: number }
+  : unknown;
+
+export type PageOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TArgs extends PaginateArgs<TTable, TSchema>,
+> = Prettify<
+  {
+    items: PageItemOf<TTable, TSchema, TArgs>[];
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    /** The first item's cursor, or `null` on an empty page. */
+    startCursor: string | null;
+    /** The last item's cursor, or `null` on an empty page. */
+    endCursor: string | null;
+  } & TotalCountOf<TArgs>
+>;
+
+export interface CountArgs<TTable extends AnyTable> {
+  where?: WhereExpressionOf<TTable>;
+}
+
 export type RelationQueryOf<
   T extends AnyTable,
   S extends AnySchema,

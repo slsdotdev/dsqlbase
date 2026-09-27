@@ -1,6 +1,6 @@
 import {
   DefinitionSchema,
-  ExecutableQuery,
+  Executable,
   ExecutionContext,
   Schema,
   TenancyError,
@@ -68,10 +68,10 @@ export class DatabaseClient<
     return client as unknown as IdentityClient<TDefinition, TNewClaims>;
   }
 
-  public async $transaction<const TQueries extends ExecutableQuery<unknown>[]>(
+  public async $transaction<const TQueries extends Executable<unknown>[]>(
     queries: TQueries
   ): Promise<{
-    -readonly [K in keyof TQueries]: TQueries[K] extends ExecutableQuery<infer TResult>
+    -readonly [K in keyof TQueries]: TQueries[K] extends Executable<infer TResult>
       ? TResult
       : never;
   }>;
@@ -80,7 +80,7 @@ export class DatabaseClient<
   ): Promise<TReturn>;
   public async $transaction<TReturn = unknown>(
     arg:
-      | ExecutableQuery<TReturn>[]
+      | Executable<unknown>[]
       | ((client: TxClient<TDefinition, TClaims, TEnforce>) => Promise<TReturn>)
   ): Promise<TReturn> {
     const runner = await createTransactionRunner<TDefinition, TClaims, TEnforce>(this._ctx);

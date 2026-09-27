@@ -1,4 +1,4 @@
-import { DefinitionSchema, ExecutableQuery, ExecutionContext } from "@dsqlbase/core";
+import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
 import { attachModels, BaseClient } from "../database/base.js";
 import { Models, VisibleFor } from "../database/index.js";
 import { backoffDelay, isOccError, OCCRetryOptions, sleep } from "./occ-retry.js";
@@ -36,7 +36,7 @@ export async function createTransactionRunner<
 
   return async <TReturn = unknown>(
     opsOrCallback:
-      | ExecutableQuery<TReturn>[]
+      | Executable<unknown>[]
       | ((client: TxClient<TDefinition, TClaims, TEnforce>) => Promise<TReturn>),
     attempt = 1
   ): Promise<TReturn> => {

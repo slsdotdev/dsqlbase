@@ -2,13 +2,18 @@ import { DefinitionSchema } from "@dsqlbase/core";
 import { TypedObject } from "@dsqlbase/core/utils";
 import {
   AnyTable,
+  CompositeQuery,
+  Executable,
   ExecutableQuery,
   ExecutionContext,
   OperationResult,
   Schema,
 } from "@dsqlbase/core/runtime";
 import {
+  CountArgs,
   FindOneArgs,
+  PageOf,
+  PaginateArgs,
   QueryArgs,
   CreateArgs,
   UpdateArgs,
@@ -18,6 +23,7 @@ import {
   type AliasOf,
 } from "./base.js";
 import { RequestNormalizer } from "./normalizer.js";
+import { shapePage } from "../pagination/page.js";
 
 export class ModelClient<
   TTable extends AnyTable,
@@ -75,7 +81,7 @@ export class ModelClient<
    * ```ts
    * const users = await dsql.users.findMany({
    *   where: { age: { gt: 18 } },
-   *   orderBy: [{ age: "desc" }],
+   *   orderBy: { age: "desc" },
    *   limit: 10,
    * });
    * ```
@@ -88,6 +94,79 @@ export class ModelClient<
   ): ExecutableQuery<OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>> {
     const request = this._normalizer.normalizeSelect(this._table, args, "many");
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
+
+    return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  /**
+   * Reads one page of records, ordered by `orderBy` and then the primary key, with a cursor
+   * on each record to continue from.
+   *
+   * @example
+   * ```ts
+   * const page = await dsql.tasks.paginate({
+   *   where: { status: "open" },
+   *   orderBy: { createdAt: "desc" },
+   *   limit: 20,
+   *   after: previous?.endCursor,
+   * });
+   *
+   * page.items; // each with $$meta.cursor
+   * page.hasNextPage;
+   * page.endCursor;
+   * ```
+   * @notes
+   * * A cursor is only valid under the `orderBy` it was taken with; `where`, `select` and
+   *   `join` are passed again on every page and may change between pages.
+   * * `count: true` adds `totalCount`, from a second statement over the same `where`.
+   * * Nullable order keys are not supported yet.
+   *
+   * @throws {InvalidCursorError} when `after` or `before` is not a cursor for this order.
+   */
+
+  public paginate<TArgs extends PaginateArgs<TTable, this["__type"]>>(
+    args: TArgs
+  ): Executable<PageOf<TTable, this["__type"], TArgs>> {
+    const plan = this._normalizer.normalizePaginate(this._table, args);
+    const select = this._ctx.operations.createSelectOperation(this._table, plan.request);
+
+    const page = new ExecutableQuery<PageOf<TTable, this["__type"], TArgs>>(
+      { ...select, resolve: (rows) => shapePage(rows, select.resolve, plan) as never },
+      this._ctx.session
+    );
+
+    if (!args.count) {
+      return page;
+    }
+
+    // Counted over the caller's filter alone — the very node the page filters by, without the
+    // keyset — so the total does not shrink as the pages advance.
+    const count = new ExecutableQuery<number>(
+      this._ctx.operations.createCountOperation(this._table, {
+        mode: "one",
+        args: { where: plan.where },
+      }),
+      this._ctx.session
+    );
+
+    return new CompositeQuery(
+      [page, count] as const,
+      ([result, totalCount]) => ({ ...result, totalCount }) as PageOf<TTable, this["__type"], TArgs>
+    );
+  }
+
+  /**
+   * Counts the records `where` selects — every record, when there is no `where`.
+   *
+   * @example
+   * ```ts
+   * const open = await dsql.tasks.count({ where: { status: "open" } });
+   * ```
+   */
+
+  public count(args?: CountArgs<TTable>): ExecutableQuery<number> {
+    const request = this._normalizer.normalizeCount(this._table, args);
+    const operation = this._ctx.operations.createCountOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
   }

@@ -418,3 +418,91 @@ describe("relations split across several blocks", () => {
     }).toBeFunction();
   });
 });
+
+describe("paginate", () => {
+  // Built, never awaited: the mock session answers nothing, and only the types are under test.
+  const page = client.paginate({
+    select: { id: true, firstName: true },
+    join: { contacts: { select: { value: true } } },
+    orderBy: { lastName: "asc" },
+  });
+
+  type Page = Awaited<typeof page>;
+  type Item = Page["items"][number];
+
+  it("shapes each item by select and join, like findMany", () => {
+    expectTypeOf<Item["id"]>().toEqualTypeOf<string>();
+    expectTypeOf<Item["firstName"]>().toEqualTypeOf<string>();
+    expectTypeOf<Item>().not.toHaveProperty("lastName");
+    expectTypeOf<Item["contacts"][number]["value"]>().toEqualTypeOf<string>();
+  });
+
+  it("puts a cursor on each item's $$meta, and only on the page's own items", () => {
+    expectTypeOf<Item["$$meta"]>().toEqualTypeOf<{
+      key: "users";
+      table: string;
+      schema?: string;
+      cursor: string;
+    }>();
+    expectTypeOf<Item["contacts"][number]["$$meta"]>().not.toHaveProperty("cursor");
+  });
+
+  it("carries the page flags and both end cursors", () => {
+    expectTypeOf(page).resolves.toHaveProperty("items").toBeArray();
+    expectTypeOf<Page["hasNextPage"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<Page["hasPreviousPage"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<Page["startCursor"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Page["endCursor"]>().toEqualTypeOf<string | null>();
+  });
+
+  it("has totalCount only when count is true", () => {
+    const counted = client.paginate({ count: true });
+    const uncounted = client.paginate({ count: false });
+    const maybe = client.paginate({ count: Math.random() > 0.5 });
+
+    expectTypeOf(counted).resolves.toHaveProperty("totalCount").toEqualTypeOf<number>();
+    expectTypeOf(uncounted).resolves.not.toHaveProperty("totalCount");
+    expectTypeOf(page).resolves.not.toHaveProperty("totalCount");
+    expectTypeOf(maybe).resolves.toHaveProperty("totalCount").toEqualTypeOf<number | undefined>();
+  });
+
+  it("accepts a cursor as a GraphQL argument arrives: string, null or absent", () => {
+    const argument = null as string | null | undefined;
+
+    // Compiling is the assertion; with no cursor, these only build a query.
+    expectTypeOf(client.paginate({ after: argument })).toHaveProperty("then");
+    expectTypeOf(client.paginate({ before: argument })).toHaveProperty("then");
+  });
+
+  // Rejected calls sit in arrows that are never invoked, so this file's runtime pass skips them.
+  it("does not accept distinct or offset", () => {
+    expectTypeOf(() => {
+      // @ts-expect-error a keyset page has no offset.
+      void client.paginate({ offset: 10 });
+      // @ts-expect-error nor distinct, which would collapse rows the keyset relies on.
+      void client.paginate({ distinct: true });
+    }).toBeFunction();
+  });
+
+  it("does not accept a field the table does not have", () => {
+    expectTypeOf(() => {
+      // @ts-expect-error `title` is not a users field.
+      void client.paginate({ orderBy: { title: "asc" } });
+    }).toBeFunction();
+  });
+});
+
+describe("count", () => {
+  it("resolves to a number", () => {
+    expectTypeOf(client.count({ where: { lastName: "Doe" } })).toEqualTypeOf<
+      ExecutableQuery<number>
+    >();
+  });
+
+  it("does not accept a field the table does not have", () => {
+    expectTypeOf(() => {
+      // @ts-expect-error `title` is not a users field.
+      void client.count({ where: { title: "x" } });
+    }).toBeFunction();
+  });
+});

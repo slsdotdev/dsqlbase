@@ -1,12 +1,15 @@
 import { TypedObject } from "@dsqlbase/core/utils";
 import {
+  AnyColumn,
   AnyTable,
+  CountOperationArgs,
   DefinitionSchema,
   DeleteOperationArgs,
   ExecutionContext,
   FieldMutation,
   FieldSelection,
   InsertOperationArgs,
+  KeysetBound,
   OperationMode,
   OperationRequest,
   Schema,
@@ -18,17 +21,51 @@ import {
 } from "@dsqlbase/core";
 import {
   AnyRelationQuery,
+  CountArgs,
   CreateArgs,
   DeleteArgs,
   FieldSelectionOf,
   isFilterType,
   JoinExpressionOf,
   OrderByExpressionOf,
+  PaginateArgs,
   QueryArgs,
   UpdateArgs,
   UpdateValuesOf,
   WhereExpressionOf,
 } from "./base.js";
+import {
+  CursorKey,
+  decodeCursor,
+  InvalidCursorError,
+  keysetSignature,
+} from "../pagination/cursor.js";
+
+/** The page size when neither the call nor the client names one. */
+export const DEFAULT_PAGE_SIZE = 100;
+
+interface OrderKey {
+  field: string;
+  column: AnyColumn;
+  direction: "asc" | "desc";
+}
+
+const flip = (direction: "asc" | "desc"): "asc" | "desc" => (direction === "asc" ? "desc" : "asc");
+
+/** Everything `paginate` needs besides the select itself. */
+export interface PaginateRequest {
+  request: OperationRequest<SelectOperationArgs, "many">;
+  /** The caller's own filter, without the keyset — what a count of the same rows uses. */
+  where?: SQLNode;
+  /** The total order, as the cursor signs it: the caller's keys, then the primary key. */
+  keys: CursorKey[];
+  signature: string;
+  /** The page size. The select reads one row more, to learn whether another page follows. */
+  take: number;
+  bound: KeysetBound;
+  /** The key values of the cursor row, when the call passed a cursor. */
+  cursor?: string[];
+}
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -199,6 +236,34 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return entries;
   }
 
+  /** `orderBy` as resolved keys, in the order the caller wrote them. */
+  private _getOrderKeys<TTable extends AnyTable>(
+    table: TTable,
+    orderBy: OrderByExpressionOf<TTable> | null | undefined
+  ): OrderKey[] {
+    const keys: OrderKey[] = [];
+
+    for (const [field, direction] of Object.entries(orderBy ?? {})) {
+      const column = table.getColumn(field);
+
+      if (!column) {
+        throw new Error(`Invalid field "${field}" in orderBy for table "${table.name}".`);
+      }
+
+      if (direction === "asc" || direction === "desc") {
+        keys.push({ field, column, direction });
+      }
+    }
+
+    return keys;
+  }
+
+  private _renderOrderKeys(keys: OrderKey[]): SQLNode[] {
+    return keys.map(({ column, direction }) =>
+      direction === "asc" ? sql`${column} ASC` : sql`${column} DESC`
+    );
+  }
+
   private _getOrderByEntries<TTable extends AnyTable>(
     table: TTable,
     orderBy: OrderByExpressionOf<TTable> | null | undefined
@@ -207,23 +272,61 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       return undefined;
     }
 
-    const entries: SQLNode[] = [];
+    return this._renderOrderKeys(this._getOrderKeys(table, orderBy));
+  }
 
-    for (const [fieldName, direction] of Object.entries(orderBy)) {
-      const column = table.getColumn(fieldName);
+  /**
+   * The total order a page is read under: the caller's keys, then every primary-key column
+   * they did not already name, so no two rows ever tie. An appended key follows the direction
+   * of the last one the caller wrote — `asc` when they wrote none.
+   */
+  private _getKeysetOrder<TTable extends AnyTable>(
+    table: TTable,
+    orderBy: OrderByExpressionOf<TTable> | null | undefined
+  ): OrderKey[] {
+    if (table.primaryKey.length === 0) {
+      throw new Error(
+        `Cannot paginate "${table.name}": it has no primary key to break ties between rows.`
+      );
+    }
 
-      if (!column) {
-        throw new Error(`Invalid field "${fieldName}" in orderBy for table "${table.name}".`);
-      }
+    const keys = this._getOrderKeys(table, orderBy);
+    const direction = keys.at(-1)?.direction ?? "asc";
 
-      if (direction === "asc") {
-        entries.push(sql`${column} ASC`);
-      } else if (direction === "desc") {
-        entries.push(sql`${column} DESC`);
+    const fields = new Map(table.getColumnEntries().map(([field, column]) => [column, field]));
+
+    for (const column of table.primaryKey) {
+      if (!keys.some((key) => key.column === column)) {
+        keys.push({ field: fields.get(column) as string, column, direction });
       }
     }
 
-    return entries;
+    for (const { field, column } of keys) {
+      // A primary-key column cannot hold NULL, whether or not it was also marked notNull.
+      if (!column.notNull && !table.primaryKey.includes(column)) {
+        throw new Error(
+          `Cannot paginate "${table.name}" by "${field}": it is nullable, and nullable order ` +
+            `keys are not supported yet.`
+        );
+      }
+    }
+
+    return keys;
+  }
+
+  private _getPageSize(limit: number | undefined): number {
+    const { defaultLimit = DEFAULT_PAGE_SIZE, maxLimit } = this._ctx.pagination ?? {};
+    const size = limit ?? defaultLimit;
+
+    if (!Number.isInteger(size) || size <= 0) {
+      throw new Error(`A page size must be a positive integer (got ${String(size)}).`);
+    }
+
+    if (maxLimit !== undefined && size > maxLimit) {
+      throw new Error(`A page size of ${size} exceeds this client's maxLimit of ${maxLimit}.`);
+    }
+
+    return size;
   }
 
   private _getJoinEntries<TTable extends AnyTable>(
@@ -309,6 +412,90 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return {
       mode,
       args: this._getSelectArgs(table, args),
+    };
+  }
+
+  /**
+   * A page read: the select to run, plus everything needed to turn its rows into a page.
+   *
+   * The keyset predicate is appended to the caller's `where` as a second condition, so the
+   * seam in core renders the tenant predicate, then the caller's filter, then the keyset. The
+   * caller's filter alone is kept apart as `where`, for a count over the same rows.
+   */
+  public normalizePaginate<
+    TTable extends AnyTable,
+    TArgs extends PaginateArgs<TTable, this["__type"]>,
+  >(table: TTable, args: TArgs): PaginateRequest {
+    const { after, before } = args;
+
+    if (after != null && before != null) {
+      throw new Error("Pass either after or before, not both.");
+    }
+
+    const take = this._getPageSize(args.limit);
+    const keys = this._getKeysetOrder(table, args.orderBy);
+    const signature = keysetSignature(table.alias, keys);
+    const bound = before != null ? "before" : "after";
+    const token = after ?? before ?? undefined;
+
+    let cursor: string[] | undefined;
+
+    if (token !== undefined) {
+      const values = decodeCursor(token, signature, keys.length);
+
+      if (values.some((value) => value === null)) {
+        throw new InvalidCursorError(
+          "format",
+          `"${token}" carries a null key, and nullable order keys are not supported yet.`
+        );
+      }
+
+      cursor = values as string[];
+    }
+
+    const base = this._getSelectArgs(table, { select: args.select, join: args.join });
+    const where = this._getWhereExpression(table, args.where);
+    const keyset = cursor
+      ? sql.keyset(
+          keys.map(({ column, direction }) => ({ node: column, direction })),
+          cursor,
+          bound
+        )
+      : undefined;
+
+    // A page before the cursor is read backwards — every direction flipped — and put back in
+    // order once it is resolved, so the rows nearest the cursor are the ones kept.
+    const order =
+      bound === "before" ? keys.map((key) => ({ ...key, direction: flip(key.direction) })) : keys;
+
+    return {
+      request: {
+        mode: "many",
+        args: {
+          ...base,
+          where: [where, keyset].filter((node): node is SQLNode => node !== undefined),
+          orderBy: this._renderOrderKeys(order),
+          keys: keys.map(({ column }) => column),
+          limit: take + 1,
+        },
+      },
+      where,
+      keys: keys.map(({ field, direction }) => ({ field, direction })),
+      signature,
+      take,
+      bound,
+      cursor,
+    };
+  }
+
+  /** A count over the rows `where` selects. */
+  public normalizeCount<TTable extends AnyTable>(
+    table: TTable,
+    args: CountArgs<TTable> = {}
+  ): OperationRequest<CountOperationArgs, "one"> {
+    return {
+      mode: "one",
+      args: { where: this._getWhereExpression(table, args.where) },
     };
   }
 

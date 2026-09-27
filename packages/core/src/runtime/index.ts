@@ -14,6 +14,7 @@ export { Column, type AnyColumn } from "./column.js";
 export {
   ExecutionContext,
   type ExecutionContextOptions,
+  type PaginationOptions,
   type TenancyOptions,
 } from "./context.js";
 export { TenancyError } from "./errors.js";

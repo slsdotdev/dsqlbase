@@ -70,6 +70,7 @@ export {
   type OperationRequest,
   type OperationResult,
   type OperationType,
+  type PaginationOptions,
   type RuntimeTables,
   type Schema,
   type SchemaRelationDefinitions,

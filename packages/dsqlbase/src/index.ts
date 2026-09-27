@@ -10,6 +10,11 @@ export {
   type GlobalIdErrorCode,
 } from "./schema/utils/global-id.js";
 export {
+  CURSOR_PREFIX,
+  InvalidCursorError,
+  type InvalidCursorCode,
+} from "./client/pagination/cursor.js";
+export {
   createClient,
   type ClaimsOf,
   type ClientOptions,
