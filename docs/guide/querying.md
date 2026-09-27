@@ -16,12 +16,14 @@ Models are keyed by the **export name** in `schema`, not by the table name: `exp
 
 ## Model methods
 
-Every method returns an `ExecutableQuery`; `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
+Every method returns a query that runs when awaited — an `ExecutableQuery`, or for a counted page a `CompositeQuery` of two statements. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
 
 | Method                            | Args                                            | Returns                                  |
 | --------------------------------- | ----------------------------------------------- | ---------------------------------------- |
 | `findOne(args)`                   | `where` (required), `select`, `join`            | one row or `null`                        |
 | `findMany(args)`                  | `QueryArgs` (below)                             | array of rows                            |
+| `paginate(args)`                  | see [Pagination](./pagination.md)               | a page of rows with cursors              |
+| `count(args?)`                    | `where`                                         | number                                   |
 | `create({ data, return? })`       | column values; `return` selects what comes back | created row, selected fields, or nothing |
 | `update({ set, where, return? })` |                                                 | updated rows                             |
 | `delete({ where, return? })`      |                                                 | deleted rows                             |
@@ -80,7 +82,8 @@ const tasks = await dsql.tasks.findMany({
 - **`distinct`** — `SELECT DISTINCT` over the selected columns.
 - **`join`** — declared relations only; `true` or a nested `QueryArgs` (see [Relations](./relations.md)).
 
-There is no `count`, aggregate, or keyset-pagination helper today; use `$query` for those.
+For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
+`offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.
 
 ## `$$meta` on every row
 
@@ -153,6 +156,7 @@ await dsql.$query(
 ## Related
 
 - [Relations](./relations.md)
+- [Pagination](./pagination.md)
 - [Transactions](./transactions.md)
 - [Global ids](./global-ids.md)
 - [Tenancy](./tenancy.md)

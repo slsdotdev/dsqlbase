@@ -133,9 +133,32 @@ A raw uuid is still accepted on input; an id from another table throws rather th
 matching nothing. It serializes as a plain `uuid`, so adopting it produces no migration. See the
 [global ids guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/global-ids.md).
 
+## Pagination
+
+`paginate` reads one page at a time from a cursor rather than an offset, ordered by your
+`orderBy` and then the primary key, so no row is skipped or repeated between pages:
+
+```ts
+const page = await dsql.tasks.paginate({
+  where: { status: "todo" },
+  orderBy: { createdAt: "desc" },
+  limit: 20,
+  after: previous?.endCursor,
+  count: true,                     // adds totalCount
+});
+
+page.items;        // each with $$meta.cursor
+page.hasNextPage;
+page.endCursor;
+
+const open = await dsql.tasks.count({ where: { status: "todo" } });
+```
+
+See the [pagination guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/pagination.md).
+
 ## Links
 
-- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, tenancy, global ids, migrations, DSQL notes
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, pagination, sessions, transactions, tenancy, global ids, migrations, DSQL notes
 - [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)

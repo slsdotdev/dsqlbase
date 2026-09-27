@@ -24,6 +24,17 @@ await dsql.$transaction(async (tx) => {
 
 The session passed to `createClient` must implement `beginTransaction()`; both provided sessions do.
 
+A batch takes anything a model method returns, including a [page](./pagination.md) counted with
+`count: true`, which is two statements rather than one. Inside the transaction both run on its
+session, so the page and its `totalCount` read the same snapshot:
+
+```ts
+const [page, open] = await dsql.$transaction([
+  dsql.tasks.paginate({ limit: 20, count: true }),
+  dsql.tasks.count({ where: { status: "todo" } }),
+]);
+```
+
 ## Scoped transactions
 
 A transaction opened on a client scoped with [`$identityClaims`](./tenancy.md) is scoped too: the transaction context carries the identity, so every query inside it gets the tenant predicate, and a write lands in the right tenant.
@@ -53,6 +64,7 @@ await dsql.$transaction([db.invoices.findMany({})]);   // still scoped to `works
 ## Related
 
 - [Querying](./querying.md)
+- [Pagination](./pagination.md)
 - [Tenancy](./tenancy.md)
 - [Sessions](./sessions.md)
 - [DSQL notes](./dsql-notes.md)

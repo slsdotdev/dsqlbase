@@ -55,6 +55,8 @@ The docs are ambiguous or silent on these. There is no cluster in CI; each item 
 | `DROP CONSTRAINT` on a primary key | attempt it | refuse PK drops explicitly |
 | `VALIDATE CONSTRAINT` subject to the 3,000-row limit | validate on a table with > 3,000 rows | document as async job; no design change |
 | `COMMENT ON` availability (matters for deprecation markers) | `COMMENT ON COLUMN …` | store deprecation markers in the definition only |
+| Row-value comparison `(a, b) < ($1, $2)` | `SELECT … WHERE (a, b) < (1, 2)` | nothing — `sql.keyset` expands key by key and does not rely on it; if supported, it may become an optimisation for uniform-direction keys |
+| Whether a session can change `DateStyle` | `SET DateStyle = 'SQL, DMY'`, then read a `date` as text | keyset cursors carry `::text` values and assume a stable `DateStyle`; if it can change, cast order keys to a fixed format instead |
 
 ## Related
 

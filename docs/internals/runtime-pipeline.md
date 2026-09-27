@@ -9,11 +9,11 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
   → RequestNormalizer  packages/dsqlbase/src/client/model/normalizer.ts   where/select/orderBy/join → SQL nodes
   → OperationsFactory  packages/core/src/runtime/operation.ts             column resolution, SelectParams, result resolvers
   → QueryBuilder       packages/core/src/runtime/query.ts                 SQL text
-  → ExecutableQuery    packages/core/src/runtime/executor.ts
+  → ExecutableQuery    packages/core/src/runtime/executor.ts             (CompositeQuery: several, combined)
   → Session.execute    consumer-supplied
 ```
 
-- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
+- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy, pagination? }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
 - The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or identity, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$identityClaims` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
 - **Every table is attached to every client.** Which tables a client may address is decided by its _type_ (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
 - **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — the tenant predicate above all. See [0007](../decisions/0007-global-ids.md).
@@ -56,15 +56,25 @@ only ran when the caller happened to filter would not be a rule at all.
 | several                 | `sql.and` over each node **wrapped**, so an `OR` among them keeps its precedence |
 
 The normalizer folds a user `where` object into one node before it reaches here
-(`packages/dsqlbase/src/client/model/normalizer.ts`), so the array form is for callers that
-drive `OperationsFactory` directly — and for whatever the seam itself adds.
+(`packages/dsqlbase/src/client/model/normalizer.ts`) — or into none at all, when the object
+selects nothing in particular: `{}` and an empty `and` / `or` group mean "no filter", and the
+operations that require a `where` (`findOne`, `update`, `delete`) refuse one that folds to
+nothing. The array form is for callers that drive `OperationsFactory` directly, for whatever the
+seam itself adds, and for `paginate`, which passes `[callerWhere, keyset]`.
 
 ### Order
 
-The tenant predicate leads, then the caller's `where`, then whatever a sibling feature appends
-afterwards — a join correlation (added by `QueryBuilder`, which owns aliasing), and in future a
-keyset. Order is cosmetic to the planner and deliberate for a reader: the boundary is the first
-thing an `EXPLAIN` shows.
+Within one level, the tenant predicate leads, then the caller's `where`, then a keyset
+predicate when `paginate` passed a cursor:
+
+```sql
+WHERE ("tasks"."workspace_id" = $1) AND ("tasks"."status" = $2) AND ("tasks"."created_at" < $3 OR …)
+```
+
+A joined level adds its correlation on the parent row, and that comes **first**: `QueryBuilder`,
+which owns aliasing, renders `correlation AND (level conditions)`, wrapping whatever the seam
+assembled for that level as one group. Order is cosmetic to the planner and deliberate for a
+reader: the boundary is the first thing an `EXPLAIN` shows of the rows a level may hold.
 
 ### The tenant predicate
 
@@ -129,9 +139,55 @@ reserving a name costs nothing now and is a breaking change later.
 
 An absent `belongsTo` stays `null` and an empty `hasMany` stays `[]` — no row, no meta.
 
+## Pagination and count
+
+Keyset pagination is split the way global ids are: core provides general-purpose pieces and has
+no opinion about cursors; the client owns the cursor format and the page shape.
+
+**Core** (`packages/core`):
+
+- `sql.keyset(keys, values, bound)` (`sql/tag.ts`) — the predicate selecting rows strictly past
+  a cursor row. It is expanded key by key, `k0 > $a OR (k0 = $a AND (k1 > $b OR …))`, so mixed
+  directions need no special case and nothing relies on row-value comparison. `bound: "before"`
+  flips every comparison. Values are bound as bare parameters, never through a codec: they are
+  already the database's own text. Nullable keys are refused.
+- `SelectOperationArgs.keys` — columns projected a second time at the **root** level as
+  `col::text AS "__k<n>"`, aliased like every other reference in the level. No resolver reads
+  them, so they reach the raw driver row and never a result record. A join level asking for
+  them is refused.
+- `createCountOperation(table, { where })` — `SELECT count(*) AS "count"`, its `WHERE` built by
+  the same seam, resolved with `Number(...)` (drivers return `bigint` as text or `bigint`).
+- `Executable<T>` and `CompositeQuery` (`runtime/executor.ts`) — anything that runs when awaited
+  and re-binds with `clone(session)`. `$transaction([...])` takes `Executable[]`, so a result
+  built from several statements batches like one. A `CompositeQuery` runs its parts with
+  `Promise.all` and combines them; cloned onto a transaction session, they share it.
+- `ExecutionContext.pagination` carries `{ defaultLimit?, maxLimit? }` from `ClientOptions`;
+  core reads neither.
+
+**Client** (`packages/dsqlbase`):
+
+- `RequestNormalizer.normalizePaginate` resolves the total order — the caller's `orderBy`, then
+  every primary-key column not already named, in the direction of the last key — refuses what
+  cannot be paged (no primary key, a nullable key, `after` with `before`, a bad or oversized
+  `limit`), decodes the cursor, and returns the select with `where: [callerWhere, keyset]`, the
+  order (flipped for `before`), `keys`, and `limit + 1`. It also returns `callerWhere` alone —
+  the very node the page filters by — for the count.
+- `ModelClient.paginate` builds the select and wraps its `resolve`: `shapePage`
+  (`client/pagination/page.ts`) drops the extra row into `hasNextPage` / `hasPreviousPage`,
+  resolves the rest, stamps each record's cursor from its `__k<n>` columns, reverses a `before`
+  page, and fills `startCursor` / `endCursor`. With `count: true` it returns a `CompositeQuery`
+  of the page and a count.
+- The cursor (`client/pagination/cursor.ts`) is `c1.` + base64url of
+  `[signature, ...values]`, where the signature is 8 hex characters of SHA-256 over the table
+  alias and the ordered `field:direction` keys. `InvalidCursorError` is thrown before any SQL.
+
+The cursor is stamped by wrapping `resolve` rather than as a `MetaResolver`: a `MetaResolver`
+receives the raw row, but core would then need the cursor codec and the order's signature,
+which are client concerns. `$$meta` is copied, never written to, since `Table.meta` is shared.
+
 ## Query args surface
 
-Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only), `where` (`eq/neq/gt/gte/lt/lte/in/between/exists/beginsWith/endsWith/contains` plus `and/or/not`, or value shorthand), `orderBy` (object of field → `asc|desc`, relies on key insertion order), `distinct`, `limit`, `offset`, `join` (relations only). No count or aggregate, no keyset helpers, no row-value comparison in `sql.*`. **No default limit is applied** — the operations factory passes `limit` through unchanged. (The JSDoc used to promise a default of 100; it was wrong and has been removed.)
+Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns only), `where` (`eq/neq/gt/gte/lt/lte/in/between/exists/beginsWith/endsWith/contains` plus `and/or/not`, or value shorthand), `orderBy` (object of field → `asc|desc`, relies on key insertion order), `distinct`, `limit`, `offset`, `join` (relations only). `PaginateArgs` takes `select`, `where`, `orderBy` and `join` from it, plus `limit`, `after`, `before` and `count`; `CountArgs` takes `where`. No aggregate beyond `count`, and no row-value comparison in `sql.*`. **`findMany` applies no default limit** — the operations factory passes `limit` through unchanged; only `paginate` has one. (The JSDoc used to promise a default of 100; it was wrong and has been removed.)
 
 ## Read-only columns
 

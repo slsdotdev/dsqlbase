@@ -22,6 +22,13 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
 - **`exists`** — a null check, no value.
 - **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.
+- **Keyset cursors** — a cursor carries each order key as the database's own text (`col::text`,
+  read off the raw row), and `sql.keyset` binds those values back as bare parameters. No codec
+  sees them in either direction, which is deliberate: a codec decodes to a JS value that can
+  have lost precision the database still compares on. A `timestamptz` holds microseconds, a
+  `Date` milliseconds, so a cursor rebuilt from the decoded `Date` of a row at `.123456`
+  becomes `.123` and the next page skips every row in that millisecond. The same holds for a
+  bound codec such as the guid wrapper: a guid order key travels as its raw uuid.
 
 ## Filtering by a codec column in raw SQL
 
@@ -54,7 +61,11 @@ opinion about the shape of an id. See [0007](../decisions/0007-global-ids.md).
 
 ## Rules for new work
 
-- Any cursor, token, or cache-key serialization must round-trip values through the column codec, never `JSON.stringify` alone.
+- A cursor, token or cache key that must compare equal to a stored value carries the
+  database's own text for it (`::text`), not a decoded value — decoding can lose precision the
+  database still compares on. One that only has to name a value to a caller, and never goes back
+  into a comparison, may round-trip through the codec instead; never `JSON.stringify` a decoded
+  value alone either way.
 - A new column type with a non-identity codec needs a test that filters by that column, so the where-clause gap is caught rather than shipped.
 
 ## Related
