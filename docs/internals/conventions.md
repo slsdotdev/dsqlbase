@@ -10,6 +10,16 @@ _Audience: contributors and agents._
 - **Husky**: pre-commit runs `npm run lint`. Do not bypass it.
 - **Changesets**: when a published package changes, add a changeset (`npm run changeset`); never bump `version` by hand. `@dsqlbase/core`, `@dsqlbase/migration`, and `dsqlbase` are a `fixed` group and version together. CI (`.github/workflows/release.yml`) builds, lints, tests, and publishes from `main`, and runs only on pushes to it.
 - **Quality gate**: every pull request into `main` runs `.github/workflows/quality-gate.yml` — `npm ci`, build, lint, typecheck, unit tests and the PGlite e2e specs — and must pass before it merges. The repository is public and takes pull requests from forks, so the workflow runs unreviewed code and is kept safe for it: `pull_request` only (never `pull_request_target`), a read-only token not persisted to `.git/config`, no pull-request text interpolated into a `run:` step, no dependency cache, and every action pinned to a commit SHA. Keep all of those when editing any workflow; Dependabot (`.github/dependabot.yml`) proposes the SHA bumps.
+- **Rulesets are committed, and applied by hand.** `.github/rulesets/*.json` is the reviewed definition of each repository ruleset — `main.json` protects `main` and requires the quality gate's check, tied to the GitHub Actions app (`integration_id` 15368) so no other source can satisfy it. GitHub does not read these files, and applying them automatically would need an admin-scoped secret in a public repository, so an admin applies a merged change:
+
+  ```sh
+  id=$(gh api repos/slsdotdev/dsqlbase/rulesets --jq '.[] | select(.name == "Main") | .id')
+  gh api --method PUT "repos/slsdotdev/dsqlbase/rulesets/$id" --input .github/rulesets/main.json
+  # a new ruleset: gh api --method POST repos/slsdotdev/dsqlbase/rulesets --input <file>
+  ```
+
+  `.github/workflows/ruleset-drift.yml` runs `.github/rulesets/check.mjs` on every pull request, daily and on demand, and fails when a live ruleset differs from its file or has none. It reads with a read-only token, which is not shown `bypass_actors`, so those are the one part of a ruleset it cannot compare. Change a ruleset by editing its file in a pull request, then apply it; a change made in the UI is drift until committed.
+
 - **Branches**: work on a branch off `main`; `main` is the release branch.
 
 ## Design workflow
