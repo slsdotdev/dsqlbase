@@ -7,7 +7,13 @@ import {
   ColumnConfig,
   TableDefinition,
 } from "@dsqlbase/core/definition";
-import { AnySchema, AnyTable, SchemaTableRelations, Table } from "@dsqlbase/core/runtime";
+import {
+  AnySchema,
+  AnyTable,
+  SchemaTableRelations,
+  Table,
+  TableByAlias,
+} from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
@@ -60,15 +66,45 @@ export type DeclaredMetaOf<T> = T extends { __type: { meta: infer M } }
   : object;
 
 /**
+ * The aliases a schema exports a given table under, matched on the database table name.
+ *
+ * Matched on the *name* rather than on the whole table type because a join level rebuilds its
+ * target table from parts (`RelationJoinResultOf`), and the rebuilt type is not identical to
+ * the one `TableByAlias` produces — structural matching finds the root level and misses every
+ * nested one. The name is the reliable handle, and `SchemaRegistry` already keys its table map
+ * by it, so two tables in one schema cannot share one.
+ */
+type MatchingAliasesOf<TSchema extends AnySchema, TTable extends AnyTable> = {
+  [K in keyof TSchema["tables"] & string]: TableByAlias<TSchema, K>["name"] extends TTable["name"]
+    ? TTable["name"] extends TableByAlias<TSchema, K>["name"]
+      ? K
+      : never
+    : never;
+}[keyof TSchema["tables"] & string];
+
+/**
+ * The literal alias a schema exports a table under, for `$$meta.key`.
+ *
+ * A reverse lookup, because the alias is a property of the *schema* — the key a table is
+ * exported under — and nothing on `Table` carries it as a type. Falls back to `string` when
+ * the table is not in the schema, so a hand-built `Table` still types.
+ */
+export type AliasOf<TSchema extends AnySchema, TTable extends AnyTable> = [
+  MatchingAliasesOf<TSchema, TTable>,
+] extends [never]
+  ? string
+  : MatchingAliasesOf<TSchema, TTable>;
+
+/**
  * The `$$meta` property carried by every result record: built-ins set from the schema, plus
  * whatever `table().meta()` declared.
  *
- * `key` is the schema alias — the name the client addresses the table by. It is typed
- * `string` rather than the literal alias; narrowing a row union on `$$meta.key` needs the
- * alias threaded as a type parameter, which the feature that needs it will add.
+ * `key` is the schema alias — the name the client addresses the table by, and the
+ * discriminant a row union narrows on. It is the literal alias wherever the schema is in
+ * hand, and `string` otherwise.
  */
-export type RecordMetaOf<T> = Prettify<
-  { key: string; table: string; schema?: string } & DeclaredMetaOf<T>
+export type RecordMetaOf<T, TAlias extends string = string> = Prettify<
+  { key: TAlias; table: string; schema?: string } & DeclaredMetaOf<T>
 >;
 
 export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
@@ -128,7 +164,11 @@ export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
 };
 
-export type ReturningResultOf<T extends AnyTable, TArgs> = TArgs extends {
+export type ReturningResultOf<
+  T extends AnyTable,
+  TArgs,
+  TAlias extends string = string,
+> = TArgs extends {
   return?: infer R;
 }
   ? R extends FieldSelectionOf<T>
@@ -137,12 +177,12 @@ export type ReturningResultOf<T extends AnyTable, TArgs> = TArgs extends {
           [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
             ? ValueTypeOf<ColumnTypeOf<T, K>>
             : never;
-        } & { $$meta: RecordMetaOf<T> }
+        } & { $$meta: RecordMetaOf<T, TAlias> }
       >
     : R extends true
       ? Prettify<
           { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> } & {
-            $$meta: RecordMetaOf<T>;
+            $$meta: RecordMetaOf<T, TAlias>;
           }
         >
       : Record<string, never>
@@ -400,7 +440,9 @@ export type QueryResultOf<
   TSchema extends AnySchema,
   TArgs extends QueryArgs<TTable, TSchema>,
 > = Prettify<
-  SelectionResultOf<TTable, TSchema, TArgs> & { $$meta: RecordMetaOf<TTable> } & {
+  SelectionResultOf<TTable, TSchema, TArgs> & {
+    $$meta: RecordMetaOf<TTable, AliasOf<TSchema, TTable>>;
+  } & {
     [K in keyof TArgs["join"]]: K extends RelationFieldNamesOf<TTable>
       ? RelationTargetOf<TTable, K> extends TableDefinition<
           infer TName,
@@ -586,3 +628,118 @@ export function isFilterType<T extends keyof FilterCondition>(
     value[type as keyof typeof value] !== undefined
   );
 }
+
+/* -------------------------------------------------------------------------------------------
+ * Global ids
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * The field a table's primary key is a single `guid()` column under, or `never`.
+ *
+ * Mirrors the runtime rule in `packages/dsqlbase/src/client/nodes.ts`. A composite key is
+ * declared with `table.primaryKey((c) => [...])`, which sets no column-level flag, so such a
+ * table yields `never` here exactly as it fails to become a node there.
+ */
+export type NodeKeyFieldOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true; guid: true } ? K : never;
+}[FieldNamesOf<T>];
+
+/** The aliases of a schema that can be addressed by global id. */
+export type NodeAliasesOf<TSchema extends AnySchema> = {
+  [K in keyof TSchema["tables"] & string]: [NodeKeyFieldOf<TableByAlias<TSchema, K>>] extends [
+    never,
+  ]
+    ? never
+    : K;
+}[keyof TSchema["tables"] & string];
+
+/**
+ * What to do with each member of a set of tables a single call may resolve to.
+ *
+ * `true` — or leaving the alias out — returns the whole row; `false` excludes the member, so
+ * it is gone from the result union and refused at runtime. Narrowed to `select` for a first
+ * cut, per [0004](../../../../../docs/decisions/0004-record-meta.md); polymorphic relations
+ * widen it to `where` and `join` when they ship, and take this same type.
+ */
+export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = {
+  [K in TAliases]?: { select?: FieldSelectionOf<TableByAlias<TSchema, K>> } | boolean;
+};
+
+/** The `on` map `$findByGlobalId` and `$listByGlobalId` take. */
+export type GlobalIdOptionsOf<TSchema extends AnySchema> = OnSelectionOf<
+  NodeAliasesOf<TSchema>,
+  TSchema
+>;
+
+/** The query args one member of an `on` map resolves to. */
+type NodeArgsOf<
+  TSchema extends AnySchema,
+  TAlias extends NodeAliasesOf<TSchema>,
+  TOn,
+> = TAlias extends keyof TOn
+  ? TOn[TAlias] extends { select: infer TSelect }
+    ? TSelect extends FieldSelectionOf<TableByAlias<TSchema, TAlias>>
+      ? { select: TSelect }
+      : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+    : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+  : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>;
+
+/** Whether an `on` map excluded a member outright. */
+type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn
+  ? TOn[TAlias] extends false
+    ? true
+    : false
+  : false;
+
+/**
+ * A resolved node row, tagged with the alias it came from.
+ *
+ * `$$key` rather than `$$meta.key`, because **TypeScript does not narrow a union on a nested
+ * discriminant**: `record.$$meta.key === "authors"` compiles but narrows nothing, while
+ * `record.$$key === "authors"` narrows. `$$key` has been a reserved field name since
+ * [0004](../../../../../docs/decisions/0004-record-meta.md) for exactly this, and it carries
+ * the same value as `$$meta.key`.
+ *
+ * It is added by the lookup methods, not by the resolver, so an ordinary `findOne` row is
+ * unchanged — a single-table read has nothing to discriminate.
+ */
+type TaggedNodeOf<TSchema extends AnySchema, TAlias extends NodeAliasesOf<TSchema>, TOn> = Prettify<
+  { $$key: TAlias } & QueryResultOf<
+    TableByAlias<TSchema, TAlias>,
+    TSchema,
+    NodeArgsOf<TSchema, TAlias, TOn>
+  >
+>;
+
+/**
+ * The row a global id resolves to: a union over every node the schema declares, narrowed by
+ * the caller's `on` map, discriminated by `$$key`.
+ */
+export type GlobalIdResultOf<TSchema extends AnySchema, TOn = undefined> =
+  | {
+      [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
+        ? never
+        : TaggedNodeOf<TSchema, K, TOn>;
+    }[NodeAliasesOf<TSchema>]
+  | null;
+
+/**
+ * As {@link GlobalIdResultOf}, with the node's key field forced into every selection.
+ *
+ * `$listByGlobalId` returns rows in the order the ids were given, which means matching each
+ * row back to the id that asked for it — and the only thing that can do that is the key
+ * itself. So it is always projected, even when `select` leaves it out.
+ */
+export type GlobalIdListResultOf<TSchema extends AnySchema, TOn = undefined> = {
+  [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
+    ? never
+    : Prettify<
+        { $$key: K } & QueryResultOf<
+          TableByAlias<TSchema, K>,
+          TSchema,
+          NodeArgsOf<TSchema, K, TOn> extends { select: infer TSelect }
+            ? { select: TSelect & Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true> }
+            : NodeArgsOf<TSchema, K, TOn>
+        >
+      >;
+}[NodeAliasesOf<TSchema>];

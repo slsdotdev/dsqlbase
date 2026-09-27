@@ -99,9 +99,43 @@ The claim column is readable and filterable but never writable, the predicate ap
 joins as well as root queries, and a tenant table is absent from an unscoped client — in the
 types and at runtime. See the [tenancy guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/tenancy.md).
 
+## Global ids
+
+If ids leave your process — a GraphQL `Node`, a webhook, a cursor — a bare `uuid` says which row
+but not which table, so nothing can resolve one back or catch it being used against the wrong
+table. `guid()` puts the table in the value:
+
+```ts
+import { guid, table, text } from "dsqlbase/schema";
+
+export const authors = table("authors", {
+  id: guid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+export const articles = table("articles", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("author_id", "authors").notNull(),   // points at the authors node
+});
+```
+
+```ts
+const article = await dsql.articles.findOne({ where: { id }, join: { author: true } });
+
+article?.id;                                 // "guid:WyJhcnRpY2xlcyIs…"
+article?.authorId === article?.author?.id;   // true
+
+const record = await dsql.$findByGlobalId({ id });
+if (record?.$$key === "articles") record.title;
+```
+
+A raw uuid is still accepted on input; an id from another table throws rather than quietly
+matching nothing. It serializes as a plain `uuid`, so adopting it produces no migration. See the
+[global ids guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/global-ids.md).
+
 ## Links
 
-- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, tenancy, migrations, DSQL notes
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, sessions, transactions, tenancy, global ids, migrations, DSQL notes
 - [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)

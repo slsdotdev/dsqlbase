@@ -18,7 +18,7 @@ export const users = table("users", {
 });
 ```
 
-The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. Field names are unique per table across columns *and* [relations](./relations.md) — the client addresses both as fields of one model. **Two fields may not map to the same column name** — `table()` throws when they do, because the result resolver reads rows by column name and one field would silently shadow the other. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
+The object key (`createdAt`) is the property name you use in queries; the first argument (`"created_at"`) is the column name in the database. Field names are unique per table across columns _and_ [relations](./relations.md) — the client addresses both as fields of one model. **Two fields may not map to the same column name** — `table()` throws when they do, because the result resolver reads rows by column name and one field would silently shadow the other. `table()` takes a flat `Record<string, ColumnDefinition>`; `TableDefinition.columns` is the single source of truth for both the runtime and migrations.
 
 ### Column modifiers
 
@@ -30,10 +30,32 @@ types or at runtime. A field that arrives there anyway, through an untyped sprea
 rather than refused. Use it for a value the application must not set; it changes nothing about
 the generated DDL, so migrations are unaffected.
 
+### Global ids
+
+`guid(name, key?)` is a `uuid` column whose values leave the ORM as opaque strings naming both
+the row and its table. A table whose primary key is exactly one `guid()` column is a **node**,
+addressable by [`$findByGlobalId`](./global-ids.md):
+
+```ts
+const authors = table("authors", {
+  id: guid("id").primaryKey().defaultRandom(), // node key: the alias "authors"
+  name: text("name").notNull(),
+});
+
+const articles = table("articles", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("author_id", "authors").notNull(), // points at the authors node
+});
+```
+
+It serializes exactly as `uuid()`, so adopting it on an existing column produces no DDL. Full
+rules — node keys, relation pairs, what is and is not accepted as input — are in
+[Global ids](./global-ids.md).
+
 ### Tenant scopes
 
 `tenantScope(claims)` declares a set of claim columns shared by every table inside one tenant
-boundary. The columns it hands a table are read-only *and* filled by the client, from the
+boundary. The columns it hands a table are read-only _and_ filled by the client, from the
 identity it was scoped to:
 
 ```ts
@@ -57,9 +79,12 @@ and what a scoped client can do, are in [Tenancy](./tenancy.md).
 
 ```ts
 users.index("users_email_idx", { unique: true }).columns((c) => [c.email]);
-members.unique((c) => [c.teamId, c.userId]);           // UNIQUE constraint
-members.primaryKey((c) => [c.teamId, c.userId]);       // composite PK
-tasks.index("tasks_due_idx").columns((c) => [c.dueDate]).include((c) => [c.status]);
+members.unique((c) => [c.teamId, c.userId]); // UNIQUE constraint
+members.primaryKey((c) => [c.teamId, c.userId]); // composite PK
+tasks
+  .index("tasks_due_idx")
+  .columns((c) => [c.dueDate])
+  .include((c) => [c.status]);
 ```
 
 Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. Partial (`WHERE`) and expression indexes are not modelled yet.
@@ -91,19 +116,19 @@ name throws.
 
 ## Column types
 
-| Constructor(s) | PG type | Notes |
-|---|---|---|
-| `text`, `varchar(name, length)`, `char` | `text`, `varchar(n)`, `char(n)` | |
-| `uuid` | `uuid` | `.defaultRandom()` → `gen_random_uuid()` |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8` | integers | `bigint` values are JS `bigint` via codec |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics | |
-| `boolean`/`bool` | `boolean` | |
-| `bytea` | `bytea` | |
-| `date`, `time`, `timestamp`/`datetime` | temporal | mode options control JS representation (`DateTimeMode`) |
-| `interval`/`duration` | `interval` | `Duration` object or ISO string via `mode` |
-| `json` | `json` | `unknown`; use `.$type<T>()` to narrow. No validation, no `jsonb` yet |
-| `array(inner)` | `inner[]` | |
-| `identity(name, options)` | `GENERATED … AS IDENTITY` | the only column kind DSQL lets you alter after creation |
+| Constructor(s)                                          | PG type                         | Notes                                                                 |
+| ------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                       |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                              |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                             |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                       |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                       |
+| `bytea`                                                 | `bytea`                         |                                                                       |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)               |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                            |
+| `json`                                                  | `json`                          | `unknown`; use `.$type<T>()` to narrow. No validation, no `jsonb` yet |
+| `array(inner)`                                          | `inner[]`                       |                                                                       |
+| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation               |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
 
@@ -131,7 +156,9 @@ import { sequence, namespace } from "dsqlbase/schema";
 
 const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1).cache(65536);
 const billing = namespace("billing");
-const invoices = billing.table("invoices", { /* … */ });
+const invoices = billing.table("invoices", {
+  /* … */
+});
 ```
 
 DSQL requires sequence `CACHE` to be `1` or `>= 65536`; the migration validator enforces this. `namespace()` (alias `schema()`) scopes tables, domains, and sequences to a PG schema.

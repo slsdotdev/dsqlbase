@@ -11,6 +11,7 @@ export {
   type IdentityColumnOptions,
   type IdentityConfig,
 } from "./columns/identity.js";
+export { guid, GuidColumnDefinition, type Guid } from "./columns/guid.js";
 export { int, int4 } from "./columns/int.js";
 export {
   interval,
@@ -43,4 +44,5 @@ export { tenantScope } from "./tenant.js";
 export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 
 export { type Duration } from "./utils/duration.js";
+export { type GlobalId, type GlobalIdErrorCode } from "./utils/global-id.js";
 export { type DateTimeMode } from "./utils/date.js";
