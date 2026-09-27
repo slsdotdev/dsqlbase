@@ -11,8 +11,8 @@ import { schema } from "../db/schema";
  * and a leak would show as data rather than as a missing table. Every assertion is about what a
  * scoped client can reach, never about what it was asked for.
  *
- * `paginate`, `count` and ad-hoc joins do not exist yet; extending these specs to them is an
- * exit criterion on the pagination and runtime-joins work, not an oversight here.
+ * Ad-hoc joins do not exist yet; extending these specs to them is an exit criterion on the
+ * runtime-joins work, not an oversight here.
  */
 describe("tenant isolation", () => {
   const { getClient, getData } = withSeededClient();
@@ -125,6 +125,66 @@ describe("tenant isolation", () => {
 
       expect(documents).toHaveLength(2);
       expect(documents.every((d) => d.workspace?.name === data.workspaces[0].name)).toBe(true);
+    });
+  });
+
+  describe("pagination and counting", () => {
+    const byTitle = { title: "asc" } as const;
+
+    it("paginate returns only the scoped workspace's rows, and counts only them", async () => {
+      const page = await acme().documents.paginate({ orderBy: byTitle, count: true });
+
+      expect(page.items.map((d) => d.title)).toEqual(["Acme onboarding", "Acme roadmap"]);
+      expect(page.totalCount).toBe(2);
+      expect(page.hasNextPage).toBe(false);
+    });
+
+    it("count counts only the scoped workspace's rows", async () => {
+      await expect(acme().documents.count()).resolves.toBe(2);
+    });
+
+    it("a where on the claim column cannot widen a count", async () => {
+      const count = await acme().documents.count({
+        where: { workspaceId: getData().workspaces[1].id },
+      });
+
+      expect(count).toBe(0);
+    });
+
+    it("a cursor taken on an unscoped client is only a position, never a way across", async () => {
+      // Taken where every workspace is visible; "Acme onboarding" sorts first, "Globex roadmap"
+      // last, so a page after the first cursor would reach the other tenant if anything did.
+      const all = await internal().documents.paginate({ orderBy: byTitle, limit: 1 });
+
+      const page = await acme().documents.paginate({ orderBy: byTitle, after: all.endCursor });
+
+      expect(page.items.map((d) => d.title)).toEqual(["Acme roadmap"]);
+    });
+
+    it("a cursor taken from another workspace's own row reaches nothing of it", async () => {
+      const everything = await internal().documents.paginate({ orderBy: byTitle });
+      const globex = everything.items.find((d) => d.title === "Globex roadmap");
+
+      const before = await acme().documents.paginate({
+        orderBy: byTitle,
+        before: globex?.$$meta.cursor,
+        count: true,
+      });
+
+      expect(before.items.map((d) => d.workspaceId)).toEqual([
+        getData().workspaces[0].id,
+        getData().workspaces[0].id,
+      ]);
+      expect(before.totalCount).toBe(2);
+    });
+
+    it("an unscoped enforcing client refuses to paginate or count a tenant table", () => {
+      const enforcing = getClient() as unknown as {
+        documents: { paginate(args: object): unknown; count(): unknown };
+      };
+
+      expect(() => enforcing.documents.paginate({})).toThrow(TenancyError);
+      expect(() => enforcing.documents.count()).toThrow(TenancyError);
     });
   });
 
