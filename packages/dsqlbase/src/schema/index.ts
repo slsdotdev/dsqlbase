@@ -11,6 +11,7 @@ export {
   type IdentityColumnOptions,
   type IdentityConfig,
 } from "./columns/identity.js";
+export { guid, GuidColumnDefinition, type Guid } from "./columns/guid.js";
 export { int, int4 } from "./columns/int.js";
 export {
   interval,

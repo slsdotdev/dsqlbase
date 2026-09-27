@@ -13,3 +13,4 @@ export {
 } from "./database/index.js";
 export { TransactionClient, type TxClient } from "./transaction/index.js";
 export { createClient, type ClientOptions } from "./create.js";
+export { getNodes, type GuidBinding, type NodeTable } from "./nodes.js";

@@ -6,6 +6,7 @@ import {
   Session,
 } from "@dsqlbase/core";
 import { attachModels } from "./database/base.js";
+import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
 export interface ClientOptions<
@@ -104,6 +105,11 @@ export function createClient<TSchema extends DefinitionSchema, TEnforce extends 
 ): QueryClient<TSchema, TEnforce> {
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
+
+  // Resolves every guid() column against the tables it can reach. Here rather than inside
+  // `SchemaRegistry`, because the shape of an id is a client concern: core sees a uuid
+  // column with a codec, the same way it sees an interval column with a Duration codec.
+  registerNodes(schema, options.schema);
 
   const context = new ExecutionContext({
     schema,
