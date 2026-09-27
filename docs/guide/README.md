@@ -20,7 +20,7 @@ _Audience: application developers using `dsqlbase`._
 
 1. [Install](./install.md)
 2. [Schema](./schema.md) and [Relations](./relations.md)
-3. [Sessions](./sessions.md), then [Querying](./querying.md) and [Transactions](./transactions.md)
+3. [Sessions](./sessions.md), then [Querying](./querying.md), [Pagination](./pagination.md) and [Transactions](./transactions.md)
 4. [Tenancy](./tenancy.md) — if rows belong to a workspace, organisation or account
 5. [Global ids](./global-ids.md) — if ids leave your process and have to come back
 6. [Migrations](./migrations.md)

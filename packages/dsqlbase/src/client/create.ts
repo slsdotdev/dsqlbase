@@ -1,6 +1,7 @@
 import {
   DefinitionSchema,
   ExecutionContext,
+  PaginationOptions,
   QueryBuilder,
   SchemaRegistry,
   Session,
@@ -38,6 +39,28 @@ export interface ClientOptions<
   tenancy?: {
     enforce?: TEnforce;
   };
+
+  /**
+   * Page sizes for `paginate`. `defaultLimit` is used when a call names no `limit` (100 when
+   * unset); `maxLimit`, when set, refuses any larger `limit` a call asks for.
+   */
+  pagination?: PaginationOptions;
+}
+
+function assertPagination(options: PaginationOptions | undefined) {
+  for (const [name, value] of Object.entries(options ?? {})) {
+    if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+      throw new Error(`pagination.${name} must be a positive integer (got ${String(value)}).`);
+    }
+  }
+
+  const { defaultLimit, maxLimit } = options ?? {};
+
+  if (defaultLimit !== undefined && maxLimit !== undefined && defaultLimit > maxLimit) {
+    throw new Error(
+      `pagination.defaultLimit (${defaultLimit}) exceeds pagination.maxLimit (${maxLimit}).`
+    );
+  }
 }
 
 /**
@@ -103,6 +126,8 @@ export interface ClientOptions<
 export function createClient<TSchema extends DefinitionSchema, TEnforce extends boolean = true>(
   options: ClientOptions<TSchema, TEnforce>
 ): QueryClient<TSchema, TEnforce> {
+  assertPagination(options.pagination);
+
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
@@ -116,6 +141,7 @@ export function createClient<TSchema extends DefinitionSchema, TEnforce extends 
     dialect,
     session: options.session,
     tenancy: options.tenancy,
+    pagination: options.pagination,
   });
 
   const dbClient = new DatabaseClient(context);

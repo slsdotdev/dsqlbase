@@ -33,13 +33,14 @@ export const invoices = ws.table("invoices", {
 ```ts
 const app = namespace("app");
 
-export const audit = app
-  .table("audit", {
-    ...ws.columns(),
-    id: uuid("id").primaryKey().defaultRandom(),
-    action: text("action").notNull(),
-  })
-  .primaryKey((c) => [c.workspaceId, c.id]);
+export const audit = app.table("audit", {
+  ...ws.columns(),
+  id: uuid("id").defaultRandom(),
+  action: text("action").notNull(),
+});
+
+// A separate statement: `primaryKey()` returns the constraint, not the table.
+audit.primaryKey((c) => [c.workspaceId, c.id]);
 ```
 
 `ws.columns()` returns fresh column instances on every call, so one scope serves any number of tables. Exporting `ws` from the schema module alongside the tables is fine — it is not a database object and no migration sees it.

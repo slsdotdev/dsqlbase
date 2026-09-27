@@ -15,6 +15,14 @@ export interface TenancyOptions {
   enforce?: boolean;
 }
 
+/** Page-size bounds for keyset pagination. Carried here for the client; core reads neither. */
+export interface PaginationOptions {
+  /** The page size when a call names none. */
+  defaultLimit?: number;
+  /** The largest page size a call may ask for. Unbounded when absent. */
+  maxLimit?: number;
+}
+
 export interface ExecutionContextOptions<TSchema extends DefinitionSchema> {
   session: Session;
   dialect: QueryBuilder;
@@ -30,6 +38,8 @@ export interface ExecutionContextOptions<TSchema extends DefinitionSchema> {
   identity?: Record<string, unknown>;
 
   tenancy?: TenancyOptions;
+
+  pagination?: PaginationOptions;
 }
 
 export class ExecutionContext<
@@ -43,6 +53,7 @@ export class ExecutionContext<
   readonly operations: OperationsFactory<Schema<TDefinition>>;
   readonly identity?: Record<string, unknown>;
   readonly tenancy: Required<TenancyOptions>;
+  readonly pagination?: PaginationOptions;
 
   constructor(options: ExecutionContextOptions<TDefinition>) {
     this.session = options.session;
@@ -50,6 +61,7 @@ export class ExecutionContext<
     this.schema = options.schema;
     this.identity = options.identity;
     this.tenancy = { enforce: options.tenancy?.enforce ?? true };
+    this.pagination = options.pagination;
     this.operations = new OperationsFactory<Schema<TDefinition>>(this);
   }
 }

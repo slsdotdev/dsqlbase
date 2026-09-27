@@ -260,3 +260,20 @@ describe("global id lookups and client derivation", () => {
     expectTypeOf(identity).not.toHaveProperty("$query");
   });
 });
+
+describe("$transaction batching", () => {
+  it("accepts a counted page — two statements — beside single ones, each result typed", () => {
+    // Never invoked: the session here cannot begin a transaction.
+    const batch = () =>
+      dsql.$transaction([
+        dsql.workspaces.paginate({ select: { name: true }, count: true }),
+        dsql.workspaces.count(),
+      ]);
+
+    const results = expectTypeOf(batch).returns.resolves;
+
+    results.toHaveProperty(0).toHaveProperty("totalCount").toEqualTypeOf<number>();
+    results.toHaveProperty(0).toHaveProperty("items").items.toHaveProperty("name").toBeString();
+    results.toHaveProperty(1).toEqualTypeOf<number>();
+  });
+});

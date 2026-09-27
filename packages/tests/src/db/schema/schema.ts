@@ -305,7 +305,10 @@ const tags = table("tags", {
 const articleTags = table("article_tags", {
   articleId: guid("article_id", "articles"),
   tagId: uuid("tag_id"),
-}).primaryKey((c) => [c.articleId, c.tagId]);
+});
+
+// Not chained: `primaryKey()` returns the constraint, not the table.
+articleTags.primaryKey((c) => [c.articleId, c.tagId]);
 
 const authorRelations = relations(authors, {
   articles: hasMany(articles, {

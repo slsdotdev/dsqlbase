@@ -11,5 +11,5 @@ export {
   type SQLValue,
   type ValueSerializer,
 } from "./nodes.js";
-export { sql } from "./tag.js";
+export { sql, type KeysetKey, type KeysetBound } from "./tag.js";
 export { counter, escapeValue, escapeIdentifier, type ParamIndexCounter } from "./utils.js";

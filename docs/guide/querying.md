@@ -16,17 +16,21 @@ Models are keyed by the **export name** in `schema`, not by the table name: `exp
 
 ## Model methods
 
-Every method returns an `ExecutableQuery`; `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
+Every method returns a query that runs when awaited — an `ExecutableQuery`, or for a counted page a `CompositeQuery` of two statements. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
 
 | Method                            | Args                                            | Returns                                  |
 | --------------------------------- | ----------------------------------------------- | ---------------------------------------- |
 | `findOne(args)`                   | `where` (required), `select`, `join`            | one row or `null`                        |
 | `findMany(args)`                  | `QueryArgs` (below)                             | array of rows                            |
+| `paginate(args)`                  | see [Pagination](./pagination.md)               | a page of rows with cursors              |
+| `count(args?)`                    | `where`                                         | number                                   |
 | `create({ data, return? })`       | column values; `return` selects what comes back | created row, selected fields, or nothing |
 | `update({ set, where, return? })` |                                                 | updated rows                             |
 | `delete({ where, return? })`      |                                                 | deleted rows                             |
 
 `create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
+An empty `where: {}` does not count: `findOne`, `update` and `delete` refuse it when the query is built,
+before any SQL runs.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
@@ -71,13 +75,15 @@ const tasks = await dsql.tasks.findMany({
 
 - **`select`** — real columns only; omit for all columns. Virtual or computed fields are not supported yet.
 - **`where`** — per field: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `between`, `exists` (null check), `beginsWith`, `endsWith`, `contains`; combinators `and`, `or`, `not`. A bare value is shorthand for `eq`.
+  An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
   Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns.
 - **`join`** — declared relations only; `true` or a nested `QueryArgs` (see [Relations](./relations.md)).
 
-There is no `count`, aggregate, or keyset-pagination helper today; use `$query` for those.
+For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
+`offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.
 
 ## `$$meta` on every row
 
@@ -150,6 +156,7 @@ await dsql.$query(
 ## Related
 
 - [Relations](./relations.md)
+- [Pagination](./pagination.md)
 - [Transactions](./transactions.md)
 - [Global ids](./global-ids.md)
 - [Tenancy](./tenancy.md)

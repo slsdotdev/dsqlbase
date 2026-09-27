@@ -931,3 +931,130 @@ describe("OperationFactory / several claims", () => {
     );
   });
 });
+
+describe("OperationFactory / keyset keys", () => {
+  // A real builder, so the hidden projections are checked as rendered — aliased with the rest
+  // of their level.
+  const factory = new OperationsFactory(
+    new ExecutionContext({ schema: registry, dialect: new QueryBuilder(), session: mockSession })
+  );
+
+  it("projects each key again as text under a hidden name, after the selected fields", () => {
+    const posts = registry.getTable("posts");
+
+    const operation = factory.createSelectOperation(posts, {
+      mode: "many",
+      args: {
+        select: [["title", posts.columns.title]],
+        keys: [posts.columns.publishedAt, posts.columns.id],
+      },
+    });
+
+    expect(operation.query.text).toBe(
+      `SELECT "__t0"."title", "__t0"."published_at"::text AS "__k0", "__t0"."id"::text AS "__k1" ` +
+        `FROM "posts" AS "__t0"`
+    );
+  });
+
+  it("keeps the hidden keys off the resolved record", () => {
+    const posts = registry.getTable("posts");
+
+    const operation = factory.createSelectOperation(posts, {
+      mode: "many",
+      args: { select: [["title", posts.columns.title]], keys: [posts.columns.id] },
+    });
+
+    const [record] = operation.resolve([{ title: "Hello", __k0: "p1" }]) as object[];
+
+    expect(record).not.toHaveProperty("__k0");
+    expect(record).toHaveProperty("title", "Hello");
+  });
+
+  it("refuses keys on a join level", () => {
+    const users = registry.getTable("users");
+    const posts = registry.getTable("posts");
+
+    expect(() =>
+      factory.createSelectOperation(users, {
+        mode: "many",
+        args: {
+          select: [["id", users.columns.id]],
+          join: [["posts", { select: [["id", posts.columns.id]], keys: [posts.columns.id] }]],
+        },
+      })
+    ).toThrow(/only the root level of a select is keyset-ordered/);
+  });
+});
+
+describe("OperationFactory / count", () => {
+  const factory = new OperationsFactory(
+    new ExecutionContext({ schema: registry, dialect: new QueryBuilder(), session: mockSession })
+  );
+
+  it("counts the rows the where selects", () => {
+    const users = registry.getTable("users");
+
+    const operation = factory.createCountOperation(users, {
+      mode: "one",
+      args: { where: sql`${users.columns.name} = ${sql.param("Alice")}` },
+    });
+
+    expect(operation.query.text).toBe(
+      `SELECT count(*) AS "count" FROM "users" AS "__t0" WHERE "__t0"."name" = $1`
+    );
+    expect(operation.query.params).toEqual(["Alice"]);
+  });
+
+  it("counts every row when there is no where", () => {
+    const users = registry.getTable("users");
+
+    const operation = factory.createCountOperation(users, { mode: "one", args: {} });
+
+    expect(operation.query.text).toBe(`SELECT count(*) AS "count" FROM "users" AS "__t0"`);
+  });
+
+  it("resolves the driver's bigint, as text or as bigint, to a number", () => {
+    const users = registry.getTable("users");
+    const operation = factory.createCountOperation(users, { mode: "one", args: {} });
+
+    expect(operation.resolve([{ count: "42" }])).toBe(42);
+    expect(operation.resolve([{ count: 42n }])).toBe(42);
+  });
+
+  it("goes through the tenant seam, so a scoped count is bounded like a scoped select", () => {
+    const scoped = new OperationsFactory(
+      new ExecutionContext({
+        schema: tenantRegistry,
+        dialect: new QueryBuilder(),
+        session: mockSession,
+        identity: { workspaceId: "w1" },
+      })
+    );
+    const invoices = tenantRegistry.getTable("invoices");
+
+    const operation = scoped.createCountOperation(invoices, {
+      mode: "one",
+      args: { where: sql`${invoices.columns.number} = ${sql.param("INV-1")}` },
+    });
+
+    expect(operation.query.text).toBe(
+      `SELECT count(*) AS "count" FROM "invoices" AS "__t0" ` +
+        `WHERE ("__t0"."workspace_id" = $1) AND ("__t0"."number" = $2)`
+    );
+    expect(operation.query.params).toEqual(["ws:w1", "INV-1"]);
+  });
+
+  it("refuses to count a tenant table on a client with no claims", () => {
+    const unscoped = new OperationsFactory(
+      new ExecutionContext({
+        schema: tenantRegistry,
+        dialect: new QueryBuilder(),
+        session: mockSession,
+      })
+    );
+
+    expect(() =>
+      unscoped.createCountOperation(tenantRegistry.getTable("invoices"), { mode: "one", args: {} })
+    ).toThrow(TenancyError);
+  });
+});

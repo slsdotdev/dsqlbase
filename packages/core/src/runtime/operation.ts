@@ -71,6 +71,12 @@ export interface SelectOperationArgs {
   distinct?: boolean;
   limit?: number;
   offset?: number;
+  /**
+   * Columns projected a second time as their database text, under the hidden names `__k0`,
+   * `__k1`, ... — the order keys a keyset cursor is built from. They reach the raw driver row
+   * only: no resolver reads them, so they never appear on a result record. Root level only.
+   */
+  keys?: AnyColumn[];
 }
 
 export interface SelectOperation<
@@ -78,6 +84,14 @@ export interface SelectOperation<
   TArgs extends SelectOperationArgs,
   TReturn = unknown,
 > extends Operation<TMode, TArgs, TReturn> {
+  type: "select";
+}
+
+export interface CountOperationArgs {
+  where?: SQLNode | SQLNode[];
+}
+
+export interface CountOperation extends Operation<"one", CountOperationArgs, number> {
   type: "select";
 }
 
@@ -366,9 +380,15 @@ export class OperationsFactory<
     const join = args.join ? this._resolveJoinEntries(table, args.join, resolvers) : undefined;
     const limit = mode === "one" ? 1 : args.limit;
 
+    // `::text` is the database's own rendering of the value, which a cursor carries verbatim —
+    // a decoded JS value may have lost precision the database still compares on.
+    const keys = (args.keys ?? []).map(
+      (column, index) => sql`${column}::text AS ${sql.identifier(`__k${index}`)}`
+    );
+
     return {
       table,
-      select: fields.columns,
+      select: [...fields.columns, ...keys],
       distinct: args.distinct,
       where,
       order,
@@ -392,6 +412,13 @@ export class OperationsFactory<
 
     for (const [key, value] of join) {
       const fieldName = typeof key === "string" ? key : key.name;
+
+      if (value.keys && value.keys.length > 0) {
+        throw new Error(
+          `Relation "${fieldName}" on table "${table.name}" cannot project keyset keys: only ` +
+            `the root level of a select is keyset-ordered.`
+        );
+      }
 
       const relation = table.getRelation(fieldName);
 
@@ -530,6 +557,33 @@ export class OperationsFactory<
       args: args,
       query: query.toQuery(),
       resolve: this._createResultResolver<TMode, TResult>(fieldResolvers, mode),
+    };
+  }
+
+  /**
+   * `SELECT count(*)` over `table`, filtered by `where` through the same seam as every select,
+   * so an injected predicate bounds the count exactly as it bounds the rows.
+   */
+  public createCountOperation<TTable extends AnyTable>(
+    table: TTable,
+    config: OperationRequest<CountOperationArgs, "one">
+  ): CountOperation {
+    const { name, args } = config;
+
+    const query = this._ctx.dialect.buildSelectQuery({
+      table,
+      select: [sql`count(*) AS ${sql.identifier("count")}`],
+      where: this._resolveWhere(table, args.where),
+    });
+
+    return {
+      type: "select",
+      mode: "one",
+      name: name ?? `count_${table.name}`,
+      args,
+      query: query.toQuery(),
+      // `count(*)` is a `bigint`, which drivers hand back as text (node-postgres) or `bigint`.
+      resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
   }
 
