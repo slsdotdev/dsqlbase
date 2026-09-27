@@ -52,6 +52,8 @@ A cursor is valid only under the order it was taken with: the same model and the
 
 `where`, `select` and `join` are **not** part of a cursor. Pass them again on every page. Changing `where` between pages is well-defined: you get the rows after the cursor's position that match the new filter.
 
+A cursor is a position, not a snapshot. If a row's order-key value changes while you page — its `createdAt` rewritten, say — it moves in the order, and may be seen twice or not at all. Rows inserted or deleted elsewhere in the list do not disturb the pages around them.
+
 Cursors are opaque strings. What they carry is each order key's value as the **database's own text** — `2026-09-27 12:00:00.123456+00`, not a JavaScript `Date` — because a `Date` holds milliseconds and a `timestamptz` holds microseconds: a cursor rebuilt from a `Date` would skip every other row written in the same millisecond. They are not signed or encrypted. A cursor someone edits by hand is only another position in the list; it grants nothing a `where` could not, and [tenancy](./tenancy.md) applies to every page regardless.
 
 ## The two flags
