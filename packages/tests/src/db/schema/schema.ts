@@ -15,6 +15,7 @@ import {
   belongsTo,
   sequence,
   tenantScope,
+  guid,
   $enum,
 } from "dsqlbase/schema";
 
@@ -253,6 +254,84 @@ const taskRelations = relations(tasks, {
   }),
 });
 
+/**
+ * Node tables — addressable by global id.
+ *
+ * Additive on purpose. Every table above keeps its `uuid()` key, so each existing spec runs
+ * against raw ids exactly as it always has and nothing here has to be read twice.
+ *
+ * `authors` owns `articles`, which own `revisions`. `articles.authorId` is a *keyed* guid, so
+ * `article.authorId` and `article.author.id` have to be the same string; `revisions` is keyed
+ * under an alias that differs from its database name, so a node key follows the name the
+ * client uses rather than the physical one. `tags` is deliberately **not** a node: a uuid key
+ * is just a uuid key, and `articleTags` has a composite key, which `guid()` cannot name.
+ */
+const authors = table("authors", {
+  id: guid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+}).meta({ __typename: "Author" });
+
+const articles = table("articles", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("author_id", "authors").notNull(),
+  title: text("title").notNull(),
+  body: varchar("body", 5000),
+}).meta({ __typename: "Article" });
+
+// Keyed under an alias that differs from its database name, so its node key is "revisions".
+const revisions = table("article_revisions", {
+  id: guid("id").primaryKey().defaultRandom(),
+  articleId: guid("article_id", "articles").notNull(),
+  note: text("note").notNull(),
+});
+
+/**
+ * A node that is also tenant-scoped, so the two features have to compose: `$findByGlobalId`
+ * goes through the model client, which means the tenant predicate applies to a node lookup
+ * without the lookup knowing anything about tenancy.
+ */
+const drafts = ws.table("drafts", {
+  id: guid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+});
+
+// Not a node: a plain uuid key names nothing.
+const tags = table("tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull().unique(),
+});
+
+// Not a node either: a composite key cannot be carried by a single guid() column.
+const articleTags = table("article_tags", {
+  articleId: guid("article_id", "articles"),
+  tagId: uuid("tag_id"),
+}).primaryKey((c) => [c.articleId, c.tagId]);
+
+const authorRelations = relations(authors, {
+  articles: hasMany(articles, {
+    from: [authors.columns.id],
+    to: [articles.columns.authorId],
+  }),
+});
+
+const articleRelations = relations(articles, {
+  author: belongsTo(authors, {
+    from: [articles.columns.authorId],
+    to: [authors.columns.id],
+  }),
+  revisions: hasMany(revisions, {
+    from: [articles.columns.id],
+    to: [revisions.columns.articleId],
+  }),
+});
+
+const revisionRelations = relations(revisions, {
+  article: belongsTo(articles, {
+    from: [revisions.columns.articleId],
+    to: [articles.columns.id],
+  }),
+});
+
 export {
   teams,
   members,
@@ -263,6 +342,12 @@ export {
   workspaces,
   documents,
   comments,
+  authors,
+  articles,
+  revisions,
+  drafts,
+  tags,
+  articleTags,
   taskStatus,
   priorityLevel,
   taskNumberSeq,
@@ -275,4 +360,7 @@ export {
   documentRelations,
   commentRelations,
   userDocumentRelations,
+  authorRelations,
+  articleRelations,
+  revisionRelations,
 };

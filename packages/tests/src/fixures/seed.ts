@@ -18,6 +18,13 @@ export interface SeededData {
   workspaces: { id: string; name: string; slug: string }[];
   documents: { id: string; workspaceId: string; authorId: string | null; title: string }[];
   comments: { id: string; workspaceId: string; documentId: string; author: string }[];
+  // Node tables. Ids here are the **raw** uuids the database holds: these rows are inserted
+  // with raw SQL, so nothing has wrapped them. A spec wraps one with `encodeGlobalId` when it
+  // wants the form a client would hand back.
+  authors: { id: string; name: string }[];
+  articles: { id: string; authorId: string; title: string }[];
+  revisions: { id: string; articleId: string; note: string }[];
+  drafts: { id: string; workspaceId: string; title: string }[];
 }
 
 export async function seedTeams(client: TestClient) {
@@ -194,6 +201,58 @@ export async function seedComments(client: TestClient, documents: SeededData["do
   }));
 }
 
+export async function seedAuthors(client: TestClient) {
+  const query = sql`
+    INSERT INTO "authors" ("name") VALUES
+      ('Ada Lovelace'),
+      ('Grace Hopper')
+    RETURNING "id", "name"
+  `;
+
+  return await client.$query<{ id: string; name: string }>(query);
+}
+
+export async function seedArticles(client: TestClient, authors: SeededData["authors"]) {
+  const query = sql`
+    INSERT INTO "articles" ("author_id", "title", "body") VALUES
+      (${authors[0].id}, 'On analytical engines', 'The first program'),
+      (${authors[0].id}, 'Notes on translation', 'Sketch of the engine'),
+      (${authors[1].id}, 'On compilers', 'A language for machines')
+    RETURNING "id", "author_id", "title"
+  `;
+
+  const rows = await client.$query<{ id: string; author_id: string; title: string }>(query);
+
+  return rows.map((row) => ({ id: row.id, authorId: row.author_id, title: row.title }));
+}
+
+export async function seedRevisions(client: TestClient, articles: SeededData["articles"]) {
+  const query = sql`
+    INSERT INTO "article_revisions" ("article_id", "note") VALUES
+      (${articles[0].id}, 'First draft'),
+      (${articles[0].id}, 'Second pass'),
+      (${articles[2].id}, 'Only draft')
+    RETURNING "id", "article_id", "note"
+  `;
+
+  const rows = await client.$query<{ id: string; article_id: string; note: string }>(query);
+
+  return rows.map((row) => ({ id: row.id, articleId: row.article_id, note: row.note }));
+}
+
+export async function seedDrafts(client: TestClient, workspaces: SeededData["workspaces"]) {
+  const query = sql`
+    INSERT INTO "drafts" ("workspace_id", "title") VALUES
+      (${workspaces[0].id}, 'Acme draft'),
+      (${workspaces[1].id}, 'Globex draft')
+    RETURNING "id", "workspace_id", "title"
+  `;
+
+  const rows = await client.$query<{ id: string; workspace_id: string; title: string }>(query);
+
+  return rows.map((row) => ({ id: row.id, workspaceId: row.workspace_id, title: row.title }));
+}
+
 export async function seedData(client: TestClient): Promise<SeededData> {
   const teams = await seedTeams(client);
   const users = await seedUsers(client);
@@ -207,5 +266,23 @@ export async function seedData(client: TestClient): Promise<SeededData> {
   const documents = await seedDocuments(client, workspaces, users);
   const comments = await seedComments(client, documents);
 
-  return { teams, users, members, projects, tasks, workspaces, documents, comments };
+  const authors = await seedAuthors(client);
+  const articles = await seedArticles(client, authors);
+  const revisions = await seedRevisions(client, articles);
+  const drafts = await seedDrafts(client, workspaces);
+
+  return {
+    teams,
+    users,
+    members,
+    projects,
+    tasks,
+    workspaces,
+    documents,
+    comments,
+    authors,
+    articles,
+    revisions,
+    drafts,
+  };
 }
