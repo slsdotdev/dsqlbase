@@ -6,15 +6,15 @@ _Audience: application developers using `dsqlbase`._
 
 ## Packages and entrypoints
 
-| Import | What you get |
-|---|---|
-| `dsqlbase` | `createClient`, `sql`, `SQLQuery`, and the `Session` / `SQLStatement` types |
-| `dsqlbase/schema` | Column builders, `table`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `tenantScope` |
-| `dsqlbase/client` | Client classes and the `QueryArgs` family of types, for advanced typing |
-| `dsqlbase/pg` | `createPgSession` for a `pg` `Pool` (production, via the Aurora DSQL connector) |
-| `dsqlbase/pglite` | `createPgLiteSession` for `@electric-sql/pglite` (tests, local dev) |
-| `@dsqlbase/migration` | `createMigrationRunner`, `validateDefinition`, `introspect`, `reconcileSchemas` |
-| `@dsqlbase/core` | The primitives everything above is built on; only needed for tooling |
+| Import                | What you get                                                                                             |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `dsqlbase`            | `createClient`, `sql`, `SQLQuery`, the global-id helpers, and the `Session` / `SQLStatement` types       |
+| `dsqlbase/schema`     | Column builders, `table`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `tenantScope`, `guid` |
+| `dsqlbase/client`     | Client classes and the `QueryArgs` family of types, for advanced typing                                  |
+| `dsqlbase/pg`         | `createPgSession` for a `pg` `Pool` (production, via the Aurora DSQL connector)                          |
+| `dsqlbase/pglite`     | `createPgLiteSession` for `@electric-sql/pglite` (tests, local dev)                                      |
+| `@dsqlbase/migration` | `createMigrationRunner`, `validateDefinition`, `introspect`, `reconcileSchemas`                          |
+| `@dsqlbase/core`      | The primitives everything above is built on; only needed for tooling                                     |
 
 ## Where to start
 
@@ -22,8 +22,9 @@ _Audience: application developers using `dsqlbase`._
 2. [Schema](./schema.md) and [Relations](./relations.md)
 3. [Sessions](./sessions.md), then [Querying](./querying.md) and [Transactions](./transactions.md)
 4. [Tenancy](./tenancy.md) — if rows belong to a workspace, organisation or account
-5. [Migrations](./migrations.md)
-6. [DSQL notes](./dsql-notes.md) — read before designing a schema for DSQL
+5. [Global ids](./global-ids.md) — if ids leave your process and have to come back
+6. [Migrations](./migrations.md)
+7. [DSQL notes](./dsql-notes.md) — read before designing a schema for DSQL
 
 > [!CAUTION]
 > dsqlbase is in early-stage development. Features may change without notice; the [decisions log](../decisions/README.md) records why.

@@ -40,7 +40,8 @@ export const taskRelations = relations(tasks, {
 });
 ```
 
-  `createClient` rejects a relation whose sides differ in length, whose columns are not declared on the side they are listed under, or whose paired columns have different types.
+`createClient` rejects a relation whose sides differ in length, whose columns are not declared on the side they are listed under, or whose paired columns have different types.
+
 - **A relation may point at its own table.** `parent: belongsTo(tasks, { from: [tasks.columns.parentId], to: [tasks.columns.id] })` works: each level of a query is rendered under its own alias, so the two sides stay distinct. The same holds for joining two tables that share a name in different schemas.
 
 Use them in queries:
@@ -60,6 +61,19 @@ Nested `where` / `select` / `orderBy` / `limit` / `join` all work inside a join,
 - **A relation may not be named after a column of the same table.** Columns and relations share one field namespace, because `select`, `join` and the keys of a result row all address them as fields of the same model. `createClient` throws when they collide, naming both.
 - **`$$meta` and `$$key` are reserved.** A relation of either name throws when the client is created; the runtime writes them onto result rows itself. See [`$$meta`](./querying.md#meta-on-every-row).
 
+## Relations between global-id columns
+
+Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
+columns naming the same node, or neither. `createClient` throws otherwise, naming both columns.
+
+Neither failure shows up in SQL — a join correlates on the raw columns, so the query works
+either way. What breaks is quieter. A `guid()` paired with a plain `uuid()` leaves
+`article.authorId` raw while `article.author.id` comes back wrapped, so the two never compare
+equal; two `guid()` columns naming different nodes produce two different strings for one row.
+
+The usual mistake is the first one: adding a relation to a node table and leaving the foreign
+key as `uuid()`.
+
 ## Relations across a tenant boundary
 
 A relation may cross between a [tenant-scoped](./tenancy.md) table and a global one in either direction, and nothing about declaring it changes. What changes is what a scoped client sees through it:
@@ -69,7 +83,7 @@ A relation may cross between a [tenant-scoped](./tenancy.md) table and a global 
 - **Every level is its own decision.** A tenant table two levels down is filtered as much as one directly below the root.
 - **A join is where the types cannot help.** A nested level is named by a relation rather than by the client, so an enforcing client with no claims cannot be stopped at compile time from reaching a tenant table through one. The runtime refuses it instead, with a `TenancyError` when the query is built.
 
-Correlating *on* the claim column — `workspaces.id` to `invoices.workspaceId` — is common and works, but note that such a join is already narrowed by its correlation. It is the relations that correlate on something else, like an author or an owner, where the tenant predicate is the only thing keeping another tenant's rows out.
+Correlating _on_ the claim column — `workspaces.id` to `invoices.workspaceId` — is common and works, but note that such a join is already narrowed by its correlation. It is the relations that correlate on something else, like an author or an owner, where the tenant predicate is the only thing keeping another tenant's rows out.
 
 ## What relations do not do
 

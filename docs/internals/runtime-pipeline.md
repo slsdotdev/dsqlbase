@@ -15,7 +15,8 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 
 - `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
 - The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or identity, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$identityClaims` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
-- **Every table is attached to every client.** Which tables a client may address is decided by its *type* (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
+- **Every table is attached to every client.** Which tables a client may address is decided by its _type_ (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
+- **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — the tenant predicate above all. See [0007](../decisions/0007-global-ids.md).
 - Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
@@ -48,11 +49,11 @@ only ran when the caller happened to filter would not be a rule at all.
 `SelectOperationArgs.where` / `UpdateOperationArgs.where` / `DeleteOperationArgs.where` accept
 `SQLNode | SQLNode[]`. The array is combined, not sampled:
 
-| Conditions | Result |
-|---|---|
-| none, or an empty array | `undefined` — no `WHERE` is rendered |
-| one | that node, untouched — no parentheses are added |
-| several | `sql.and` over each node **wrapped**, so an `OR` among them keeps its precedence |
+| Conditions              | Result                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| none, or an empty array | `undefined` — no `WHERE` is rendered                                             |
+| one                     | that node, untouched — no parentheses are added                                  |
+| several                 | `sql.and` over each node **wrapped**, so an `OR` among them keeps its precedence |
 
 The normalizer folds a user `where` object into one node before it reaches here
 (`packages/dsqlbase/src/client/model/normalizer.ts`), so the array form is for callers that
@@ -70,11 +71,11 @@ thing an `EXPLAIN` shows.
 `_tenantPredicate(table)` is what the seam injects today. A table with no `tenantKeys` is global
 and yields nothing. Otherwise `ExecutionContext.identity` decides:
 
-| Identity | `tenancy.enforce` | Result |
-|---|---|---|
-| present | either | one equality per claim, AND-ed; a missing claim throws `TenancyError(table, claim)` |
-| absent | `true` (default) | `TenancyError(table)` — the operation is not built |
-| absent | `false` | `undefined` — the query runs unscoped |
+| Identity | `tenancy.enforce` | Result                                                                              |
+| -------- | ----------------- | ----------------------------------------------------------------------------------- |
+| present  | either            | one equality per claim, AND-ed; a missing claim throws `TenancyError(table, claim)` |
+| absent   | `true` (default)  | `TenancyError(table)` — the operation is not built                                  |
+| absent   | `false`           | `undefined` — the query runs unscoped                                               |
 
 Values go through `Column.param`, so a claim is encoded by its column's codec like any other
 comparison ([codec boundary](./codec-boundary.md)). Throwing happens at **build** time — when
@@ -98,11 +99,11 @@ rule below — the claim wins.
 result records by walking a list of `[fieldName, howToResolve]` entries, one list per level.
 There are three kinds of entry:
 
-| Entry | Resolver | Produces |
-|---|---|---|
-| `FieldResolver` (column) | an `AnyColumn` | `column.resolve(row[column.name])` — the decoded value |
-| `FieldResolver` (nested) | `ResolverEntry[]` | a recursive resolve of the join's rows |
-| `MetaResolver` | `(row) => unknown` | a value computed from the driver row itself |
+| Entry                    | Resolver           | Produces                                               |
+| ------------------------ | ------------------ | ------------------------------------------------------ |
+| `FieldResolver` (column) | an `AnyColumn`     | `column.resolve(row[column.name])` — the decoded value |
+| `FieldResolver` (nested) | `ResolverEntry[]`  | a recursive resolve of the join's rows                 |
+| `MetaResolver`           | `(row) => unknown` | a value computed from the driver row itself            |
 
 The `row` a `MetaResolver` receives is the **raw driver row**, before any codec has decoded it
 — the same row the column branch reads from. A resolver that needs the database's own text
@@ -143,7 +144,7 @@ Enforcement is deliberately split:
 
 - **The types** drop the field from `CreateValuesOf` and `UpdateValuesOf`
   (`packages/dsqlbase/src/client/model/base.ts`), so a `notNull` column with no default stops
-  being a *required* input — which is the whole reason the marker exists.
+  being a _required_ input — which is the whole reason the marker exists.
 - **The normalizer** silently drops a read-only field from `data` / `set`
   (`_getMutationEntries`). It can only have arrived through an untyped spread, and dropping it
   keeps `create({ data: { ...input } })` working.
@@ -153,6 +154,19 @@ Enforcement is deliberately split:
 
 `tenantScope()` is the flag's other producer: a claim column is read-only by construction, since
 its value comes from the client's identity.
+
+## `$$meta.key` and `$$key`
+
+`$$meta.key` is typed as the literal schema alias (`packages/dsqlbase/src/client/model/base.ts`),
+resolved by a reverse lookup over the schema matched on the **database table name**. Matching on
+the whole table type finds the root level and misses every nested one, because
+`RelationJoinResultOf` rebuilds its target table from parts; `SchemaRegistry` already keys its
+table map by name, so two tables in one schema cannot share one.
+
+It still cannot discriminate a union: **TypeScript does not narrow on a nested property.** A
+result that really is a union of tables — today only `$findByGlobalId` / `$listByGlobalId` —
+carries a top-level `$$key` instead, added by those methods rather than by the resolver. `$$key`
+has been reserved since [0004](../decisions/0004-record-meta.md) for exactly this.
 
 ## Known gaps (fix, do not design around)
 
@@ -167,4 +181,6 @@ Public API may change; call out the changeset level.
 - [Select-tree aliasing](./select-tree-aliasing.md)
 - [Querying (guide)](../guide/querying.md)
 - [Tenancy (guide)](../guide/tenancy.md)
+- [Global ids (guide)](../guide/global-ids.md)
+- [0007 — Global ids](../decisions/0007-global-ids.md)
 - [0005 — Tenant table visibility on the client](../decisions/0005-tenant-client-visibility.md)

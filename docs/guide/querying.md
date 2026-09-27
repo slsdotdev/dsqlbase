@@ -92,12 +92,12 @@ const task = await dsql.tasks.findOne({
   join: { project: { select: { name: true } } },
 });
 
-task?.$$meta;          // { key: "tasks", table: "tasks" }
+task?.$$meta; // { key: "tasks", table: "tasks" }
 task?.project?.$$meta; // { key: "projects", table: "projects" } — its own, not the parent's
 ```
 
 - **`key`** — the name the table is exported under in the schema object, which is how the
-  client addresses it (`dsql.members`).
+  client addresses it (`dsql.members`). It is typed as the literal alias, not `string`.
 - **`table`** — the database table name, which may differ (`team_members`).
 - **`schema`** — present only when the table declares a namespace.
 
@@ -107,12 +107,19 @@ It is the first key on each record. A whole-row `toEqual` in your tests must acc
 Add your own fields with [`table().meta()`](./schema.md#table-metadata):
 
 ```ts
-const tasks = table("tasks", { /* … */ }).meta({ __typename: "Task" });
+const tasks = table("tasks", {
+  /* … */
+}).meta({ __typename: "Task" });
 
 task?.$$meta.__typename; // "Task", typed
 ```
 
 `$$meta` and `$$key` are reserved: a column or relation of either name throws.
+
+`$$meta.key` is typed as the literal alias, but it **cannot discriminate a union** —
+TypeScript does not narrow on a nested property, so `row.$$meta.key === "users"` compiles and
+narrows nothing. Where a result really is a union of tables, the row carries a top-level
+`$$key` instead; see [Global ids](./global-ids.md).
 
 ## Escape hatches
 
@@ -135,13 +142,16 @@ read.
 Both bypass codecs and typing; results are whatever the driver returns. To filter by a column whose stored form differs from its JS value, wrap the value with `column.param(...)`:
 
 ```ts
-await dsql.$query(sql`select * from "tasks" where ${tasks.columns.dueDate} > ${tasks.columns.dueDate.param(cutoff)}`);
+await dsql.$query(
+  sql`select * from "tasks" where ${tasks.columns.dueDate} > ${tasks.columns.dueDate.param(cutoff)}`
+);
 ```
 
 ## Related
 
 - [Relations](./relations.md)
 - [Transactions](./transactions.md)
+- [Global ids](./global-ids.md)
 - [Tenancy](./tenancy.md)
 - [Sessions](./sessions.md)
 - [Runtime pipeline](../internals/runtime-pipeline.md) — how these calls become SQL

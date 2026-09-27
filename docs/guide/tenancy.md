@@ -4,7 +4,7 @@ _Audience: application developers._
 
 A tenant table carries a column identifying who owns each row — a workspace, an organisation, an account — and every read has to be filtered by it, every write has to set it. Doing that by hand works until the one place it is forgotten, and that failure is silent: the query returns another tenant's rows, or writes a row into no tenant at all.
 
-Aurora DSQL offers nothing underneath to catch it. There is no row-level security and permissions are schema-level grants ([DSQL capabilities](../internals/dsql-capabilities.md)), so the ORM is the last line of defence rather than a convenience. `dsqlbase` therefore applies the boundary *below* the point where you write queries: you cannot forget it, because you never write it.
+Aurora DSQL offers nothing underneath to catch it. There is no row-level security and permissions are schema-level grants ([DSQL capabilities](../internals/dsql-capabilities.md)), so the ORM is the last line of defence rather than a convenience. `dsqlbase` therefore applies the boundary _below_ the point where you write queries: you cannot forget it, because you never write it.
 
 ## Declaring the boundary
 
@@ -15,12 +15,14 @@ export const ws = tenantScope({
   workspaceId: uuid("workspace_id").notNull(),
 });
 
-export const workspaces = table("workspaces", {        // global: no claim columns
+export const workspaces = table("workspaces", {
+  // global: no claim columns
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
 });
 
-export const invoices = ws.table("invoices", {         // the claim columns are merged in
+export const invoices = ws.table("invoices", {
+  // the claim columns are merged in
   id: uuid("id").primaryKey().defaultRandom(),
   number: text("number").notNull(),
 });
@@ -54,10 +56,10 @@ Rules:
 ## Scoping a client
 
 ```ts
-export const dsql = createClient({ schema, session });   // enforcing, the default
+export const dsql = createClient({ schema, session }); // enforcing, the default
 
-dsql.workspaces.findMany({});   // fine — global table
-dsql.invoices;                  // type error: the property does not exist
+dsql.workspaces.findMany({}); // fine — global table
+dsql.invoices; // type error: the property does not exist
 
 const db = dsql.$identityClaims({ workspaceId: claims.workspace_id });
 
@@ -83,13 +85,13 @@ A misspelled claim inside a spread cannot be caught at that point — there is n
 
 ## What a scoped client can and cannot do
 
-| | Scoped client |
-|---|---|
-| Read, filter, order by a claim column | yes |
-| Write a claim column | no — it is not part of `data` or `set`, and a spread-in value is dropped |
-| `$query` / `$execute` | no — raw SQL bypasses the predicate, so it is not offered |
-| `$identityClaims` again | no — claims are set in exactly one place |
-| `$transaction` | yes, and the transaction inherits the scope |
+|                                       | Scoped client                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| Read, filter, order by a claim column | yes                                                                      |
+| Write a claim column                  | no — it is not part of `data` or `set`, and a spread-in value is dropped |
+| `$query` / `$execute`                 | no — raw SQL bypasses the predicate, so it is not offered                |
+| `$identityClaims` again               | no — claims are set in exactly one place                                 |
+| `$transaction`                        | yes, and the transaction inherits the scope                              |
 
 Filtering by the claim cannot widen the scope. `db.invoices.findMany({ where: { workspaceId: other } })` becomes `workspace_id = $claim AND workspace_id = $other` — an empty result, never another tenant's rows.
 
@@ -100,17 +102,15 @@ An internal worker is a separate deployment from a request handler, so the switc
 ```ts
 export const dsql = createClient({ schema, session, tenancy: { enforce: false } });
 
-await dsql.invoices.findMany({});                       // every workspace
-await dsql.invoices.create({ data: { number } });       // TenancyError — nothing to fill
-await dsql.$identityClaims({ workspaceId }).invoices.create({ data: { number } });  // the way to create
+await dsql.invoices.findMany({}); // every workspace
+await dsql.invoices.create({ data: { number } }); // TenancyError — nothing to fill
+await dsql.$identityClaims({ workspaceId }).invoices.create({ data: { number } }); // the way to create
 ```
 
 **Inserting always requires claims**, in both modes: the column is `notNull` and nothing else can fill it, so an unscoped insert would write a row into no tenant. Moving a row between tenants is deliberately not a model-client operation:
 
 ```ts
-await dsql.$execute(
-  sql`UPDATE "invoices" SET "workspace_id" = ${to} WHERE "id" = ${id}`.toQuery()
-);
+await dsql.$execute(sql`UPDATE "invoices" SET "workspace_id" = ${to} WHERE "id" = ${id}`.toQuery());
 ```
 
 Pass `enforce` as a literal, or leave it out. A variable typed `boolean` widens the inferred type and the tenant tables stay visible in the client's type; the runtime still enforces, so this is a false promise rather than a leak, but the compile-time help is lost ([0005](../decisions/0005-tenant-client-visibility.md)).
@@ -128,7 +128,7 @@ await db.$transaction(async (tx) => {
 Batching a scoped query into an unscoped transaction is safe: `ExecutableQuery` has its SQL fixed when the scoped client builds it, and batching only swaps the session it runs on.
 
 ```ts
-await dsql.$transaction([db.invoices.findMany({})]);   // still scoped
+await dsql.$transaction([db.invoices.findMany({})]); // still scoped
 ```
 
 ## Per-request wiring
@@ -149,29 +149,37 @@ Resolvers then use only `context.db`, and nothing downstream can reach across te
 
 ## Failure modes
 
-| Situation | Behaviour |
-|---|---|
-| Claim column without `notNull` | throws at `tenantScope()`, and at `table()` for a claim configured another way |
-| A table redeclares a claim | throws at definition |
-| One claim name with two data types across tables | throws when the client is built |
-| Claim name equal to a relation name | throws when the client is built |
-| Tenant table on an enforcing client, at the root | type error; `TenancyError` when the query is built |
-| Tenant table reached through a join with no claims | `TenancyError` — the types cannot see a nested level, the runtime can |
-| Insert into a tenant table with no claims, either mode | `TenancyError` |
-| Scoped client missing one of a table's claims | table absent from the type; `TenancyError` if reached |
-| `$identityClaims` with a claim set to `null` / `undefined` | throws |
-| `$identityClaims` with keys the schema does not declare | ignored |
-| Misspelled claim in a spread | surfaces at the first tenant table it cannot scope |
-| `$identityClaims` on an already scoped client | throws |
-| Claim column in `data` / `set` | dropped; the claim wins. Type error for a literal |
-| `$query` / `$execute` on a scoped client | type error; `TenancyError` at runtime |
-| `where` on the claim column with another tenant's value | empty result |
+| Situation                                                  | Behaviour                                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Claim column without `notNull`                             | throws at `tenantScope()`, and at `table()` for a claim configured another way |
+| A table redeclares a claim                                 | throws at definition                                                           |
+| One claim name with two data types across tables           | throws when the client is built                                                |
+| Claim name equal to a relation name                        | throws when the client is built                                                |
+| Tenant table on an enforcing client, at the root           | type error; `TenancyError` when the query is built                             |
+| Tenant table reached through a join with no claims         | `TenancyError` — the types cannot see a nested level, the runtime can          |
+| Insert into a tenant table with no claims, either mode     | `TenancyError`                                                                 |
+| Scoped client missing one of a table's claims              | table absent from the type; `TenancyError` if reached                          |
+| `$identityClaims` with a claim set to `null` / `undefined` | throws                                                                         |
+| `$identityClaims` with keys the schema does not declare    | ignored                                                                        |
+| Misspelled claim in a spread                               | surfaces at the first tenant table it cannot scope                             |
+| `$identityClaims` on an already scoped client              | throws                                                                         |
+| Claim column in `data` / `set`                             | dropped; the claim wins. Type error for a literal                              |
+| `$query` / `$execute` on a scoped client                   | type error; `TenancyError` at runtime                                          |
+| `where` on the claim column with another tenant's value    | empty result                                                                   |
 
 Errors are thrown when the query is **built** — when `findMany()` is called — not when it is executed, so a missing identity surfaces before anything reaches the database.
+
+## Global ids
+
+A [node lookup](./global-ids.md) is scoped like any other read, because `$findByGlobalId` and
+`$listByGlobalId` go through the table's own model client rather than issuing SQL. On a scoped
+client another tenant's id resolves to `null` — the row exists, it is simply not visible — and
+on a client with no claims a tenant-scoped node throws `TenancyError` when the query is built.
 
 ## Related
 
 - [Schema](./schema.md)
+- [Global ids](./global-ids.md)
 - [Querying](./querying.md)
 - [Relations](./relations.md)
 - [Transactions](./transactions.md)
