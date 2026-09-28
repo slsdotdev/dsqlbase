@@ -41,6 +41,9 @@ export {
   type SelectOperationArgs,
   type UpdateOperation,
   type UpdateOperationArgs,
+  type UnionOrderKey,
+  type UnionSelectOperationArgs,
+  UnionResolver,
 } from "./operation.js";
 export {
   QueryBuilder,
@@ -48,6 +51,10 @@ export {
   type InsertParams,
   type JoinParams,
   type SelectParams,
+  type TableJoinParams,
+  type UnionBranchParams,
+  type UnionJoinParams,
+  type UnionSelectParams,
   type UpdateParams,
 } from "./query.js";
 export {

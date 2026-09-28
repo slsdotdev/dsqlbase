@@ -110,18 +110,23 @@ a union over every node in the schema, and **`$$key` is what narrows it** — th
 on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
 on a nested property, so `record.$$meta.key === "authors"` compiles and narrows nothing.
 
-`on` says what to read per node:
+`on` says what to read per node — the same map a [union join](./polymorphic-relations.md)
+takes:
 
 ```ts
 const record = await dsql.$findByGlobalId({
   id,
   on: {
-    authors: { select: { id: true, name: true } },
-    articles: true, // whole row (also the default)
+    authors: { select: { id: true, name: true }, join: { articles: true } },
+    articles: { where: { publishedAt: { exists: true } } }, // a draft reads as a miss
     revisions: false, // excluded: gone from the union, and refused at runtime
   },
 });
 ```
+
+An entry is `true` (the whole row, also the default), `false`, or an object with a `select`, a
+`join` over that node's relations, and a `where` AND-ed with the id — a row that fails it is
+`null`, exactly as a missing one.
 
 `$listByGlobalId({ ids, on? })` resolves many at once — one query per table rather than one per
 id — and returns them **in the order you asked**, with `null` wherever a row is missing. That is

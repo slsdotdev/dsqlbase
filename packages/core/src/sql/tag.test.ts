@@ -26,6 +26,14 @@ describe("sql tag", () => {
     expect(builtQuery.params).toEqual([]);
   });
 
+  it("should write a literal into the text, quoted and escaped, with no parameter", () => {
+    const query = sql`select ${sql.literal("photos")} as k, ${sql.literal("o'brien")} as n`;
+    const builtQuery = query.toQuery();
+
+    expect(builtQuery.text).toBe("select 'photos' as k, 'o''brien' as n");
+    expect(builtQuery.params).toEqual([]);
+  });
+
   it("should handle inline parameters", () => {
     const query = sql`select * from users where id = ${1}`;
     const builtQuery = query.toQuery({ inlineParams: true });

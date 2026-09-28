@@ -3,6 +3,7 @@ export {
   NodeRef,
   Kind,
   META_FIELD,
+  KEY_FIELD,
   RESERVED_FIELD_NAMES,
   Relation,
   defaultCodec,

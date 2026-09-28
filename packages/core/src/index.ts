@@ -51,6 +51,7 @@ export {
   Table,
   TenancyError,
   Union,
+  UnionResolver,
   type AnyColumn,
   type AnySchema,
   type AnyTable,
@@ -96,6 +97,12 @@ export {
   type TransactionSession,
   type UpdateOperation,
   type UpdateOperationArgs,
+  type UnionOrderKey,
+  type UnionSelectOperationArgs,
+  type TableJoinParams,
+  type UnionBranchParams,
+  type UnionJoinParams,
+  type UnionSelectParams,
   type UpdateParams,
 } from "./runtime/index.js";
 export {

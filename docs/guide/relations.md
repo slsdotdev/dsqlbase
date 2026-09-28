@@ -107,6 +107,9 @@ export const commentRelations = relations(comments, {
 `from` by type, and a per-member map must name each member exactly once. A list given in
 the first form may only hold the union's shared fields.
 
+Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
+every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
+
 ## Relations between global-id columns
 
 Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
@@ -140,4 +143,5 @@ Correlating _on_ the claim column — `workspaces.id` to `invoices.workspaceId` 
 
 - [Schema](./schema.md)
 - [Querying](./querying.md)
+- [Polymorphic relations](./polymorphic-relations.md)
 - [Tenancy](./tenancy.md)

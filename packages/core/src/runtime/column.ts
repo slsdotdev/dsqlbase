@@ -17,6 +17,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
 
   readonly table: TTable;
   readonly name: TName;
+  /** The database type, or the domain's name for a domain column. */
+  readonly dataType: string;
   readonly notNull: TConfig["notNull"];
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
@@ -26,6 +28,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   constructor(table: TTable, definition: ColumnDefinition<TName, TConfig>) {
     this.table = table;
     this.name = definition.name;
+    this.dataType = definition["_dataType"];
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];

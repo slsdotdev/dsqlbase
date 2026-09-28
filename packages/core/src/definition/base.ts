@@ -31,14 +31,20 @@ export const Relation = Object.freeze({
 export const META_FIELD = "$$meta";
 
 /**
+ * The field naming which member of a union a row came from, on every row of a union result.
+ * Top level rather than inside `$$meta`: TypeScript narrows a union on a top-level property
+ * only (`docs/decisions/0007-global-ids.md`).
+ */
+export const KEY_FIELD = "$$key";
+
+/**
  * Field names a table may use for neither a column nor a relation.
  *
  * The runtime writes them onto result records itself, so a field of the same name would be
- * silently overwritten. `$$key` is reserved ahead of its use as a union-member discriminant:
- * reserving a name costs nothing now and is a breaking change later. See
+ * silently overwritten: `$$meta` on every row, `$$key` on every row of a union result. See
  * `docs/decisions/0004-record-meta.md`.
  */
-export const RESERVED_FIELD_NAMES: readonly string[] = Object.freeze([META_FIELD, "$$key"]);
+export const RESERVED_FIELD_NAMES: readonly string[] = Object.freeze([META_FIELD, KEY_FIELD]);
 
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof Relation)[keyof typeof Relation];

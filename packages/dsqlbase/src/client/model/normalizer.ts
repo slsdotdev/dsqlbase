@@ -18,10 +18,13 @@ import {
   SQLNode,
   SQLValue,
   Union,
+  UnionOrderKey,
+  UnionSelectOperationArgs,
   UpdateOperationArgs,
 } from "@dsqlbase/core";
 import {
   AnyRelationQuery,
+  AnyUnionQuery,
   CountArgs,
   CreateArgs,
   DeleteArgs,
@@ -353,8 +356,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   private _getJoinEntries<TTable extends AnyTable>(
     table: TTable,
     join: JoinExpressionOf<TTable, this["__type"]> | null | undefined
-  ): [string, SelectOperationArgs][] | undefined {
-    const entries: [string, SelectOperationArgs][] = [];
+  ): [string, SelectOperationArgs | UnionSelectOperationArgs][] | undefined {
+    const entries: [string, SelectOperationArgs | UnionSelectOperationArgs][] = [];
 
     if (!join || Object.keys(join).length === 0) {
       return undefined;
@@ -374,10 +377,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
 
       if (targetTable instanceof Union) {
-        throw new Error(
-          `Relation "${fieldName}" on table "${table.name}" targets union ` +
-            `"${targetTable.alias}"; joining a union is not supported yet.`
-        );
+        entries.push([
+          fieldName,
+          this._getUnionArgs(targetTable, query === true ? {} : (query as AnyUnionQuery)),
+        ]);
+        continue;
       }
 
       const params = this._getSelectArgs(targetTable, query === true ? {} : query);
@@ -385,6 +389,146 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     return entries;
+  }
+
+  /**
+   * Refuses a field the members of `union` do not all share, anywhere in a shared `where` —
+   * inside `and` / `or` / `not` included. Checked on the union rather than per member, so the
+   * error names the union instead of whichever member happened to lack the field.
+   */
+  private _assertSharedWhere(union: Union, where: Record<string, unknown> | null | undefined) {
+    for (const [fieldName, condition] of Object.entries(where ?? {})) {
+      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
+        for (const child of condition) {
+          this._assertSharedWhere(union, child as Record<string, unknown>);
+        }
+
+        continue;
+      }
+
+      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
+        this._assertSharedWhere(union, condition as Record<string, unknown>);
+        continue;
+      }
+
+      if (!union.isShared(fieldName)) {
+        throw new Error(
+          `Invalid field "${fieldName}" in where for union "${union.alias}": only fields every ` +
+            `member shares filter across a union. Filter one member through \`on\`.`
+        );
+      }
+    }
+  }
+
+  /**
+   * The arguments of a select over a union, one entry per member that runs.
+   *
+   * The shared `select` / `where` apply to every member, written against that member's own
+   * columns; `on.<alias>` then adds to them — its `select` is merged in, its `where` AND-ed
+   * with the shared one, its `join` walks the member's own relations — or, as `false`, drops
+   * the member entirely. Omitted, a member runs with the shared arguments alone.
+   */
+  private _getUnionArgs(union: Union, args: AnyUnionQuery): UnionSelectOperationArgs {
+    if (args.distinct) {
+      throw new Error(`\`distinct\` is not supported on union "${union.alias}".`);
+    }
+
+    const on = (args.on ?? {}) as Record<string, unknown>;
+
+    for (const alias of Object.keys(on)) {
+      if (!union.hasMember(alias)) {
+        throw new Error(
+          `"${alias}" in \`on\` is not a member of union "${union.alias}" ` +
+            `(members: ${union.memberAliases.join(", ")}).`
+        );
+      }
+    }
+
+    const sharedSelect = Object.entries(args.select ?? {})
+      .filter(([, selected]) => selected)
+      .map(([field]) => field);
+
+    for (const field of sharedSelect) {
+      if (!union.isShared(field)) {
+        throw new Error(
+          `Invalid field "${field}" in selection for union "${union.alias}": only fields every ` +
+            `member shares select across a union. Select it for one member through \`on\`.`
+        );
+      }
+    }
+
+    this._assertSharedWhere(union, args.where as Record<string, unknown> | undefined);
+
+    const members: [string, SelectOperationArgs][] = [];
+
+    for (const alias of union.memberAliases) {
+      const entry = on[alias];
+
+      if (entry === false) {
+        continue;
+      }
+
+      const member = union.getMember(alias);
+      const own = (typeof entry === "object" && entry !== null ? entry : {}) as QueryArgs<
+        AnyTable,
+        this["__type"]
+      >;
+
+      const shared: FieldSelection[] = sharedSelect.map((field) => [
+        field,
+        union.getMemberColumn(alias, field),
+      ]);
+      const extra = this._getSelectionEntries(member, own.select).filter(
+        ([field]) => !sharedSelect.includes(field)
+      );
+
+      const where = [
+        this._getWhereExpression(member, args.where as WhereExpressionOf<AnyTable>),
+        this._getWhereExpression(member, own.where),
+      ].filter((node): node is SQLNode => node !== undefined);
+
+      members.push([
+        alias,
+        {
+          select: [...shared, ...extra],
+          where: where.length > 0 ? where : undefined,
+          join: this._getJoinEntries(member, own.join),
+        },
+      ]);
+    }
+
+    return {
+      members,
+      orderBy: this._getUnionOrderKeys(union, args.orderBy),
+      limit: args.limit ?? undefined,
+      offset: args.offset ?? undefined,
+    };
+  }
+
+  private _getUnionOrderKeys(
+    union: Union,
+    orderBy: Record<string, unknown> | null | undefined
+  ): UnionOrderKey[] | undefined {
+    if (!orderBy) {
+      return undefined;
+    }
+
+    const keys: UnionOrderKey[] = [];
+
+    for (const [field, direction] of Object.entries(orderBy)) {
+      if (!union.isShared(field)) {
+        throw new Error(
+          `Invalid field "${field}" in orderBy for union "${union.alias}": only fields every ` +
+            `member shares order across a union.`
+        );
+      }
+
+      if (direction === "asc" || direction === "desc") {
+        keys.push({ field, direction });
+      }
+    }
+
+    return keys;
   }
 
   private _getMutationEntries<TTable extends AnyTable>(

@@ -8,6 +8,7 @@ import {
   SQLWrapper,
   SQLValue,
 } from "./nodes.js";
+import { escapeValue } from "./utils.js";
 
 export const asNode = (value: SQLValue): SQLNode => {
   if (isSQLNode(value)) {
@@ -38,6 +39,12 @@ sql.raw = (text: string) => new SQLRaw(text);
 sql.param = <TValue extends SQLValue>(value: TValue, serialize?: (value: TValue) => TValue) =>
   new SQLParam<TValue>(value, serialize);
 sql.identifier = (name: string) => new SQLIdentifier(name);
+/**
+ * A string written into the statement as a quoted literal rather than bound as a parameter.
+ * For values the schema owns — a union member's alias projected as its `$$key` — never for
+ * anything a caller passed in: a literal is part of the query text, a parameter is not.
+ */
+sql.literal = (value: string) => new SQLRaw(escapeValue(value));
 sql.wrap = (node: SQLNode) => new SQLWrapper(node);
 
 sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
