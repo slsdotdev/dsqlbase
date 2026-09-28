@@ -1,4 +1,5 @@
 import { TypedObject } from "@dsqlbase/core/utils";
+import { KEY_FIELD } from "@dsqlbase/core/definition";
 import {
   AnyColumn,
   AnyTable,
@@ -411,6 +412,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
+      if (fieldName === KEY_FIELD) {
+        this._getKeyCondition(union, condition);
+        continue;
+      }
+
       if (!union.isShared(fieldName)) {
         throw new Error(
           `Invalid field "${fieldName}" in where for union "${union.alias}": only fields every ` +
@@ -418,6 +424,138 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         );
       }
     }
+  }
+
+  /**
+   * A `$$key` condition as a test on a member alias. `$$key` accepts `eq`, `neq`, `in` and the
+   * bare-value shorthand, each naming member aliases; anything else — another operator, a
+   * value that is not a member — is refused, since it could only ever be a typo.
+   */
+  private _getKeyCondition(union: Union, condition: unknown): (alias: string) => boolean {
+    const assertMembers = (values: unknown[]) => {
+      for (const value of values) {
+        if (typeof value !== "string" || !union.hasMember(value)) {
+          throw new Error(
+            `${KEY_FIELD} in where for union "${union.alias}" names ${JSON.stringify(value)}, ` +
+              `which is not a member (members: ${union.memberAliases.join(", ")}).`
+          );
+        }
+      }
+    };
+
+    if (typeof condition === "string") {
+      assertMembers([condition]);
+      return (alias) => alias === condition;
+    }
+
+    const entries = Object.entries((condition ?? {}) as Record<string, unknown>).filter(
+      ([, value]) => value !== undefined
+    );
+
+    const tests = entries.map(([operator, value]): ((alias: string) => boolean) => {
+      if (operator === "eq" || operator === "neq") {
+        assertMembers([value]);
+        return operator === "eq" ? (alias) => alias === value : (alias) => alias !== value;
+      }
+
+      if (operator === "in" && Array.isArray(value)) {
+        assertMembers(value);
+        return (alias) => value.includes(alias);
+      }
+
+      throw new Error(
+        `${KEY_FIELD} in where for union "${union.alias}" accepts eq, neq and in; got "${operator}".`
+      );
+    });
+
+    return (alias) => tests.every((test) => test(alias));
+  }
+
+  /**
+   * A shared `where` as seen from one member, with every `$$key` condition decided.
+   *
+   * Inside a branch the member alias is a constant, so a `$$key` condition is simply true or
+   * false there. Folding it away here, rather than rendering `'photos' = 'videos'` into SQL,
+   * lets a member that can never match be pruned before a branch is built at all:
+   *
+   * - `false` — no row of this member can match; the member produces no branch;
+   * - otherwise the `where` that is left, with every decided condition removed. An `or` holding
+   *   a true child is dropped whole; a `not` flips its child.
+   */
+  private _foldKeyWhere(
+    union: Union,
+    where: Record<string, unknown>,
+    alias: string
+  ): Record<string, unknown> | false {
+    const residual: Record<string, unknown> = {};
+
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (fieldName === KEY_FIELD) {
+        if (!this._getKeyCondition(union, condition)(alias)) {
+          return false;
+        }
+
+        continue;
+      }
+
+      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
+        // An empty group constrains nothing, exactly as outside a union.
+        if (condition.length === 0) {
+          continue;
+        }
+
+        const children = condition.map((child) =>
+          this._foldKeyWhere(union, child as Record<string, unknown>, alias)
+        );
+
+        if (fieldName === "and") {
+          if (children.some((child) => child === false)) {
+            return false;
+          }
+
+          const kept = children.filter((child) => Object.keys(child as object).length > 0);
+
+          if (kept.length > 0) {
+            residual.and = kept;
+          }
+
+          continue;
+        }
+
+        // `or`: one child true for this member makes the whole group true.
+        if (children.some((child) => child !== false && Object.keys(child).length === 0)) {
+          continue;
+        }
+
+        const kept = children.filter((child) => child !== false);
+
+        if (kept.length === 0) {
+          return false;
+        }
+
+        residual.or = kept;
+        continue;
+      }
+
+      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
+        const inner = this._foldKeyWhere(union, condition as Record<string, unknown>, alias);
+
+        if (inner === false) {
+          continue;
+        }
+
+        if (Object.keys(inner).length === 0 && Object.keys(condition).length > 0) {
+          return false;
+        }
+
+        residual.not = inner;
+        continue;
+      }
+
+      residual[fieldName] = condition;
+    }
+
+    return residual;
   }
 
   /**
@@ -468,6 +606,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
+      const sharedWhere = args.where
+        ? this._foldKeyWhere(union, args.where as Record<string, unknown>, alias)
+        : undefined;
+
+      // A `$$key` condition this member can never satisfy: no branch at all.
+      if (sharedWhere === false) {
+        continue;
+      }
+
       const member = union.getMember(alias);
       const own = (typeof entry === "object" && entry !== null ? entry : {}) as QueryArgs<
         AnyTable,
@@ -483,7 +630,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       );
 
       const where = [
-        this._getWhereExpression(member, args.where as WhereExpressionOf<AnyTable>),
+        this._getWhereExpression(member, sharedWhere as WhereExpressionOf<AnyTable> | undefined),
         this._getWhereExpression(member, own.where),
       ].filter((node): node is SQLNode => node !== undefined);
 
@@ -516,10 +663,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     const keys: UnionOrderKey[] = [];
 
     for (const [field, direction] of Object.entries(orderBy)) {
-      if (!union.isShared(field)) {
+      if (field !== KEY_FIELD && !union.isShared(field)) {
         throw new Error(
           `Invalid field "${field}" in orderBy for union "${union.alias}": only fields every ` +
-            `member shares order across a union.`
+            `member shares, and ${KEY_FIELD}, order across a union.`
         );
       }
 

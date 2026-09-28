@@ -73,7 +73,7 @@ for (const post of user?.feed ?? []) {
 ```
 
 - **The shared level** — `select`, `where`, `orderBy`, `limit`, `offset` — accepts the union's
-  shared fields only. Every member runs it, each against its own columns. A field on one member
+  shared fields only, plus [`$$key`](#filtering-and-ordering-by-member) in `where` and `orderBy`. Every member runs it, each against its own columns. A field on one member
   only goes through `on`.
 - **`on.<alias>`** is `true` (the default: the member runs with the shared arguments),
   `false` (the member produces no branch and leaves the result type), or an object that adds
@@ -95,6 +95,35 @@ That is what narrows the result type. `$$meta.key` holds the same value, but Typ
 narrow a union on a nested property, so `post.$$meta.key === "photos"` compiles and narrows
 nothing. `$$meta` itself is the member's own, including anything `table().meta()` declared,
 such as `__typename`. Ordinary single-table rows have no `$$key`.
+
+### Filtering and ordering by member
+
+`$$key` is also a pseudo-field in the shared `where` and `orderBy`, typed as the member aliases.
+That is the way to turn a runtime value, such as a resolver's `type: VIDEO` argument, into a
+filter:
+
+```ts
+await dsql.users.findOne({
+  where: { id: { eq: userId } },
+  join: { feed: { where: { $$key: { in: types } }, orderBy: { $$key: "asc", createdAt: "desc" } } },
+});
+```
+
+- **Operators.** It accepts `eq`, `neq`, `in` and the bare-value shorthand, inside `and` / `or` /
+  `not` too. A value that is not a member alias throws.
+- **Never sent to SQL.** Within one member, `$$key` is a constant, so each condition is decided
+  per member while the query is built:
+  - a member that cannot match produces no branch;
+  - a condition every member satisfies is dropped;
+  - an `or` mixing `$$key` with other fields keeps only the conditions still open for that
+    member.
+
+  When no member is left, the join adds no SQL.
+- **The result type does not change.** Its value is usually only known at runtime, so every
+  member stays in the type. Use `on: { alias: false }` to remove a member from the query and
+  the type both.
+- **Ordering by `$$key`** sorts by member alias. Not naming it still uses it as the first
+  tiebreaker.
 
 ## Ordering and pages
 

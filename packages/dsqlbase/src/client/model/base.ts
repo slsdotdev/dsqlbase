@@ -579,12 +579,27 @@ type SharedValueOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
     : never;
 }[keyof TMembers];
 
-/** A `where` over a union's shared fields — the only ones that filter across it. */
+/**
+ * A filter on which member a row comes from. Decided while the query is built, member by
+ * member, so a member that cannot match produces no branch — it never reaches SQL.
+ */
+export type KeyFilterOf<TAlias extends string> =
+  | TAlias
+  | { eq?: TAlias; neq?: TAlias; in?: TAlias[] };
+
+/**
+ * A `where` over a union's shared fields — the only ones that filter across it — and `$$key`.
+ *
+ * `$$key` narrows the query, not the result type: its value is usually a runtime one (a
+ * resolver argument), so the members it rules out stay in the type. Use `on: { alias: false }`
+ * to remove a member from both.
+ */
 export type UnionWhereExpressionOf<TMembers extends AnyUnionMembers> = {
   [K in SharedFieldsOf<TMembers>]?:
     | FilterCondition<SharedValueOf<TMembers, K>>
     | SharedValueOf<TMembers, K>;
 } & {
+  $$key?: KeyFilterOf<keyof TMembers & string>;
   and?: UnionWhereExpressionOf<TMembers>[];
   or?: UnionWhereExpressionOf<TMembers>[];
   not?: UnionWhereExpressionOf<TMembers>;
@@ -600,10 +615,11 @@ export interface UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extend
   /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
   where?: UnionWhereExpressionOf<TMembers>;
   /**
-   * Orders the combined rows. Ties are broken by member alias and then the primary key, so the
-   * order is total whenever the members' keys line up.
+   * Orders the combined rows, by shared fields and by `$$key` (member alias). Ties are broken
+   * by member alias and then the primary key, so the order is total whenever the members' keys
+   * line up.
    */
-  orderBy?: Partial<Record<SharedFieldsOf<TMembers>, "asc" | "desc">>;
+  orderBy?: Partial<Record<SharedFieldsOf<TMembers> | "$$key", "asc" | "desc">>;
   limit?: number;
   offset?: number;
   /**

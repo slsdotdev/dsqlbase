@@ -170,6 +170,51 @@ describe("union types", () => {
 
     expectTypeOf(check).toBeFunction();
   });
+
+  it("types $$key in where and orderBy as the member aliases", () => {
+    const check = (types: ("photos" | "videos")[]) => {
+      dsql.users.findOne({
+        where,
+        join: {
+          feed: {
+            where: { or: [{ $$key: { in: types } }, { $$key: "photos" }] },
+            orderBy: { $$key: "asc", createdAt: "desc" },
+          },
+        },
+      });
+
+      dsql.users.findOne({
+        where,
+        join: {
+          feed: {
+            // @ts-expect-error `clips` is not a member alias
+            where: { $$key: "clips" },
+          },
+        },
+      });
+
+      dsql.users.findOne({
+        where,
+        join: {
+          feed: {
+            // @ts-expect-error `$$key` accepts eq, neq and in only
+            where: { $$key: { gt: "photos" } },
+          },
+        },
+      });
+    };
+
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("leaves members a runtime $$key filter rules out in the result type", async () => {
+    const user = await dsql.users.findOne({
+      where,
+      join: { feed: { where: { $$key: "photos" } } },
+    });
+
+    expectTypeOf(user?.feed[0]?.$$key).toEqualTypeOf<"photos" | "videos" | undefined>();
+  });
 });
 
 describe("the widened on map on global-id lookups", () => {

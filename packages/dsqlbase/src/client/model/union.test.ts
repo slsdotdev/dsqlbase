@@ -200,6 +200,94 @@ describe("RequestNormalizer union joins", () => {
     expect(post?.createdAt).toEqual(new Date("2026-01-02T00:00:00.000Z"));
     expect(user?.latest).toBeNull();
   });
+
+  describe("$$key in the shared where", () => {
+    const feed = async (feedArgs: object) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await dsql.users.findOne({ where, join: { feed: feedArgs as any } });
+      return text_();
+    };
+
+    it.each([
+      ["eq", { $$key: { eq: "videos" } }],
+      ["the bare-value shorthand", { $$key: "videos" }],
+      ["neq", { $$key: { neq: "photos" } }],
+      ["in", { $$key: { in: ["videos"] } }],
+    ])("prunes the members %s rules out", async (_label, feedWhere) => {
+      const text = await feed({ where: feedWhere });
+
+      expect(text).not.toContain('"photos"');
+      expect(text).toContain(`'videos' AS "$$key"`);
+      expect(text).not.toContain("UNION ALL");
+      // Decided while building, so nothing about $$key reaches SQL as a condition.
+      expect(text).not.toMatch(/'videos' = |'videos' <>|IN \('videos'/);
+    });
+
+    it("drops a condition every member satisfies", async () => {
+      const text = await feed({ where: { $$key: { in: ["photos", "videos"] } } });
+
+      expect(text).toContain("UNION ALL");
+      expect(text).toContain('WHERE "__t1"."user_id" = "__t0"."id") AS "__j0"');
+    });
+
+    it("keeps the rest of an or for the members $$key does not decide", async () => {
+      const text = await feed({
+        where: { or: [{ $$key: "videos" }, { day: { exists: true } }] },
+      });
+
+      // photos: the $$key branch is false, so only the other condition is left.
+      expect(text).toContain(
+        `WHERE "__t1"."user_id" = "__t0"."id" AND (("__t1"."day" IS NOT NULL))`
+      );
+      // videos: the $$key branch is true, so the whole or is.
+      expect(text).toContain('WHERE "__t2"."owner_id" = "__t0"."id") AS "__j1"');
+    });
+
+    it("prunes a member whose and holds a false $$key", async () => {
+      const text = await feed({
+        where: { and: [{ $$key: { neq: "photos" } }, { day: { exists: true } }] },
+      });
+
+      expect(text).not.toContain('"photos"');
+      expect(text).toContain(`AND (("__t1"."day" IS NOT NULL))`);
+    });
+
+    it("flips a $$key condition under not", async () => {
+      const text = await feed({ where: { not: { $$key: "photos" } } });
+
+      expect(text).not.toContain('"photos"');
+      expect(text).toContain(`'videos' AS "$$key"`);
+    });
+
+    it("emits no join when $$key rules out every member", async () => {
+      rows = [{ id: "u1", name: "Ada" }];
+
+      const user = await dsql.users.findOne({
+        where,
+        join: { feed: { where: { $$key: { in: [] } } } },
+      });
+
+      expect(text_()).not.toContain("__join_feed");
+      expect(user?.feed).toEqual([]);
+    });
+
+    it.each([
+      [{ $$key: "clips" }, /names "clips", which is not a member/],
+      [{ $$key: { in: ["photos", "clips"] } }, /names "clips", which is not a member/],
+      [{ $$key: { gt: "photos" } }, /accepts eq, neq and in; got "gt"/],
+    ])("rejects %j", (feedWhere, error) => {
+      expect(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dsql.users.findOne({ where, join: { feed: { where: feedWhere } as any } })
+      ).toThrow(error);
+    });
+  });
+
+  it("orders by $$key across members", async () => {
+    await dsql.users.findOne({ where, join: { feed: { orderBy: { $$key: "desc" } } } });
+
+    expect(text_()).toContain('json_agg("__u0"."data" ORDER BY "$$key" DESC, "__pk0" ASC)');
+  });
 });
 
 describe("global-id lookups with a widened on map", () => {

@@ -47,7 +47,10 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
 - **Normalizer.** `_getUnionArgs` (`packages/dsqlbase/src/client/model/normalizer.ts`) produces
   `UnionSelectOperationArgs`, with one `SelectOperationArgs` per member that runs. It maps the
   shared `select` / `where` onto each member's columns, merges `on.<alias>`, drops members set
-  to `false`, and refuses non-shared fields and `distinct`. `orderBy` stays structured
+  to `false`, and refuses non-shared fields and `distinct`. `$$key` conditions in the shared
+  `where` are folded per member by `_foldKeyWhere`. The alias is a constant inside a branch, so
+  each condition is decided before any SQL exists: a member whose `where` folds to `false`
+  produces no branch, and a decided condition leaves no trace in SQL. `orderBy` stays structured
   (`UnionOrderKey[]`), because each member resolves the field to its own column.
 - **Operations factory.** `_resolveUnionParams` builds every branch through
   `_resolveSelectParams(member, …)`, so each branch passes [the `WHERE` seam](#the-where-seam),
