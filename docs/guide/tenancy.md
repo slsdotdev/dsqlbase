@@ -116,6 +116,8 @@ await dsql.$execute(sql`UPDATE "invoices" SET "workspace_id" = ${to} WHERE "id" 
 
 Pass `enforce` as a literal, or leave it out. A variable typed `boolean` widens the inferred type and the tenant tables stay visible in the client's type; the runtime still enforces, so this is a false promise rather than a leak, but the compile-time help is lost ([0005](../decisions/0005-tenant-client-visibility.md)).
 
+A [union](./polymorphic-relations.md#visibility) follows its members: it is visible only when every member is, and each member's branch is filtered as that member would be.
+
 ## Transactions
 
 Scope first, then open the transaction. A transaction client cannot be scoped.

@@ -286,6 +286,11 @@ export class QueryBuilder {
     return sql`LEFT JOIN LATERAL (${subquery}) AS ${alias} ON true`;
   }
 
+  /** A union read at the root of a query: rows of `data` plus the carried columns. */
+  buildUnionSelectQuery(params: UnionSelectParams): SQLQuery {
+    return this._buildUnion(params, createAliasAllocator());
+  }
+
   buildSelectQuery(params: SelectParams): SQLQuery {
     return this._buildSelect(params, createAliasAllocator());
   }

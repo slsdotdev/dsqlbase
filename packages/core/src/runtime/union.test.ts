@@ -166,7 +166,8 @@ describe("union joins — SQL", () => {
       ],
     ]);
 
-    expect(query.text).toContain(`'photos' AS "__o0"`);
+    // Sorted by the "$$key" column every branch already projects; no second copy.
+    expect(query.text).not.toContain('"__o0"');
     expect(query.text).toContain('ORDER BY "$$key" DESC, "__pk0" ASC LIMIT');
     // Not repeated as a tiebreaker when the caller already ordered by it.
     expect(query.text).not.toContain('"$$key" DESC, "$$key" ASC');
@@ -408,5 +409,169 @@ describe("union joins — tenancy", () => {
 
   it("refuses the union when a member is scoped and the client carries no claims", () => {
     expect(() => build()).toThrow(TenancyError);
+  });
+});
+
+describe("top-level union select", () => {
+  const union = registry.getUnion("posts");
+  const run = (
+    args: Omit<UnionSelectOperationArgs, "members"> & {
+      members?: UnionSelectOperationArgs["members"];
+    },
+    mode: "one" | "many" = "many"
+  ) =>
+    factory.createUnionSelectOperation(union, {
+      mode,
+      args: { members: all("photos", "videos"), ...args },
+    });
+
+  it("renders the union at the root, ordered and limited across members", () => {
+    const { query } = run({ orderBy: [{ field: "createdAt", direction: "desc" }], limit: 10 });
+
+    expect(query.text).toMatch(
+      /^SELECT row_to_json\("__j0"\.\*\) AS "data", "__j0"\."__o0", "__j0"\."\$\$key", "__j0"\."__pk0" FROM \(SELECT 'photos' AS "\$\$key"/
+    );
+    expect(query.text).toMatch(/UNION ALL SELECT row_to_json\("__j1"\.\*\)/);
+    expect(query.text).toMatch(/ORDER BY "__o0" DESC, "\$\$key" ASC, "__pk0" ASC LIMIT \$3$/);
+    expect(query.params).toEqual([10, 10, 10]);
+  });
+
+  it("resolves each row's data by its member", () => {
+    const { resolve } = run({});
+    const rows = resolve([
+      { data: { $$key: "videos", id: "v1", owner_id: "u1", created_at: "t", video_url: "b" } },
+    ]) as Record<string, unknown>[];
+
+    expect(rows[0]).toEqual({
+      $$key: "videos",
+      $$meta: { key: "videos", table: "videos" },
+      id: "v1",
+      userId: "u1",
+      createdAt: "t",
+      videoUrl: "b",
+    });
+  });
+
+  it("reads one row for findOne", () => {
+    const { query, resolve } = run({}, "one");
+
+    expect(query.text).toMatch(/LIMIT \$\d+$/);
+    expect(resolve([])).toBeNull();
+  });
+
+  it("reads nothing when no member runs", () => {
+    const { query, resolve } = run({ members: [] });
+
+    expect(query.text).toBe('SELECT NULL::json AS "data" WHERE false');
+    expect(resolve([])).toEqual([]);
+  });
+
+  describe("keyset", () => {
+    it("projects the total order as hidden text keys and carries them", () => {
+      const { query } = run({
+        orderBy: [{ field: "createdAt", direction: "desc" }],
+        keys: true,
+        tiebreak: "desc",
+      });
+
+      expect(query.text).toContain(
+        `'photos'::text AS "__k1", "__t0"."id"::text AS "__k2" FROM "photos"`
+      );
+      expect(query.text).toContain('"__t0"."created_at"::text AS "__k0"');
+      expect(query.text).toContain('"__j0"."__k0", "__j0"."__k1", "__j0"."__k2" FROM');
+      expect(query.text).toMatch(/ORDER BY "__o0" DESC, "\$\$key" DESC, "__pk0" DESC$/);
+    });
+
+    it("orders by $$key and the primary key when paged with no orderBy", () => {
+      const { query } = run({ keys: true });
+
+      expect(query.text).toMatch(/ORDER BY "\$\$key" ASC, "__pk0" ASC$/);
+    });
+
+    it("applies the keyset inside each branch, where $$key is a constant", () => {
+      const { query } = run({
+        orderBy: [{ field: "createdAt", direction: "desc" }],
+        keyset: { values: ["2026-01-01", "photos", "p1"], bound: "after" },
+        limit: 3,
+      });
+
+      expect(query.text).toContain(
+        `FROM "photos" AS "__t0" WHERE "__t0"."created_at" < $1 OR ("__t0"."created_at" = $2 AND ('photos' > $3 OR ('photos' = $4 AND "__t0"."id" > $5))) ORDER BY`
+      );
+      expect(query.text).toContain(`FROM "videos" AS "__t1" WHERE "__t1"."created_at" < $7 OR ("__t1"."created_at" = $8 AND ('videos' > $9`);
+    });
+
+    it("reverses every key, pushdown included, for a page before the cursor", () => {
+      const { query } = run({
+        orderBy: [{ field: "createdAt", direction: "desc" }],
+        keyset: { values: ["2026-01-01", "photos", "p1"], bound: "before" },
+        limit: 3,
+      });
+
+      expect(query.text).toContain('WHERE "__t0"."created_at" > $1 OR ("__t0"."created_at" = $2 AND (\'photos\' < $3');
+      expect(query.text).toContain('ORDER BY "__t0"."created_at" ASC, "__t0"."id" DESC LIMIT');
+      expect(query.text).toMatch(/ORDER BY "__o0" ASC, "\$\$key" DESC, "__pk0" DESC LIMIT \$\d+$/);
+    });
+
+    it("refuses to page a union whose members' keys do not line up", () => {
+      const composite = new TableDefinition("composite", {
+        columns: { a: col("a", "uuid"), b: col("b", "uuid"), userId: col("user_id", "uuid") },
+      });
+      composite.primaryKey((c) => [c.a, c.b]);
+
+      const mixed = new UnionDefinition({ photos, composite });
+      const schema = new SchemaRegistry({ photos, composite, mixed });
+      const mixedFactory = new OperationsFactory(
+        new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+      );
+
+      expect(() =>
+        mixedFactory.createUnionSelectOperation(schema.getUnion("mixed"), {
+          mode: "many",
+          args: { members: all("photos", "composite"), keys: true },
+        })
+      ).toThrow(/Cannot page union "mixed": its members' primary keys differ/);
+
+      // Unpaged, it still orders — by $$key alone, with no primary-key tiebreaker.
+      const { query } = mixedFactory.createUnionSelectOperation(schema.getUnion("mixed"), {
+        mode: "many",
+        args: {
+          members: all("photos", "composite"),
+          orderBy: [{ field: "userId", direction: "asc" }],
+        },
+      });
+
+      expect(query.text).toMatch(/ORDER BY "__o0" ASC, "\$\$key" ASC$/);
+    });
+  });
+
+  describe("count", () => {
+    it("adds one count per member, each through the WHERE seam", () => {
+      const photosTable = registry.getTable("photos");
+      const { query, resolve } = factory.createUnionCountOperation(union, {
+        mode: "one",
+        args: {
+          members: [
+            ["photos", { where: sql.eq(photosTable.columns.photoUrl, "x") }],
+            ["videos", {}],
+          ],
+        },
+      });
+
+      expect(query.text).toBe(
+        'SELECT (SELECT count(*) FROM "photos" AS "__t0" WHERE "__t0"."photo_url" = $1) + ' +
+          '(SELECT count(*) FROM "videos" AS "__t0") AS "count"'
+      );
+      expect(resolve([{ count: "7" }])).toBe(7);
+    });
+
+    it("is zero with no member", () => {
+      const { query } = factory.createUnionCountOperation(union, {
+        mode: "one",
+        args: { members: [] },
+      });
+
+      expect(query.text).toBe('SELECT 0 AS "count"');
+    });
   });
 });

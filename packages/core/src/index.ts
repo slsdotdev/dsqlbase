@@ -99,6 +99,8 @@ export {
   type UpdateOperationArgs,
   type UnionOrderKey,
   type UnionSelectOperationArgs,
+  type UnionSelectOperation,
+  type UnionCountOperationArgs,
   type TableJoinParams,
   type UnionBranchParams,
   type UnionJoinParams,

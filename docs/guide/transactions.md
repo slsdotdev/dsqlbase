@@ -24,6 +24,8 @@ await dsql.$transaction(async (tx) => {
 
 The session passed to `createClient` must implement `beginTransaction()`; both provided sessions do.
 
+The transaction client carries every model the client it came from shows, [union clients](./polymorphic-relations.md#reading-a-union-directly) included, bound to the transaction session.
+
 A batch takes anything a model method returns, including a [page](./pagination.md) counted with
 `count: true`, which is two statements rather than one. Inside the transaction both run on its
 session, so the page and its `totalCount` read the same snapshot:

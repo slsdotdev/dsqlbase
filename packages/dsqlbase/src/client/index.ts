@@ -1,6 +1,7 @@
 export type * from "./model/base.js";
 export { isFilterType } from "./model/base.js";
 export { ModelClient } from "./model/client.js";
+export { UnionClient } from "./union/client.js";
 export {
   DatabaseClient,
   type Aliases,
@@ -8,6 +9,7 @@ export {
   type IdentityClient,
   type Models,
   type QueryClient,
+  type UnionAliases,
   type VisibleAliases,
   type VisibleFor,
 } from "./database/index.js";

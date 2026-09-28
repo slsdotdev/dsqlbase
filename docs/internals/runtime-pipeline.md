@@ -198,7 +198,19 @@ no opinion about cursors; the client owns the cursor format and the page shape.
 - `SelectOperationArgs.keys` — columns projected a second time at the **root** level as
   `col::text AS "__k<n>"`, aliased like every other reference in the level. No resolver reads
   them, so they reach the raw driver row and never a result record. A join level asking for
-  them is refused.
+  them is refused. A union read at the root projects them per branch instead
+  (`UnionSelectOperationArgs.keys`) and carries them to the union level, which the root is.
+- **Union pages.** `createUnionSelectOperation` / `createUnionCountOperation` run a union at the
+  root. `_resolveUnionParams` builds the total order in `_getUnionOrder`:
+  - the caller's keys;
+  - `$$key`, unless the caller named it;
+  - each primary-key column by position (`$$pk<n>`), when `Union.tiebreakers` says the members'
+    keys line up — otherwise paging throws.
+
+  The appended keys run in `tiebreak`. The keyset enters each branch as a `where` element, where
+  `$$key` is the constant literal. A `before` bound reverses the union order and every branch's
+  pushdown order, while the keyset is written against the order as given. The union count adds
+  one `count(*)` per member, each built through the seam.
 - `createCountOperation(table, { where })` — `SELECT count(*) AS "count"`, its `WHERE` built by
   the same seam, resolved with `Number(...)` (drivers return `bigint` as text or `bigint`).
 - `Executable<T>` and `CompositeQuery` (`runtime/executor.ts`) — anything that runs when awaited
@@ -223,6 +235,9 @@ no opinion about cursors; the client owns the cursor format and the page shape.
   resolves the rest, stamps each record's cursor from its `__k<n>` columns, reverses a `before`
   page, and fills `startCursor` / `endCursor`. With `count: true` it returns a `CompositeQuery`
   of the page and a count.
+- `UnionClient.paginate` (`client/union/client.ts`) does the same over a union.
+  `normalizeUnionPaginate` mirrors core's total order to sign the cursor (union alias, caller
+  keys, `$$key`, `$$pk<n>`), and `shapePage` takes a `PagePlan`, which both requests satisfy.
 - The cursor (`client/pagination/cursor.ts`) is `c1.` + base64url of
   `[signature, ...values]`, where the signature is 8 hex characters of SHA-256 over the table
   alias and the ordered `field:direction` keys. `InvalidCursorError` is thrown before any SQL.

@@ -9,7 +9,9 @@ import {
   SQLStatement,
   TenancyError,
 } from "@dsqlbase/core";
+import { AnyUnionMembers } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
+import { UnionClient } from "../union/client.js";
 import {
   GlobalIdListResultOf,
   GlobalIdOptionsOf,
@@ -270,6 +272,16 @@ export function attachModels<T extends DefinitionSchema>(
 
     Object.defineProperty(client, alias, {
       value: model,
+      writable: false,
+      enumerable: true,
+    });
+  }
+
+  // Unions are read under their own alias, next to the tables; the registry already refused a
+  // union named like a table, so the two cannot collide.
+  for (const [alias, union] of ctx.schema.getUnions()) {
+    Object.defineProperty(client, alias, {
+      value: new UnionClient<AnyUnionMembers, T>(ctx, union),
       writable: false,
       enumerable: true,
     });

@@ -2,11 +2,17 @@ import { AnyTable, AnySchema, DefinitionSchema, RuntimeTables, Schema } from "@d
 import { TableByAlias } from "@dsqlbase/core/runtime";
 import { UnionToIntersection } from "@dsqlbase/core/utils";
 import { ModelClient } from "../model/client.js";
-import { ColumnTypeOf, TenantKeysOf, ValueTypeOf } from "../model/base.js";
+import { ColumnTypeOf, TenantKeysOf, UnionMembersOf, ValueTypeOf } from "../model/base.js";
+import { UnionClient } from "../union/client.js";
 import { DatabaseClient } from "./client.js";
 
-/** Every table alias in a schema — the names the client addresses its models by. */
-export type Aliases<T extends DefinitionSchema> = keyof RuntimeTables<Schema<T>>;
+/** Every union alias in a schema. */
+export type UnionAliases<T extends DefinitionSchema> = keyof Schema<T>["unions"] & string;
+
+/**
+ * Every alias in a schema the client addresses a model by: each table, and each union.
+ */
+export type Aliases<T extends DefinitionSchema> = keyof RuntimeTables<Schema<T>> | UnionAliases<T>;
 
 /**
  * The claims a schema declares, as one object.
@@ -30,13 +36,29 @@ export type ClaimsOf<TSchema extends AnySchema> = UnionToIntersection<
  * table whose claims the identity carries in full. A table needing a claim that is not there is
  * not hidden to be tidy — it is hidden because reaching it would throw.
  */
-export type VisibleAliases<TSchema extends AnySchema, TClaims> = {
+export type VisibleAliases<TSchema extends AnySchema, TClaims> =
+  | VisibleTableAliases<TSchema, TClaims>
+  | VisibleUnionAliases<TSchema, TClaims>;
+
+type VisibleTableAliases<TSchema extends AnySchema, TClaims> = {
   [A in keyof RuntimeTables<TSchema> & string]: [
     TenantKeysOf<TableByAlias<TSchema, A>>,
   ] extends [keyof TClaims]
     ? A
     : never;
 }[keyof RuntimeTables<TSchema> & string];
+
+/**
+ * A union is visible only when every member is: each read runs a branch per member, and one
+ * branch a client cannot reach makes the whole read throw.
+ */
+type VisibleUnionAliases<TSchema extends AnySchema, TClaims> = {
+  [U in keyof TSchema["unions"] & string]: [
+    Exclude<keyof UnionMembersOf<TSchema["unions"][U]>, VisibleTableAliases<TSchema, TClaims>>,
+  ] extends [never]
+    ? U
+    : never;
+}[keyof TSchema["unions"] & string];
 
 /**
  * Which aliases a client shows, given its claims and whether it enforces.
@@ -59,11 +81,15 @@ export type Models<
   T extends DefinitionSchema,
   TVisible extends Aliases<T> = Aliases<T>,
 > = {
-  readonly [K in TVisible]: RuntimeTables<Schema<T>>[K] extends infer TTable
-    ? TTable extends AnyTable
-      ? ModelClient<TTable, T>
+  readonly [K in TVisible]: K extends keyof RuntimeTables<Schema<T>>
+    ? RuntimeTables<Schema<T>>[K] extends infer TTable
+      ? TTable extends AnyTable
+        ? ModelClient<TTable, T>
+        : never
       : never
-    : never;
+    : K extends UnionAliases<T>
+      ? UnionClient<UnionMembersOf<Schema<T>["unions"][K]>, T>
+      : never;
 };
 
 export type QueryClient<

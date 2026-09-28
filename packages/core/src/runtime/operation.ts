@@ -1,6 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { AnyColumnDefinition, KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
-import { SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
+import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
@@ -60,6 +60,13 @@ export type FieldResolver = [
  * not after (`docs/decisions/0004-record-meta.md`). A member with no branch here was excluded
  * from the query, so a row naming it is a data-integrity failure and throws.
  */
+/**
+ * The field a union's primary-key tiebreaker is addressed by in its total order, followed by the
+ * key column's position. Members may name their key columns differently, so a tiebreaker is
+ * positional; `$` keeps it from ever meeting a real field.
+ */
+const PK_FIELD_PREFIX = "$$pk";
+
 export class UnionResolver {
   readonly mode: OperationMode;
   readonly branches: Readonly<Record<string, ResolverEntry[]>>;
@@ -107,6 +114,22 @@ export interface UnionSelectOperationArgs {
   orderBy?: UnionOrderKey[];
   limit?: number;
   offset?: number;
+  /**
+   * The direction of the keys appended to make the order total — `$$key` and the primary-key
+   * tiebreakers. Ascending when omitted; a pager passes the direction of the caller's last key.
+   */
+  tiebreak?: "asc" | "desc";
+  /**
+   * Project every key of the total order a second time as its database text, as `__k0`,
+   * `__k1`, ..., carried to the union level — the values a keyset cursor is built from. Root
+   * level only.
+   */
+  keys?: boolean;
+  /**
+   * Read only the rows strictly after (or before) this position in the total order, applied
+   * inside every branch where `$$key` is a constant. `before` also reverses the order.
+   */
+  keyset?: { values: (string | null)[]; bound: KeysetBound };
 }
 
 export interface SelectOperationArgs {
@@ -133,11 +156,25 @@ export interface SelectOperation<
   type: "select";
 }
 
+export interface UnionSelectOperation<
+  TMode extends OperationMode,
+  TArgs extends UnionSelectOperationArgs,
+  TReturn = unknown,
+> extends Operation<TMode, TArgs, TReturn> {
+  type: "select";
+}
+
+/** A count over a union: the members that run, each with its own `where`. */
+export interface UnionCountOperationArgs {
+  members: [alias: string, args: { where?: SQLNode | SQLNode[] }][];
+}
+
 export interface CountOperationArgs {
   where?: SQLNode | SQLNode[];
 }
 
-export interface CountOperation extends Operation<"one", CountOperationArgs, number> {
+export interface CountOperation
+  extends Operation<"one", CountOperationArgs | UnionCountOperationArgs, number> {
   type: "select";
 }
 
@@ -610,7 +647,8 @@ export class OperationsFactory<
     pairs?: Record<string, AnyColumn[]>
   ): { params: UnionSelectParams; resolver: UnionResolver } {
     const orderBy = args.orderBy ?? [];
-    const ordered = orderBy.length > 0;
+    const paged = args.keys === true || args.keyset !== undefined;
+    const ordered = orderBy.length > 0 || paged;
     const limit = mode === "one" ? 1 : args.limit;
     const offset = mode === "one" ? undefined : args.offset;
 
@@ -623,15 +661,29 @@ export class OperationsFactory<
       }
     }
 
-    const tiebreakers = ordered ? this._getUnionTiebreakers(union) : 0;
-    const direction = (key: { direction: "asc" | "desc"; nullable?: boolean }) => {
-      const dir = key.direction === "asc" ? "ASC" : "DESC";
+    const tiebreakers = ordered ? union.tiebreakers : 0;
+
+    if (paged && tiebreakers === 0) {
+      throw new Error(
+        `Cannot page union "${union.alias}": its members' primary keys differ in arity or type, ` +
+          `so nothing can break a tie between two members' rows.`
+      );
+    }
+
+    const order = ordered ? this._getUnionOrder(orderBy, tiebreakers, args.tiebreak) : [];
+    const backward = args.keyset?.bound === "before";
+
+    // A page read before its cursor runs every key the other way round; the keyset itself is
+    // written against the order as given.
+    const direction = (key: UnionOrderKey) => {
+      const way = backward ? (key.direction === "asc" ? "desc" : "asc") : key.direction;
+      const dir = way === "asc" ? "ASC" : "DESC";
 
       if (!key.nullable) {
         return dir;
       }
 
-      return key.direction === "asc" ? `${dir} NULLS LAST` : `${dir} NULLS FIRST`;
+      return way === "asc" ? `${dir} NULLS LAST` : `${dir} NULLS FIRST`;
     };
 
     const branches: UnionBranchParams[] = [];
@@ -641,29 +693,39 @@ export class OperationsFactory<
       const member = union.getMember(alias);
       const memberResolvers: ResolverEntry[] = [];
 
-      const orderColumns = orderBy.map((key) =>
-        key.field === KEY_FIELD ? sql.literal(alias) : union.getMemberColumn(alias, key.field)
-      );
-      const pkColumns = member.primaryKey.slice(0, tiebreakers);
+      const expressions = order.map((key) => this._getUnionKeyExpression(union, alias, key));
 
       // The branch's own order, used only when it is limited. `$$key` is a constant inside a
       // branch, so it orders nothing there.
       const branchOrder =
         limit !== undefined && ordered
-          ? [
-              ...orderBy.flatMap((key, index) =>
-                key.field === KEY_FIELD
-                  ? []
-                  : [sql`${orderColumns[index]} ${sql.raw(direction(key))}`]
-              ),
-              ...pkColumns.map((column) => sql`${column} ASC`),
-            ]
+          ? order.flatMap((key, index) =>
+              key.field === KEY_FIELD
+                ? []
+                : [sql`${expressions[index]} ${sql.raw(direction(key))}`]
+            )
           : undefined;
+
+      const keyset = args.keyset
+        ? sql.keyset(
+            order.map((key, index) => ({
+              node: expressions[index],
+              direction: key.direction,
+              nullable: key.nullable,
+            })),
+            args.keyset.values,
+            args.keyset.bound
+          )
+        : undefined;
 
       const params = this._resolveSelectParams(
         member,
         {
           ...memberArgs,
+          where: [
+            ...(Array.isArray(memberArgs.where) ? memberArgs.where : [memberArgs.where]),
+            keyset,
+          ].filter((node): node is SQLNode => node !== undefined && node !== null),
           orderBy: branchOrder,
           limit: limit !== undefined ? limit + (offset ?? 0) : undefined,
           offset: undefined,
@@ -675,8 +737,20 @@ export class OperationsFactory<
       params.select = [
         sql`${sql.literal(alias)} AS ${sql.identifier(KEY_FIELD)}`,
         ...params.select,
-        ...orderColumns.map((column, index) => sql`${column} AS ${sql.identifier(`__o${index}`)}`),
-        ...pkColumns.map((column, index) => sql`${column} AS ${sql.identifier(`__pk${index}`)}`),
+        ...order.flatMap((key, index) => {
+          const hidden = this._getUnionKeyName(key, index);
+
+          return hidden === KEY_FIELD
+            ? []
+            : [sql`${expressions[index]} AS ${sql.identifier(hidden)}`];
+        }),
+        // `::text` for the same reason as a table's keys: a cursor carries the database's own
+        // rendering of each value.
+        ...(args.keys
+          ? expressions.map(
+              (expression, index) => sql`${expression}::text AS ${sql.identifier(`__k${index}`)}`
+            )
+          : []),
       ];
 
       const { resolvers: branchResolvers, ...select } = params;
@@ -685,57 +759,81 @@ export class OperationsFactory<
       resolvers[alias] = branchResolvers;
     }
 
-    const carry = ordered
-      ? [
-          ...orderBy.map((_, index) => `__o${index}`),
-          KEY_FIELD,
-          ...Array.from({ length: tiebreakers }, (_, index) => `__pk${index}`),
-        ]
-      : [];
-
-    const order = ordered
-      ? [
-          ...orderBy.map((key, index) =>
-            key.field === KEY_FIELD
-              ? sql`${sql.identifier(KEY_FIELD)} ${sql.raw(direction(key))}`
-              : sql`${sql.identifier(`__o${index}`)} ${sql.raw(direction(key))}`
-          ),
-          ...(orderBy.some((key) => key.field === KEY_FIELD)
-            ? []
-            : [sql`${sql.identifier(KEY_FIELD)} ASC`]),
-          ...Array.from(
-            { length: tiebreakers },
-            (_, index) => sql`${sql.identifier(`__pk${index}`)} ASC`
-          ),
-        ]
-      : undefined;
+    const carry = [
+      ...order.map((key, index) => this._getUnionKeyName(key, index)),
+      ...(args.keys ? order.map((_, index) => `__k${index}`) : []),
+    ];
 
     return {
-      params: { branches, carry, order, limit, offset },
+      params: {
+        branches,
+        carry,
+        order: ordered
+          ? order.map(
+              (key, index) =>
+                sql`${sql.identifier(this._getUnionKeyName(key, index))} ${sql.raw(direction(key))}`
+            )
+          : undefined,
+        limit,
+        offset,
+      },
       resolver: new UnionResolver(mode, resolvers),
     };
   }
 
   /**
-   * How many primary-key columns can break ties across a union: all of them when every member's
-   * key has the same arity and the same types position by position, none otherwise — a
-   * `UNION ALL` column must have one type across branches.
+   * The total order of a union: the caller's keys, then `$$key` unless they named it, then
+   * every primary-key column when the members' keys line up. The appended keys run in
+   * `tiebreak` — ascending unless a pager asks otherwise.
+   *
+   * A primary-key tiebreaker is written as the field `$$pk<n>`: members may name their key
+   * columns differently, so it is addressed by position rather than by field.
    */
-  private _getUnionTiebreakers(union: Union): number {
-    const keys = Object.values(union.members).map((member) => member.primaryKey);
-    const [first] = keys;
+  private _getUnionOrder(
+    orderBy: UnionOrderKey[],
+    tiebreakers: number,
+    tiebreak: "asc" | "desc" = "asc"
+  ): UnionOrderKey[] {
+    return [
+      ...orderBy,
+      ...(orderBy.some((key) => key.field === KEY_FIELD)
+        ? []
+        : [{ field: KEY_FIELD, direction: tiebreak }]),
+      ...Array.from({ length: tiebreakers }, (_, index) => ({
+        field: `${PK_FIELD_PREFIX}${index}`,
+        direction: tiebreak,
+      })),
+    ];
+  }
 
-    if (!first || first.length === 0) {
-      return 0;
+  /** What one order key reads inside one member's branch. */
+  private _getUnionKeyExpression(union: Union, alias: string, key: UnionOrderKey): SQLNode {
+    if (key.field === KEY_FIELD) {
+      return sql.literal(alias);
     }
 
-    const aligned = keys.every(
-      (key) =>
-        key.length === first.length &&
-        key.every((column, index) => column.dataType === first[index].dataType)
-    );
+    if (key.field.startsWith(PK_FIELD_PREFIX)) {
+      return union.getMember(alias).primaryKey[Number(key.field.slice(PK_FIELD_PREFIX.length))];
+    }
 
-    return aligned ? first.length : 0;
+    return union.getMemberColumn(alias, key.field);
+  }
+
+  /**
+   * The name one order key is carried under to the union level: `"$$key"` for `$$key`, which
+   * every branch projects anyway, `__pk<n>` for a tiebreaker, `__o<n>` for a
+   * caller's key — its position, since members may name the column differently.
+   */
+  private _getUnionKeyName(key: UnionOrderKey, index: number): string {
+    if (key.field === KEY_FIELD) {
+      return KEY_FIELD;
+    }
+
+    if (key.field.startsWith(PK_FIELD_PREFIX)) {
+      return `__pk${key.field.slice(PK_FIELD_PREFIX.length)}`;
+    }
+
+    return `__o${index}`;
   }
 
   /** Resolves the rows of a union level, each by the member its `$$key` names. */
@@ -866,6 +964,72 @@ export class OperationsFactory<
       args,
       query: query.toQuery(),
       // `count(*)` is a `bigint`, which drivers hand back as text (node-postgres) or `bigint`.
+      resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
+    };
+  }
+
+  /**
+   * A top-level select over a union: the union's own `UNION ALL`, each row a JSON `data` value
+   * dispatched to its member's resolvers. With no member left to run it reads nothing, and
+   * resolves to `[]` or `null`.
+   */
+  public createUnionSelectOperation<
+    TResult extends object,
+    TMode extends OperationMode = OperationMode,
+    TArgs extends UnionSelectOperationArgs = UnionSelectOperationArgs,
+  >(union: Union, config: OperationRequest<TArgs, TMode>): UnionSelectOperation<TMode, TArgs, TResult> {
+    const { name, args, mode } = config;
+    const { params, resolver } = this._resolveUnionParams(union, args, mode);
+
+    const query =
+      params.branches.length > 0
+        ? this._ctx.dialect.buildUnionSelectQuery(params)
+        : sql`SELECT NULL::json AS ${sql.identifier("data")} WHERE false`;
+
+    return {
+      type: "select",
+      mode,
+      name: name ?? `select_${union.alias}`,
+      args,
+      query: query.toQuery(),
+      resolve: (rows) =>
+        this._resolveUnionRows(
+          resolver,
+          (rows as Record<string, unknown>[]).map((row) => row.data)
+        ) as OperationResult<TMode, TResult>,
+    };
+  }
+
+  /**
+   * Counts the rows a union's members select: one `count(*)` per member, each through the
+   * `WHERE` seam with that member's own table, added together.
+   */
+  public createUnionCountOperation(
+    union: Union,
+    config: OperationRequest<UnionCountOperationArgs, "one">
+  ): CountOperation {
+    const { name, args } = config;
+
+    const counts = args.members.map(([alias, memberArgs]) => {
+      const member = union.getMember(alias);
+      const query = this._ctx.dialect.buildSelectQuery({
+        table: member,
+        select: [sql`count(*)`],
+        where: this._resolveWhere(member, memberArgs.where),
+      });
+
+      return sql`(${query})`;
+    });
+
+    const total = counts.length > 0 ? sql.join(counts, " + ") : sql.raw("0");
+    const query = sql`SELECT ${total} AS ${sql.identifier("count")}`;
+
+    return {
+      type: "select",
+      mode: "one",
+      name: name ?? `count_${union.alias}`,
+      args,
+      query: query.toQuery(),
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
   }

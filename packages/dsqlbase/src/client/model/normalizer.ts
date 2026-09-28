@@ -19,6 +19,7 @@ import {
   SQLNode,
   SQLValue,
   Union,
+  UnionCountOperationArgs,
   UnionOrderKey,
   UnionSelectOperationArgs,
   UpdateOperationArgs,
@@ -58,6 +59,23 @@ interface OrderKey {
 }
 
 const flip = (direction: "asc" | "desc"): "asc" | "desc" => (direction === "asc" ? "desc" : "asc");
+
+/** What {@link shapePage} reads off a page plan, whichever kind of select produced it. */
+export interface PagePlan {
+  /** The total order, as the cursor signs it. */
+  keys: CursorKey[];
+  signature: string;
+  take: number;
+  bound: KeysetBound;
+  cursor?: (string | null)[];
+}
+
+/** Everything a union's `paginate` needs besides the select itself. */
+export interface UnionPaginateRequest extends PagePlan {
+  request: OperationRequest<UnionSelectOperationArgs, "many">;
+  /** The same members and filters without the keyset — what a count of the same rows uses. */
+  count: OperationRequest<UnionCountOperationArgs, "one">;
+}
 
 /** Everything `paginate` needs besides the select itself. */
 export interface PaginateRequest {
@@ -806,6 +824,129 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       take,
       bound,
       cursor,
+    };
+  }
+
+  /**
+   * A top-level select over a union. `findOne` needs a `where`, exactly as on a table: a
+   * union row is only "the" row when something names it.
+   */
+  public normalizeUnionSelect<TMode extends OperationMode>(
+    union: Union,
+    args: AnyUnionQuery,
+    mode: TMode
+  ): OperationRequest<UnionSelectOperationArgs, TMode> {
+    if (mode === "one" && Object.keys(args.where ?? {}).length === 0) {
+      throw new Error(
+        `findOne on union "${union.alias}" needs a where that names the row it reads; an ` +
+          `empty one would match every row of every member.`
+      );
+    }
+
+    return { mode, args: this._getUnionArgs(union, args) };
+  }
+
+  /**
+   * A page read over a union, under a total order built the way core builds it: the caller's
+   * keys, then `$$key` unless they named it, then each primary-key column by position
+   * (`$$pk<n>`), the appended keys following the caller's last direction. The cursor signs
+   * that whole list against the union's alias, so a table's cursor never reads a union's page.
+   */
+  public normalizeUnionPaginate(
+    union: Union,
+    args: AnyUnionQuery & { after?: string | null; before?: string | null }
+  ): UnionPaginateRequest {
+    const { after, before } = args;
+
+    if (after != null && before != null) {
+      throw new Error("Pass either after or before, not both.");
+    }
+
+    const tiebreakers = union.tiebreakers;
+
+    if (tiebreakers === 0) {
+      throw new Error(
+        `Cannot page union "${union.alias}": its members' primary keys differ in arity or type, ` +
+          `so nothing can break a tie between two members' rows.`
+      );
+    }
+
+    const take = this._getPageSize(args.limit ?? undefined);
+    const orderBy = (this._getUnionOrderKeys(union, args.orderBy) ?? []).map((key) => ({
+      ...key,
+      nullable:
+        key.field !== KEY_FIELD &&
+        union.memberAliases.some((alias) => {
+          const column = union.getMemberColumn(alias, key.field);
+          return !column.notNull && !union.getMember(alias).primaryKey.includes(column);
+        }),
+    }));
+
+    const tiebreak = orderBy.at(-1)?.direction ?? "asc";
+    const keys: (CursorKey & { nullable?: boolean })[] = [
+      ...orderBy,
+      ...(orderBy.some((key) => key.field === KEY_FIELD)
+        ? []
+        : [{ field: KEY_FIELD, direction: tiebreak }]),
+      ...Array.from({ length: tiebreakers }, (_, index) => ({
+        field: `$$pk${index}`,
+        direction: tiebreak,
+      })),
+    ];
+
+    const signature = keysetSignature(union.alias, keys);
+    const bound = before != null ? "before" : "after";
+    const token = after ?? before ?? undefined;
+
+    let cursor: (string | null)[] | undefined;
+
+    if (token !== undefined) {
+      cursor = decodeCursor(token, signature, keys.length);
+
+      if (cursor.some((value, index) => value === null && !keys[index].nullable)) {
+        throw new InvalidCursorError(
+          "format",
+          `"${token}" carries a null for a key that cannot hold one.`
+        );
+      }
+    }
+
+    const base = this._getUnionArgs(union, { select: args.select, where: args.where, on: args.on });
+
+    return {
+      request: {
+        mode: "many",
+        args: {
+          ...base,
+          orderBy,
+          tiebreak,
+          keys: true,
+          keyset: cursor ? { values: cursor, bound } : undefined,
+          limit: take + 1,
+        },
+      },
+      count: {
+        mode: "one",
+        args: { members: base.members.map(([alias, member]) => [alias, { where: member.where }]) },
+      },
+      keys: keys.map(({ field, direction }) => ({ field, direction })),
+      signature,
+      take,
+      bound,
+      cursor,
+    };
+  }
+
+  /** A count over the rows a union's members select. */
+  public normalizeUnionCount(
+    union: Union,
+    args: Pick<AnyUnionQuery, "where"> = {}
+  ): OperationRequest<UnionCountOperationArgs, "one"> {
+    const { members } = this._getUnionArgs(union, { where: args.where });
+
+    return {
+      mode: "one",
+      args: { members: members.map(([alias, member]) => [alias, { where: member.where }]) },
     };
   }
 

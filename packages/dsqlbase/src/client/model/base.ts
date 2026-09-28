@@ -678,6 +678,54 @@ export type UnionJoinResultOf<
   ? UnionResultOf<TMembers, TSchema, TArgs>[]
   : UnionResultOf<TMembers, TSchema, TArgs> | null;
 
+/** The members of a union definition, as a record of member alias → table definition. */
+export type UnionMembersOf<TUnion> = TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
+
+/** A union's `findOne`: like `findMany`, but a `where` must name the row. */
+export interface UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
+  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "orderBy" | "on"> {
+  where: UnionWhereExpressionOf<TMembers>;
+}
+
+/** A union's `paginate` — the table form, with the union's shared-field arguments and `on`. */
+export interface UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
+  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "where" | "orderBy" | "on"> {
+  /** The number of records on the page, under the client's `pagination` limits. */
+  limit?: number;
+  /** Read the page that follows this cursor, taken from this union under the same `orderBy`. */
+  after?: string | null;
+  /** Read the page that precedes this cursor. Never together with `after`. */
+  before?: string | null;
+  /** Also count every record `where` selects, across every member, as `totalCount`. */
+  count?: boolean;
+}
+
+/** One record of a union page: each member's row, its `$$meta` also carrying its cursor. */
+export type UnionPageItemOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> =
+  UnionResultOf<TMembers, TSchema, TArgs> extends infer TRow
+    ? TRow extends { $$meta: infer TMeta }
+      ? Prettify<Omit<TRow, "$$meta"> & { $$meta: Prettify<TMeta & { cursor: string }> }>
+      : never
+    : never;
+
+export type UnionPageOf<
+  TMembers extends AnyUnionMembers,
+  TSchema extends AnySchema,
+  TArgs extends UnionPaginateArgs<TMembers, TSchema>,
+> = Prettify<
+  {
+    items: UnionPageItemOf<TMembers, TSchema, TArgs>[];
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor: string | null;
+    endCursor: string | null;
+  } & TotalCountOf<TArgs>
+>;
+
+export interface UnionCountArgs<TMembers extends AnyUnionMembers> {
+  where?: UnionWhereExpressionOf<TMembers>;
+}
+
 /** What the normalizer receives for a union level, before any type narrowing. */
 export interface AnyUnionQuery {
   select?: Record<string, boolean | undefined> | null;

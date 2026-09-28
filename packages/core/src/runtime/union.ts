@@ -59,6 +59,28 @@ export class Union {
     return member;
   }
 
+  /**
+   * How many primary-key columns can break ties across the union: all of them when every
+   * member's key has the same arity and the same types position by position, none otherwise —
+   * a `UNION ALL` column must have one type across branches.
+   */
+  public get tiebreakers(): number {
+    const keys = Object.values(this.members).map((member) => member.primaryKey);
+    const [first] = keys;
+
+    if (!first || first.length === 0) {
+      return 0;
+    }
+
+    const aligned = keys.every(
+      (key) =>
+        key.length === first.length &&
+        key.every((column, index) => column.dataType === first[index].dataType)
+    );
+
+    return aligned ? first.length : 0;
+  }
+
   public isShared(field: string): boolean {
     return Object.hasOwn(this.sharedColumns, field);
   }

@@ -43,6 +43,8 @@ export {
   type UpdateOperationArgs,
   type UnionOrderKey,
   type UnionSelectOperationArgs,
+  type UnionSelectOperation,
+  type UnionCountOperationArgs,
   UnionResolver,
 } from "./operation.js";
 export {

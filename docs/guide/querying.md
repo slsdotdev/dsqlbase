@@ -2,7 +2,7 @@
 
 _Audience: application developers._
 
-`createClient({ schema, session })` returns a client with one model per exported table plus a few `$`-prefixed escape hatches. Source: `packages/dsqlbase/src/client/`.
+`createClient({ schema, session })` returns a client with one model per exported table, one read-only client per exported [`union()`](./polymorphic-relations.md#reading-a-union-directly), plus a few `$`-prefixed escape hatches. Source: `packages/dsqlbase/src/client/`.
 
 ```ts
 import { createClient } from "dsqlbase";

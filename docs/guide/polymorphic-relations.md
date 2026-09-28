@@ -119,6 +119,7 @@ await dsql.users.findOne({
     member.
 
   When no member is left, the join adds no SQL.
+
 - **The result type does not change.** Its value is usually only known at runtime, so every
   member stays in the type. Use `on: { alias: false }` to remove a member from the query and
   the type both.
@@ -142,14 +143,73 @@ Each member's branch passes through the same `WHERE` seam as a table level, so a
 not. A union with a scoped member, reached from an enforcing client that carries no claims, is
 refused with a `TenancyError`, exactly as a join to that member alone would be.
 
+## Reading a union directly
+
+Every union in the schema is also a read-only client under its own alias — `dsql.posts`, next
+to `dsql.photos` and `dsql.videos` — for queries that start at the union rather than at a row
+related to it, such as a top-level `partners: [Partner]` field. It takes the same shared-level
+arguments and `on` map as a join. Source: `packages/dsqlbase/src/client/union/client.ts`.
+
+```ts
+const posts = await dsql.posts.findMany({
+  where: { userId: { eq: userId }, $$key: { in: types } },
+  orderBy: { createdAt: "desc" },
+  limit: 20,
+  on: { photos: { join: { owner: true } } },
+});
+
+const post = await dsql.posts.findOne({ where: { id: { eq: postId } } }); // where required
+const total = await dsql.posts.count({ where: { userId: { eq: userId } } });
+```
+
+- **No writes.** A row is created, updated or deleted through its member's own model.
+- **`count`** adds up one `count(*)` per member, each through its own `WHERE` seam.
+- **`findOne` requires a `where`**, as it does on a table.
+
+### Pages
+
+`paginate` works as it does on a table ([Pagination](./pagination.md)), with cursors, `after` /
+`before`, `limit` and `count: true`:
+
+```ts
+const page = await dsql.posts.paginate({
+  where: { userId: { eq: userId } },
+  orderBy: { createdAt: "desc" },
+  limit: 20,
+  after: previous?.endCursor,
+});
+
+page.items[0].$$meta.cursor;
+```
+
+- **Total order.** Pages are read under the `orderBy`, then `$$key`, then every primary-key
+  column by position. The appended keys follow the direction of the last `orderBy` key, the
+  same rule as a table.
+- **Cursors.** A cursor is signed against the union's alias and that order, so a table's cursor
+  never reads a union's page.
+- **Where the keyset applies.** It is applied inside each member's branch, where `$$key` is a
+  constant, so the per-member `limit` stays valid.
+- **Aligned keys required.** Paging needs every member's primary key to have the same arity and
+  column types, because the key is what breaks a tie between two members' rows. A union whose
+  keys do not line up can still be read with `findMany` and `offset`, but `paginate` throws.
+
+### Visibility
+
+A union is visible on a client only when **every** member is. On an enforcing client with no
+claims, a union with a [tenant-scoped](./tenancy.md) member is absent from the type, just as
+the member is, and it refuses at runtime too. On the client `$identityClaims` returns, or on the
+transaction client inside one, it is present again.
+
 ## Limits
 
 - No foreign key can be emitted for a union target; relations emit none anyway.
 - Only shared fields filter, select or order across a union.
+- `paginate` needs members whose primary keys line up.
 
 ## Related
 
 - [Relations](./relations.md)
 - [Schema](./schema.md#unions)
 - [Querying](./querying.md)
+- [Pagination](./pagination.md)
 - [Global ids](./global-ids.md) — the same `on` map
