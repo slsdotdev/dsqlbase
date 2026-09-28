@@ -1,5 +1,5 @@
 import { TypedObject } from "../utils/index.js";
-import { META_FIELD, Relation } from "../definition/index.js";
+import { AnyColumnDefinition, META_FIELD, Relation } from "../definition/index.js";
 import { SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
@@ -7,6 +7,7 @@ import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
 import { JoinParams, SelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
+import { Union } from "./union.js";
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 export type OperationMode = "one" | "many";
@@ -434,6 +435,13 @@ export class OperationsFactory<
         );
       }
 
+      if (targetTable instanceof Union) {
+        throw new Error(
+          `Relation "${fieldName}" on table "${table.name}" targets union "${targetTable.alias}"; ` +
+            `joining a union is not supported yet.`
+        );
+      }
+
       if (relation.from.length === 0 || relation.from.length !== relation.to.length) {
         throw new Error(
           `Relation "${fieldName}" on table "${table.name}" must pair an equal, non-zero ` +
@@ -453,7 +461,7 @@ export class OperationsFactory<
         return column;
       });
 
-      const toColumns = relation.to.map((ref) => {
+      const toColumns = (relation.to as AnyColumnDefinition[]).map((ref) => {
         const column = targetTable.getColumn(ref.name);
 
         if (!column) {

@@ -118,6 +118,45 @@ The built-in keys `key`, `table` and `schema` are set from the schema itself and
 redeclared. `$$meta` and `$$key` are reserved field names: a column or a relation of either
 name throws.
 
+## Unions
+
+`union()` groups tables that can stand in for one another — what GraphQL calls a union or an
+interface. Key every member by the alias it is exported under:
+
+```ts
+import { union } from "dsqlbase/schema";
+
+export const photos = table("photos", {
+  id: guid("id").primaryKey().defaultRandom(),
+  userId: guid("user_id", "users").notNull(),
+  photoUrl: text("photo_url").notNull(),
+});
+
+export const videos = table("videos", {
+  id: guid("id").primaryKey().defaultRandom(),
+  userId: guid("user_id", "users").notNull(),
+  videoUrl: text("video_url").notNull(),
+});
+
+export const posts = union({ photos, videos });
+// posts.columns: { id, userId } — the shared fields
+```
+
+`posts.columns` holds the **shared fields**: the fields every member declares with the same
+type. A field whose type differs on one member is left out rather than refused. Relations use
+the shared fields to target a union (see [Relations](./relations.md#relations-to-a-union)).
+
+When the client is built, it throws if any of these hold:
+
+- a member is keyed by something other than its schema alias;
+- a member is not in the schema;
+- the union's alias is also a table's name.
+
+A union with no members, or one that contains another union, throws when it is declared.
+
+A union produces no DDL. The migration runner ignores it, and exporting it alongside its
+members is enough.
+
 ## Column types
 
 | Constructor(s)                                          | PG type                         | Notes                                                                 |
@@ -169,7 +208,7 @@ DSQL requires sequence `CACHE` to be `1` or `>= 65536`; the migration validator 
 
 ## Exporting the schema
 
-Export every table, relation, domain, and sequence from one module and pass the module to `createClient({ schema })` and to the migration runner. The client keys models by the export name (`dsql.users`), not the table name. A full example lives at `packages/tests/src/db/schema/schema.ts`.
+Export every table, relation, union, domain, and sequence from one module and pass the module to `createClient({ schema })` and to the migration runner. The client keys models by the export name (`dsql.users`), not the table name. A full example lives at `packages/tests/src/db/schema/schema.ts`.
 
 ## Related
 

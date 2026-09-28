@@ -17,6 +17,7 @@ import {
   sql,
   SQLNode,
   SQLValue,
+  Union,
   UpdateOperationArgs,
 } from "@dsqlbase/core";
 import {
@@ -369,6 +370,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       if (!targetTable) {
         throw new Error(
           `Relation "${fieldName}" in table "${table.name}" does not have a valid target table.`
+        );
+      }
+
+      if (targetTable instanceof Union) {
+        throw new Error(
+          `Relation "${fieldName}" on table "${table.name}" targets union ` +
+            `"${targetTable.alias}"; joining a union is not supported yet.`
         );
       }
 

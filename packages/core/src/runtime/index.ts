@@ -8,6 +8,8 @@ export type {
   SchemaRelationDefinitions,
   SchemaTableDefinitions,
   SchemaTableRelations,
+  SchemaUnionDefinitions,
+  DefinitionUnionName,
   TableRelationFieldName,
 } from "./base.js";
 export { Column, type AnyColumn } from "./column.js";
@@ -57,3 +59,4 @@ export {
 } from "./registry.js";
 export type { Session, TransactionSession } from "./session.js";
 export { Table, type AnyTable } from "./table.js";
+export { Union, type AnyUnion } from "./union.js";

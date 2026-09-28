@@ -5,9 +5,11 @@ import {
   RelationsDefinition,
   TableDefinition,
   TenantScopeDefinition,
+  UnionDefinition,
 } from "../definition/index.js";
 import { SchemaRegistry } from "./registry.js";
 import { Table } from "./table.js";
+import { Union } from "./union.js";
 
 const users = new TableDefinition("users", {
   columns: {
@@ -448,5 +450,261 @@ describe("SchemaRegistry.claimKeys", () => {
     expect(() => new SchemaRegistry({ invoices, receipts })).toThrow(
       /Claim "workspaceId" is "uuid" on table "invoices" but "text" on table "receipts"/
     );
+  });
+});
+
+describe("SchemaRegistry unions", () => {
+  const photos = new TableDefinition("photos", {
+    columns: {
+      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+      userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+      ownerId: new ColumnDefinition("owner_id", { dataType: "uuid" }),
+      createdAt: new ColumnDefinition("created_at", { dataType: "timestamptz" }),
+    },
+  });
+
+  const videos = new TableDefinition("videos", {
+    columns: {
+      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+      userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+      createdAt: new ColumnDefinition("created_at", { dataType: "timestamptz" }),
+    },
+  });
+
+  const people = new TableDefinition("people", {
+    columns: {
+      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+      postType: new ColumnDefinition("post_type", { dataType: "text" }),
+      postKind: new ColumnDefinition("post_kind", { dataType: "integer" }),
+      postId: new ColumnDefinition("post_id", { dataType: "uuid" }),
+    },
+  });
+
+  const posts = new UnionDefinition({ photos, videos });
+
+  const relate = (relation: Record<string, unknown>) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    new RelationsDefinition(people, { rel: relation } as any);
+
+  const feed = (to: unknown) =>
+    relate({ type: Relation.HAS_MANY, target: posts, from: [people.columns.id], to });
+
+  const belongsTo = (discriminator?: unknown) =>
+    relate({
+      type: Relation.BELONGS_TO,
+      target: posts,
+      from: [people.columns.postId],
+      to: [posts.columns.id],
+      discriminator,
+    });
+
+  it("registers a union under its schema alias with built members", () => {
+    const registry = new SchemaRegistry({ photos, videos, posts });
+    const union = registry.getUnion("posts");
+
+    expect(union).toBeInstanceOf(Union);
+    expect(union.alias).toBe("posts");
+    expect(union.memberAliases).toEqual(["photos", "videos"]);
+    expect(union.getMember("photos")).toBe(registry.getTable("photos"));
+    expect(registry.hasUnion("posts")).toBe(true);
+    expect(registry.getUnions().map(([alias]) => alias)).toEqual(["posts"]);
+  });
+
+  it("resolves each shared field to the member's runtime column", () => {
+    const registry = new SchemaRegistry({ photos, videos, posts });
+    const union = registry.getUnion("posts");
+
+    expect(union.getMemberColumn("videos", "createdAt")).toBe(
+      registry.getTable("videos").columns.createdAt
+    );
+    expect(union.isShared("ownerId")).toBe(false);
+    expect(() => union.getMemberColumn("photos", "ownerId")).toThrow(/not shared/);
+  });
+
+  it("does not register a union as a table", () => {
+    const registry = new SchemaRegistry({ photos, videos, posts });
+
+    expect(registry.hasTable("posts")).toBe(false);
+    expect(registry.getTableEntries().map(([alias]) => alias)).toEqual(["photos", "videos"]);
+  });
+
+  it("rejects a member keyed by something other than its schema alias", () => {
+    const pictures = new UnionDefinition({ pictures: photos, videos });
+
+    expect(() => new SchemaRegistry({ photos, videos, pictures })).toThrow(
+      /does not export that table as "pictures"/
+    );
+  });
+
+  it("rejects a member missing from the schema", () => {
+    expect(() => new SchemaRegistry({ photos, posts })).toThrow(
+      /does not export that table as "videos"/
+    );
+  });
+
+  it("rejects a union named like a table", () => {
+    const named = new TableDefinition("posts", {
+      columns: { id: new ColumnDefinition("id").primaryKey() },
+    });
+
+    expect(() => new SchemaRegistry({ photos, videos, named, posts })).toThrow(
+      /same name as a table/
+    );
+  });
+
+  it("returns the union as a relation target, with each member's to columns", () => {
+    const registry = new SchemaRegistry({
+      photos,
+      videos,
+      people,
+      posts,
+      rels: feed([posts.columns.userId]),
+    });
+
+    expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
+    expect(registry.getUnionRelationColumns("people", "rel")).toEqual({
+      photos: [registry.getTable("photos").columns.userId],
+      videos: [registry.getTable("videos").columns.userId],
+    });
+  });
+
+  it("accepts one to list per member", () => {
+    const registry = new SchemaRegistry({
+      photos,
+      videos,
+      people,
+      posts,
+      rels: feed({ photos: [photos.columns.ownerId], videos: [videos.columns.userId] }),
+    });
+
+    expect(registry.getUnionRelationColumns("people", "rel").photos).toEqual([
+      registry.getTable("photos").columns.ownerId,
+    ]);
+  });
+
+  it("rejects a to list that is not made of the union's shared fields", () => {
+    expect(
+      () =>
+        new SchemaRegistry({ photos, videos, people, posts, rels: feed([photos.columns.userId]) })
+    ).toThrow(/must be a shared field of union "posts"/);
+  });
+
+  it("rejects a per-member map that misses or invents a member", () => {
+    expect(
+      () =>
+        new SchemaRegistry({
+          photos,
+          videos,
+          people,
+          posts,
+          rels: feed({ photos: [photos.columns.userId], clips: [videos.columns.userId] }),
+        })
+    ).toThrow(/missing: videos; not members: clips/);
+  });
+
+  it("rejects a per-member column declared on another member", () => {
+    expect(
+      () =>
+        new SchemaRegistry({
+          photos,
+          videos,
+          people,
+          posts,
+          rels: feed({ photos: [videos.columns.userId], videos: [videos.columns.userId] }),
+        })
+    ).toThrow(/not declared on member "photos"/);
+  });
+
+  it("rejects a pair whose types differ on a member", () => {
+    expect(
+      () =>
+        new SchemaRegistry({
+          photos,
+          videos,
+          people,
+          posts,
+          rels: feed([posts.columns.createdAt]),
+        })
+    ).toThrow(/"people"."id" is "uuid" but "photos"."createdAt" is "timestamptz"/);
+  });
+
+  it("rejects a relation to a union that is not in the schema", () => {
+    expect(
+      () => new SchemaRegistry({ photos, videos, people, rels: feed([posts.columns.userId]) })
+    ).toThrow(/targets union\(photos\|videos\), which is not in the schema/);
+  });
+
+  describe("discriminator", () => {
+    it("accepts a belongs-to with a text discriminator on the source", () => {
+      const registry = new SchemaRegistry({
+        photos,
+        videos,
+        people,
+        posts,
+        rels: belongsTo(people.columns.postType),
+      });
+
+      expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
+    });
+
+    it("requires one on a belongs-to a union", () => {
+      expect(
+        () => new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() })
+      ).toThrow(/must declare a discriminator/);
+    });
+
+    it("rejects one that is not text-like", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            people,
+            posts,
+            rels: belongsTo(people.columns.postKind),
+          })
+      ).toThrow(/is "integer"; it holds a member alias/);
+    });
+
+    it("rejects one declared on another table", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            people,
+            posts,
+            rels: belongsTo(photos.columns.userId),
+          })
+      ).toThrow(/discriminator "user_id" is not declared on table "people"/);
+    });
+
+    it("rejects one on a has-many to a union", () => {
+      const rels = relate({
+        type: Relation.HAS_MANY,
+        target: posts,
+        from: [people.columns.id],
+        to: [posts.columns.userId],
+        discriminator: people.columns.postType,
+      });
+
+      expect(() => new SchemaRegistry({ photos, videos, people, posts, rels })).toThrow(
+        /only a belongs-to a union needs one/
+      );
+    });
+
+    it("rejects one on a relation to a single table", () => {
+      const rels = relate({
+        type: Relation.BELONGS_TO,
+        target: photos,
+        from: [people.columns.postId],
+        to: [photos.columns.id],
+        discriminator: people.columns.postType,
+      });
+
+      expect(() => new SchemaRegistry({ photos, videos, people, rels })).toThrow(
+        /its target is a single table/
+      );
+    });
   });
 });

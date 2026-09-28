@@ -1,12 +1,16 @@
 import {
   AnyColumn,
+  AnyColumnDefinition,
   AnyFieldRelation,
   AnyTable,
+  AnyTableDefinition,
   ColumnCodec,
   DefinitionSchema,
   SchemaRegistry,
   TableDefinition,
+  UnionDefinition,
 } from "@dsqlbase/core";
+import { AnyUnionColumnDefinition } from "@dsqlbase/core/definition";
 import { GuidColumnDefinition } from "../schema/columns/guid.js";
 import {
   GlobalIdError,
@@ -149,40 +153,62 @@ function validateRelationPairs(
 
     for (const [field, relation] of Object.entries(relations)) {
       const label = `Relation "${field}" on table "${alias}"`;
-      const target = relation.target.name;
 
-      for (const [index, fromColumn] of relation.from.entries()) {
-        const toColumn = relation.to[index];
+      for (const [target, to] of targetColumnLists(relation)) {
+        for (const [index, fromColumn] of relation.from.entries()) {
+          const toColumn = to[index];
 
-        if (!toColumn) {
-          continue;
-        }
+          if (!toColumn) {
+            continue;
+          }
 
-        const fromKey = keys.get(fromColumn);
-        const toKey = keys.get(toColumn);
+          const fromKey = keys.get(fromColumn);
+          const toKey = keys.get(toColumn);
 
-        if (fromKey === undefined && toKey === undefined) {
-          continue;
-        }
+          if (fromKey === undefined && toKey === undefined) {
+            continue;
+          }
 
-        const pair = `"${alias}.${fromColumn.name}" and "${target}.${toColumn.name}"`;
+          const pair = `"${alias}.${fromColumn.name}" and "${target}.${toColumn.name}"`;
 
-        if (fromKey === undefined || toKey === undefined) {
-          throw new Error(
-            `${label} pairs ${pair}, but only one of them carries global ids. ` +
-              `Both sides of a pair must be guid() columns, or neither.`
-          );
-        }
+          if (fromKey === undefined || toKey === undefined) {
+            throw new Error(
+              `${label} pairs ${pair}, but only one of them carries global ids. ` +
+                `Both sides of a pair must be guid() columns, or neither.`
+            );
+          }
 
-        if (fromKey !== toKey) {
-          throw new Error(
-            `${label} pairs ${pair}, which carry global ids for "${fromKey}" and "${toKey}". ` +
-              `Both sides of a pair must name the same node.`
-          );
+          if (fromKey !== toKey) {
+            throw new Error(
+              `${label} pairs ${pair}, which carry global ids for "${fromKey}" and "${toKey}". ` +
+                `Both sides of a pair must name the same node.`
+            );
+          }
         }
       }
     }
   }
+}
+
+/**
+ * A relation's `to` side as one column list per target table: the table itself, or every
+ * member of a union target — through a shared field or a per-member list.
+ */
+function targetColumnLists(
+  relation: AnyFieldRelation
+): [target: string, to: AnyColumnDefinition[]][] {
+  const { target, to } = relation;
+
+  if (!(target instanceof UnionDefinition)) {
+    return [[target.name, to as AnyColumnDefinition[]]];
+  }
+
+  return Object.entries<AnyTableDefinition>(target.members).map(([alias, member]) => [
+    member.name,
+    Array.isArray(to)
+      ? (to as AnyUnionColumnDefinition[]).map((column) => column.members[alias])
+      : (to as Record<string, AnyColumnDefinition[]>)[alias],
+  ]);
 }
 
 /**

@@ -5,10 +5,14 @@ import {
   AnyRelationDefinition,
   AnyTableDefinition,
   AnyTableRelations,
+  AnyUnionDefinition,
   DefinitionSchema,
   RESERVED_FIELD_NAMES,
+  Relation,
   RelationsDefinition,
   TableDefinition,
+  UnionColumnDefinition,
+  UnionDefinition,
 } from "../definition/index.js";
 import {
   AnySchema,
@@ -18,8 +22,11 @@ import {
   SchemaRelationDefinitions,
   SchemaTableDefinitions,
   SchemaTableRelations,
+  SchemaUnionDefinitions,
 } from "./base.js";
+import { AnyColumn } from "./column.js";
 import { AnyTable, Table } from "./table.js";
+import { Union } from "./union.js";
 
 /**
  * The metadata a definition declared with `table().meta()`. Rebuilding a `Table` from the
@@ -76,6 +83,14 @@ export class SchemaRegistry<
 
   private readonly _tables: Map<string, AnyTable>;
   private readonly _relations: Map<string, AnyTableRelations>;
+  private readonly _unions: Map<string, Union>;
+
+  /**
+   * For every relation whose target is a union: source table name → field → member alias →
+   * the member's `to` columns. Resolved once here, whether `to` was written as shared fields or
+   * as one list per member, so nothing downstream has to know which.
+   */
+  private readonly _unionPairs = new Map<string, Map<string, Record<string, AnyColumn[]>>>();
 
   /**
    * Every tenant claim declared anywhere in this schema, mapped to the data type it is
@@ -91,6 +106,7 @@ export class SchemaRegistry<
     const schema = this._validateAndTransformSchema(definition);
 
     this._tables = this._buildTables(schema);
+    this._unions = this._buildUnions(schema, definition);
     this._relations = this._buildRelations(schema);
     this.claimKeys = this._buildClaimKeys(schema);
   }
@@ -121,6 +137,7 @@ export class SchemaRegistry<
   private _validateAndTransformSchema(schema: TDefinition): Schema<TDefinition> {
     const relations = {} as SchemaRelationDefinitions<TDefinition>;
     const tables = {} as SchemaTableDefinitions<TDefinition>;
+    const unions = {} as SchemaUnionDefinitions<TDefinition>;
 
     for (const [name, node] of Object.entries(schema)) {
       if (node instanceof RelationsDefinition) {
@@ -147,9 +164,14 @@ export class SchemaRegistry<
           node as SchemaTableDefinitions<TDefinition>[DefinitionTableName<TDefinition>];
         continue;
       }
+
+      if (node instanceof UnionDefinition) {
+        (unions as Record<string, AnyUnionDefinition>)[name] = node;
+        continue;
+      }
     }
 
-    return { tables, relations };
+    return { tables, relations, unions };
   }
 
   private _buildTables(schema: Schema<TDefinition>) {
@@ -166,6 +188,42 @@ export class SchemaRegistry<
     }
 
     return tables;
+  }
+
+  /**
+   * Builds every union once the tables exist, checking what only the schema object can tell:
+   * that each member is keyed by the alias it is exported under. That is what makes a member
+   * key mean the same thing as `$$meta.key` and a node key, rather than a second name for the
+   * same table.
+   */
+  private _buildUnions(schema: Schema<TDefinition>, definition: TDefinition) {
+    const unions = new Map<string, Union>();
+
+    for (const [alias, union] of Object.entries<AnyUnionDefinition>(schema.unions)) {
+      if (this._tables.has(alias)) {
+        throw new Error(
+          `Union "${alias}" has the same name as a table in the schema. A union and a table ` +
+            `are both read through the client by that name, so it can only mean one of them.`
+        );
+      }
+
+      const members: Record<string, AnyTable> = {};
+
+      for (const [key, member] of Object.entries<AnyTableDefinition>(union.members)) {
+        if (definition[key] !== member) {
+          throw new Error(
+            `Union "${alias}" lists table "${member.name}" under "${key}", but the schema does ` +
+              `not export that table as "${key}". Union members are keyed by their schema alias.`
+          );
+        }
+
+        members[key] = this.getTable(key);
+      }
+
+      unions.set(alias, new Union(union, members, alias));
+    }
+
+    return unions;
   }
 
   private _buildClaimKeys(schema: Schema<TDefinition>): Map<string, string> {
@@ -226,9 +284,25 @@ export class SchemaRegistry<
     definitions: Map<string, AnyTableDefinition>
   ): void {
     const label = `Relation "${field}" on table "${sourceName}"`;
-    const { from, to } = relation;
+    const { from } = relation;
+    const source = definitions.get(sourceName);
 
-    if (from.length === 0 || to.length === 0) {
+    if (!source) {
+      throw new Error(`${label} refers to a table that is not in the schema.`);
+    }
+
+    if (from.length === 0) {
+      throw new Error(`${label} must declare at least one column pair in "from" and "to".`);
+    }
+
+    if (relation.target instanceof UnionDefinition) {
+      this._validateUnionRelation(label, sourceName, field, relation, source);
+      return;
+    }
+
+    const to = relation.to as AnyColumnDefinition[];
+
+    if (to.length === 0) {
       throw new Error(`${label} must declare at least one column pair in "from" and "to".`);
     }
 
@@ -239,12 +313,14 @@ export class SchemaRegistry<
       );
     }
 
-    const source = definitions.get(sourceName);
-    const target = definitions.get(relation.target.name);
-
-    if (!source) {
-      throw new Error(`${label} refers to a table that is not in the schema.`);
+    if (relation.discriminator) {
+      throw new Error(
+        `${label} declares a discriminator, but its target is a single table. Only a ` +
+          `belongs-to a union needs one.`
+      );
     }
+
+    const target = definitions.get(relation.target.name);
 
     if (!target) {
       throw new Error(
@@ -280,6 +356,182 @@ export class SchemaRegistry<
             `both columns of a pair must have the same type.`
         );
       }
+    }
+  }
+
+  /**
+   * The union half of {@link _validateRelation}: the union must be registered, `to` must name
+   * a column on every member — through a shared field or a per-member list — paired with
+   * `from` by type, and only a belongs-to carries a discriminator, which it must.
+   */
+  private _validateUnionRelation(
+    label: string,
+    sourceName: string,
+    field: string,
+    relation: AnyFieldRelation,
+    source: AnyTableDefinition
+  ): void {
+    const target = relation.target as AnyUnionDefinition;
+    const union = [...this._unions.values()].find((candidate) => candidate.definition === target);
+
+    if (!union) {
+      throw new Error(`${label} targets ${target.name}, which is not in the schema.`);
+    }
+
+    const { from } = relation;
+    const lists = this._getMemberToColumns(label, union, relation.to);
+    const pairs: Record<string, AnyColumn[]> = {};
+
+    for (const [alias, to] of Object.entries(lists)) {
+      const member = union.getMember(alias);
+      const memberDefinition = union.definition.members[alias] as AnyTableDefinition;
+
+      if (to.length !== from.length) {
+        throw new Error(
+          `${label} pairs ${from.length} "from" column(s) with ${to.length} "to" column(s) on ` +
+            `member "${alias}"; the two sides must have the same length.`
+        );
+      }
+
+      pairs[alias] = to.map((toColumn, index) => {
+        const fromColumn = from[index];
+        const fromAlias = this._findColumnAlias(source, fromColumn);
+        const toAlias = this._findColumnAlias(memberDefinition, toColumn);
+
+        if (!fromAlias) {
+          throw new Error(
+            `${label}: "from" column "${fromColumn.name}" is not declared on table "${sourceName}".`
+          );
+        }
+
+        if (!toAlias) {
+          throw new Error(
+            `${label}: "to" column "${toColumn.name}" is not declared on member "${alias}" of ` +
+              `union "${union.alias}".`
+          );
+        }
+
+        if (fromColumn["_dataType"] !== toColumn["_dataType"]) {
+          throw new Error(
+            `${label}: "${sourceName}"."${fromAlias}" is "${fromColumn["_dataType"]}" but ` +
+              `"${alias}"."${toAlias}" is "${toColumn["_dataType"]}"; both columns of a pair ` +
+              `must have the same type.`
+          );
+        }
+
+        return member.getColumn(toAlias) as AnyColumn;
+      });
+    }
+
+    this._validateDiscriminator(label, relation, source, union);
+
+    const byField =
+      this._unionPairs.get(sourceName) ?? new Map<string, Record<string, AnyColumn[]>>();
+    byField.set(field, pairs);
+    this._unionPairs.set(sourceName, byField);
+  }
+
+  /** `to` as one column-definition list per member, whichever form it was written in. */
+  private _getMemberToColumns(
+    label: string,
+    union: Union,
+    to: AnyFieldRelation["to"]
+  ): Record<string, AnyColumnDefinition[]> {
+    if (Array.isArray(to)) {
+      if (to.length === 0) {
+        throw new Error(`${label} must declare at least one column pair in "from" and "to".`);
+      }
+
+      return Object.fromEntries(
+        union.memberAliases.map((alias) => [
+          alias,
+          (to as unknown[]).map((column) => {
+            if (
+              !(column instanceof UnionColumnDefinition) ||
+              union.definition.columns[column.name] !== column
+            ) {
+              throw new Error(
+                `${label}: a "to" column given as a list must be a shared field of union ` +
+                  `"${union.alias}" (\`${union.alias}.columns.<field>\`). To name a different ` +
+                  `column per member, pass one list per member instead.`
+              );
+            }
+
+            return column.members[alias];
+          }),
+        ])
+      );
+    }
+
+    const lists = to as Record<string, AnyColumnDefinition[]>;
+    const given = Object.keys(lists);
+    const missing = union.memberAliases.filter((alias) => !given.includes(alias));
+    const unknown = given.filter((alias) => !union.hasMember(alias));
+
+    if (missing.length > 0 || unknown.length > 0) {
+      throw new Error(
+        `${label} must name one "to" column list per member of union "${union.alias}" ` +
+          `(${union.memberAliases.join(", ")})` +
+          (missing.length > 0 ? `; missing: ${missing.join(", ")}` : "") +
+          (unknown.length > 0 ? `; not members: ${unknown.join(", ")}` : "") +
+          `.`
+      );
+    }
+
+    return lists;
+  }
+
+  /**
+   * A belongs-to a union stores which member it points at in a column of its own — the
+   * discriminator, holding a member alias. Nothing else can tell the members apart: their keys
+   * share one column. Has-many and has-one to a union need none, since the key lives on each
+   * member, so one there is a mistake.
+   */
+  private _validateDiscriminator(
+    label: string,
+    relation: AnyFieldRelation,
+    source: AnyTableDefinition,
+    union: Union
+  ): void {
+    const { discriminator } = relation;
+
+    if (relation.type !== Relation.BELONGS_TO) {
+      if (discriminator) {
+        throw new Error(
+          `${label} declares a discriminator, but only a belongs-to a union needs one: the ` +
+            `members of "${union.alias}" hold the key.`
+        );
+      }
+
+      return;
+    }
+
+    if (!discriminator) {
+      throw new Error(
+        `${label} belongs to union "${union.alias}" and must declare a discriminator: the ` +
+          `source column holding which member each row points at.`
+      );
+    }
+
+    const alias = this._findColumnAlias(source, discriminator);
+
+    if (!alias) {
+      throw new Error(
+        `${label}: discriminator "${discriminator.name}" is not declared on table "${source.name}".`
+      );
+    }
+
+    const dataType = discriminator["_dataType"] as string;
+    const textLike =
+      discriminator["_domain"] !== undefined ||
+      dataType === "text" ||
+      /^(varchar|char)\(\d+\)$/.test(dataType);
+
+    if (!textLike) {
+      throw new Error(
+        `${label}: discriminator "${source.name}"."${alias}" is "${dataType}"; it holds a ` +
+          `member alias, so it must be text, varchar, char, or a text domain.`
+      );
     }
   }
 
@@ -394,7 +646,30 @@ export class SchemaRegistry<
     return relations;
   }
 
-  public getRelationTarget(tableNameOrAlias: string, field: string) {
+  public hasUnion(alias: string): boolean {
+    return this._unions.has(alias);
+  }
+
+  public getUnion(alias: string): Union {
+    const union = this._unions.get(alias);
+
+    if (!union) {
+      throw new Error(`Union not found: ${alias}`);
+    }
+
+    return union;
+  }
+
+  /** One entry per union, keyed by schema alias. */
+  public getUnions(): [alias: string, union: Union][] {
+    return [...this._unions.entries()];
+  }
+
+  /**
+   * What a relation points at: a table, or a union when the relation targets one. Callers
+   * that only handle tables must narrow with `instanceof Union`.
+   */
+  public getRelationTarget(tableNameOrAlias: string, field: string): AnyTable | Union {
     const sourceTable = this.getTable(tableNameOrAlias);
     const relations = this._relations.get(sourceTable.name);
 
@@ -402,15 +677,40 @@ export class SchemaRegistry<
       throw new Error(`Relation not found for field: ${field} on table: ${sourceTable.name}`);
     }
 
-    const targetTableName = relations[field].target.name;
-    const targetTable = this.getTable(targetTableName);
+    const target = relations[field].target;
 
-    if (!targetTable) {
+    if (target instanceof UnionDefinition) {
+      const union = [...this._unions.values()].find((candidate) => candidate.definition === target);
+
+      if (!union) {
+        throw new Error(
+          `Target union not found for relation: ${field} on table: ${sourceTable.name}`
+        );
+      }
+
+      return union;
+    }
+
+    return this.getTable(target.name);
+  }
+
+  /**
+   * The `to` columns of a relation to a union, per member alias — each member's own columns,
+   * paired index by index with the relation's `from`.
+   */
+  public getUnionRelationColumns(
+    tableNameOrAlias: string,
+    field: string
+  ): Record<string, AnyColumn[]> {
+    const sourceTable = this.getTable(tableNameOrAlias);
+    const pairs = this._unionPairs.get(sourceTable.name)?.get(field);
+
+    if (!pairs) {
       throw new Error(
-        `Target table not found for relation: ${field} on table: ${sourceTable.name}`
+        `Relation "${field}" on table "${sourceTable.name}" does not target a union.`
       );
     }
 
-    return targetTable;
+    return pairs;
   }
 }
