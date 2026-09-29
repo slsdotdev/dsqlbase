@@ -1,4 +1,5 @@
 import {
+  AnySchema,
   AnyTable,
   DefinitionSchema,
   ExecutableQuery,
@@ -8,15 +9,25 @@ import {
   SQLStatement,
   TenancyError,
 } from "@dsqlbase/core";
+import { AnyUnionMembers } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
+import { UnionClient } from "../union/client.js";
 import {
   GlobalIdListResultOf,
   GlobalIdOptionsOf,
   GlobalIdResultOf,
+  JoinExpressionOf,
   WhereExpressionOf,
 } from "../model/base.js";
 import { GlobalIdError, decodeGlobalId } from "../../schema/utils/global-id.js";
 import { NodeTable, getNodes } from "../nodes.js";
+
+/** The member arguments an `on` entry carries into a global-id lookup. */
+interface NodeArgs {
+  select?: Record<string, boolean>;
+  where?: WhereExpressionOf<AnyTable>;
+  join?: JoinExpressionOf<AnyTable, AnySchema>;
+}
 
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ExecutionContext<T>;
@@ -52,7 +63,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   private _resolveNode(
     id: string,
     on?: Record<string, unknown>
-  ): { node: NodeTable; value: string; select?: Record<string, boolean> } {
+  ): { node: NodeTable; value: string; args: NodeArgs } {
     const { key, pk } = decodeGlobalId(id);
     const node = getNodes(this._ctx.schema).get(key);
 
@@ -79,12 +90,9 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       );
     }
 
-    const select =
-      option && typeof option === "object"
-        ? (option as { select?: Record<string, boolean> }).select
-        : undefined;
+    const { select, where, join } = (option && typeof option === "object" ? option : {}) as NodeArgs;
 
-    return { node, value: pk[node.keyField], select };
+    return { node, value: pk[node.keyField], args: { select, where, join } };
   }
 
   /**
@@ -96,6 +104,20 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    */
   private _byKey(field: string, condition: object): WhereExpressionOf<AnyTable> {
     return { [field]: condition } as WhereExpressionOf<AnyTable>;
+  }
+
+  /**
+   * The lookup's own key filter, AND-ed with the member's `on.<alias>.where` when it has one. A
+   * row that fails the member filter is a miss, exactly as if the id named nothing.
+   */
+  private _lookupWhere(
+    field: string,
+    condition: object,
+    where: WhereExpressionOf<AnyTable> | undefined
+  ): WhereExpressionOf<AnyTable> {
+    const key = this._byKey(field, condition);
+
+    return where ? ({ and: [key, where] } as WhereExpressionOf<AnyTable>) : key;
   }
 
   private _model(alias: string): ModelClient<AnyTable, T> {
@@ -137,11 +159,13 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     id: string;
     on?: TOn;
   }): Promise<GlobalIdResultOf<Schema<T>, TOn>> {
-    const { node, value, select } = this._resolveNode(args.id, args.on);
+    const { node, value, args: nodeArgs } = this._resolveNode(args.id, args.on);
+    const { select, where, join } = nodeArgs;
 
     const row = (await this._model(node.alias).findOne({
-      where: this._byKey(node.keyField, { eq: value }),
+      where: this._lookupWhere(node.keyField, { eq: value }, where),
       ...(select ? { select } : {}),
+      ...(join ? { join } : {}),
     })) as Record<string, unknown> | null;
 
     return (row ? this._tag(row, node) : null) as GlobalIdResultOf<Schema<T>, TOn>;
@@ -171,13 +195,10 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     on?: TOn;
   }): Promise<(GlobalIdListResultOf<Schema<T>, TOn> | null)[]> {
     const resolved = args.ids.map((id) => this._resolveNode(id, args.on));
-    const groups = new Map<
-      string,
-      { node: NodeTable; values: Set<string>; select?: Record<string, boolean> }
-    >();
+    const groups = new Map<string, { node: NodeTable; values: Set<string>; args: NodeArgs }>();
 
-    for (const { node, value, select } of resolved) {
-      const group = groups.get(node.alias) ?? { node, values: new Set<string>(), select };
+    for (const { node, value, args: nodeArgs } of resolved) {
+      const group = groups.get(node.alias) ?? { node, values: new Set<string>(), args: nodeArgs };
 
       group.values.add(value);
       groups.set(node.alias, group);
@@ -187,12 +208,13 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     const rows = new Map<string, Record<string, unknown>>();
 
     await Promise.all(
-      [...groups.values()].map(async ({ node, values, select }) => {
+      [...groups.values()].map(async ({ node, values, args: { select, where, join } }) => {
         const found = (await this._model(node.alias).findMany({
-          where: this._byKey(node.keyField, { in: [...values] }),
+          where: this._lookupWhere(node.keyField, { in: [...values] }, where),
           // The key is always projected: it is the only thing that can put a row back
           // against the id that asked for it.
           ...(select ? { select: { ...select, [node.keyField]: true } } : {}),
+          ...(join ? { join } : {}),
         })) as unknown as Record<string, unknown>[];
 
         for (const row of found) {
@@ -250,6 +272,16 @@ export function attachModels<T extends DefinitionSchema>(
 
     Object.defineProperty(client, alias, {
       value: model,
+      writable: false,
+      enumerable: true,
+    });
+  }
+
+  // Unions are read under their own alias, next to the tables; the registry already refused a
+  // union named like a table, so the two cannot collide.
+  for (const [alias, union] of ctx.schema.getUnions()) {
+    Object.defineProperty(client, alias, {
+      value: new UnionClient<AnyUnionMembers, T>(ctx, union),
       writable: false,
       enumerable: true,
     });

@@ -64,6 +64,52 @@ Nested `where` / `select` / `orderBy` / `limit` / `join` all work inside a join,
 - **A relation may not be named after a column of the same table.** Columns and relations share one field namespace, because `select`, `join` and the keys of a result row all address them as fields of the same model. `createClient` throws when they collide, naming both.
 - **`$$meta` and `$$key` are reserved.** A relation of either name throws when the client is created; the runtime writes them onto result rows itself. See [`$$meta`](./querying.md#meta-on-every-row).
 
+## Relations to a union
+
+Any relation can target a [`union()`](./schema.md#unions) instead of a table. `to` then names
+the key on the members, in one of two forms:
+
+```ts
+export const userRelations = relations(users, {
+  // A shared field: resolves to each member's own column.
+  feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
+
+  // One list per member, for members that store the key under different fields.
+  owned: hasMany(posts, {
+    from: [users.columns.id],
+    to: { photos: [photos.columns.ownerId], videos: [videos.columns.userId] },
+  }),
+});
+```
+
+A **belongs-to a union** also names a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
+which member each row points at, as that member's schema alias. It is required there, and
+`createClient` refuses it anywhere else. A has-many or has-one to a union needs none, because
+the key lives on the members.
+
+```ts
+export const comments = table("comments", {
+  id: guid("id").primaryKey().defaultRandom(),
+  subjectType: text("subject_type"), // "photos" or "videos"
+  subjectId: uuid("subject_id"),
+});
+
+export const commentRelations = relations(comments, {
+  subject: belongsTo(posts, {
+    from: [comments.columns.subjectId],
+    to: [posts.columns.id],
+    discriminator: comments.columns.subjectType,
+  }),
+});
+```
+
+`createClient` checks every member: the columns must be declared on that member and pair with
+`from` by type, and a per-member map must name each member exactly once. A list given in
+the first form may only hold the union's shared fields.
+
+Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
+every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
+
 ## Relations between global-id columns
 
 Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
@@ -97,4 +143,5 @@ Correlating _on_ the claim column — `workspaces.id` to `invoices.workspaceId` 
 
 - [Schema](./schema.md)
 - [Querying](./querying.md)
+- [Polymorphic relations](./polymorphic-relations.md)
 - [Tenancy](./tenancy.md)

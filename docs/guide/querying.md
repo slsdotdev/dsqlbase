@@ -2,7 +2,7 @@
 
 _Audience: application developers._
 
-`createClient({ schema, session })` returns a client with one model per exported table plus a few `$`-prefixed escape hatches. Source: `packages/dsqlbase/src/client/`.
+`createClient({ schema, session })` returns a client with one model per exported table, one read-only client per exported [`union()`](./polymorphic-relations.md#reading-a-union-directly), plus a few `$`-prefixed escape hatches. Source: `packages/dsqlbase/src/client/`.
 
 ```ts
 import { createClient } from "dsqlbase";
@@ -80,7 +80,7 @@ const tasks = await dsql.tasks.findMany({
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns.
-- **`join`** — declared relations only; `true` or a nested `QueryArgs` (see [Relations](./relations.md)).
+- **`join`** — declared relations only; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
 
 For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
 `offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.

@@ -8,9 +8,11 @@ export type {
   SchemaRelationDefinitions,
   SchemaTableDefinitions,
   SchemaTableRelations,
+  SchemaUnionDefinitions,
+  DefinitionUnionName,
   TableRelationFieldName,
 } from "./base.js";
-export { Column, type AnyColumn } from "./column.js";
+export { Column, type AnyColumn, type ColumnRowDecoder } from "./column.js";
 export {
   ExecutionContext,
   type ExecutionContextOptions,
@@ -39,6 +41,11 @@ export {
   type SelectOperationArgs,
   type UpdateOperation,
   type UpdateOperationArgs,
+  type UnionOrderKey,
+  type UnionSelectOperationArgs,
+  type UnionSelectOperation,
+  type UnionCountOperationArgs,
+  UnionResolver,
 } from "./operation.js";
 export {
   QueryBuilder,
@@ -46,6 +53,10 @@ export {
   type InsertParams,
   type JoinParams,
   type SelectParams,
+  type TableJoinParams,
+  type UnionBranchParams,
+  type UnionJoinParams,
+  type UnionSelectParams,
   type UpdateParams,
 } from "./query.js";
 export {
@@ -57,3 +68,4 @@ export {
 } from "./registry.js";
 export type { Session, TransactionSession } from "./session.js";
 export { Table, type AnyTable } from "./table.js";
+export { Union, type AnyUnion } from "./union.js";

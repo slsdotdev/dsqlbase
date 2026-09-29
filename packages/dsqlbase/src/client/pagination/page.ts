@@ -1,4 +1,4 @@
-import type { PaginateRequest } from "../model/normalizer.js";
+import type { PagePlan } from "../model/normalizer.js";
 import { encodeCursor } from "./cursor.js";
 
 /** A page before `totalCount` is attached. */
@@ -23,7 +23,7 @@ type ResolvedRecord = Record<string, unknown> & { $$meta: Record<string, unknown
 export function shapePage(
   rows: unknown[],
   resolve: (rows: unknown[]) => unknown,
-  plan: PaginateRequest
+  plan: PagePlan
 ): Page<ResolvedRecord> {
   const more = rows.length > plan.take;
   const kept = (more ? rows.slice(0, plan.take) : rows) as Record<string, unknown>[];

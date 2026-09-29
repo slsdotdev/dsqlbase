@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SchemaRegistry, sql, type DefinitionSchema, type SQLNode } from "@dsqlbase/core";
 import { getGuidBinding, getNodes, registerNodes } from "./nodes.js";
-import { belongsTo, guid, relations, table, text, uuid } from "../schema/index.js";
+import { belongsTo, guid, hasMany, relations, table, text, union, uuid } from "../schema/index.js";
 import { encodeGlobalId } from "../schema/utils/global-id.js";
 
 function register<TSchema extends DefinitionSchema>(schema: TSchema) {
@@ -374,6 +374,31 @@ describe("guid relation pairs", () => {
 
     expect(() => register({ authors: a, drafts, draftRelations })).toThrow(
       /"drafts\.author_id" and "authors\.id"/
+    );
+  });
+
+  it("checks a relation to a union against every member", () => {
+    const users = table("users", { id: guid("id").primaryKey() });
+    const photos = table("photos", {
+      id: guid("id").primaryKey(),
+      userId: guid("user_id", "users"),
+    });
+    const videos = table("videos", {
+      id: guid("id").primaryKey(),
+      // Raw on one member only: `user.feed[n].userId` would read back raw for videos.
+      userId: uuid("user_id"),
+    });
+    const posts = union({ photos, videos });
+
+    const userRelations = relations(users, {
+      feed: hasMany(posts, {
+        from: [users.columns.id],
+        to: { photos: [photos.columns.userId], videos: [videos.columns.userId] },
+      }),
+    });
+
+    expect(() => register({ users, photos, videos, posts, userRelations })).toThrow(
+      /"users\.id" and "videos\.user_id", but only one of them carries global ids/
     );
   });
 

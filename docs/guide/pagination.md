@@ -144,6 +144,12 @@ return {
 
 `after` and `before` accept `null`, as GraphQL arguments arrive.
 
+## Unions
+
+A [union's client](./polymorphic-relations.md#pages) pages the same way. It orders by
+`orderBy`, then `$$key`, then the members' primary keys, and signs its cursors against the
+union.
+
 ## Related
 
 - [Querying](./querying.md)

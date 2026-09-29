@@ -44,8 +44,8 @@ Wrapping at the application boundary was the alternative actually on the table (
 - **Composite-key nodes** — `guid()` can only name one column, so nothing could declare the other half. The payload keeps its object form so the format will not have to change if that ever lands.
 - **A branded `Guid<Key>` value type** — plain `string` inputs are not assignable to a branded type, so it needs separate input and output types on the column config. `valueType` stays `string`.
 - **A `strict` option rejecting raw uuids** — a one-line follow-up if it is ever wanted.
-- **`on` carrying `where` and `join`** — narrowed to `select` for a first cut, per 0004. Polymorphic relations widens the same type.
-- **Dynamic node keys** — a keyless `guid()` column whose key is read per row from a discriminator column, so one column can point at several tables. It is the one case where a relation would decide a column's key, because the key is per row and the relation is the only place naming the discriminator. Deferred to polymorphic relations, which is the only thing that needs it; an explicit static key together with a discriminator would have to throw.
+- **`on` carrying `where` and `join`** — narrowed to `select` for a first cut, per 0004. Polymorphic relations widens the same type. **Resolved by [0009](./0009-polymorphic-relations.md)**, which the lookups forward: a member's `where` is AND-ed with the id.
+- **Dynamic node keys** — a keyless `guid()` column whose key is read per row from a discriminator column, so one column can point at several tables. It is the one case where a relation would decide a column's key, because the key is per row and the relation is the only place naming the discriminator. Deferred to polymorphic relations, which is the only thing that needs it; an explicit static key together with a discriminator would have to throw. **Resolved by [0009](./0009-polymorphic-relations.md)**: the keyless `from` column of a belongs-to a union is bound to the discriminator through a row decoder, and a static key there throws.
 
 ## Consequences
 

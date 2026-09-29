@@ -4,8 +4,11 @@ import {
   AnyNamespaceDefinition,
   AnyFieldRelation,
   AnyTableRelations,
+  AnyUnionMembers,
   ColumnConfig,
+  SharedFieldsOf,
   TableDefinition,
+  UnionDefinition,
 } from "@dsqlbase/core/definition";
 import {
   AnySchema,
@@ -449,7 +452,11 @@ export type RelationQueryOf<
           QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>,
           "select" | "join"
         >
-    : never;
+    : RelationTargetOf<T, K> extends UnionDefinition<infer TMembers>
+      ? RelationTypeOf<T, K> extends "has_many"
+        ? UnionQueryArgs<TMembers, S>
+        : Pick<UnionQueryArgs<TMembers, S>, "select" | "orderBy" | "on">
+      : never;
 
 export type SelectionResultOf<
   TTable extends AnyTable,
@@ -547,10 +554,188 @@ export type QueryResultOf<
                 >
               : never
             : never
-        : never
+        : RelationTargetOf<TTable, K> extends UnionDefinition<infer TMembers>
+          ? UnionJoinResultOf<
+              TMembers,
+              TSchema,
+              TArgs["join"][K] extends UnionQueryArgs<TMembers, TSchema>
+                ? TArgs["join"][K]
+                : object,
+              RelationTypeOf<TTable, K>
+            >
+          : never
       : never;
   }
 >;
+
+/* -------------------------------------------------------------------------------------------
+ * Unions
+ * ---------------------------------------------------------------------------------------- */
+
+/** The value a shared field holds, across every member of a union. */
+type SharedValueOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
+  [A in keyof TMembers]: TMembers[A]["__type"]["columns"][K] extends AnyColumnDefinition
+    ? ValueTypeOf<TMembers[A]["__type"]["columns"][K]["__type"]>
+    : never;
+}[keyof TMembers];
+
+/**
+ * A filter on which member a row comes from. Decided while the query is built, member by
+ * member, so a member that cannot match produces no branch — it never reaches SQL.
+ */
+export type KeyFilterOf<TAlias extends string> =
+  | TAlias
+  | { eq?: TAlias; neq?: TAlias; in?: TAlias[] };
+
+/**
+ * A `where` over a union's shared fields — the only ones that filter across it — and `$$key`.
+ *
+ * `$$key` narrows the query, not the result type: its value is usually a runtime one (a
+ * resolver argument), so the members it rules out stay in the type. Use `on: { alias: false }`
+ * to remove a member from both.
+ */
+export type UnionWhereExpressionOf<TMembers extends AnyUnionMembers> = {
+  [K in SharedFieldsOf<TMembers>]?:
+    | FilterCondition<SharedValueOf<TMembers, K>>
+    | SharedValueOf<TMembers, K>;
+} & {
+  $$key?: KeyFilterOf<keyof TMembers & string>;
+  and?: UnionWhereExpressionOf<TMembers>[];
+  or?: UnionWhereExpressionOf<TMembers>[];
+  not?: UnionWhereExpressionOf<TMembers>;
+};
+
+/**
+ * A select over a union: shared-level `select` / `where` / `orderBy` / `limit` / `offset`, which
+ * every member runs, plus `on` for what differs per member — GraphQL's `... on Photo { }`.
+ */
+export interface UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> {
+  /** Shared fields to return from every member; merged with each member's `on.<alias>.select`. */
+  select?: Partial<Record<SharedFieldsOf<TMembers>, boolean>>;
+  /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
+  where?: UnionWhereExpressionOf<TMembers>;
+  /**
+   * Orders the combined rows, by shared fields and by `$$key` (member alias). Ties are broken
+   * by member alias and then the primary key, so the order is total whenever the members' keys
+   * line up.
+   */
+  orderBy?: Partial<Record<SharedFieldsOf<TMembers> | "$$key", "asc" | "desc">>;
+  limit?: number;
+  offset?: number;
+  /**
+   * Per member: `false` drops it, `true` (or leaving it out) runs it with the shared arguments,
+   * and an object adds a member-only `select`, `where` and `join`.
+   */
+  on?: OnSelectionOf<keyof TMembers & string, TSchema>;
+}
+
+/** The query args one member of a union runs with: shared `select` merged with its own. */
+type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn> = {
+  select: TShared extends object
+    ? TOn extends { select: infer TOwn }
+      ? TShared & TOwn
+      : TShared
+    : TOn extends { select: infer TOwn }
+      ? TOwn
+      : undefined;
+  join: TOn extends { join: infer TJoin } ? TJoin : undefined;
+} extends infer TArgs
+  ? TArgs extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+    ? TArgs
+    : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+  : never;
+
+type OnEntryOf<TArgs, TAlias extends string> = TArgs extends { on: infer TOn }
+  ? TAlias extends keyof TOn
+    ? TOn[TAlias]
+    : undefined
+  : undefined;
+
+type SharedSelectOf<TArgs> = TArgs extends { select: infer TSelect } ? TSelect : undefined;
+
+/**
+ * One row of a union result: a union over the members `on` did not exclude, each tagged with
+ * its alias in `$$key` — which is what narrows it — and shaped by that member's own selection.
+ */
+export type UnionResultOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> = {
+  [A in keyof TMembers & string]: IsExcluded<A, TArgs extends { on: infer TOn } ? TOn : undefined> extends true
+    ? never
+    : Prettify<
+        { $$key: A } & QueryResultOf<
+          TableByAlias<TSchema, A>,
+          TSchema,
+          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>>
+        >
+      >;
+}[keyof TMembers & string];
+
+export type UnionJoinResultOf<
+  TMembers extends AnyUnionMembers,
+  TSchema extends AnySchema,
+  TArgs,
+  TType,
+> = TType extends "has_many"
+  ? UnionResultOf<TMembers, TSchema, TArgs>[]
+  : UnionResultOf<TMembers, TSchema, TArgs> | null;
+
+/** The members of a union definition, as a record of member alias → table definition. */
+export type UnionMembersOf<TUnion> = TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
+
+/** A union's `findOne`: like `findMany`, but a `where` must name the row. */
+export interface UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
+  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "orderBy" | "on"> {
+  where: UnionWhereExpressionOf<TMembers>;
+}
+
+/** A union's `paginate` — the table form, with the union's shared-field arguments and `on`. */
+export interface UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
+  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "where" | "orderBy" | "on"> {
+  /** The number of records on the page, under the client's `pagination` limits. */
+  limit?: number;
+  /** Read the page that follows this cursor, taken from this union under the same `orderBy`. */
+  after?: string | null;
+  /** Read the page that precedes this cursor. Never together with `after`. */
+  before?: string | null;
+  /** Also count every record `where` selects, across every member, as `totalCount`. */
+  count?: boolean;
+}
+
+/** One record of a union page: each member's row, its `$$meta` also carrying its cursor. */
+export type UnionPageItemOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> =
+  UnionResultOf<TMembers, TSchema, TArgs> extends infer TRow
+    ? TRow extends { $$meta: infer TMeta }
+      ? Prettify<Omit<TRow, "$$meta"> & { $$meta: Prettify<TMeta & { cursor: string }> }>
+      : never
+    : never;
+
+export type UnionPageOf<
+  TMembers extends AnyUnionMembers,
+  TSchema extends AnySchema,
+  TArgs extends UnionPaginateArgs<TMembers, TSchema>,
+> = Prettify<
+  {
+    items: UnionPageItemOf<TMembers, TSchema, TArgs>[];
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor: string | null;
+    endCursor: string | null;
+  } & TotalCountOf<TArgs>
+>;
+
+export interface UnionCountArgs<TMembers extends AnyUnionMembers> {
+  where?: UnionWhereExpressionOf<TMembers>;
+}
+
+/** What the normalizer receives for a union level, before any type narrowing. */
+export interface AnyUnionQuery {
+  select?: Record<string, boolean | undefined> | null;
+  where?: Record<string, unknown> | null;
+  orderBy?: Record<string, "asc" | "desc" | undefined> | null;
+  limit?: number | null;
+  offset?: number | null;
+  distinct?: boolean;
+  on?: Record<string, boolean | AnyRelationQuery | undefined> | null;
+}
 
 export interface FilterCondition<Value = unknown> {
   /**
@@ -721,15 +906,17 @@ export type NodeAliasesOf<TSchema extends AnySchema> = {
 }[keyof TSchema["tables"] & string];
 
 /**
- * What to do with each member of a set of tables a single call may resolve to.
+ * What to do with each member of a set of tables a single call may resolve to — the members
+ * of a union, or every node a global id may name.
  *
- * `true` — or leaving the alias out — returns the whole row; `false` excludes the member, so
- * it is gone from the result union and refused at runtime. Narrowed to `select` for a first
- * cut, per [0004](../../../../../docs/decisions/0004-record-meta.md); polymorphic relations
- * widen it to `where` and `join` when they ship, and take this same type.
+ * `true` — or leaving the alias out — runs the member as it is; `false` excludes it, so it is
+ * gone from the result union and refused at runtime. An object adds member-only arguments: a
+ * `select`, a `where` AND-ed with whatever else filters it, and a `join` over its own relations.
  */
 export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = {
-  [K in TAliases]?: { select?: FieldSelectionOf<TableByAlias<TSchema, K>> } | boolean;
+  [K in TAliases]?:
+    | Pick<QueryArgs<TableByAlias<TSchema, K>, TSchema>, "select" | "where" | "join">
+    | boolean;
 };
 
 /** The `on` map `$findByGlobalId` and `$listByGlobalId` take. */
@@ -744,10 +931,8 @@ type NodeArgsOf<
   TAlias extends NodeAliasesOf<TSchema>,
   TOn,
 > = TAlias extends keyof TOn
-  ? TOn[TAlias] extends { select: infer TSelect }
-    ? TSelect extends FieldSelectionOf<TableByAlias<TSchema, TAlias>>
-      ? { select: TSelect }
-      : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+  ? TOn[TAlias] extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
+    ? TOn[TAlias]
     : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
   : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>;
 
@@ -805,7 +990,9 @@ export type GlobalIdListResultOf<TSchema extends AnySchema, TOn = undefined> = {
           TableByAlias<TSchema, K>,
           TSchema,
           NodeArgsOf<TSchema, K, TOn> extends { select: infer TSelect }
-            ? { select: TSelect & Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true> }
+            ? Omit<NodeArgsOf<TSchema, K, TOn>, "select"> & {
+                select: TSelect & Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true>;
+              }
             : NodeArgsOf<TSchema, K, TOn>
         >
       >;

@@ -57,6 +57,27 @@ bind pass, so its guid columns behave exactly like the `uuid()` they serialize a
 Global ids are deliberately absent from `@dsqlbase/core`: nothing below the client has an
 opinion about the shape of an id. See [0007](../decisions/0007-global-ids.md).
 
+## A decode that reads the row
+
+A codec decodes one value. The `from` column of a
+[belongs-to a union](../guide/polymorphic-relations.md#a-belongs-to-a-union) needs two: its id,
+and the discriminator naming which member, and so which node key, the id belongs to. A codec
+cannot see that sibling, so the read side is a **row decoder** instead:
+
+- **Core** (`Column.rowDecoder` / `Column.resolveRow` in `packages/core/src/runtime/column.ts`)
+  is the guid-agnostic seam. A built column may declare `dependsOn` columns and
+  `decode(raw, row)`. `_resolveFields` then projects the dependencies whenever the column is
+  selected, without emitting them as fields, and resolves the field through a `MetaResolver`
+  over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
+  aside for a value computed from the row.
+- **Client** (`bindDynamicGuid` in `packages/dsqlbase/src/client/nodes.ts`) sets it on the built
+  column when `createClient` runs, next to a codec whose `encode` accepts an id for any member.
+  A `NULL` discriminator, or one naming no member, reads the id raw.
+- **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
+  `(discriminator = key AND id = pk)` or a write filling the discriminator, are the normalizer's
+  job (`_getPolymorphicFilter` / `_fillDiscriminators`). Only it sees the whole filter or the
+  whole row.
+
 **Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper, a future embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
 ## Rules for new work

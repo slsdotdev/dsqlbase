@@ -1,12 +1,13 @@
 import { TypedObject } from "../utils/index.js";
-import { META_FIELD, Relation } from "../definition/index.js";
-import { SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
+import { AnyColumnDefinition, KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
+import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn } from "./column.js";
-import { JoinParams, SelectParams } from "./query.js";
+import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
+import { Union } from "./union.js";
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 export type OperationMode = "one" | "many";
@@ -46,7 +47,35 @@ export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
  * How one field of a result record is produced from a driver row: read a column and decode
  * it, or resolve a nested level.
  */
-export type FieldResolver = [fieldName: string, resolver: AnyColumn | ResolverEntry[]];
+export type FieldResolver = [
+  fieldName: string,
+  resolver: AnyColumn | ResolverEntry[] | UnionResolver,
+];
+
+/**
+ * How a level whose rows come from several tables is resolved: each row names its member in
+ * `$$key`, and that member's resolvers — `$$meta` included — produce the record.
+ *
+ * Dispatch decides *which* resolvers run for a row, so it happens before any field is read,
+ * not after (`docs/decisions/0004-record-meta.md`). A member with no branch here was excluded
+ * from the query, so a row naming it is a data-integrity failure and throws.
+ */
+/**
+ * The field a union's primary-key tiebreaker is addressed by in its total order, followed by the
+ * key column's position. Members may name their key columns differently, so a tiebreaker is
+ * positional; `$` keeps it from ever meeting a real field.
+ */
+const PK_FIELD_PREFIX = "$$pk";
+
+export class UnionResolver {
+  readonly mode: OperationMode;
+  readonly branches: Readonly<Record<string, ResolverEntry[]>>;
+
+  constructor(mode: OperationMode, branches: Record<string, ResolverEntry[]>) {
+    this.mode = mode;
+    this.branches = Object.freeze({ ...branches });
+  }
+}
 
 /**
  * How one field of a result record is produced from the driver row *itself*, rather than
@@ -63,11 +92,51 @@ export type MetaResolver = [
 
 export type ResolverEntry = FieldResolver | MetaResolver;
 
+/**
+ * One order key across a union: a shared field, or `$$key` to sort by member. Structured
+ * rather than a rendered `ORDER BY` term, because each member resolves the field to its own
+ * column and the combined rows are then sorted by the hidden copy every branch projects.
+ */
+export interface UnionOrderKey {
+  field: string;
+  direction: "asc" | "desc";
+  /** States Postgres's default null placement explicitly — see {@link KeysetKey.nullable}. */
+  nullable?: boolean;
+}
+
+/**
+ * A select over a union. `members` lists only the branches that run, each with its own
+ * `select` / `where` / `join` already written against that member's columns; a member left out
+ * produces no branch. Ordering, limit and offset apply across all of them.
+ */
+export interface UnionSelectOperationArgs {
+  members: [alias: string, args: SelectOperationArgs][];
+  orderBy?: UnionOrderKey[];
+  limit?: number;
+  offset?: number;
+  /**
+   * The direction of the keys appended to make the order total — `$$key` and the primary-key
+   * tiebreakers. Ascending when omitted; a pager passes the direction of the caller's last key.
+   */
+  tiebreak?: "asc" | "desc";
+  /**
+   * Project every key of the total order a second time as its database text, as `__k0`,
+   * `__k1`, ..., carried to the union level — the values a keyset cursor is built from. Root
+   * level only.
+   */
+  keys?: boolean;
+  /**
+   * Read only the rows strictly after (or before) this position in the total order, applied
+   * inside every branch where `$$key` is a constant. `before` also reverses the order.
+   */
+  keyset?: { values: (string | null)[]; bound: KeysetBound };
+}
+
 export interface SelectOperationArgs {
   select: FieldSelection[];
   where?: SQLNode | SQLNode[];
   orderBy?: SQLNode[];
-  join?: [fieldName: string, args: SelectOperationArgs][];
+  join?: [fieldName: string, args: SelectOperationArgs | UnionSelectOperationArgs][];
   distinct?: boolean;
   limit?: number;
   offset?: number;
@@ -87,11 +156,25 @@ export interface SelectOperation<
   type: "select";
 }
 
+export interface UnionSelectOperation<
+  TMode extends OperationMode,
+  TArgs extends UnionSelectOperationArgs,
+  TReturn = unknown,
+> extends Operation<TMode, TArgs, TReturn> {
+  type: "select";
+}
+
+/** A count over a union: the members that run, each with its own `where`. */
+export interface UnionCountOperationArgs {
+  members: [alias: string, args: { where?: SQLNode | SQLNode[] }][];
+}
+
 export interface CountOperationArgs {
   where?: SQLNode | SQLNode[];
 }
 
-export interface CountOperation extends Operation<"one", CountOperationArgs, number> {
+export interface CountOperation
+  extends Operation<"one", CountOperationArgs | UnionCountOperationArgs, number> {
   type: "select";
 }
 
@@ -254,10 +337,30 @@ export class OperationsFactory<
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
     resolvers.push([META_FIELD, () => table.meta]);
 
+    // A column with a row decoder reads siblings of its row: they are projected with it — once,
+    // however many columns need them — and the field is resolved from the whole row.
+    const add = (fieldName: string, column: AnyColumn) => {
+      if (!columns.includes(column)) {
+        columns.push(column);
+      }
+
+      if (!column.rowDecoder) {
+        resolvers.push([fieldName, column]);
+        return;
+      }
+
+      for (const dependency of column.rowDecoder.dependsOn) {
+        if (!columns.includes(dependency)) {
+          columns.push(dependency);
+        }
+      }
+
+      resolvers.push([fieldName, (row) => column.resolveRow(row)]);
+    };
+
     if (!selection || selection.length === 0) {
       for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
-        columns.push(column);
-        resolvers.push([fieldName, column]);
+        add(fieldName, column);
       }
 
       return { columns, resolvers };
@@ -271,8 +374,7 @@ export class OperationsFactory<
           throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
         }
 
-        columns.push(column);
-        resolvers.push([fieldName, column]);
+        add(fieldName, column);
       }
     }
 
@@ -401,7 +503,7 @@ export class OperationsFactory<
 
   private _resolveJoinEntries<T extends AnyTable>(
     table: T,
-    join: [SQLIdentifier | string, SelectOperationArgs][],
+    join: [SQLIdentifier | string, SelectOperationArgs | UnionSelectOperationArgs][],
     resolvers: ResolverEntry[]
   ): JoinParams[] {
     const joins: JoinParams[] = [];
@@ -413,26 +515,61 @@ export class OperationsFactory<
     for (const [key, value] of join) {
       const fieldName = typeof key === "string" ? key : key.name;
 
-      if (value.keys && value.keys.length > 0) {
-        throw new Error(
-          `Relation "${fieldName}" on table "${table.name}" cannot project keyset keys: only ` +
-            `the root level of a select is keyset-ordered.`
-        );
-      }
-
       const relation = table.getRelation(fieldName);
 
       if (!relation) {
         throw new Error(`Relation "${fieldName}" does not exist on table "${table.name}"`);
       }
 
-      const targetTable = this._ctx.schema.getRelationTarget(table.name, fieldName);
+      const target = this._ctx.schema.getRelationTarget(table.name, fieldName);
+      const isUnionArgs = "members" in value;
 
-      if (!targetTable) {
+      if (target instanceof Union !== isUnionArgs) {
         throw new Error(
-          `Target table for relation "${key}" on table "${table.name}" not found in schema`
+          `Relation "${fieldName}" on table "${table.name}" targets ` +
+            (target instanceof Union ? `union "${target.alias}"` : `table "${target.name}"`) +
+            `, but was joined with arguments for ${isUnionArgs ? "a union" : "a table"}.`
         );
       }
+
+      if (target instanceof Union) {
+        const mode = relation.type === Relation.HAS_MANY ? "many" : "one";
+        const union = this._resolveUnionParams(
+          target,
+          value as UnionSelectOperationArgs,
+          mode,
+          this._ctx.schema.getUnionRelationColumns(table.name, fieldName),
+          this._ctx.schema.getRelationDiscriminator(table.name, fieldName)
+        );
+
+        resolvers.push([fieldName, union.resolver]);
+
+        // Every member pruned: no branch can match, so there is nothing to join. The resolver
+        // still answers `[]` or `null` for the field.
+        if (union.params.branches.length === 0) {
+          continue;
+        }
+
+        joins.push({
+          alias: fieldName,
+          type: mode,
+          from: this._resolveFromColumns(table, fieldName, relation.from),
+          union: union.params,
+        });
+
+        continue;
+      }
+
+      const tableArgs = value as SelectOperationArgs;
+
+      if (tableArgs.keys && tableArgs.keys.length > 0) {
+        throw new Error(
+          `Relation "${fieldName}" on table "${table.name}" cannot project keyset keys: only ` +
+            `the root level of a select is keyset-ordered.`
+        );
+      }
+
+      const targetTable = target;
 
       if (relation.from.length === 0 || relation.from.length !== relation.to.length) {
         throw new Error(
@@ -441,19 +578,9 @@ export class OperationsFactory<
         );
       }
 
-      const fromColumns = relation.from.map((ref) => {
-        const column = table.getColumn(ref.name);
+      const fromColumns = this._resolveFromColumns(table, fieldName, relation.from);
 
-        if (!column) {
-          throw new Error(
-            `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
-          );
-        }
-
-        return column;
-      });
-
-      const toColumns = relation.to.map((ref) => {
+      const toColumns = (relation.to as AnyColumnDefinition[]).map((ref) => {
         const column = targetTable.getColumn(ref.name);
 
         if (!column) {
@@ -468,7 +595,7 @@ export class OperationsFactory<
       const joinResolvers: ResolverEntry[] = [];
       const params: SelectParams = this._resolveSelectParams(
         targetTable,
-        value,
+        tableArgs,
         relation.type === Relation.HAS_MANY ? "many" : "one",
         joinResolvers
       );
@@ -489,6 +616,275 @@ export class OperationsFactory<
     return joins;
   }
 
+  private _resolveFromColumns<T extends AnyTable>(
+    table: T,
+    fieldName: string,
+    from: AnyColumnDefinition[]
+  ): AnyColumn[] {
+    return from.map((ref) => {
+      const column = table.getColumn(ref.name);
+
+      if (!column) {
+        throw new Error(
+          `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
+        );
+      }
+
+      return column;
+    });
+  }
+
+  /**
+   * Builds the branches of a select over a union, one per member in `args.members`, each
+   * through {@link _resolveSelectParams} with the member's own table — so every branch passes
+   * the `WHERE` seam, tenant predicate included, and gets nested joins and codec-aware filters
+   * exactly as a single-table level would. A branch cannot skip them, which is what keeps a
+   * union from becoming a way around a member's tenant boundary.
+   *
+   * Each branch also projects:
+   * - its alias as a `$$key` literal, which lands in the row's JSON and drives dispatch;
+   * - when ordered, every order key as `__o<n>`, since members may name the column differently;
+   * - when ordered and every member's primary key lines up (same arity, same types), those
+   *   columns as `__pk<n>`, the tiebreakers after `$$key` that make the order total.
+   *
+   * With a `limit`, each branch is also ordered and limited to `limit + offset` rows. That is
+   * safe because every branch sorts by the same keys the combined rows are sorted by, so no
+   * row a branch drops could have made the combined page.
+   *
+   * `pairs` are the join's `to` columns per member; absent at the root of a query.
+   */
+  private _resolveUnionParams(
+    union: Union,
+    args: UnionSelectOperationArgs,
+    mode: OperationMode,
+    pairs?: Record<string, AnyColumn[]>,
+    discriminator?: AnyColumn
+  ): { params: UnionSelectParams; resolver: UnionResolver } {
+    const orderBy = args.orderBy ?? [];
+    const paged = args.keys === true || args.keyset !== undefined;
+    const ordered = orderBy.length > 0 || paged;
+    const limit = mode === "one" ? 1 : args.limit;
+    const offset = mode === "one" ? undefined : args.offset;
+
+    for (const key of orderBy) {
+      if (key.field !== KEY_FIELD && !union.isShared(key.field)) {
+        throw new Error(
+          `Cannot order union "${union.alias}" by "${key.field}": only fields every member ` +
+            `shares, and ${KEY_FIELD}, order across a union.`
+        );
+      }
+    }
+
+    const tiebreakers = ordered ? union.tiebreakers : 0;
+
+    if (paged && tiebreakers === 0) {
+      throw new Error(
+        `Cannot page union "${union.alias}": its members' primary keys differ in arity or type, ` +
+          `so nothing can break a tie between two members' rows.`
+      );
+    }
+
+    const order = ordered ? this._getUnionOrder(orderBy, tiebreakers, args.tiebreak) : [];
+    const backward = args.keyset?.bound === "before";
+
+    // A page read before its cursor runs every key the other way round; the keyset itself is
+    // written against the order as given.
+    const direction = (key: UnionOrderKey) => {
+      const way = backward ? (key.direction === "asc" ? "desc" : "asc") : key.direction;
+      const dir = way === "asc" ? "ASC" : "DESC";
+
+      if (!key.nullable) {
+        return dir;
+      }
+
+      return way === "asc" ? `${dir} NULLS LAST` : `${dir} NULLS FIRST`;
+    };
+
+    const branches: UnionBranchParams[] = [];
+    const resolvers: Record<string, ResolverEntry[]> = {};
+
+    for (const [alias, memberArgs] of args.members) {
+      const member = union.getMember(alias);
+      const memberResolvers: ResolverEntry[] = [];
+
+      const expressions = order.map((key) => this._getUnionKeyExpression(union, alias, key));
+
+      // The branch's own order, used only when it is limited. `$$key` is a constant inside a
+      // branch, so it orders nothing there.
+      const branchOrder =
+        limit !== undefined && ordered
+          ? order.flatMap((key, index) =>
+              key.field === KEY_FIELD
+                ? []
+                : [sql`${expressions[index]} ${sql.raw(direction(key))}`]
+            )
+          : undefined;
+
+      const keyset = args.keyset
+        ? sql.keyset(
+            order.map((key, index) => ({
+              node: expressions[index],
+              direction: key.direction,
+              nullable: key.nullable,
+            })),
+            args.keyset.values,
+            args.keyset.bound
+          )
+        : undefined;
+
+      const params = this._resolveSelectParams(
+        member,
+        {
+          ...memberArgs,
+          where: [
+            ...(Array.isArray(memberArgs.where) ? memberArgs.where : [memberArgs.where]),
+            keyset,
+          ].filter((node): node is SQLNode => node !== undefined && node !== null),
+          orderBy: branchOrder,
+          limit: limit !== undefined ? limit + (offset ?? 0) : undefined,
+          offset: undefined,
+        },
+        "many",
+        memberResolvers
+      );
+
+      params.select = [
+        sql`${sql.literal(alias)} AS ${sql.identifier(KEY_FIELD)}`,
+        ...params.select,
+        ...order.flatMap((key, index) => {
+          const hidden = this._getUnionKeyName(key, index);
+
+          return hidden === KEY_FIELD
+            ? []
+            : [sql`${expressions[index]} AS ${sql.identifier(hidden)}`];
+        }),
+        // `::text` for the same reason as a table's keys: a cursor carries the database's own
+        // rendering of each value.
+        ...(args.keys
+          ? expressions.map(
+              (expression, index) => sql`${expression}::text AS ${sql.identifier(`__k${index}`)}`
+            )
+          : []),
+      ];
+
+      const { resolvers: branchResolvers, ...select } = params;
+
+      branches.push({
+        params: select,
+        to: pairs?.[alias],
+        // A belongs-to row names its member in the discriminator; only that member's branch may
+        // match it, whatever ids the other members hold.
+        correlate: discriminator ? [sql.eq(discriminator, sql.literal(alias))] : undefined,
+      });
+      resolvers[alias] = branchResolvers;
+    }
+
+    const carry = [
+      ...order.map((key, index) => this._getUnionKeyName(key, index)),
+      ...(args.keys ? order.map((_, index) => `__k${index}`) : []),
+    ];
+
+    return {
+      params: {
+        branches,
+        carry,
+        order: ordered
+          ? order.map(
+              (key, index) =>
+                sql`${sql.identifier(this._getUnionKeyName(key, index))} ${sql.raw(direction(key))}`
+            )
+          : undefined,
+        limit,
+        offset,
+      },
+      resolver: new UnionResolver(mode, resolvers),
+    };
+  }
+
+  /**
+   * The total order of a union: the caller's keys, then `$$key` unless they named it, then
+   * every primary-key column when the members' keys line up. The appended keys run in
+   * `tiebreak` — ascending unless a pager asks otherwise.
+   *
+   * A primary-key tiebreaker is written as the field `$$pk<n>`: members may name their key
+   * columns differently, so it is addressed by position rather than by field.
+   */
+  private _getUnionOrder(
+    orderBy: UnionOrderKey[],
+    tiebreakers: number,
+    tiebreak: "asc" | "desc" = "asc"
+  ): UnionOrderKey[] {
+    return [
+      ...orderBy,
+      ...(orderBy.some((key) => key.field === KEY_FIELD)
+        ? []
+        : [{ field: KEY_FIELD, direction: tiebreak }]),
+      ...Array.from({ length: tiebreakers }, (_, index) => ({
+        field: `${PK_FIELD_PREFIX}${index}`,
+        direction: tiebreak,
+      })),
+    ];
+  }
+
+  /** What one order key reads inside one member's branch. */
+  private _getUnionKeyExpression(union: Union, alias: string, key: UnionOrderKey): SQLNode {
+    if (key.field === KEY_FIELD) {
+      return sql.literal(alias);
+    }
+
+    if (key.field.startsWith(PK_FIELD_PREFIX)) {
+      return union.getMember(alias).primaryKey[Number(key.field.slice(PK_FIELD_PREFIX.length))];
+    }
+
+    return union.getMemberColumn(alias, key.field);
+  }
+
+  /**
+   * The name one order key is carried under to the union level: `"$$key"` for `$$key`, which
+   * every branch projects anyway, `__pk<n>` for a tiebreaker, `__o<n>` for a
+   * caller's key — its position, since members may name the column differently.
+   */
+  private _getUnionKeyName(key: UnionOrderKey, index: number): string {
+    if (key.field === KEY_FIELD) {
+      return KEY_FIELD;
+    }
+
+    if (key.field.startsWith(PK_FIELD_PREFIX)) {
+      return `__pk${key.field.slice(PK_FIELD_PREFIX.length)}`;
+    }
+
+    return `__o${index}`;
+  }
+
+  /** Resolves the rows of a union level, each by the member its `$$key` names. */
+  private _resolveUnionRows(node: UnionResolver, value: unknown): unknown {
+    if (value === undefined || value === null) {
+      return node.mode === "many" ? [] : null;
+    }
+
+    const rows = (Array.isArray(value) ? value : [value]) as Record<string, unknown>[];
+    const results = rows.map((row) => {
+      const key = row[KEY_FIELD] as string;
+      const resolvers = node.branches[key];
+
+      if (!resolvers) {
+        throw new Error(
+          `A union row names member "${String(key)}", which this query did not select ` +
+            `(selected: ${Object.keys(node.branches).join(", ") || "none"}).`
+        );
+      }
+
+      const record = this._createResultResolver<"one", Record<string, unknown>>(
+        resolvers,
+        "one"
+      )([row]);
+
+      return { [KEY_FIELD]: key, ...record };
+    });
+
+    return node.mode === "many" ? results : (results[0] ?? null);
+  }
+
   public _createResultResolver<TMode extends OperationMode, TResult extends object>(
     resolvers: ResolverEntry[],
     mode: TMode
@@ -502,6 +898,11 @@ export class OperationsFactory<
         for (const [fieldName, resolver] of resolvers) {
           if (typeof resolver === "function") {
             result[fieldName] = resolver(row);
+            continue;
+          }
+
+          if (resolver instanceof UnionResolver) {
+            result[fieldName] = this._resolveUnionRows(resolver, row[fieldName]);
             continue;
           }
 
@@ -583,6 +984,72 @@ export class OperationsFactory<
       args,
       query: query.toQuery(),
       // `count(*)` is a `bigint`, which drivers hand back as text (node-postgres) or `bigint`.
+      resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
+    };
+  }
+
+  /**
+   * A top-level select over a union: the union's own `UNION ALL`, each row a JSON `data` value
+   * dispatched to its member's resolvers. With no member left to run it reads nothing, and
+   * resolves to `[]` or `null`.
+   */
+  public createUnionSelectOperation<
+    TResult extends object,
+    TMode extends OperationMode = OperationMode,
+    TArgs extends UnionSelectOperationArgs = UnionSelectOperationArgs,
+  >(union: Union, config: OperationRequest<TArgs, TMode>): UnionSelectOperation<TMode, TArgs, TResult> {
+    const { name, args, mode } = config;
+    const { params, resolver } = this._resolveUnionParams(union, args, mode);
+
+    const query =
+      params.branches.length > 0
+        ? this._ctx.dialect.buildUnionSelectQuery(params)
+        : sql`SELECT NULL::json AS ${sql.identifier("data")} WHERE false`;
+
+    return {
+      type: "select",
+      mode,
+      name: name ?? `select_${union.alias}`,
+      args,
+      query: query.toQuery(),
+      resolve: (rows) =>
+        this._resolveUnionRows(
+          resolver,
+          (rows as Record<string, unknown>[]).map((row) => row.data)
+        ) as OperationResult<TMode, TResult>,
+    };
+  }
+
+  /**
+   * Counts the rows a union's members select: one `count(*)` per member, each through the
+   * `WHERE` seam with that member's own table, added together.
+   */
+  public createUnionCountOperation(
+    union: Union,
+    config: OperationRequest<UnionCountOperationArgs, "one">
+  ): CountOperation {
+    const { name, args } = config;
+
+    const counts = args.members.map(([alias, memberArgs]) => {
+      const member = union.getMember(alias);
+      const query = this._ctx.dialect.buildSelectQuery({
+        table: member,
+        select: [sql`count(*)`],
+        where: this._resolveWhere(member, memberArgs.where),
+      });
+
+      return sql`(${query})`;
+    });
+
+    const total = counts.length > 0 ? sql.join(counts, " + ") : sql.raw("0");
+    const query = sql`SELECT ${total} AS ${sql.identifier("count")}`;
+
+    return {
+      type: "select",
+      mode: "one",
+      name: name ?? `count_${union.alias}`,
+      args,
+      query: query.toQuery(),
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
   }

@@ -16,6 +16,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0006](./0006-client-tenancy.md) | Application-level tenancy | 2026-09-23 | accepted |
 | [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted |
 | [0008](./0008-client-pagination.md) | Keyset pagination | 2026-09-27 | accepted |
+| [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted |
 
 ## Template
 

@@ -25,6 +25,13 @@ export interface SeededData {
   articles: { id: string; authorId: string; title: string }[];
   revisions: { id: string; articleId: string; note: string }[];
   drafts: { id: string; workspaceId: string; title: string }[];
+  // Union members. Raw uuids again; `createdAt` as an ISO string, so a spec can sort by it.
+  photos: { id: string; authorId: string; caption: string | null; createdAt: string }[];
+  videos: { id: string; authorId: string; caption: string | null; createdAt: string }[];
+  postComments: { id: string; subjectType: string; subjectId: string; body: string }[];
+  folders: { id: string; parentId: string | null; name: string }[];
+  files: { id: string; parentId: string | null; name: string }[];
+  bookmarks: { id: string; authorId: string | null; title: string }[];
 }
 
 export async function seedTeams(client: TestClient) {
@@ -253,6 +260,103 @@ export async function seedDrafts(client: TestClient, workspaces: SeededData["wor
   return rows.map((row) => ({ id: row.id, workspaceId: row.workspace_id, title: row.title }));
 }
 
+type PostRow = { id: string; author_id: string; caption: string | null; created_at: Date };
+
+const toPost = (row: PostRow) => ({
+  id: row.id,
+  authorId: row.author_id,
+  caption: row.caption,
+  createdAt: new Date(row.created_at).toISOString(),
+});
+
+/**
+ * The first author posts on three days, and three of their posts share 2026-01-03 — two photos
+ * and a video — so an order by `createdAt` has ties inside one member and across two.
+ */
+export async function seedPhotos(client: TestClient, authors: SeededData["authors"]) {
+  const rows = await client.$query<PostRow>(sql`
+    INSERT INTO "photos" ("author_id", "caption", "created_at", "photo_url") VALUES
+      (${authors[0].id}, 'Sunrise', '2026-01-01T00:00:00Z', 'sunrise.jpg'),
+      (${authors[0].id}, NULL, '2026-01-03T00:00:00Z', 'untitled.jpg'),
+      (${authors[0].id}, 'Tie', '2026-01-03T00:00:00Z', 'tie.jpg'),
+      (${authors[1].id}, NULL, '2026-01-05T00:00:00Z', 'compiler.jpg')
+    RETURNING "id", "author_id", "caption", "created_at"
+  `);
+
+  return rows.map(toPost);
+}
+
+export async function seedVideos(client: TestClient, authors: SeededData["authors"]) {
+  const rows = await client.$query<PostRow>(sql`
+    INSERT INTO "videos" ("owner_id", "caption", "created_at", "video_url") VALUES
+      (${authors[0].id}, 'Clip', '2026-01-02T00:00:00Z', 'clip.mp4'),
+      (${authors[0].id}, NULL, '2026-01-03T00:00:00Z', 'tie.mp4'),
+      (${authors[1].id}, 'Talk', '2026-01-04T00:00:00Z', 'talk.mp4')
+    RETURNING "id", "owner_id" AS "author_id", "caption", "created_at"
+  `);
+
+  return rows.map(toPost);
+}
+
+export async function seedPostComments(
+  client: TestClient,
+  photos: SeededData["photos"],
+  videos: SeededData["videos"]
+) {
+  const rows = await client.$query<{
+    id: string;
+    subject_type: string;
+    subject_id: string;
+    body: string;
+  }>(sql`
+    INSERT INTO "post_comments" ("subject_type", "subject_id", "body") VALUES
+      ('photos', ${photos[0].id}, 'Lovely light'),
+      ('videos', ${videos[0].id}, 'Great clip')
+    RETURNING "id", "subject_type", "subject_id", "body"
+  `);
+
+  return rows.map((row) => ({
+    id: row.id,
+    subjectType: row.subject_type,
+    subjectId: row.subject_id,
+    body: row.body,
+  }));
+}
+
+/** `root` holds `child` and two files; `child` holds one file. */
+export async function seedEntries(client: TestClient) {
+  type Row = { id: string; parent_id: string | null; name: string };
+  const toEntry = (row: Row) => ({ id: row.id, parentId: row.parent_id, name: row.name });
+
+  const [root] = await client.$query<Row>(sql`
+    INSERT INTO "folders" ("name") VALUES ('root') RETURNING "id", "parent_id", "name"
+  `);
+  const [child] = await client.$query<Row>(sql`
+    INSERT INTO "folders" ("parent_id", "name") VALUES (${root.id}, 'child')
+    RETURNING "id", "parent_id", "name"
+  `);
+  const files = await client.$query<Row>(sql`
+    INSERT INTO "files" ("parent_id", "name", "size") VALUES
+      (${root.id}, 'a.txt', 1),
+      (${root.id}, 'b.txt', 2),
+      (${child.id}, 'c.txt', 3)
+    RETURNING "id", "parent_id", "name"
+  `);
+
+  return { folders: [root, child].map(toEntry), files: files.map(toEntry) };
+}
+
+export async function seedBookmarks(client: TestClient, users: SeededData["users"]) {
+  const rows = await client.$query<{ id: string; author_id: string | null; title: string }>(sql`
+    INSERT INTO "bookmarks" ("author_id", "title") VALUES
+      (${users[0].id}, 'Read later'),
+      (${users[1].id}, 'Reference')
+    RETURNING "id", "author_id", "title"
+  `);
+
+  return rows.map((row) => ({ id: row.id, authorId: row.author_id, title: row.title }));
+}
+
 export async function seedData(client: TestClient): Promise<SeededData> {
   const teams = await seedTeams(client);
   const users = await seedUsers(client);
@@ -271,6 +375,12 @@ export async function seedData(client: TestClient): Promise<SeededData> {
   const revisions = await seedRevisions(client, articles);
   const drafts = await seedDrafts(client, workspaces);
 
+  const photos = await seedPhotos(client, authors);
+  const videos = await seedVideos(client, authors);
+  const postComments = await seedPostComments(client, photos, videos);
+  const { folders, files } = await seedEntries(client);
+  const bookmarks = await seedBookmarks(client, users);
+
   return {
     teams,
     users,
@@ -284,5 +394,11 @@ export async function seedData(client: TestClient): Promise<SeededData> {
     articles,
     revisions,
     drafts,
+    photos,
+    videos,
+    postComments,
+    folders,
+    files,
+    bookmarks,
   };
 }

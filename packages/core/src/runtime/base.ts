@@ -3,6 +3,7 @@
 import {
   AnyTableDefinition,
   AnyTableRelations,
+  AnyUnionDefinition,
   DefinitionSchema,
   RelationsDefinition,
   TableDefinition,
@@ -15,6 +16,10 @@ import { UnionToIntersection } from "../utils/types.js";
 
 export type DefinitionTableName<TDefinition extends DefinitionSchema> = {
   [K in keyof TDefinition]: TDefinition[K] extends AnyTableDefinition ? K : never;
+}[keyof TDefinition];
+
+export type DefinitionUnionName<TDefinition extends DefinitionSchema> = {
+  [K in keyof TDefinition]: TDefinition[K] extends AnyUnionDefinition ? K : never;
 }[keyof TDefinition];
 
 export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> = {
@@ -65,9 +70,16 @@ export type SchemaRelationDefinitions<T extends DefinitionSchema> = {
   [K in DefinitionRelationsTableName<T>]: DefinitionTableRelations<T, K>;
 };
 
+export type SchemaUnionDefinitions<TDefinition extends DefinitionSchema> = {
+  [K in DefinitionUnionName<TDefinition>]: TDefinition[K] extends AnyUnionDefinition
+    ? TDefinition[K]
+    : never;
+};
+
 export interface Schema<T extends DefinitionSchema> {
   tables: SchemaTableDefinitions<T>;
   relations: SchemaRelationDefinitions<T>;
+  unions: SchemaUnionDefinitions<T>;
 }
 
 export type AnySchema = Schema<DefinitionSchema>;

@@ -1,4 +1,7 @@
 import { TypedObject } from "@dsqlbase/core/utils";
+import { KEY_FIELD } from "@dsqlbase/core/definition";
+import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
+import { GlobalIdError, isGlobalId } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
@@ -17,10 +20,15 @@ import {
   sql,
   SQLNode,
   SQLValue,
+  Union,
+  UnionCountOperationArgs,
+  UnionOrderKey,
+  UnionSelectOperationArgs,
   UpdateOperationArgs,
 } from "@dsqlbase/core";
 import {
   AnyRelationQuery,
+  AnyUnionQuery,
   CountArgs,
   CreateArgs,
   DeleteArgs,
@@ -53,6 +61,23 @@ interface OrderKey {
 }
 
 const flip = (direction: "asc" | "desc"): "asc" | "desc" => (direction === "asc" ? "desc" : "asc");
+
+/** What {@link shapePage} reads off a page plan, whichever kind of select produced it. */
+export interface PagePlan {
+  /** The total order, as the cursor signs it. */
+  keys: CursorKey[];
+  signature: string;
+  take: number;
+  bound: KeysetBound;
+  cursor?: (string | null)[];
+}
+
+/** Everything a union's `paginate` needs besides the select itself. */
+export interface UnionPaginateRequest extends PagePlan {
+  request: OperationRequest<UnionSelectOperationArgs, "many">;
+  /** The same members and filters without the keyset — what a count of the same rows uses. */
+  count: OperationRequest<UnionCountOperationArgs, "one">;
+}
 
 /** Everything `paginate` needs besides the select itself. */
 export interface PaginateRequest {
@@ -124,6 +149,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (!column) {
         throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
+      }
+
+      const polymorphic = this._getPolymorphicFilter(column, condition);
+
+      if (polymorphic) {
+        expressions.push(polymorphic);
+        continue;
       }
 
       // Comparison values go through `column.param` so the column's codec writes them the
@@ -352,8 +384,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   private _getJoinEntries<TTable extends AnyTable>(
     table: TTable,
     join: JoinExpressionOf<TTable, this["__type"]> | null | undefined
-  ): [string, SelectOperationArgs][] | undefined {
-    const entries: [string, SelectOperationArgs][] = [];
+  ): [string, SelectOperationArgs | UnionSelectOperationArgs][] | undefined {
+    const entries: [string, SelectOperationArgs | UnionSelectOperationArgs][] = [];
 
     if (!join || Object.keys(join).length === 0) {
       return undefined;
@@ -372,11 +404,305 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         );
       }
 
+      if (targetTable instanceof Union) {
+        entries.push([
+          fieldName,
+          this._getUnionArgs(targetTable, query === true ? {} : (query as AnyUnionQuery)),
+        ]);
+        continue;
+      }
+
       const params = this._getSelectArgs(targetTable, query === true ? {} : query);
       entries.push([fieldName, params]);
     }
 
     return entries;
+  }
+
+  /**
+   * Refuses a field the members of `union` do not all share, anywhere in a shared `where` —
+   * inside `and` / `or` / `not` included. Checked on the union rather than per member, so the
+   * error names the union instead of whichever member happened to lack the field.
+   */
+  private _assertSharedWhere(union: Union, where: Record<string, unknown> | null | undefined) {
+    for (const [fieldName, condition] of Object.entries(where ?? {})) {
+      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
+        for (const child of condition) {
+          this._assertSharedWhere(union, child as Record<string, unknown>);
+        }
+
+        continue;
+      }
+
+      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
+        this._assertSharedWhere(union, condition as Record<string, unknown>);
+        continue;
+      }
+
+      if (fieldName === KEY_FIELD) {
+        this._getKeyCondition(union, condition);
+        continue;
+      }
+
+      if (!union.isShared(fieldName)) {
+        throw new Error(
+          `Invalid field "${fieldName}" in where for union "${union.alias}": only fields every ` +
+            `member shares filter across a union. Filter one member through \`on\`.`
+        );
+      }
+    }
+  }
+
+  /**
+   * A `$$key` condition as a test on a member alias. `$$key` accepts `eq`, `neq`, `in` and the
+   * bare-value shorthand, each naming member aliases; anything else — another operator, a
+   * value that is not a member — is refused, since it could only ever be a typo.
+   */
+  private _getKeyCondition(union: Union, condition: unknown): (alias: string) => boolean {
+    const assertMembers = (values: unknown[]) => {
+      for (const value of values) {
+        if (typeof value !== "string" || !union.hasMember(value)) {
+          throw new Error(
+            `${KEY_FIELD} in where for union "${union.alias}" names ${JSON.stringify(value)}, ` +
+              `which is not a member (members: ${union.memberAliases.join(", ")}).`
+          );
+        }
+      }
+    };
+
+    if (typeof condition === "string") {
+      assertMembers([condition]);
+      return (alias) => alias === condition;
+    }
+
+    const entries = Object.entries((condition ?? {}) as Record<string, unknown>).filter(
+      ([, value]) => value !== undefined
+    );
+
+    const tests = entries.map(([operator, value]): ((alias: string) => boolean) => {
+      if (operator === "eq" || operator === "neq") {
+        assertMembers([value]);
+        return operator === "eq" ? (alias) => alias === value : (alias) => alias !== value;
+      }
+
+      if (operator === "in" && Array.isArray(value)) {
+        assertMembers(value);
+        return (alias) => value.includes(alias);
+      }
+
+      throw new Error(
+        `${KEY_FIELD} in where for union "${union.alias}" accepts eq, neq and in; got "${operator}".`
+      );
+    });
+
+    return (alias) => tests.every((test) => test(alias));
+  }
+
+  /**
+   * A shared `where` as seen from one member, with every `$$key` condition decided.
+   *
+   * Inside a branch the member alias is a constant, so a `$$key` condition is simply true or
+   * false there. Folding it away here, rather than rendering `'photos' = 'videos'` into SQL,
+   * lets a member that can never match be pruned before a branch is built at all:
+   *
+   * - `false` — no row of this member can match; the member produces no branch;
+   * - otherwise the `where` that is left, with every decided condition removed. An `or` holding
+   *   a true child is dropped whole; a `not` flips its child.
+   */
+  private _foldKeyWhere(
+    union: Union,
+    where: Record<string, unknown>,
+    alias: string
+  ): Record<string, unknown> | false {
+    const residual: Record<string, unknown> = {};
+
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (fieldName === KEY_FIELD) {
+        if (!this._getKeyCondition(union, condition)(alias)) {
+          return false;
+        }
+
+        continue;
+      }
+
+      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
+        // An empty group constrains nothing, exactly as outside a union.
+        if (condition.length === 0) {
+          continue;
+        }
+
+        const children = condition.map((child) =>
+          this._foldKeyWhere(union, child as Record<string, unknown>, alias)
+        );
+
+        if (fieldName === "and") {
+          if (children.some((child) => child === false)) {
+            return false;
+          }
+
+          const kept = children.filter((child) => Object.keys(child as object).length > 0);
+
+          if (kept.length > 0) {
+            residual.and = kept;
+          }
+
+          continue;
+        }
+
+        // `or`: one child true for this member makes the whole group true.
+        if (children.some((child) => child !== false && Object.keys(child).length === 0)) {
+          continue;
+        }
+
+        const kept = children.filter((child) => child !== false);
+
+        if (kept.length === 0) {
+          return false;
+        }
+
+        residual.or = kept;
+        continue;
+      }
+
+      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
+        const inner = this._foldKeyWhere(union, condition as Record<string, unknown>, alias);
+
+        if (inner === false) {
+          continue;
+        }
+
+        if (Object.keys(inner).length === 0 && Object.keys(condition).length > 0) {
+          return false;
+        }
+
+        residual.not = inner;
+        continue;
+      }
+
+      residual[fieldName] = condition;
+    }
+
+    return residual;
+  }
+
+  /**
+   * The arguments of a select over a union, one entry per member that runs.
+   *
+   * The shared `select` / `where` apply to every member, written against that member's own
+   * columns; `on.<alias>` then adds to them — its `select` is merged in, its `where` AND-ed
+   * with the shared one, its `join` walks the member's own relations — or, as `false`, drops
+   * the member entirely. Omitted, a member runs with the shared arguments alone.
+   */
+  private _getUnionArgs(union: Union, args: AnyUnionQuery): UnionSelectOperationArgs {
+    if (args.distinct) {
+      throw new Error(`\`distinct\` is not supported on union "${union.alias}".`);
+    }
+
+    const on = (args.on ?? {}) as Record<string, unknown>;
+
+    for (const alias of Object.keys(on)) {
+      if (!union.hasMember(alias)) {
+        throw new Error(
+          `"${alias}" in \`on\` is not a member of union "${union.alias}" ` +
+            `(members: ${union.memberAliases.join(", ")}).`
+        );
+      }
+    }
+
+    const sharedSelect = Object.entries(args.select ?? {})
+      .filter(([, selected]) => selected)
+      .map(([field]) => field);
+
+    for (const field of sharedSelect) {
+      if (!union.isShared(field)) {
+        throw new Error(
+          `Invalid field "${field}" in selection for union "${union.alias}": only fields every ` +
+            `member shares select across a union. Select it for one member through \`on\`.`
+        );
+      }
+    }
+
+    this._assertSharedWhere(union, args.where as Record<string, unknown> | undefined);
+
+    const members: [string, SelectOperationArgs][] = [];
+
+    for (const alias of union.memberAliases) {
+      const entry = on[alias];
+
+      if (entry === false) {
+        continue;
+      }
+
+      const sharedWhere = args.where
+        ? this._foldKeyWhere(union, args.where as Record<string, unknown>, alias)
+        : undefined;
+
+      // A `$$key` condition this member can never satisfy: no branch at all.
+      if (sharedWhere === false) {
+        continue;
+      }
+
+      const member = union.getMember(alias);
+      const own = (typeof entry === "object" && entry !== null ? entry : {}) as QueryArgs<
+        AnyTable,
+        this["__type"]
+      >;
+
+      const shared: FieldSelection[] = sharedSelect.map((field) => [
+        field,
+        union.getMemberColumn(alias, field),
+      ]);
+      const extra = this._getSelectionEntries(member, own.select).filter(
+        ([field]) => !sharedSelect.includes(field)
+      );
+
+      const where = [
+        this._getWhereExpression(member, sharedWhere as WhereExpressionOf<AnyTable> | undefined),
+        this._getWhereExpression(member, own.where),
+      ].filter((node): node is SQLNode => node !== undefined);
+
+      members.push([
+        alias,
+        {
+          select: [...shared, ...extra],
+          where: where.length > 0 ? where : undefined,
+          join: this._getJoinEntries(member, own.join),
+        },
+      ]);
+    }
+
+    return {
+      members,
+      orderBy: this._getUnionOrderKeys(union, args.orderBy),
+      limit: args.limit ?? undefined,
+      offset: args.offset ?? undefined,
+    };
+  }
+
+  private _getUnionOrderKeys(
+    union: Union,
+    orderBy: Record<string, unknown> | null | undefined
+  ): UnionOrderKey[] | undefined {
+    if (!orderBy) {
+      return undefined;
+    }
+
+    const keys: UnionOrderKey[] = [];
+
+    for (const [field, direction] of Object.entries(orderBy)) {
+      if (field !== KEY_FIELD && !union.isShared(field)) {
+        throw new Error(
+          `Invalid field "${field}" in orderBy for union "${union.alias}": only fields every ` +
+            `member shares, and ${KEY_FIELD}, order across a union.`
+        );
+      }
+
+      if (direction === "asc" || direction === "desc") {
+        keys.push({ field, direction });
+      }
+    }
+
+    return keys;
   }
 
   private _getMutationEntries<TTable extends AnyTable>(
@@ -401,7 +727,99 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       entries.push([fieldName, value]);
     }
 
+    return this._fillDiscriminators(table, values as Record<string, unknown>, entries);
+  }
+
+  /**
+   * A polymorphic id written as a global id also says which member it names — so it fills the
+   * discriminator when the caller left it out, and must agree with it when they did not. A raw
+   * uuid says nothing and leaves the discriminator alone.
+   */
+  private _fillDiscriminators<TTable extends AnyTable>(
+    table: TTable,
+    values: Record<string, unknown>,
+    entries: FieldMutation[]
+  ): FieldMutation[] {
+    for (const [fieldName, value] of Object.entries(values)) {
+      const binding = getDynamicGuidBinding(table.getColumn(fieldName) as AnyColumn);
+      const member = binding ? decodeMemberId(value, binding.members) : undefined;
+
+      if (!binding || !member) {
+        continue;
+      }
+
+      const given = values[binding.discriminatorField];
+
+      if (given === undefined) {
+        entries.push([binding.discriminatorField, member.key]);
+        continue;
+      }
+
+      if (given !== member.key) {
+        throw new GlobalIdError(
+          "key_mismatch",
+          `"${fieldName}" is a global id for "${member.key}", but "${binding.discriminatorField}" ` +
+            `says "${String(given)}".`
+        );
+      }
+    }
+
     return entries;
+  }
+
+  /**
+   * A filter on a polymorphic id. A global id names a member as well as a key, and two members
+   * may hold the same key, so matching it takes both: `(discriminator = key AND id = pk)`. `in`
+   * becomes an `OR` of such groups, raw uuids among them compared on the id alone. `undefined`
+   * for any other operator, or a filter with no global id in it — the ordinary path handles those.
+   */
+  private _getPolymorphicFilter(column: AnyColumn, condition: unknown): SQLNode | undefined {
+    const binding = getDynamicGuidBinding(column);
+
+    if (!binding) {
+      return undefined;
+    }
+
+    const { discriminator, members } = binding;
+    const match = (value: unknown) => {
+      const member = decodeMemberId(value, members);
+
+      return member
+        ? sql.and([
+            sql.eq(discriminator, discriminator.param(member.key)),
+            sql.eq(column, column.param(member.value)),
+          ])
+        : undefined;
+    };
+
+    if (isFilterType(condition, "in")) {
+      const values = condition.in as unknown[];
+
+      if (!values.some(isGlobalId)) {
+        return undefined;
+      }
+
+      const raw = values.filter((value) => !isGlobalId(value));
+      const groups: SQLNode[] = values.flatMap((value) =>
+        isGlobalId(value) ? [sql.wrap(match(value) as SQLNode)] : []
+      );
+
+      if (raw.length > 0) {
+        groups.push(sql.in(column, raw.map((value) => column.param(value as SQLValue))));
+      }
+
+      return sql.wrap(sql.or(groups));
+    }
+
+    if (isFilterType(condition, "neq")) {
+      const group = match(condition.neq);
+      return group ? sql.not(group) : undefined;
+    }
+
+    const value = isFilterType(condition, "eq") ? condition.eq : condition;
+    const group = typeof value === "string" ? match(value) : undefined;
+
+    return group ? sql.wrap(group) : undefined;
   }
 
   private _getSelectArgs<TTable extends AnyTable>(
@@ -507,6 +925,129 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       take,
       bound,
       cursor,
+    };
+  }
+
+  /**
+   * A top-level select over a union. `findOne` needs a `where`, exactly as on a table: a
+   * union row is only "the" row when something names it.
+   */
+  public normalizeUnionSelect<TMode extends OperationMode>(
+    union: Union,
+    args: AnyUnionQuery,
+    mode: TMode
+  ): OperationRequest<UnionSelectOperationArgs, TMode> {
+    if (mode === "one" && Object.keys(args.where ?? {}).length === 0) {
+      throw new Error(
+        `findOne on union "${union.alias}" needs a where that names the row it reads; an ` +
+          `empty one would match every row of every member.`
+      );
+    }
+
+    return { mode, args: this._getUnionArgs(union, args) };
+  }
+
+  /**
+   * A page read over a union, under a total order built the way core builds it: the caller's
+   * keys, then `$$key` unless they named it, then each primary-key column by position
+   * (`$$pk<n>`), the appended keys following the caller's last direction. The cursor signs
+   * that whole list against the union's alias, so a table's cursor never reads a union's page.
+   */
+  public normalizeUnionPaginate(
+    union: Union,
+    args: AnyUnionQuery & { after?: string | null; before?: string | null }
+  ): UnionPaginateRequest {
+    const { after, before } = args;
+
+    if (after != null && before != null) {
+      throw new Error("Pass either after or before, not both.");
+    }
+
+    const tiebreakers = union.tiebreakers;
+
+    if (tiebreakers === 0) {
+      throw new Error(
+        `Cannot page union "${union.alias}": its members' primary keys differ in arity or type, ` +
+          `so nothing can break a tie between two members' rows.`
+      );
+    }
+
+    const take = this._getPageSize(args.limit ?? undefined);
+    const orderBy = (this._getUnionOrderKeys(union, args.orderBy) ?? []).map((key) => ({
+      ...key,
+      nullable:
+        key.field !== KEY_FIELD &&
+        union.memberAliases.some((alias) => {
+          const column = union.getMemberColumn(alias, key.field);
+          return !column.notNull && !union.getMember(alias).primaryKey.includes(column);
+        }),
+    }));
+
+    const tiebreak = orderBy.at(-1)?.direction ?? "asc";
+    const keys: (CursorKey & { nullable?: boolean })[] = [
+      ...orderBy,
+      ...(orderBy.some((key) => key.field === KEY_FIELD)
+        ? []
+        : [{ field: KEY_FIELD, direction: tiebreak }]),
+      ...Array.from({ length: tiebreakers }, (_, index) => ({
+        field: `$$pk${index}`,
+        direction: tiebreak,
+      })),
+    ];
+
+    const signature = keysetSignature(union.alias, keys);
+    const bound = before != null ? "before" : "after";
+    const token = after ?? before ?? undefined;
+
+    let cursor: (string | null)[] | undefined;
+
+    if (token !== undefined) {
+      cursor = decodeCursor(token, signature, keys.length);
+
+      if (cursor.some((value, index) => value === null && !keys[index].nullable)) {
+        throw new InvalidCursorError(
+          "format",
+          `"${token}" carries a null for a key that cannot hold one.`
+        );
+      }
+    }
+
+    const base = this._getUnionArgs(union, { select: args.select, where: args.where, on: args.on });
+
+    return {
+      request: {
+        mode: "many",
+        args: {
+          ...base,
+          orderBy,
+          tiebreak,
+          keys: true,
+          keyset: cursor ? { values: cursor, bound } : undefined,
+          limit: take + 1,
+        },
+      },
+      count: {
+        mode: "one",
+        args: { members: base.members.map(([alias, member]) => [alias, { where: member.where }]) },
+      },
+      keys: keys.map(({ field, direction }) => ({ field, direction })),
+      signature,
+      take,
+      bound,
+      cursor,
+    };
+  }
+
+  /** A count over the rows a union's members select. */
+  public normalizeUnionCount(
+    union: Union,
+    args: Pick<AnyUnionQuery, "where"> = {}
+  ): OperationRequest<UnionCountOperationArgs, "one"> {
+    const { members } = this._getUnionArgs(union, { where: args.where });
+
+    return {
+      mode: "one",
+      args: { members: members.map(([alias, member]) => [alias, { where: member.where }]) },
     };
   }
 

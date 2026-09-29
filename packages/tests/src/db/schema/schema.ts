@@ -16,6 +16,7 @@ import {
   sequence,
   tenantScope,
   guid,
+  union,
   $enum,
 } from "dsqlbase/schema";
 
@@ -335,6 +336,96 @@ const revisionRelations = relations(revisions, {
   }),
 });
 
+/**
+ * Polymorphic relations — unions of tables.
+ *
+ * Additive, like the node tables: nothing above changes shape.
+ *
+ * - `posts` unions two nodes, `photos` and `videos`, written by `authors`. Their author key is
+ *   one shared field stored under two column names (`author_id`, `owner_id`), and `caption` is
+ *   nullable, so ordering and paging across members meet a per-member column and a null.
+ * - `postComments` belongs to a post of either kind through a discriminator, with a keyless
+ *   `guid()` whose node is read row by row.
+ * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
+ *   one of whose members is the table the join starts from.
+ * - `userFeed` unions tenant-scoped `documents` with global `bookmarks`, so a union join and the
+ *   union client have to apply the tenant predicate to one member and not the other.
+ */
+const photos = table("photos", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("author_id", "authors").notNull(),
+  caption: text("caption"),
+  createdAt: datetime("created_at").notNull(),
+  photoUrl: text("photo_url").notNull(),
+}).meta({ __typename: "Photo" });
+
+const videos = table("videos", {
+  id: guid("id").primaryKey().defaultRandom(),
+  authorId: guid("owner_id", "authors").notNull(),
+  caption: text("caption"),
+  createdAt: datetime("created_at").notNull(),
+  videoUrl: text("video_url").notNull(),
+}).meta({ __typename: "Video" });
+
+const posts = union({ photos, videos });
+
+const postComments = table("post_comments", {
+  id: guid("id").primaryKey().defaultRandom(),
+  subjectType: text("subject_type"),
+  subjectId: guid("subject_id"),
+  body: text("body").notNull(),
+});
+
+const folders = table("folders", {
+  id: guid("id").primaryKey().defaultRandom(),
+  parentId: guid("parent_id", "folders"),
+  name: text("name").notNull(),
+});
+
+const files = table("files", {
+  id: guid("id").primaryKey().defaultRandom(),
+  parentId: guid("parent_id", "folders"),
+  name: text("name").notNull(),
+  size: bigint("size").notNull(),
+});
+
+const entries = union({ folders, files });
+
+const bookmarks = table("bookmarks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  authorId: uuid("author_id"),
+  title: text("title").notNull(),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+});
+
+const userFeed = union({ documents, bookmarks });
+
+// A second block for `authors`, merged with `authorRelations`.
+const authorPostRelations = relations(authors, {
+  posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
+  latestPost: hasOne(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
+});
+
+const photoRelations = relations(photos, {
+  author: belongsTo(authors, { from: [photos.columns.authorId], to: [authors.columns.id] }),
+});
+
+const postCommentRelations = relations(postComments, {
+  subject: belongsTo(posts, {
+    from: [postComments.columns.subjectId],
+    to: [posts.columns.id],
+    discriminator: postComments.columns.subjectType,
+  }),
+});
+
+const folderRelations = relations(folders, {
+  entries: hasMany(entries, { from: [folders.columns.id], to: [entries.columns.parentId] }),
+});
+
+const userFeedRelations = relations(users, {
+  feed: hasMany(userFeed, { from: [users.columns.id], to: [userFeed.columns.authorId] }),
+});
+
 export {
   teams,
   members,
@@ -366,4 +457,18 @@ export {
   authorRelations,
   articleRelations,
   revisionRelations,
+  photos,
+  videos,
+  posts,
+  postComments,
+  folders,
+  files,
+  entries,
+  bookmarks,
+  userFeed,
+  authorPostRelations,
+  photoRelations,
+  postCommentRelations,
+  folderRelations,
+  userFeedRelations,
 };

@@ -35,6 +35,45 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - Selection accepts only real columns. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
+- A relation may target a `union()` — see [Union joins](#union-joins).
+
+## Union joins
+
+A relation to a union (`packages/core/src/definition/union.ts`) is a lateral join over a
+`UNION ALL`, one branch per member that runs. The registry resolves each member's `to` columns
+when the client is built (`SchemaRegistry.getUnionRelationColumns`), whichever form `to` was
+written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/src/runtime/union.ts`).
+
+- **Normalizer.** `_getUnionArgs` (`packages/dsqlbase/src/client/model/normalizer.ts`) produces
+  `UnionSelectOperationArgs`, with one `SelectOperationArgs` per member that runs. It maps the
+  shared `select` / `where` onto each member's columns, merges `on.<alias>`, drops members set
+  to `false`, and refuses non-shared fields and `distinct`. `$$key` conditions in the shared
+  `where` are folded per member by `_foldKeyWhere`. The alias is a constant inside a branch, so
+  each condition is decided before any SQL exists: a member whose `where` folds to `false`
+  produces no branch, and a decided condition leaves no trace in SQL. `orderBy` stays structured
+  (`UnionOrderKey[]`), because each member resolves the field to its own column.
+- **Operations factory.** `_resolveUnionParams` builds every branch through
+  `_resolveSelectParams(member, …)`, so each branch passes [the `WHERE` seam](#the-where-seam),
+  tenant predicate included, and gets nested joins exactly as a table level would. A branch
+  cannot skip them. Each branch projects:
+  - `'<alias>' AS "$$key"` (`sql.literal`);
+  - when ordered, every order key as `__o<n>`;
+  - when ordered and every member's primary key has the same arity and types, the key as
+    `__pk<n>`.
+- **Limit pushdown.** With a `limit`, each branch is also ordered by the same keys and limited
+  to `limit + offset`. This is valid because no row a branch drops could reach the combined page.
+- **Query builder.** `_buildUnion` wraps each branch as
+  `SELECT row_to_json(<branch>.*) AS "data", <carried columns>`, since members share no column
+  list. It joins the branches with `UNION ALL` and orders the result by the carried names:
+  `"__o<n>"`, then `"$$key"`, then `"__pk<n>"`. Each branch's correlation is added inside that
+  branch, and the lateral aggregates `"data"` with `json_agg(… ORDER BY …)` for has-many, or
+  takes the one row for has-one.
+- **All members pruned.** No join is emitted. The resolver answers `[]` or `null`.
+- **Belongs-to a union.** `SchemaRegistry.getRelationDiscriminator` gives its discriminator
+  column. Each branch then carries `correlate: [discriminator = '<alias>']`, which the builder
+  renders in the parent's scope next to the correlation, so only the named member's branch can
+  match.
+
 
 ## The `WHERE` seam
 
@@ -114,12 +153,16 @@ There are three kinds of entry:
 | `FieldResolver` (column) | an `AnyColumn`     | `column.resolve(row[column.name])` — the decoded value |
 | `FieldResolver` (nested) | `ResolverEntry[]`  | a recursive resolve of the join's rows                 |
 | `MetaResolver`           | `(row) => unknown` | a value computed from the driver row itself            |
+| `FieldResolver` (union)  | `UnionResolver`    | each row resolved by the member its `$$key` names      |
 
 The `row` a `MetaResolver` receives is the **raw driver row**, before any codec has decoded it
 — the same row the column branch reads from. A resolver that needs the database's own text
 representation of a value rather than the decoded one therefore has it.
 
-`$$meta` is the only `MetaResolver` today. `_resolveFields` pushes it first for every level it
+Two things produce a `MetaResolver`. One is a column with a row decoder
+(`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
+its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
+The other is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:
 
@@ -134,10 +177,16 @@ A `table().meta()` key that collides with a built-in throws when the `Table` is 
 
 `$$meta` and `$$key` are reserved field names (`RESERVED_FIELD_NAMES` in
 `packages/core/src/definition/base.ts`): a column of that name throws at definition time, a
-relation of that name when the registry is built. `$$key` is reserved ahead of its use, since
-reserving a name costs nothing now and is a breaking change later.
+relation of that name when the registry is built. `$$key` names the member on every row of a
+union result (see below).
 
 An absent `belongsTo` stays `null` and an empty `hasMany` stays `[]` — no row, no meta.
+
+A `UnionResolver` holds one resolver list per member that ran. For each row it reads `$$key`,
+runs that member's list, `$$meta` included, and puts `$$key` on the record ahead of it. A row
+naming a member that did not run throws, because this builder cannot produce one. Dispatch
+decides _which_ resolvers run, so it happens before any field is read, not in a post-processing
+step ([0004](../decisions/0004-record-meta.md)).
 
 ## Pagination and count
 
@@ -155,7 +204,19 @@ no opinion about cursors; the client owns the cursor format and the page shape.
 - `SelectOperationArgs.keys` — columns projected a second time at the **root** level as
   `col::text AS "__k<n>"`, aliased like every other reference in the level. No resolver reads
   them, so they reach the raw driver row and never a result record. A join level asking for
-  them is refused.
+  them is refused. A union read at the root projects them per branch instead
+  (`UnionSelectOperationArgs.keys`) and carries them to the union level, which the root is.
+- **Union pages.** `createUnionSelectOperation` / `createUnionCountOperation` run a union at the
+  root. `_resolveUnionParams` builds the total order in `_getUnionOrder`:
+  - the caller's keys;
+  - `$$key`, unless the caller named it;
+  - each primary-key column by position (`$$pk<n>`), when `Union.tiebreakers` says the members'
+    keys line up — otherwise paging throws.
+
+  The appended keys run in `tiebreak`. The keyset enters each branch as a `where` element, where
+  `$$key` is the constant literal. A `before` bound reverses the union order and every branch's
+  pushdown order, while the keyset is written against the order as given. The union count adds
+  one `count(*)` per member, each built through the seam.
 - `createCountOperation(table, { where })` — `SELECT count(*) AS "count"`, its `WHERE` built by
   the same seam, resolved with `Number(...)` (drivers return `bigint` as text or `bigint`).
 - `Executable<T>` and `CompositeQuery` (`runtime/executor.ts`) — anything that runs when awaited
@@ -180,6 +241,9 @@ no opinion about cursors; the client owns the cursor format and the page shape.
   resolves the rest, stamps each record's cursor from its `__k<n>` columns, reverses a `before`
   page, and fills `startCursor` / `endCursor`. With `count: true` it returns a `CompositeQuery`
   of the page and a count.
+- `UnionClient.paginate` (`client/union/client.ts`) does the same over a union.
+  `normalizeUnionPaginate` mirrors core's total order to sign the cursor (union alias, caller
+  keys, `$$key`, `$$pk<n>`), and `shapePage` takes a `PagePlan`, which both requests satisfy.
 - The cursor (`client/pagination/cursor.ts`) is `c1.` + base64url of
   `[signature, ...values]`, where the signature is 8 hex characters of SHA-256 over the table
   alias and the ordered `field:direction` keys. `InvalidCursorError` is thrown before any SQL.
@@ -223,9 +287,12 @@ the whole table type finds the root level and misses every nested one, because
 table map by name, so two tables in one schema cannot share one.
 
 It still cannot discriminate a union: **TypeScript does not narrow on a nested property.** A
-result that really is a union of tables — today only `$findByGlobalId` / `$listByGlobalId` —
-carries a top-level `$$key` instead, added by those methods rather than by the resolver. `$$key`
-has been reserved since [0004](../decisions/0004-record-meta.md) for exactly this.
+result that really is a union of tables carries a top-level `$$key` instead:
+- the rows of a union join get it from the `UnionResolver`;
+- `$findByGlobalId` / `$listByGlobalId` add it themselves.
+
+`$$key` has been reserved since [0004](../decisions/0004-record-meta.md) for exactly this, and
+the core constant is `KEY_FIELD`.
 
 ## Known gaps (fix, do not design around)
 
