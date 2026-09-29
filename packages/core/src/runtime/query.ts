@@ -16,6 +16,12 @@ export interface UnionBranchParams {
   params: SelectParams;
   /** Paired positionally with the join's `from`. Absent at the root of a query. */
   to?: SQLNode[];
+  /**
+   * Further conditions on the *parent* level that decide whether this branch can match at all —
+   * a belongs-to's discriminator naming this member. Rendered in the parent's scope, next to the
+   * correlation.
+   */
+  correlate?: SQLNode[];
 }
 
 /**
@@ -263,9 +269,12 @@ export class QueryBuilder {
     const alias = sql.identifier(`__join_${join.alias}`);
     const unionAlias = sql.identifier(alloc.union());
 
-    const union = this._buildUnion(join.union, alloc, (branch) =>
-      this._buildCorrelation(join.alias, join.from, branch.to ?? [], parentScope)
-    );
+    const union = this._buildUnion(join.union, alloc, (branch) => {
+      const correlation = this._buildCorrelation(join.alias, join.from, branch.to ?? [], parentScope);
+      const conditions = (branch.correlate ?? []).map((node) => new SQLScope(parentScope, node));
+
+      return conditions.length === 0 ? correlation : sql.and([correlation, ...conditions]);
+    });
 
     const data = sql`${unionAlias}.${sql.identifier("data")}`;
     const subquery = sql`SELECT`;

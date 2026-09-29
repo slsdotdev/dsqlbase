@@ -92,6 +92,9 @@ export class SchemaRegistry<
    */
   private readonly _unionPairs = new Map<string, Map<string, Record<string, AnyColumn[]>>>();
 
+  /** For every belongs-to a union: source table name → field → its discriminator column. */
+  private readonly _discriminators = new Map<string, Map<string, AnyColumn>>();
+
   /**
    * Every tenant claim declared anywhere in this schema, mapped to the data type it is
    * declared with. Empty when no table is inside a tenant scope.
@@ -425,6 +428,14 @@ export class SchemaRegistry<
 
     this._validateDiscriminator(label, relation, source, union);
 
+    if (relation.discriminator) {
+      const byField = this._discriminators.get(sourceName) ?? new Map<string, AnyColumn>();
+      const alias = this._findColumnAlias(source, relation.discriminator) as string;
+
+      byField.set(field, this.getTable(sourceName).getColumn(alias) as AnyColumn);
+      this._discriminators.set(sourceName, byField);
+    }
+
     const byField =
       this._unionPairs.get(sourceName) ?? new Map<string, Record<string, AnyColumn[]>>();
     byField.set(field, pairs);
@@ -698,6 +709,16 @@ export class SchemaRegistry<
    * The `to` columns of a relation to a union, per member alias — each member's own columns,
    * paired index by index with the relation's `from`.
    */
+  /**
+   * The discriminator column of a belongs-to a union — the source column naming which member
+   * each row points at — or `undefined` for any other relation.
+   */
+  public getRelationDiscriminator(tableNameOrAlias: string, field: string): AnyColumn | undefined {
+    const sourceTable = this.getTable(tableNameOrAlias);
+
+    return this._discriminators.get(sourceTable.name)?.get(field);
+  }
+
   public getUnionRelationColumns(
     tableNameOrAlias: string,
     field: string

@@ -79,6 +79,14 @@ Both sides of a relation pair must agree. A `guid()` paired with a plain `uuid()
 `guid()` naming a different node, throws when the client is built. Neither would break the SQL
 — a join correlates on the raw columns — which is exactly why it is caught early.
 
+### A column that points at one of several nodes
+
+The `from` column of a [belongs-to a union](./polymorphic-relations.md#a-belongs-to-a-union) is
+a keyless `guid()` whose node is named row by row by the relation's discriminator. It reads back
+wrapped with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for
+any member of the union on writes and filters, and throws `key_mismatch` for any other. Declaring it
+with a static key throws, since only one of the key and the discriminator can decide.
+
 ## Reading and writing
 
 A wrapped id is accepted anywhere the column is, and so is a raw uuid — ids reach an

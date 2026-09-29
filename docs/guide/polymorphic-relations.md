@@ -85,8 +85,8 @@ for (const post of user?.feed ?? []) {
 - **`distinct` is refused** on a union.
 - **A has-many** yields an array, and **a has-one** yields one row or `null`. With every member
   excluded, the join adds no SQL at all, and the field is `[]` or `null`.
-- **A belongs-to a union** can be declared, but joining it is refused until its discriminator is
-  applied per member.
+- **A belongs-to a union** joins only the member its discriminator names — see
+  [below](#a-belongs-to-a-union).
 
 ## `$$key`: which member a row came from
 
@@ -142,6 +142,57 @@ Each member's branch passes through the same `WHERE` seam as a table level, so a
 [tenant-scoped](./tenancy.md) member is filtered inside its own branch, and a global member is
 not. A union with a scoped member, reached from an enforcing client that carries no claims, is
 refused with a `TenancyError`, exactly as a join to that member alone would be.
+
+## A belongs-to a union
+
+A row that points at one of several tables stores the pair a global id is made of: which
+member, in a text **discriminator** column holding the member's alias, and which row, in the
+`from` column. Declare the `from` column as a keyless `guid()`:
+
+```ts
+export const ledgerEntries = table("ledger_entries", {
+  id: guid("id").primaryKey().defaultRandom(),
+  counterpartyType: text("counterparty_type"), // "companies" or "persons"
+  counterpartyId: guid("counterparty_id"), // no key: the discriminator names it, row by row
+  amount: numeric("amount").notNull(),
+});
+
+export const ledgerEntryRelations = relations(ledgerEntries, {
+  counterparty: belongsTo(tradingEntities, {
+    from: [ledgerEntries.columns.counterpartyId],
+    to: [tradingEntities.columns.id],
+    discriminator: ledgerEntries.columns.counterpartyType,
+  }),
+});
+```
+
+- **Joining.** Each member's branch also requires the discriminator to name that member, so
+  two members holding the same key never both match. The join yields that member's row, or
+  `null`.
+- **Reading.** `counterpartyId` comes back wrapped with the member the row's discriminator
+  names, so `entry.counterpartyId === entry.counterparty?.id` holds. Selecting only the id still
+  reads the discriminator behind the scenes, without adding it to the result. A `NULL`
+  discriminator leaves the id raw.
+- **Writing.** A global id fills the discriminator:
+  `create({ data: { counterpartyId: companyId } })` writes `counterparty_type = 'companies'`.
+  Passing the discriminator too is fine when it agrees, and throws `GlobalIdError`
+  (`key_mismatch`) when it does not, or when the id names a table outside the union. A raw uuid
+  leaves the discriminator untouched.
+- **Filtering.** A global id matches on both columns:
+  - `{ counterpartyId: { eq: companyId } }` becomes
+    `(counterparty_type = 'companies' AND counterparty_id = $1)`;
+  - `neq` negates that pair;
+  - `in` ORs one pair per id.
+
+  A raw uuid compares the id alone.
+
+- **Pairs must agree.** The `from` column must be a keyless `guid()` and every member a
+  [node](./global-ids.md#nodes) related through its own key, or `from` and every member key
+  must be plain `uuid()`. A mix throws when the client is built, as for any relation. A static
+  key on the `from` column throws too: only one of it and the discriminator can decide.
+- **Reverse relations.** A member may declare a has-many back onto the polymorphic column, such
+  as `companies.entries`. That relation correlates on the id alone; the discriminator is not
+  applied to it.
 
 ## Reading a union directly
 
@@ -202,7 +253,8 @@ transaction client inside one, it is present again.
 
 ## Limits
 
-- No foreign key can be emitted for a union target; relations emit none anyway.
+- No foreign key can be emitted for a union target, and a polymorphic `from` column cannot
+  carry one in the database; relations emit none anyway.
 - Only shared fields filter, select or order across a union.
 - `paginate` needs members whose primary keys line up.
 

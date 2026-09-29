@@ -1,5 +1,7 @@
 import { TypedObject } from "@dsqlbase/core/utils";
 import { KEY_FIELD } from "@dsqlbase/core/definition";
+import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
+import { GlobalIdError, isGlobalId } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
@@ -147,6 +149,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (!column) {
         throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
+      }
+
+      const polymorphic = this._getPolymorphicFilter(column, condition);
+
+      if (polymorphic) {
+        expressions.push(polymorphic);
+        continue;
       }
 
       // Comparison values go through `column.param` so the column's codec writes them the
@@ -718,7 +727,99 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       entries.push([fieldName, value]);
     }
 
+    return this._fillDiscriminators(table, values as Record<string, unknown>, entries);
+  }
+
+  /**
+   * A polymorphic id written as a global id also says which member it names — so it fills the
+   * discriminator when the caller left it out, and must agree with it when they did not. A raw
+   * uuid says nothing and leaves the discriminator alone.
+   */
+  private _fillDiscriminators<TTable extends AnyTable>(
+    table: TTable,
+    values: Record<string, unknown>,
+    entries: FieldMutation[]
+  ): FieldMutation[] {
+    for (const [fieldName, value] of Object.entries(values)) {
+      const binding = getDynamicGuidBinding(table.getColumn(fieldName) as AnyColumn);
+      const member = binding ? decodeMemberId(value, binding.members) : undefined;
+
+      if (!binding || !member) {
+        continue;
+      }
+
+      const given = values[binding.discriminatorField];
+
+      if (given === undefined) {
+        entries.push([binding.discriminatorField, member.key]);
+        continue;
+      }
+
+      if (given !== member.key) {
+        throw new GlobalIdError(
+          "key_mismatch",
+          `"${fieldName}" is a global id for "${member.key}", but "${binding.discriminatorField}" ` +
+            `says "${String(given)}".`
+        );
+      }
+    }
+
     return entries;
+  }
+
+  /**
+   * A filter on a polymorphic id. A global id names a member as well as a key, and two members
+   * may hold the same key, so matching it takes both: `(discriminator = key AND id = pk)`. `in`
+   * becomes an `OR` of such groups, raw uuids among them compared on the id alone. `undefined`
+   * for any other operator, or a filter with no global id in it — the ordinary path handles those.
+   */
+  private _getPolymorphicFilter(column: AnyColumn, condition: unknown): SQLNode | undefined {
+    const binding = getDynamicGuidBinding(column);
+
+    if (!binding) {
+      return undefined;
+    }
+
+    const { discriminator, members } = binding;
+    const match = (value: unknown) => {
+      const member = decodeMemberId(value, members);
+
+      return member
+        ? sql.and([
+            sql.eq(discriminator, discriminator.param(member.key)),
+            sql.eq(column, column.param(member.value)),
+          ])
+        : undefined;
+    };
+
+    if (isFilterType(condition, "in")) {
+      const values = condition.in as unknown[];
+
+      if (!values.some(isGlobalId)) {
+        return undefined;
+      }
+
+      const raw = values.filter((value) => !isGlobalId(value));
+      const groups: SQLNode[] = values.flatMap((value) =>
+        isGlobalId(value) ? [sql.wrap(match(value) as SQLNode)] : []
+      );
+
+      if (raw.length > 0) {
+        groups.push(sql.in(column, raw.map((value) => column.param(value as SQLValue))));
+      }
+
+      return sql.wrap(sql.or(groups));
+    }
+
+    if (isFilterType(condition, "neq")) {
+      const group = match(condition.neq);
+      return group ? sql.not(group) : undefined;
+    }
+
+    const value = isFilterType(condition, "eq") ? condition.eq : condition;
+    const group = typeof value === "string" ? match(value) : undefined;
+
+    return group ? sql.wrap(group) : undefined;
   }
 
   private _getSelectArgs<TTable extends AnyTable>(

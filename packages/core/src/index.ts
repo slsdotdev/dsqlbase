@@ -53,6 +53,7 @@ export {
   Union,
   UnionResolver,
   type AnyColumn,
+  type ColumnRowDecoder,
   type AnySchema,
   type AnyTable,
   type AnyUnion,

@@ -337,10 +337,30 @@ export class OperationsFactory<
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
     resolvers.push([META_FIELD, () => table.meta]);
 
+    // A column with a row decoder reads siblings of its row: they are projected with it — once,
+    // however many columns need them — and the field is resolved from the whole row.
+    const add = (fieldName: string, column: AnyColumn) => {
+      if (!columns.includes(column)) {
+        columns.push(column);
+      }
+
+      if (!column.rowDecoder) {
+        resolvers.push([fieldName, column]);
+        return;
+      }
+
+      for (const dependency of column.rowDecoder.dependsOn) {
+        if (!columns.includes(dependency)) {
+          columns.push(dependency);
+        }
+      }
+
+      resolvers.push([fieldName, (row) => column.resolveRow(row)]);
+    };
+
     if (!selection || selection.length === 0) {
       for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
-        columns.push(column);
-        resolvers.push([fieldName, column]);
+        add(fieldName, column);
       }
 
       return { columns, resolvers };
@@ -354,8 +374,7 @@ export class OperationsFactory<
           throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
         }
 
-        columns.push(column);
-        resolvers.push([fieldName, column]);
+        add(fieldName, column);
       }
     }
 
@@ -514,19 +533,13 @@ export class OperationsFactory<
       }
 
       if (target instanceof Union) {
-        if (relation.type === Relation.BELONGS_TO) {
-          throw new Error(
-            `Relation "${fieldName}" on table "${table.name}" belongs to union ` +
-              `"${target.alias}"; joining a belongs-to a union is not supported yet.`
-          );
-        }
-
         const mode = relation.type === Relation.HAS_MANY ? "many" : "one";
         const union = this._resolveUnionParams(
           target,
           value as UnionSelectOperationArgs,
           mode,
-          this._ctx.schema.getUnionRelationColumns(table.name, fieldName)
+          this._ctx.schema.getUnionRelationColumns(table.name, fieldName),
+          this._ctx.schema.getRelationDiscriminator(table.name, fieldName)
         );
 
         resolvers.push([fieldName, union.resolver]);
@@ -644,7 +657,8 @@ export class OperationsFactory<
     union: Union,
     args: UnionSelectOperationArgs,
     mode: OperationMode,
-    pairs?: Record<string, AnyColumn[]>
+    pairs?: Record<string, AnyColumn[]>,
+    discriminator?: AnyColumn
   ): { params: UnionSelectParams; resolver: UnionResolver } {
     const orderBy = args.orderBy ?? [];
     const paged = args.keys === true || args.keyset !== undefined;
@@ -755,7 +769,13 @@ export class OperationsFactory<
 
       const { resolvers: branchResolvers, ...select } = params;
 
-      branches.push({ params: select, to: pairs?.[alias] });
+      branches.push({
+        params: select,
+        to: pairs?.[alias],
+        // A belongs-to row names its member in the discriminator; only that member's branch may
+        // match it, whatever ids the other members hold.
+        correlate: discriminator ? [sql.eq(discriminator, sql.literal(alias))] : undefined,
+      });
       resolvers[alias] = branchResolvers;
     }
 

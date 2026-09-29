@@ -82,7 +82,7 @@ export const userRelations = relations(users, {
 });
 ```
 
-A **belongs-to a union** also names a `discriminator`: a text column on the source that holds
+A **belongs-to a union** also names a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
 which member each row points at, as that member's schema alias. It is required there, and
 `createClient` refuses it anywhere else. A has-many or has-one to a union needs none, because
 the key lives on the members.

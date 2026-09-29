@@ -6,6 +6,14 @@ import { AnyTable } from "./table.js";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyColumn = Column<any, any, any>;
 
+/** See {@link Column.rowDecoder}. */
+export interface ColumnRowDecoder {
+  /** Columns of the same table the decode reads; projected alongside this one. */
+  readonly dependsOn: AnyColumn[];
+  /** The value from the column's raw value and the raw row it was read from, keyed by column name. */
+  decode(raw: unknown, row: Record<string, unknown>): unknown;
+}
+
 export class Column<TName extends string, TConfig extends ColumnConfig, TTable extends AnyTable>
   implements SQLNode, TypedObject<TConfig>
 {
@@ -38,6 +46,28 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.codec = definition["_codec"];
     this.onCreate = definition["_onCreate"];
     this.onUpdate = definition["_onUpdate"];
+  }
+
+  /**
+   * A decode that needs more than the column's own value — sibling columns of the same row.
+   *
+   * Unset by default; a client sets it on the built column when it is created, as it does a
+   * bound codec, for a value whose meaning depends on another column (a polymorphic reference
+   * whose target is named by a discriminator). When set, `dependsOn` is projected whenever this
+   * column is selected, and the value is read through {@link Column.resolveRow} instead of
+   * {@link Column.resolve}. Core applies no meaning to it.
+   */
+  readonly rowDecoder?: ColumnRowDecoder;
+
+  /** Reads this column's value from a whole row, through {@link Column.rowDecoder} if set. */
+  public resolveRow(row: Record<string, unknown>): TConfig["valueType"] {
+    const raw = row[this.name];
+
+    if (!this.rowDecoder || raw === null || raw === undefined) {
+      return this.resolve(raw as TConfig["rawType"]);
+    }
+
+    return this.rowDecoder.decode(raw, row) as TConfig["valueType"];
   }
 
   public resolve(value: TConfig["rawType"]): TConfig["valueType"] {

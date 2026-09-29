@@ -12,7 +12,7 @@ export type {
   DefinitionUnionName,
   TableRelationFieldName,
 } from "./base.js";
-export { Column, type AnyColumn } from "./column.js";
+export { Column, type AnyColumn, type ColumnRowDecoder } from "./column.js";
 export {
   ExecutionContext,
   type ExecutionContextOptions,

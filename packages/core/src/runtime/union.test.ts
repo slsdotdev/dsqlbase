@@ -265,35 +265,110 @@ describe("union joins — SQL", () => {
 });
 
 describe("union joins — belongs-to", () => {
-  // Until the discriminator is applied per branch, a belongs-to join would match an id in any
-  // member; refusing it is the only safe answer.
-  it("is refused rather than joined on the id alone", () => {
-    const comments = new TableDefinition("comments", {
-      columns: {
-        id: col("id", "uuid").primaryKey(),
-        subjectType: col("subject_type"),
-        subjectId: col("subject_id", "uuid"),
-      },
+  const comments = new TableDefinition("comments", {
+    columns: {
+      id: col("id", "uuid").primaryKey(),
+      subjectType: col("subject_type"),
+      subjectId: col("subject_id", "uuid"),
+    },
+  });
+  const rels = new RelationsDefinition(comments, {
+    subject: {
+      type: Relation.BELONGS_TO,
+      target: posts,
+      from: [comments.columns.subjectId],
+      to: [posts.columns.id],
+      discriminator: comments.columns.subjectType,
+    },
+  });
+  const schema = new SchemaRegistry({ photos, videos, posts, comments, rels });
+  const build = () =>
+    new OperationsFactory(
+      new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+    ).createSelectOperation(schema.getTable("comments"), {
+      mode: "many",
+      args: { select: [], join: [["subject", { members: all("photos", "videos") }]] },
     });
-    const rels = new RelationsDefinition(comments, {
-      subject: {
-        type: Relation.BELONGS_TO,
-        target: posts,
-        from: [comments.columns.subjectId],
-        to: [posts.columns.id],
-        discriminator: comments.columns.subjectType,
-      },
-    });
-    const schema = new SchemaRegistry({ photos, videos, posts, comments, rels });
 
-    expect(() =>
-      new OperationsFactory(
-        new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
-      ).createSelectOperation(schema.getTable("comments"), {
-        mode: "many",
-        args: { select: [], join: [["subject", { members: all("photos", "videos") }]] },
-      })
-    ).toThrow(/joining a belongs-to a union is not supported yet/);
+  it("resolves the discriminator column from the registry", () => {
+    expect(schema.getRelationDiscriminator("comments", "subject")).toBe(
+      schema.getTable("comments").columns.subjectType
+    );
+    expect(registry.getRelationDiscriminator("users", "feed")).toBeUndefined();
+  });
+
+  // The ids of two members may collide; only the member the discriminator names may match.
+  it("correlates each branch on the discriminator naming its member", () => {
+    const { query } = build();
+
+    expect(query.text).toContain(
+      `FROM "photos" AS "__t1" WHERE "__t1"."id" = "__t0"."subject_id" AND "__t0"."subject_type" = 'photos'`
+    );
+    expect(query.text).toContain(
+      `FROM "videos" AS "__t2" WHERE "__t2"."id" = "__t0"."subject_id" AND "__t0"."subject_type" = 'videos'`
+    );
+    expect(query.text).toContain('LEFT JOIN LATERAL (SELECT "__u0"."data" AS "data" FROM (');
+  });
+});
+
+describe("row decoders", () => {
+  const comments = new TableDefinition("comments", {
+    columns: {
+      id: col("id", "uuid").primaryKey(),
+      subjectType: col("subject_type"),
+      subjectId: col("subject_id", "uuid"),
+      body: col("body"),
+    },
+  });
+  const schema = new SchemaRegistry({ comments });
+  const table = schema.getTable("comments");
+
+  Object.defineProperty(table.columns.subjectId, "rowDecoder", {
+    value: {
+      dependsOn: [table.columns.subjectType],
+      decode: (raw: unknown, row: Record<string, unknown>) =>
+        `${String(row.subject_type)}:${String(raw)}`,
+    },
+  });
+
+  const select = (fields: string[]) =>
+    new OperationsFactory(
+      new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+    ).createSelectOperation(table, {
+      mode: "many",
+      args: {
+        select: fields.map((field) => [field, table.columns[field as keyof typeof table.columns]]),
+      },
+    });
+
+  it("projects the dependency without emitting it, and decodes from the whole row", () => {
+    const { query, resolve } = select(["subjectId"]);
+
+    expect(query.text).toBe(
+      'SELECT "__t0"."subject_id", "__t0"."subject_type" FROM "comments" AS "__t0"'
+    );
+    expect(resolve([{ subject_id: "s1", subject_type: "photos" }])).toEqual([
+      { $$meta: table.meta, subjectId: "photos:s1" },
+    ]);
+  });
+
+  it("projects a dependency once when it is also selected", () => {
+    const { query, resolve } = select(["subjectType", "subjectId"]);
+
+    expect(query.text).toBe(
+      'SELECT "__t0"."subject_type", "__t0"."subject_id" FROM "comments" AS "__t0"'
+    );
+    expect(resolve([{ subject_id: "s1", subject_type: "photos" }])).toEqual([
+      { $$meta: table.meta, subjectType: "photos", subjectId: "photos:s1" },
+    ]);
+  });
+
+  it("leaves a null value null without decoding", () => {
+    const { resolve } = select([]);
+
+    expect(resolve([{ id: "c1", subject_id: null, subject_type: null, body: null }])).toEqual([
+      { $$meta: table.meta, id: "c1", subjectType: null, subjectId: null, body: null },
+    ]);
   });
 });
 
@@ -498,7 +573,9 @@ describe("top-level union select", () => {
       expect(query.text).toContain(
         `FROM "photos" AS "__t0" WHERE "__t0"."created_at" < $1 OR ("__t0"."created_at" = $2 AND ('photos' > $3 OR ('photos' = $4 AND "__t0"."id" > $5))) ORDER BY`
       );
-      expect(query.text).toContain(`FROM "videos" AS "__t1" WHERE "__t1"."created_at" < $7 OR ("__t1"."created_at" = $8 AND ('videos' > $9`);
+      expect(query.text).toContain(
+        `FROM "videos" AS "__t1" WHERE "__t1"."created_at" < $7 OR ("__t1"."created_at" = $8 AND ('videos' > $9`
+      );
     });
 
     it("reverses every key, pushdown included, for a page before the cursor", () => {
@@ -508,7 +585,9 @@ describe("top-level union select", () => {
         limit: 3,
       });
 
-      expect(query.text).toContain('WHERE "__t0"."created_at" > $1 OR ("__t0"."created_at" = $2 AND (\'photos\' < $3');
+      expect(query.text).toContain(
+        'WHERE "__t0"."created_at" > $1 OR ("__t0"."created_at" = $2 AND (\'photos\' < $3'
+      );
       expect(query.text).toContain('ORDER BY "__t0"."created_at" ASC, "__t0"."id" DESC LIMIT');
       expect(query.text).toMatch(/ORDER BY "__o0" ASC, "\$\$key" DESC, "__pk0" DESC LIMIT \$\d+$/);
     });

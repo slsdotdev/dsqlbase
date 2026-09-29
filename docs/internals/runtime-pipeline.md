@@ -69,7 +69,10 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
   branch, and the lateral aggregates `"data"` with `json_agg(… ORDER BY …)` for has-many, or
   takes the one row for has-one.
 - **All members pruned.** No join is emitted. The resolver answers `[]` or `null`.
-- **Belongs-to a union.** Joining one is refused until its discriminator is applied per branch.
+- **Belongs-to a union.** `SchemaRegistry.getRelationDiscriminator` gives its discriminator
+  column. Each branch then carries `correlate: [discriminator = '<alias>']`, which the builder
+  renders in the parent's scope next to the correlation, so only the named member's branch can
+  match.
 
 
 ## The `WHERE` seam
@@ -156,7 +159,10 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 — the same row the column branch reads from. A resolver that needs the database's own text
 representation of a value rather than the decoded one therefore has it.
 
-`$$meta` is the only `MetaResolver` today. `_resolveFields` pushes it first for every level it
+Two things produce a `MetaResolver`. One is a column with a row decoder
+(`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
+its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
+The other is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:
 
