@@ -213,7 +213,7 @@ describe("a polymorphic belongs-to", () => {
 
   describe("writing", () => {
     it("fills the discriminator from a global id", async () => {
-      await dsql.ledgerEntries.create({ data: { counterpartyId: companyId, amount: "10" } });
+      await dsql.ledgerEntries.create({ data: { counterpartyId: companyId, amount: 10 } });
 
       expect(text_()).toContain('"counterparty_type", "counterparty_id"');
       expect(params()).toEqual(expect.arrayContaining(["companies", COMPANY]));
@@ -222,13 +222,13 @@ describe("a polymorphic belongs-to", () => {
     it("accepts a discriminator that agrees, and refuses one that does not", () => {
       expect(() =>
         dsql.ledgerEntries.create({
-          data: { counterpartyId: companyId, counterpartyType: "companies", amount: "1" },
+          data: { counterpartyId: companyId, counterpartyType: "companies", amount: 1 },
         })
       ).not.toThrow();
 
       expect(() =>
         dsql.ledgerEntries.create({
-          data: { counterpartyId: companyId, counterpartyType: "persons", amount: "1" },
+          data: { counterpartyId: companyId, counterpartyType: "persons", amount: 1 },
         })
       ).toThrow(GlobalIdError);
     });
@@ -237,18 +237,18 @@ describe("a polymorphic belongs-to", () => {
       const entryId = encodeGlobalId("ledgerEntries", { id: COMPANY });
 
       expect(() =>
-        dsql.ledgerEntries.create({ data: { counterpartyId: entryId, amount: "1" } })
+        dsql.ledgerEntries.create({ data: { counterpartyId: entryId, amount: 1 } })
       ).toThrow(/this column holds ids for "companies", "persons"/);
     });
 
     it("leaves the discriminator alone for a raw uuid, and fills it on update", async () => {
-      await dsql.ledgerEntries.create({ data: { counterpartyId: COMPANY, amount: "1" } });
+      await dsql.ledgerEntries.create({ data: { counterpartyId: COMPANY, amount: 1 } });
       expect(params()).not.toContain("companies");
 
       calls = [];
       await dsql.ledgerEntries.update({
         set: { counterpartyId: personId },
-        where: { amount: { eq: "1" } },
+        where: { amount: { eq: 1 } },
       });
 
       expect(text_()).toContain('SET "counterparty_id" = $1, "counterparty_type" = $2');
