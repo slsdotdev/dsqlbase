@@ -37,7 +37,7 @@ dsqlbase embraces those constraints as features while aiming to provide a seamle
 
 Full documentation lives in [`docs/`](./docs/README.md):
 
-- [Guide](./docs/guide/README.md) — install, schema, relations, querying, [pagination](./docs/guide/pagination.md), sessions, transactions, [tenancy](./docs/guide/tenancy.md), [global ids](./docs/guide/global-ids.md), migrations, and [what DSQL changes](./docs/guide/dsql-notes.md).
+- [Guide](./docs/guide/README.md) — install, schema, relations, [polymorphic relations](./docs/guide/polymorphic-relations.md), querying, [pagination](./docs/guide/pagination.md), sessions, transactions, [tenancy](./docs/guide/tenancy.md), [global ids](./docs/guide/global-ids.md), migrations, and [what DSQL changes](./docs/guide/dsql-notes.md).
 - [Internals](./docs/internals/README.md) — architecture, runtime and migration pipelines, the verified [DSQL capability table](./docs/internals/dsql-capabilities.md).
 - [Decisions](./docs/decisions/README.md) — accepted design records.
 

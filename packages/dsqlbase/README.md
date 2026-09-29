@@ -156,9 +156,46 @@ const open = await dsql.tasks.count({ where: { status: "todo" } });
 
 See the [pagination guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/pagination.md).
 
+## Polymorphic relations
+
+`union()` groups tables that stand in for one another — a GraphQL union or interface — and
+relations can point at it. The client reads it as one `UNION ALL`, ordered and limited across
+members in SQL, and `$$key` on every row says which member it came from:
+
+```ts
+import { union, relations, hasMany } from "dsqlbase/schema";
+
+export const posts = union({ photos, videos });
+
+export const authorRelations = relations(authors, {
+  posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
+});
+
+const author = await dsql.authors.findOne({
+  where: { id: { eq: authorId } },
+  join: {
+    posts: {
+      orderBy: { createdAt: "desc" },
+      limit: 20,
+      on: { photos: { select: { photoUrl: true } } }, // per-member fragment
+    },
+  },
+});
+
+for (const post of author?.posts ?? []) {
+  if (post.$$key === "photos") post.photoUrl;
+}
+
+const page = await dsql.posts.paginate({ where: { $$key: { in: types } }, limit: 20 });
+```
+
+A `belongsTo(union, { ..., discriminator })` points one row at one of several tables. Its
+`guid()` reads back keyed by whichever member the discriminator names. See the
+[polymorphic relations guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/polymorphic-relations.md).
+
 ## Links
 
-- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, pagination, sessions, transactions, tenancy, global ids, migrations, DSQL notes
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, pagination, polymorphic relations, sessions, transactions, tenancy, global ids, migrations, DSQL notes
 - [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)
