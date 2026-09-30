@@ -73,14 +73,45 @@ const tasks = await dsql.tasks.findMany({
 });
 ```
 
-- **`select`** — real columns only; omit for all columns. Virtual or computed fields are not supported yet.
+- **`select`** — columns, and relations as field maps (below). Virtual or computed fields are not supported yet.
+  - **No `select`**, or one naming nothing as `true` (`{}`, `{ id: false }`), returns every column.
+  - **Naming columns** returns those columns.
+  - **Naming only relations** returns only those relations, with no columns of the row itself.
 - **`where`** — per field: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `between`, `exists` (null check), `beginsWith`, `endsWith`, `contains`; combinators `and`, `or`, `not`. A bare value is shorthand for `eq`.
   An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
   Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns.
-- **`join`** — declared relations only; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
+- **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
+
+### Relations in `select`
+
+A relation can be named in `select` like a column, as `true` (every column of the related row)
+or as a field map over the related table, which may name that table's relations in turn. It is
+read exactly as the same relation in `join`, so the SQL and the result are identical:
+
+```ts
+const tasks = await dsql.tasks.findMany({
+  select: { id: true, title: true, project: { name: true, owner: { email: true } } },
+});
+// same as
+const same = await dsql.tasks.findMany({
+  select: { id: true, title: true },
+  join: { project: { select: { name: true }, join: { owner: { select: { email: true } } } } },
+});
+
+await dsql.tasks.findOne({ where: { id: { eq: id } }, select: { project: true } });
+// { $$meta, project: { …every project column } | null } — no task columns
+```
+
+- A field map takes fields only. A relation that needs `where`, `orderBy`, `limit` or `offset`
+  is written in `join`.
+- A relation to a [`union()`](./polymorphic-relations.md) takes the union's shared fields; select
+  a member's own fields through `join` and `on`.
+- Naming the same relation in both `select` and `join` is refused: a type error at the call, and
+  an error when the query is built (at any depth). A `false` in `join` beside it is ignored.
+- `return` on `create` / `update` / `delete` takes columns only.
 
 For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
 `offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.

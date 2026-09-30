@@ -110,14 +110,81 @@ export type RecordMetaOf<T, TAlias extends string = string> = Prettify<
   { key: TAlias; table: string; schema?: string } & DeclaredMetaOf<T>
 >;
 
+/** The columns a `return` may name. A read's `select` also takes relations: {@link SelectionOf}. */
 export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
 
+/** The columns a selection names as `true` — never its relations. */
 export type SelectedFieldsOf<
   TTable extends AnyTable,
   TSelection extends FieldSelectionOf<TTable>,
 > = {
-  [K in keyof TSelection]: TSelection[K] extends true ? K : never;
+  [K in keyof TSelection]: K extends FieldNamesOf<TTable>
+    ? TSelection[K] extends true
+      ? K
+      : never
+    : never;
 }[keyof TSelection];
+
+/**
+ * Every key a selection names: a column as `true`, a relation as `true` or a field map. None
+ * means every column, as with no selection at all.
+ */
+type NamedKeysOf<TSelection> = {
+  [K in keyof TSelection]-?: TSelection[K] extends true | object ? K : never;
+}[keyof TSelection];
+
+/**
+ * A read's `select`: columns, plus relation fields. A relation takes `true` — every column of
+ * its target — or a field map over its target, relations included, and is read exactly as
+ * `join: { r: true }` or `join: { r: { select: map } }`. Filters, order and limits on a relation
+ * are written in `join`.
+ */
+export type SelectionOf<T extends AnyTable, S extends AnySchema> = [
+  DeclaredRelationNamesOf<T>,
+] extends [never]
+  ? FieldSelectionOf<T>
+  : FieldSelectionOf<T> & {
+      [R in DeclaredRelationNamesOf<T>]?: boolean | RelationSelectionOf<T, S, R>;
+    };
+
+/**
+ * The relation fields a table declares. A table with no `relations()` block reads its
+ * relations as a bare record, whose keys are `string` — every key, columns included — so that
+ * case is none.
+ */
+type DeclaredRelationNamesOf<T extends AnyTable> =
+  string extends RelationFieldNamesOf<T> ? never : RelationFieldNamesOf<T>;
+
+/** The field map a relation takes in `select`: over its target, or a union's shared fields. */
+export type RelationSelectionOf<
+  T extends AnyTable,
+  S extends AnySchema,
+  R extends RelationFieldNamesOf<T>,
+> =
+  RelationTargetOf<T, R> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
+    ? SelectionOf<Table<TName, TCols, TNamespace, SchemaTableRelations<S, TName>>, S>
+    : RelationTargetOf<T, R> extends UnionDefinition<infer TMembers>
+      ? Partial<Record<SharedFieldsOf<TMembers>, boolean>>
+      : never;
+
+/** The relations a selection names, as `true` or a field map. */
+type SelectedRelationsOf<T extends AnyTable, TSelection> = NamedKeysOf<TSelection> &
+  DeclaredRelationNamesOf<T>;
+
+/**
+ * Refuses a call naming one relation in both `select` and `join`: `join` is typed `never` for
+ * that key. Checked at the level the call is made; deeper levels are refused at runtime.
+ */
+export type NoSelectJoinOverlap<TArgs> = TArgs extends {
+  select?: infer TSelect;
+  join?: infer TJoin;
+}
+  ? [OverlapOf<TSelect, TJoin>] extends [never]
+    ? unknown
+    : { join: Record<OverlapOf<TSelect, TJoin>, never> }
+  : unknown;
+
+type OverlapOf<TSelect, TJoin> = Extract<NamedKeysOf<TSelect>, NamedKeysOf<TJoin>> & string;
 
 export type RequiredFieldsOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
@@ -176,11 +243,15 @@ export type ReturningResultOf<
 }
   ? R extends FieldSelectionOf<T>
     ? Prettify<
-        {
-          [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
-            ? ValueTypeOf<ColumnTypeOf<T, K>>
-            : never;
-        } & { $$meta: RecordMetaOf<T, TAlias> }
+        ([SelectedFieldsOf<T, R>] extends [never]
+          ? { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> }
+          : {
+              [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
+                ? ValueTypeOf<ColumnTypeOf<T, K>>
+                : never;
+            }) & {
+          $$meta: RecordMetaOf<T, TAlias>;
+        }
       >
     : R extends true
       ? Prettify<
@@ -228,11 +299,14 @@ export type QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
    * @notes
    * * The `select` clause allows you to specify which fields to retrieve, if not provided, all fields will be selected by default.
    * * You can only select fields that exist on the table, attempting to select a non-existent field will result in a TypeScript error.
+   * * A relation may be named like a field, as `true` or a field map over its target, and reads exactly as the same
+   *   relation in `join`. Naming only relations returns only them; naming nothing as `true` returns every column.
+   *   The same relation may not be named in both `select` and `join`.
    *
    * @typeParam TTable - The table being queried, used for type inference of selectable fields.
    * @typeParam TSchema - The overall schema, used for type inference of relations in join expressions.
    */
-  select?: FieldSelectionOf<TTable>;
+  select?: SelectionOf<TTable, TSchema>;
 
   /**
    * A filter expression to specify which records to retrieve. This is optional for `findMany`, if not provided, all records will be returned.
@@ -457,12 +531,16 @@ export type SelectionResultOf<
   TSchema extends AnySchema,
   TArgs extends QueryArgs<TTable, TSchema>,
 > =
-  TArgs["select"] extends FieldSelectionOf<TTable>
-    ? {
-        [K in SelectedFieldsOf<TTable, TArgs["select"]>]: K extends FieldNamesOf<TTable>
-          ? ValueTypeOf<ColumnTypeOf<TTable, K>>
-          : never;
-      }
+  // `object`, not `FieldSelectionOf`: a select naming only relations shares no key with the
+  // column map, so it would not extend it.
+  TArgs["select"] extends object
+    ? [NamedKeysOf<TArgs["select"]>] extends [never]
+      ? { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }
+      : {
+          [K in SelectedFieldsOf<TTable, TArgs["select"]>]: K extends FieldNamesOf<TTable>
+            ? ValueTypeOf<ColumnTypeOf<TTable, K>>
+            : never;
+        }
     : { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> };
 
 export type RelationJoinResultOf<
@@ -503,6 +581,65 @@ export type RelationJoinResultOf<
         TArgs
       > | null;
 
+/** One joined field of a result: relation `K` read with join entry `TEntry`. */
+type JoinFieldResultOf<TTable extends AnyTable, TSchema extends AnySchema, K, TEntry> =
+  K extends RelationFieldNamesOf<TTable>
+    ? RelationTargetOf<TTable, K> extends TableDefinition<
+        infer TName,
+        infer TCols,
+        infer TNamespace
+      >
+      ? TEntry extends QueryArgs<
+          Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+          TSchema
+        >
+        ? RelationJoinResultOf<
+            TTable,
+            TSchema,
+            TEntry,
+            K,
+            TName,
+            TCols,
+            TNamespace,
+            DeclaredMetaOf<RelationTargetOf<TTable, K>>
+          >
+        : TEntry extends boolean
+          ? TEntry extends true
+            ? RelationJoinResultOf<
+                TTable,
+                TSchema,
+                QueryArgs<
+                  Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+                  TSchema
+                >,
+                K,
+                TName,
+                TCols,
+                TNamespace,
+                DeclaredMetaOf<RelationTargetOf<TTable, K>>
+              >
+            : never
+          : never
+      : RelationTargetOf<TTable, K> extends UnionDefinition<infer TMembers>
+        ? UnionJoinResultOf<
+            TMembers,
+            TSchema,
+            TEntry extends UnionQueryArgs<TMembers, TSchema> ? TEntry : object,
+            RelationTypeOf<TTable, K>
+          >
+        : never
+    : never;
+
+/** The relations named in `select`, each shaped as the `join` entry it is read as. */
+type SelectedRelationsResultOf<TTable extends AnyTable, TSchema extends AnySchema, TSelection> = {
+  [K in SelectedRelationsOf<TTable, TSelection>]: JoinFieldResultOf<
+    TTable,
+    TSchema,
+    K,
+    TSelection[K] extends true ? true : { select: TSelection[K] }
+  >;
+};
+
 export type QueryResultOf<
   TTable extends AnyTable,
   TSchema extends AnySchema,
@@ -510,56 +647,9 @@ export type QueryResultOf<
 > = Prettify<
   SelectionResultOf<TTable, TSchema, TArgs> & {
     $$meta: RecordMetaOf<TTable, AliasOf<TSchema, TTable>>;
-  } & {
-    [K in keyof TArgs["join"]]: K extends RelationFieldNamesOf<TTable>
-      ? RelationTargetOf<TTable, K> extends TableDefinition<
-          infer TName,
-          infer TCols,
-          infer TNamespace
-        >
-        ? TArgs["join"][K] extends QueryArgs<
-            Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
-            TSchema
-          >
-          ? RelationJoinResultOf<
-              TTable,
-              TSchema,
-              TArgs["join"][K],
-              K,
-              TName,
-              TCols,
-              TNamespace,
-              DeclaredMetaOf<RelationTargetOf<TTable, K>>
-            >
-          : TArgs["join"][K] extends boolean
-            ? TArgs["join"][K] extends true
-              ? RelationJoinResultOf<
-                  TTable,
-                  TSchema,
-                  QueryArgs<
-                    Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
-                    TSchema
-                  >,
-                  K,
-                  TName,
-                  TCols,
-                  TNamespace,
-                  DeclaredMetaOf<RelationTargetOf<TTable, K>>
-                >
-              : never
-            : never
-        : RelationTargetOf<TTable, K> extends UnionDefinition<infer TMembers>
-          ? UnionJoinResultOf<
-              TMembers,
-              TSchema,
-              TArgs["join"][K] extends UnionQueryArgs<TMembers, TSchema>
-                ? TArgs["join"][K]
-                : object,
-              RelationTypeOf<TTable, K>
-            >
-          : never
-      : never;
-  }
+  } & SelectedRelationsResultOf<TTable, TSchema, TArgs["select"]> & {
+      [K in NamedKeysOf<TArgs["join"]>]: JoinFieldResultOf<TTable, TSchema, K, TArgs["join"][K]>;
+    }
 >;
 
 /* -------------------------------------------------------------------------------------------

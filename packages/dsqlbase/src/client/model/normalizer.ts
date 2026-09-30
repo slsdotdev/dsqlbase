@@ -259,14 +259,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return expression;
   }
 
+  /** The columns a `return` names, or `undefined` — every column — when it names none. */
   private _getSelectionEntries<TTable extends AnyTable>(
     table: TTable,
     selection: FieldSelectionOf<TTable> | boolean | null | undefined
-  ): FieldSelection[] {
+  ): FieldSelection[] | undefined {
     const entries: FieldSelection[] = [];
 
     if (!selection || typeof selection === "boolean") {
-      return entries;
+      return undefined;
     }
 
     for (const [fieldName, isSelected] of Object.entries(selection)) {
@@ -281,7 +282,79 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
-    return entries;
+    return entries.length > 0 ? entries : undefined;
+  }
+
+  /**
+   * A read's `select`, split into the columns it names and the relations it names. A relation
+   * takes `true` or a field map, and is read exactly as `join: { r: true }` or
+   * `join: { r: { select: map } }`: it is merged into `join` here, so everything after this
+   * sees one join form. The same relation in both is refused rather than merged.
+   *
+   * Which columns come back: those named; none when only relations are named (`[]`); every
+   * column when nothing is named at all (`undefined`), as with no `select`.
+   */
+  private _getReadSelection<TTable extends AnyTable>(
+    table: TTable,
+    selection: Record<string, unknown> | null | undefined,
+    join: Record<string, unknown> | null | undefined,
+    columns: FieldSelection[] = []
+  ): { select: FieldSelection[] | undefined; join: Record<string, unknown> } {
+    // Selected relations first, so a result's keys follow the call as written.
+    const merged: Record<string, unknown> = {};
+
+    for (const [fieldName, value] of Object.entries(selection ?? {})) {
+      if (value === false || value === null || value === undefined) {
+        continue;
+      }
+
+      const column = table.getColumn(fieldName);
+
+      if (column && value === true) {
+        if (!columns.some(([name]) => name === fieldName)) {
+          columns.push([fieldName, column]);
+        }
+
+        continue;
+      }
+
+      if (column || !this._isRelation(table, fieldName)) {
+        throw new Error(`Invalid field "${fieldName}" in selection for table "${table.name}".`);
+      }
+
+      const joined = join?.[fieldName];
+
+      if (joined !== undefined && joined !== null && joined !== false) {
+        throw new Error(
+          `Relation "${fieldName}" appears in both select and join on "${table.name}"; ` +
+            `name it in one of them.`
+        );
+      }
+
+      merged[fieldName] = value === true ? true : { select: value };
+    }
+
+    const hasRelation = Object.keys(merged).length > 0;
+
+    for (const [fieldName, entry] of Object.entries(join ?? {})) {
+      // A selected relation is only ever beside a falsy join entry here, which it outranks.
+      if (!(fieldName in merged)) {
+        merged[fieldName] = entry;
+      }
+    }
+
+    return {
+      select: columns.length > 0 ? columns : hasRelation ? [] : undefined,
+      join: merged,
+    };
+  }
+
+  private _isRelation(table: AnyTable, fieldName: string): boolean {
+    const { schema } = this._ctx;
+
+    return (
+      schema.hasRelations(table.name) && Object.hasOwn(schema.getRelations(table.name), fieldName)
+    );
   }
 
   /** `orderBy` as resolved keys, in the order the caller wrote them. */
@@ -652,8 +725,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         field,
         union.getMemberColumn(alias, field),
       ]);
-      const extra = this._getSelectionEntries(member, own.select).filter(
-        ([field]) => !sharedSelect.includes(field)
+      // The member's own select adds to the shared one; a relation in it becomes a member join.
+      const selection = this._getReadSelection(
+        member,
+        own.select as Record<string, unknown> | undefined,
+        own.join as Record<string, unknown> | undefined,
+        shared
       );
 
       const where = [
@@ -664,9 +741,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       members.push([
         alias,
         {
-          select: [...shared, ...extra],
+          select: selection.select,
           where: where.length > 0 ? where : undefined,
-          join: this._getJoinEntries(member, own.join),
+          join: this._getJoinEntries(
+            member,
+            selection.join as JoinExpressionOf<AnyTable, this["__type"]>
+          ),
         },
       ]);
     }
@@ -826,13 +906,20 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     table: TTable,
     args: QueryArgs<TTable, this["__type"]>
   ): SelectOperationArgs {
-    const selection = this._getSelectionEntries(table, args.select);
+    const selection = this._getReadSelection(
+      table,
+      args.select as Record<string, unknown> | undefined,
+      args.join as Record<string, unknown> | undefined
+    );
     const where = this._getWhereExpression(table, args.where);
-    const join = this._getJoinEntries(table, args.join);
+    const join = this._getJoinEntries(
+      table,
+      selection.join as JoinExpressionOf<TTable, this["__type"]>
+    );
     const orderBy = this._getOrderByEntries(table, args.orderBy);
 
     return {
-      select: selection,
+      select: selection.select,
       where,
       join,
       orderBy,

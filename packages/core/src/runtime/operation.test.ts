@@ -356,6 +356,39 @@ describe("OperationFactory / $$meta", () => {
   });
 });
 
+describe("OperationFactory / selection", () => {
+  const factory = new OperationsFactory(
+    new ExecutionContext({ schema: registry, dialect: new QueryBuilder(), session: mockSession })
+  );
+  const users = registry.getTable("users");
+
+  it("projects every column when the selection is omitted", () => {
+    const { query } = factory.createSelectOperation(users, { mode: "many", args: {} });
+
+    expect(query.text).toBe(
+      'SELECT "__t0"."id", "__t0"."name", "__t0"."email" FROM "users" AS "__t0"'
+    );
+  });
+
+  it("projects no column when the selection is empty, leaving only the joins", () => {
+    const { query, resolve } = factory.createSelectOperation(users, {
+      mode: "many",
+      args: {
+        select: [],
+        join: [["posts", { select: [["title", registry.getTable("posts").columns.title]] }]],
+      },
+    });
+
+    expect(query.text).toMatch(/^SELECT "__join_posts"\."data" AS "posts" FROM "users" AS "__t0"/);
+    expect(resolve([{ posts: [{ title: "First" }] }])).toEqual([
+      {
+        $$meta: { key: "users", table: "users" },
+        posts: [{ $$meta: { key: "posts", table: "posts" }, title: "First" }],
+      },
+    ]);
+  });
+});
+
 describe("OperationFactory / where seam", () => {
   let factory: OperationsFactory;
 
@@ -785,7 +818,7 @@ describe("OperationFactory / tenant predicate", () => {
             "invoices",
             {
               select: [["id", invoiceTable.columns.id]],
-              join: [["lineItems", { select: [] }]],
+              join: [["lineItems", {}]],
             },
           ],
         ],
@@ -823,7 +856,7 @@ describe("OperationFactory / tenant predicate", () => {
         mode: "many",
         args: {
           select: [["id", table.columns.id]],
-          join: [["invoices", { select: [] }]],
+          join: [["invoices", {}]],
         },
       })
     ).toThrow(/Table "invoices" is tenant-scoped/);

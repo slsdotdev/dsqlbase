@@ -78,10 +78,13 @@ for (const post of user?.feed ?? []) {
 - **`on.<alias>`** is `true` (the default: the member runs with the shared arguments),
   `false` (the member produces no branch and leaves the result type), or an object that adds
   member-only arguments:
-  - its `select` is merged with the shared one;
+  - its `select` is merged with the shared one, and may name the member's relations, as on a
+    table ([relations in `select`](./querying.md#relations-in-select));
   - its `where` is AND-ed with the shared one inside that member;
   - its `join` walks the member's own relations.
 - **Omitting `select`** returns every column of each member, as it does for a table.
+- **A relation to a union in `select`** (`select: { feed: { id: true } }`) takes the shared
+  fields only, and reads as the same relation in `join`.
 - **`distinct` is refused** on a union.
 - **A has-many** yields an array, and **a has-one** yields one row or `null`. With every member
   excluded, the join adds no SQL at all, and the field is `[]` or `null`.

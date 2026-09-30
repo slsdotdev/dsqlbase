@@ -43,7 +43,7 @@ Recorded because this was accepted with reservations, not because it is known to
 1. **Readability of `__t<n>`.** Opaque aliases make a query log or `EXPLAIN` plan harder to read for a deep tree — you count levels to work out which alias is which table. A readable scheme (`__tasks_0`) was considered and not chosen.
 2. **Unconditional aliasing.** Flat selects are aliased too, for uniformity and because later stories want a stable handle on every level. Restricting it to trees that contain a join is a one-line guard and would leave simple queries untouched.
 3. **The correlation's two-scope trick is subtle.** The parent-side wrapper is applied in `_buildCorrelation` but only takes effect when the *child* wraps its `WHERE`, so the mechanism is not visible from either site alone. Walked through in [Select-tree aliasing](../internals/select-tree-aliasing.md#walkthrough-how-the-parents-alias-reaches-inside-the-subquery).
-4. **No user-facing aliasing API.** Deliberately deferred rather than shipping `sql.scope` — its bindings are keyed by builder-internal node objects. `client-runtime-joins.md` wants ad-hoc joins and is the natural place to design one.
+4. **No user-facing aliasing API.** Deliberately deferred rather than shipping `sql.scope` — its bindings are keyed by builder-internal node objects. `client-runtime-joins.md` wants ad-hoc joins and is the natural place to design one. **Still open after [0010](./0010-relation-select.md)**, which narrowed that work to relations in `select` and deferred ad-hoc joins; it records a proposed answer (`(self, parent)` references, no named scopes) and recommends affirming concern 2.
 
 ## Docs
 

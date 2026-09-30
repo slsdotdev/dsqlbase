@@ -61,6 +61,8 @@ const user = await dsql.users.findOne({
 
 Nested `where` / `select` / `orderBy` / `limit` / `join` all work inside a join, because each join is a full sub-select. See [Querying](./querying.md).
 
+When a relation needs no filter, order or limit, name it in `select` instead, as `true` or a field map — `select: { name: true, membership: { role: true } }` reads exactly as `join: { membership: { select: { role: true } } }`. See [Relations in `select`](./querying.md#relations-in-select).
+
 - **A relation may not be named after a column of the same table.** Columns and relations share one field namespace, because `select`, `join` and the keys of a result row all address them as fields of the same model. `createClient` throws when they collide, naming both.
 - **`$$meta` and `$$key` are reserved.** A relation of either name throws when the client is created; the runtime writes them onto result rows itself. See [`$$meta`](./querying.md#meta-on-every-row).
 
