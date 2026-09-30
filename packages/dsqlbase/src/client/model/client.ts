@@ -13,6 +13,7 @@ import {
   CountArgs,
   FindOneArgs,
   PageOf,
+  NoSelectJoinOverlap,
   PaginateArgs,
   QueryArgs,
   CreateArgs,
@@ -59,6 +60,8 @@ export class ModelClient<
    * @notes
    * * The `where` clause is required to ensure that the operation is deterministic and does not accidentally return an unintended record.
    * * The `select` clause allows you to specify which fields to retrieve, if not provided, all fields will be selected by default.
+   * * A relation may be named in `select` as `true` or a field map (`select: { profile: { bio: true } }`);
+   *   it reads as the same relation in `join`, which is where its `where` / `orderBy` / `limit` go.
    *
    * @param args
    * @returns An executable query that can be awaited.
@@ -66,7 +69,7 @@ export class ModelClient<
    */
 
   public findOne<TArgs extends FindOneArgs<TTable, this["__type"]>>(
-    args: TArgs
+    args: TArgs & NoSelectJoinOverlap<TArgs>
   ): ExecutableQuery<OperationResult<"one", QueryResultOf<TTable, this["__type"], TArgs>>> {
     const request = this._normalizer.normalizeSelect(this._table, args, "one");
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
@@ -90,7 +93,7 @@ export class ModelClient<
    */
 
   public findMany<TArgs extends QueryArgs<TTable, this["__type"]>>(
-    args: TArgs
+    args: TArgs & NoSelectJoinOverlap<TArgs>
   ): ExecutableQuery<OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>> {
     const request = this._normalizer.normalizeSelect(this._table, args, "many");
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
@@ -125,7 +128,7 @@ export class ModelClient<
    */
 
   public paginate<TArgs extends PaginateArgs<TTable, this["__type"]>>(
-    args: TArgs
+    args: TArgs & NoSelectJoinOverlap<TArgs>
   ): Executable<PageOf<TTable, this["__type"], TArgs>> {
     const plan = this._normalizer.normalizePaginate(this._table, args);
     const select = this._ctx.operations.createSelectOperation(this._table, plan.request);

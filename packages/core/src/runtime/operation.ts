@@ -133,7 +133,11 @@ export type UnionSelectOperationArgs = {
 };
 
 export type SelectOperationArgs = {
-  select: FieldSelection[];
+  /**
+   * The columns to project. Omitted, every column; empty, none — a level that returns only its
+   * joins.
+   */
+  select?: FieldSelection[];
   where?: SQLNode | SQLNode[];
   orderBy?: SQLNode[];
   join?: [fieldName: string, args: SelectOperationArgs | UnionSelectOperationArgs][];
@@ -328,6 +332,8 @@ export class OperationsFactory<
    * Resolvers for one level of a result — the top level of a select, a join level, or a
    * `return` selection. Every level is built here, which is why stamping `$$meta` once at the
    * top of this function reaches all of them.
+   *
+   * No selection projects every column; an empty one projects none.
    */
   private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
     const columns: AnyColumn[] = [];
@@ -357,7 +363,7 @@ export class OperationsFactory<
       resolvers.push([fieldName, (row) => column.resolveRow(row)]);
     };
 
-    if (!selection || selection.length === 0) {
+    if (!selection) {
       for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
         add(fieldName, column);
       }

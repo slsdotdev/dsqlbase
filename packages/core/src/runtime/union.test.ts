@@ -83,7 +83,7 @@ const factory = new OperationsFactory(
 );
 
 const all = (...aliases: string[]): UnionSelectOperationArgs["members"] =>
-  aliases.map((alias) => [alias, { select: [] }]);
+  aliases.map((alias) => [alias, {}]);
 
 const select = (join: SelectOperationArgs["join"], mode: "one" | "many" = "one") =>
   factory.createSelectOperation(registry.getTable("users"), {
@@ -222,7 +222,7 @@ describe("union joins — SQL", () => {
               {
                 select: [["id", photosTable.columns.id]],
                 where: sql.eq(photosTable.columns.photoUrl, "x"),
-                join: [["owner", { select: [] }]],
+                join: [["owner", {}]],
               },
             ],
           ],
@@ -254,11 +254,11 @@ describe("union joins — SQL", () => {
     expect(() =>
       factory.createSelectOperation(photosTable, {
         mode: "many",
-        args: { select: [], join: [["owner", { members: [] }]] },
+        args: { join: [["owner", { members: [] }]] },
       })
     ).toThrow(/targets table "users", but was joined with arguments for a union/);
 
-    expect(() => select([["feed", { select: [] }]])).toThrow(
+    expect(() => select([["feed", {}]])).toThrow(
       /targets union "posts", but was joined with arguments for a table/
     );
   });
@@ -287,7 +287,7 @@ describe("union joins — belongs-to", () => {
       new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
     ).createSelectOperation(schema.getTable("comments"), {
       mode: "many",
-      args: { select: [], join: [["subject", { members: all("photos", "videos") }]] },
+      args: { join: [["subject", { members: all("photos", "videos") }]] },
     });
 
   it("resolves the discriminator column from the registry", () => {
@@ -331,13 +331,14 @@ describe("row decoders", () => {
     },
   });
 
-  const select = (fields: string[]) =>
+  // Every column when `fields` is omitted.
+  const select = (fields?: string[]) =>
     new OperationsFactory(
       new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
     ).createSelectOperation(table, {
       mode: "many",
       args: {
-        select: fields.map((field) => [field, table.columns[field as keyof typeof table.columns]]),
+        select: fields?.map((field) => [field, table.columns[field as keyof typeof table.columns]]),
       },
     });
 
@@ -364,7 +365,7 @@ describe("row decoders", () => {
   });
 
   it("leaves a null value null without decoding", () => {
-    const { resolve } = select([]);
+    const { resolve } = select();
 
     expect(resolve([{ id: "c1", subject_id: null, subject_type: null, body: null }])).toEqual([
       { $$meta: table.meta, id: "c1", subjectType: null, subjectId: null, body: null },
@@ -470,7 +471,7 @@ describe("union joins — tenancy", () => {
       })
     ).createSelectOperation(scoped.getTable("users"), {
       mode: "many",
-      args: { select: [], join: [["items", { members: all("notes", "links") }]] },
+      args: { join: [["items", { members: all("notes", "links") }]] },
     });
 
   it("applies the tenant predicate inside the scoped member's branch only", () => {
