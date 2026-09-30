@@ -137,7 +137,7 @@ export function createSequenceDDL(
   });
 }
 
-export interface PrintSchemaOptions {
+export type PrintSchemaOptions = {
   /**
    * Whether to include `IF NOT EXISTS` clauses in the generated SQL. Defaults to `true`.
    * @default true
@@ -154,7 +154,7 @@ export interface PrintSchemaOptions {
    * Optional SQL context to use when printing the SQL. This can be used to provide additional information or configuration for the SQL generation process, such as quoting identifiers or formatting options.
    */
   sqlContext?: Partial<SQLContext>;
-}
+};
 
 /**
  * Generates full DDL SQL for creating the given schema, including all tables, domains, namespaces, sequences, and views.

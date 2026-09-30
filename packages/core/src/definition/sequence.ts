@@ -2,7 +2,7 @@ import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { SQLIdentifier, SQLQuery } from "../sql/nodes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
-export interface SequenceOptions {
+export type SequenceOptions = {
   dataType?: string;
   cache?: number;
   cycle?: boolean;
@@ -11,11 +11,11 @@ export interface SequenceOptions {
   maxValue?: number;
   startValue?: number;
   ownedBy?: SQLIdentifier;
-}
+};
 
-export interface SequenceConfig<TNamespace extends AnyNamespaceDefinition> {
+export type SequenceConfig<TNamespace extends AnyNamespaceDefinition> = {
   namespace?: NodeRef<TNamespace>;
-}
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnySequenceDefinition = SequenceDefinition<any, any>;

@@ -1,7 +1,7 @@
 import { sql } from "@dsqlbase/core";
 import { TestClient } from "../db";
 
-export interface SeededData {
+export type SeededData = {
   teams: { id: string; name: string; slug: string }[];
   users: { id: string; name: string; email: string }[];
   members: { id: string; teamId: string; userId: string; role: string }[];
@@ -32,7 +32,7 @@ export interface SeededData {
   folders: { id: string; parentId: string | null; name: string }[];
   files: { id: string; parentId: string | null; name: string }[];
   bookmarks: { id: string; authorId: string | null; title: string }[];
-}
+};
 
 export async function seedTeams(client: TestClient) {
   const query = sql`

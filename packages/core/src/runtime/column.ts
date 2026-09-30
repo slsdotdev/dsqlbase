@@ -7,12 +7,12 @@ import { AnyTable } from "./table.js";
 export type AnyColumn = Column<any, any, any>;
 
 /** See {@link Column.rowDecoder}. */
-export interface ColumnRowDecoder {
+export type ColumnRowDecoder = {
   /** Columns of the same table the decode reads; projected alongside this one. */
   readonly dependsOn: AnyColumn[];
   /** The value from the column's raw value and the raw row it was read from, keyed by column name. */
   decode(raw: unknown, row: Record<string, unknown>): unknown;
-}
+};
 
 export class Column<TName extends string, TConfig extends ColumnConfig, TTable extends AnyTable>
   implements SQLNode, TypedObject<TConfig>

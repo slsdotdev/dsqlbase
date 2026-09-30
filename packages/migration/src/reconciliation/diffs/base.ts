@@ -11,7 +11,7 @@ export type DiffValue<
     : TObject[keyof TObject]
   : TObject;
 
-export interface Diff<TType extends DiffType, TObject extends SerializedObject<DefinitionNode>> {
+export type Diff<TType extends DiffType, TObject extends SerializedObject<DefinitionNode>> = {
   type: TType;
   kind: TObject["kind"];
   name: TObject["name"];
@@ -19,7 +19,7 @@ export interface Diff<TType extends DiffType, TObject extends SerializedObject<D
   key?: keyof TObject;
   value?: DiffValue<TType, TObject>;
   prevValue?: DiffValue<TType, TObject>;
-}
+};
 
 export type AnyDiff<T extends DefinitionNode = DefinitionNode> = Diff<
   DiffType,

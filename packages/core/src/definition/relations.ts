@@ -25,11 +25,11 @@ export type RelationTargetColumns<TTarget extends AnyRelationTarget> =
       ? UnionTargetColumns<TMembers>
       : never;
 
-export interface FieldRelation<
+export type FieldRelation<
   TSource extends AnyTableDefinition,
   TTarget extends AnyRelationTarget = AnyRelationTarget,
   TType extends RelationType = RelationType,
-> {
+> = {
   target: TTarget;
   type: TType;
   from: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource>[] : never;
@@ -39,12 +39,12 @@ export interface FieldRelation<
    * a belongs-to whose target is a union, refused everywhere else — see the registry.
    */
   discriminator?: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource> : never;
-}
+};
 
-export interface RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> {
+export type RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> = {
   table: TTable;
   relations: Record<string, FieldRelation<TTable, AnyRelationTarget, RelationType>>;
-}
+};
 
 export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyRelationTarget, RelationType>;
 export type AnyTableRelations = Record<string, AnyFieldRelation>;

@@ -8,10 +8,10 @@ import { Session } from "./session.js";
  * `$transaction([...])` batches over this rather than over `ExecutableQuery`, so a result built
  * from several statements batches the same way a single statement does.
  */
-export interface Executable<TResult> extends PromiseLike<TResult> {
+export type Executable<TResult> = {
   execute(): Promise<TResult>;
   clone(session: Session): Executable<TResult>;
-}
+} & PromiseLike<TResult>;
 
 export class ExecutableQuery<TResult> extends Thenable<TResult> implements Executable<TResult> {
   declare readonly $typeOf: TResult;

@@ -1,7 +1,7 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core/definition";
 import { DateTimeMode, formatDate, safeParseDate } from "../utils/date.js";
 
-export interface DateColumnOptions {
+export type DateColumnOptions = {
   /**
    * Determines how the date is parsed and formatted, at runtime:
    * - `"date"`: The column will handle JavaScript Date objects and store them in 'YYYY-MM-DD' format.
@@ -11,7 +11,7 @@ export interface DateColumnOptions {
    * @default "date"
    */
   mode?: DateTimeMode;
-}
+};
 
 /**
  * Defines a `date` type column in the database schema.

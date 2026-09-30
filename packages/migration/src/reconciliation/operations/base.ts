@@ -3,7 +3,7 @@ import { SerializedObject } from "../../base.js";
 import { DDLStatement } from "../../ddl/index.js";
 import { AnyDiff } from "../diffs/base.js";
 
-export interface DDLOperationOptions {
+export type DDLOperationOptions = {
   /**
    * Adds ASYNC modifier to CREATE INDEX operations.
    * @default true
@@ -15,7 +15,7 @@ export interface DDLOperationOptions {
    * @default false
    */
   safeOperations: boolean;
-}
+};
 
 export const DEFAULT_DDL_OPERATION_OPTIONS: DDLOperationOptions = {
   asyncIndexes: true,
@@ -24,16 +24,16 @@ export const DEFAULT_DDL_OPERATION_OPTIONS: DDLOperationOptions = {
 
 export type DDLOperationType = "CREATE" | "DROP" | "ALTER";
 
-export interface DDLOperation {
+export type DDLOperation = {
   type: DDLOperationType;
   object: SerializedObject<DefinitionNode>;
   statement: DDLStatement;
   references?: string[];
-}
+};
 
-export interface IndexedDDLOperation extends DDLOperation {
+export type IndexedDDLOperation = {
   id: number;
-}
+} & DDLOperation;
 
 export type RefusalCode =
   | "IMMUTABLE_COLUMN"
@@ -44,13 +44,13 @@ export type RefusalCode =
   | "NO_FOREIGN_KEY"
   | "KIND_MISMATCH";
 
-export interface DDLOperationError<T extends DefinitionNode = DefinitionNode> {
+export type DDLOperationError<T extends DefinitionNode = DefinitionNode> = {
   code: RefusalCode | string;
   message: string;
   object: SerializedObject<T>;
   subject?: string;
   diffs?: AnyDiff<T>[];
-}
+};
 
 export function refusal<T extends DefinitionNode>(args: {
   code: RefusalCode;
@@ -62,10 +62,10 @@ export function refusal<T extends DefinitionNode>(args: {
   return args;
 }
 
-export interface OperationResult {
+export type OperationResult = {
   operations: DDLOperation[];
   errors: DDLOperationError[];
-}
+};
 
 export function hasCustomNamespace(
   obj: SerializedObject<DefinitionNode>

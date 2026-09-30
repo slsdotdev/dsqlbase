@@ -19,12 +19,12 @@ export type PrintedNode<T extends DDLStatement> = {
       : T[K];
 };
 
-export interface PrintContext {
+export type PrintContext = {
   parent?: DDLStatement;
   siblings?: DDLStatement[];
   index?: number;
   indentLevel?: number;
-}
+};
 
 type Resolver<T extends DDLStatement> = (
   statement: PrintedNode<T>,

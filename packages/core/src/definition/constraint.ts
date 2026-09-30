@@ -21,19 +21,19 @@ export type InferConstraintName<
   TSuffix extends string,
 > = TName extends string ? TName : `${TSource["name"]}_${JoinColumnNames<TColumns>}_${TSuffix}`;
 
-export interface CheckConstraintConfig {
+export type CheckConstraintConfig = {
   expression: SQLQuery;
-}
+};
 
-export interface UniqueConstraintConfig<TTable extends AnyTableDefinition> {
+export type UniqueConstraintConfig<TTable extends AnyTableDefinition> = {
   table: TTable;
   columns: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
-}
+};
 
-export interface PrimaryKeyConstraintConfig<TTable extends AnyTableDefinition> {
+export type PrimaryKeyConstraintConfig<TTable extends AnyTableDefinition> = {
   table: TTable;
   columns: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
-}
+};
 
 export const extractConstrainName = <
   TName extends string,

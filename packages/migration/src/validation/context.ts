@@ -1,19 +1,19 @@
 import { DefinitionNode } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
 
-export interface ValidationIssue {
+export type ValidationIssue = {
   level: "error" | "warning";
   code: string;
   path: string[];
   message: string;
   hint?: string;
-}
+};
 
-export interface ValidationResult {
+export type ValidationResult = {
   isValid: boolean;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
-}
+};
 
 export class ValidationContext {
   readonly objects: Map<string, SerializedObject<SchemaObjectType>>;

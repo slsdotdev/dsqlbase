@@ -1,7 +1,7 @@
 import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
 import { formatTime } from "../utils/date.js";
 
-export interface TimeColumnOptions {
+export type TimeColumnOptions = {
   /**
    * Determines how the time is parsed and formatted, at runtime:
    * - `"string"`: The column will handle time values as strings in 'HH:mm:ss' format.
@@ -18,7 +18,7 @@ export interface TimeColumnOptions {
    * @default false
    */
   tz?: boolean;
-}
+};
 
 export function time<const TName extends string, const TOptions extends TimeColumnOptions>(
   name: TName,

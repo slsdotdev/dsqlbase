@@ -57,51 +57,51 @@ export type DDLExpression =
 
 export type DDLKind = DDLCommand | DDLAction | DDLSubAction | DDLExpression;
 
-export interface DDLStatement {
+export type DDLStatement = {
   __kind: DDLKind;
-}
+};
 
-export interface CheckConstraintExpression extends DDLStatement {
+export type CheckConstraintExpression = {
   __kind: "CHECK_CONSTRAINT";
   name: string;
   expression: string;
-}
+} & DDLStatement;
 
-export interface PrimaryKeyConstraintExpression extends DDLStatement {
+export type PrimaryKeyConstraintExpression = {
   __kind: "PRIMARY_KEY_CONSTRAINT";
   name?: string;
   columns: string[];
   include?: string[] | null;
-}
+} & DDLStatement;
 
-export interface UniqueConstraintExpression extends DDLStatement {
+export type UniqueConstraintExpression = {
   __kind: "UNIQUE_CONSTRAINT";
   name?: string;
   columns: string[];
   include?: string[] | null;
   nullsDistinct?: boolean | null;
-}
+} & DDLStatement;
 
-export interface IndexColumnExpression extends DDLStatement {
+export type IndexColumnExpression = {
   __kind: "INDEX_COLUMN";
   columnName: string;
   sortDirection?: "ASC" | "DESC";
   nulls?: "FIRST" | "LAST";
-}
+} & DDLStatement;
 
-export interface IdentityConstraintExpression extends DDLStatement {
+export type IdentityConstraintExpression = {
   __kind: "IDENTITY_CONSTRAINT";
   mode: "ALWAYS" | "BY_DEFAULT";
   options?: SequenceOptionsExpression;
-}
+} & DDLStatement;
 
-export interface GeneratedColumnExpression extends DDLStatement {
+export type GeneratedColumnExpression = {
   __kind: "GENERATED_EXPRESSION";
   expression: string;
   stored: true;
-}
+} & DDLStatement;
 
-export interface ColumnDefinitionExpression extends DDLStatement {
+export type ColumnDefinitionExpression = {
   __kind: "COLUMN_DEFINITION";
   name: string;
   dataType: string;
@@ -112,69 +112,69 @@ export interface ColumnDefinitionExpression extends DDLStatement {
   check?: CheckConstraintExpression;
   identity?: IdentityConstraintExpression;
   generated?: GeneratedColumnExpression;
-}
+} & DDLStatement;
 
 export type TableConstraintExpression =
   | PrimaryKeyConstraintExpression
   | UniqueConstraintExpression
   | CheckConstraintExpression;
 
-export interface CreateTableCommand extends DDLStatement {
+export type CreateTableCommand = {
   __kind: "CREATE_TABLE";
   name: string;
   schema?: string;
   ifNotExists?: boolean;
   columns?: ColumnDefinitionExpression[];
   constraints?: TableConstraintExpression[];
-}
+} & DDLStatement;
 
-export interface DropTableCommand extends DDLStatement {
+export type DropTableCommand = {
   __kind: "DROP_TABLE";
   name: string;
   schema?: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface AddColumnAction extends DDLStatement {
+export type AddColumnAction = {
   __kind: "ADD_COLUMN";
   column: ColumnDefinitionExpression;
   ifNotExists?: boolean;
-}
+} & DDLStatement;
 
-export interface RenameTableAction extends DDLStatement {
+export type RenameTableAction = {
   __kind: "RENAME";
   newName: string;
-}
+} & DDLStatement;
 
-export interface RenameColumnAction extends DDLStatement {
+export type RenameColumnAction = {
   __kind: "RENAME_COLUMN";
   columnName: string;
   newName: string;
-}
+} & DDLStatement;
 
-export interface RenameConstraintAction extends DDLStatement {
+export type RenameConstraintAction = {
   __kind: "RENAME_CONSTRAINT";
   constraintName: string;
   newName: string;
-}
+} & DDLStatement;
 
-export interface SetSchemaAction extends DDLStatement {
+export type SetSchemaAction = {
   __kind: "SET_SCHEMA";
   schemaName: string;
-}
+} & DDLStatement;
 
-export interface OwnerAction extends DDLStatement {
+export type OwnerAction = {
   __kind: "OWNER";
   roleName: string;
-}
+} & DDLStatement;
 
-export interface AddConstraintUsingIndexAction extends DDLStatement {
+export type AddConstraintUsingIndexAction = {
   __kind: "ADD_CONSTRAINT_USING_INDEX";
   name: string;
   kind: "UNIQUE" | "PRIMARY_KEY";
   indexName: string;
-}
+} & DDLStatement;
 
 export type AnyAlterTableAction =
   | AddColumnAction
@@ -186,14 +186,14 @@ export type AnyAlterTableAction =
   | OwnerAction
   | AddConstraintUsingIndexAction;
 
-export interface AlterTableCommand extends DDLStatement {
+export type AlterTableCommand = {
   __kind: "ALTER_TABLE";
   name: string;
   schema?: string;
   actions: AnyAlterTableAction[];
-}
+} & DDLStatement;
 
-export interface CreateIndexCommand extends DDLStatement {
+export type CreateIndexCommand = {
   __kind: "CREATE_INDEX";
   name: string;
   tableName: string;
@@ -204,30 +204,30 @@ export interface CreateIndexCommand extends DDLStatement {
   ifNotExists?: boolean;
   include?: string[];
   nullsDistinct?: boolean;
-}
+} & DDLStatement;
 
-export interface DropIndexCommand extends DDLStatement {
+export type DropIndexCommand = {
   __kind: "DROP_INDEX";
   name: string;
   schema?: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface CreateSchemaCommand extends DDLStatement {
+export type CreateSchemaCommand = {
   __kind: "CREATE_SCHEMA";
   name: string;
   ifNotExists?: boolean;
-}
+} & DDLStatement;
 
-export interface DropSchemaCommand extends DDLStatement {
+export type DropSchemaCommand = {
   __kind: "DROP_SCHEMA";
   name: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface SequenceOptionsExpression extends DDLStatement {
+export type SequenceOptionsExpression = {
   __kind: "SEQUENCE_OPTIONS";
   dataType?: string;
   startValue?: number;
@@ -237,33 +237,33 @@ export interface SequenceOptionsExpression extends DDLStatement {
   cache?: number;
   cycle?: boolean;
   ownedBy?: string;
-}
+} & DDLStatement;
 
-export interface CreateSequenceCommand extends DDLStatement {
+export type CreateSequenceCommand = {
   __kind: "CREATE_SEQUENCE";
   name: string;
   schema?: string;
   ifNotExists?: boolean;
   options?: SequenceOptionsExpression;
-}
+} & DDLStatement;
 
-export interface DropSequenceCommand extends DDLStatement {
+export type DropSequenceCommand = {
   __kind: "DROP_SEQUENCE";
   name: string;
   schema?: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface AlterSequenceCommand extends DDLStatement {
+export type AlterSequenceCommand = {
   __kind: "ALTER_SEQUENCE";
   name: string;
   schema?: string;
   options?: SequenceOptionsExpression;
   restart?: { with?: number };
-}
+} & DDLStatement;
 
-export interface CreateDomainCommand extends DDLStatement {
+export type CreateDomainCommand = {
   __kind: "CREATE_DOMAIN";
   name: string;
   schema?: string;
@@ -272,77 +272,77 @@ export interface CreateDomainCommand extends DDLStatement {
   defaultValue?: string;
   check?: CheckConstraintExpression;
   ifNotExists?: boolean;
-}
+} & DDLStatement;
 
-export interface DropDomainCommand extends DDLStatement {
+export type DropDomainCommand = {
   __kind: "DROP_DOMAIN";
   name: string;
   schema?: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface SetNotNullSubAction extends DDLStatement {
+export type SetNotNullSubAction = {
   __kind: "SET_NOT_NULL";
-}
+} & DDLStatement;
 
-export interface DropNotNullSubAction extends DDLStatement {
+export type DropNotNullSubAction = {
   __kind: "DROP_NOT_NULL";
-}
+} & DDLStatement;
 
-export interface SetDefaultSubAction extends DDLStatement {
+export type SetDefaultSubAction = {
   __kind: "SET_DEFAULT";
   expression: string;
-}
+} & DDLStatement;
 
-export interface DropDefaultSubAction extends DDLStatement {
+export type DropDefaultSubAction = {
   __kind: "DROP_DEFAULT";
-}
+} & DDLStatement;
 
-export interface SetDataTypeSubAction extends DDLStatement {
+export type SetDataTypeSubAction = {
   __kind: "SET_DATA_TYPE";
   dataType: string;
   using?: string;
-}
+} & DDLStatement;
 
-export interface SetGeneratedSubAction extends DDLStatement {
+export type SetGeneratedSubAction = {
   __kind: "SET_GENERATED";
   mode: "ALWAYS" | "BY_DEFAULT";
   options?: SequenceOptionsExpression;
-}
+} & DDLStatement;
 
-export interface RestartSubAction extends DDLStatement {
+export type RestartSubAction = {
   __kind: "RESTART";
   with?: number;
-}
+} & DDLStatement;
 
-export interface AddIdentitySubAction extends DDLStatement {
+export type AddIdentitySubAction = {
   __kind: "ADD_IDENTITY";
   mode: "ALWAYS" | "BY_DEFAULT";
   options?: SequenceOptionsExpression;
-}
+} & DDLStatement;
 
-export interface DropIdentitySubAction extends DDLStatement {
+export type DropIdentitySubAction = {
   __kind: "DROP_IDENTITY";
   ifExists?: boolean;
-}
+} & DDLStatement;
 
-export interface AddConstraintSubAction extends DDLStatement {
+export type AddConstraintSubAction = {
   __kind: "ADD_CONSTRAINT";
   constraint: CheckConstraintExpression;
-}
+} & DDLStatement;
 
-export interface DropConstraintSubAction extends DDLStatement {
+export type DropConstraintSubAction = {
   __kind: "DROP_CONSTRAINT";
   name: string;
   ifExists?: boolean;
   cascade?: "CASCADE" | "RESTRICT";
-}
+} & DDLStatement;
 
-export interface ValidateConstraintSubAction extends DDLStatement {
+export type ValidateConstraintSubAction = {
   __kind: "VALIDATE_CONSTRAINT";
   name: string;
-}
+} & DDLStatement;
 
 type SharedModifySubAction =
   | SetNotNullSubAction
@@ -364,29 +364,29 @@ export type AlterDomainSubAction =
   | DropConstraintSubAction
   | ValidateConstraintSubAction;
 
-export interface AlterColumnAction extends DDLStatement {
+export type AlterColumnAction = {
   __kind: "ALTER_COLUMN";
   columnName: string;
   actions: AlterColumnSubAction[];
-}
+} & DDLStatement;
 
-export interface AlterDomainCommand extends DDLStatement {
+export type AlterDomainCommand = {
   __kind: "ALTER_DOMAIN";
   name: string;
   schema?: string;
   action: AlterDomainSubAction;
-}
+} & DDLStatement;
 
 // Intentionally limited to rename + schema move: PG cannot alter an index's column list (drop + recreate instead) and indexes have no separate owner.
 export type AlterIndexAction = RenameTableAction | SetSchemaAction;
 
-export interface AlterIndexCommand extends DDLStatement {
+export type AlterIndexCommand = {
   __kind: "ALTER_INDEX";
   name: string;
   schema?: string;
   ifExists?: boolean;
   action: AlterIndexAction;
-}
+} & DDLStatement;
 
 export type AnyDDLStatement =
   | CreateTableCommand

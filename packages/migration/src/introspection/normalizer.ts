@@ -18,10 +18,10 @@ import { SchemaObjectType, SerializedObject } from "../base.js";
 // the list is informational, with one exception called out inline.
 // ──────────────────────────────────────────────────────────────────────────
 
-interface DataTypeResolver {
+type DataTypeResolver = {
   match: (raw: string) => boolean;
   resolve: (raw: string) => string;
-}
+};
 
 const DATA_TYPE_RESOLVERS: DataTypeResolver[] = [
   // "character varying" must precede "character" — otherwise the latter regex swallows it.
@@ -65,7 +65,7 @@ function normalizeDataType(raw: string): string {
 //     split between column-level and table-level
 // ──────────────────────────────────────────────────────────────────────────
 
-interface RawSequenceOptions {
+type RawSequenceOptions = {
   dataType: string | null;
   cache: string | null;
   cycle: boolean | null;
@@ -74,9 +74,9 @@ interface RawSequenceOptions {
   maxValue: string | null;
   startValue: string | null;
   ownedBy: string | null;
-}
+};
 
-interface RawColumn {
+type RawColumn = {
   kind: "COLUMN";
   name: string;
   dataType: string;
@@ -89,39 +89,39 @@ interface RawColumn {
     sequenceName: string;
     options: RawSequenceOptions;
   } | null;
-}
+};
 
-interface RawIndexColumn {
+type RawIndexColumn = {
   kind: "INDEX_COLUMN";
   column: string;
   sortDirection: "ASC" | "DESC";
   nulls: "FIRST" | "LAST";
-}
+};
 
-interface RawIndex {
+type RawIndex = {
   kind: "INDEX";
   name: string;
   unique: boolean;
   distinctNulls: boolean;
   columns: RawIndexColumn[];
   include: string[] | null;
-}
+};
 
-interface RawConstraint {
+type RawConstraint = {
   kind: "PRIMARY_KEY_CONSTRAINT" | "UNIQUE_CONSTRAINT" | "CHECK_CONSTRAINT";
   name: string;
   columns: string[];
   expression: string | null;
   distinctNulls: boolean | null;
   include: string[] | null;
-}
+};
 
-interface RawSchema {
+type RawSchema = {
   kind: "SCHEMA";
   name: string;
-}
+};
 
-interface RawDomain {
+type RawDomain = {
   kind: "DOMAIN";
   name: string;
   namespace: string;
@@ -129,35 +129,35 @@ interface RawDomain {
   notNull: boolean;
   defaultValue: string | null;
   check: { kind: "CHECK_CONSTRAINT"; name: string; expression: string } | null;
-}
+};
 
-interface RawSequence {
+type RawSequence = {
   kind: "SEQUENCE";
   name: string;
   namespace: string;
   options: RawSequenceOptions;
-}
+};
 
-interface RawTable {
+type RawTable = {
   kind: "TABLE";
   name: string;
   namespace: string;
   columns: RawColumn[];
   indexes: RawIndex[] | null;
   constraints: RawConstraint[] | null;
-}
+};
 
-interface RawView {
+type RawView = {
   kind: "VIEW";
   name: string;
   namespace: string;
-}
+};
 
-interface RawFunction {
+type RawFunction = {
   kind: "FUNCTION";
   name: string;
   namespace: string;
-}
+};
 
 export type RawSchemaObject =
   | RawSchema

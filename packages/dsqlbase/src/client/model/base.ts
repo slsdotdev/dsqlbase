@@ -211,7 +211,7 @@ export type DeleteArgs<TTable extends AnyTable> = Prettify<{
   return?: FieldSelectionOf<TTable> | boolean | null | undefined;
 }>;
 
-export interface QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> {
+export type QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
   /**
    * Select specific fields to return in the query result. If not provided, all fields will be returned.
    *
@@ -347,12 +347,9 @@ export interface QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> {
    * ```
    */
   join?: Prettify<JoinExpressionOf<TTable, TSchema>>;
-}
+};
 
-export interface FindOneArgs<TTable extends AnyTable, TSchema extends AnySchema> extends Pick<
-  QueryArgs<TTable, TSchema>,
-  "select" | "join"
-> {
+export type FindOneArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
   /**
    * A filter expression to specify which record to retrieve. This is required for `findOne` to ensure that the operation is deterministic and does not accidentally return an unintended record.
    *
@@ -371,12 +368,9 @@ export interface FindOneArgs<TTable extends AnyTable, TSchema extends AnySchema>
    * @typeParam TTable - The table being queried, used for type inference of filterable fields.
    */
   where: WhereExpressionOf<TTable>;
-}
+} & Pick<QueryArgs<TTable, TSchema>, "select" | "join">;
 
-export interface PaginateArgs<TTable extends AnyTable, TSchema extends AnySchema> extends Pick<
-  QueryArgs<TTable, TSchema>,
-  "select" | "where" | "orderBy" | "join"
-> {
+export type PaginateArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
   /**
    * The number of records on the page. Defaults to the client's `pagination.defaultLimit`
    * (100 unless configured), and may not exceed its `pagination.maxLimit` when one is set.
@@ -397,7 +391,7 @@ export interface PaginateArgs<TTable extends AnyTable, TSchema extends AnySchema
    * read of the filtered rows on every page — hence opt-in.
    */
   count?: boolean;
-}
+} & Pick<QueryArgs<TTable, TSchema>, "select" | "where" | "orderBy" | "join">;
 
 /** One record of a page: a query result whose `$$meta` also carries its own cursor. */
 export type PageItemOf<
@@ -436,9 +430,9 @@ export type PageOf<
   } & TotalCountOf<TArgs>
 >;
 
-export interface CountArgs<TTable extends AnyTable> {
+export type CountArgs<TTable extends AnyTable> = {
   where?: WhereExpressionOf<TTable>;
-}
+};
 
 export type RelationQueryOf<
   T extends AnyTable,
@@ -609,7 +603,7 @@ export type UnionWhereExpressionOf<TMembers extends AnyUnionMembers> = {
  * A select over a union: shared-level `select` / `where` / `orderBy` / `limit` / `offset`, which
  * every member runs, plus `on` for what differs per member — GraphQL's `... on Photo { }`.
  */
-export interface UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> {
+export type UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
   /** Shared fields to return from every member; merged with each member's `on.<alias>.select`. */
   select?: Partial<Record<SharedFieldsOf<TMembers>, boolean>>;
   /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
@@ -627,7 +621,7 @@ export interface UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extend
    * and an object adds a member-only `select`, `where` and `join`.
    */
   on?: OnSelectionOf<keyof TMembers & string, TSchema>;
-}
+};
 
 /** The query args one member of a union runs with: shared `select` merged with its own. */
 type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn> = {
@@ -682,14 +676,12 @@ export type UnionJoinResultOf<
 export type UnionMembersOf<TUnion> = TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
 
 /** A union's `findOne`: like `findMany`, but a `where` must name the row. */
-export interface UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
-  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "orderBy" | "on"> {
+export type UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
   where: UnionWhereExpressionOf<TMembers>;
-}
+} & Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "orderBy" | "on">;
 
 /** A union's `paginate` — the table form, with the union's shared-field arguments and `on`. */
-export interface UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema>
-  extends Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "where" | "orderBy" | "on"> {
+export type UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
   /** The number of records on the page, under the client's `pagination` limits. */
   limit?: number;
   /** Read the page that follows this cursor, taken from this union under the same `orderBy`. */
@@ -698,7 +690,7 @@ export interface UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema ext
   before?: string | null;
   /** Also count every record `where` selects, across every member, as `totalCount`. */
   count?: boolean;
-}
+} & Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "where" | "orderBy" | "on">;
 
 /** One record of a union page: each member's row, its `$$meta` also carrying its cursor. */
 export type UnionPageItemOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> =
@@ -722,12 +714,12 @@ export type UnionPageOf<
   } & TotalCountOf<TArgs>
 >;
 
-export interface UnionCountArgs<TMembers extends AnyUnionMembers> {
+export type UnionCountArgs<TMembers extends AnyUnionMembers> = {
   where?: UnionWhereExpressionOf<TMembers>;
-}
+};
 
 /** What the normalizer receives for a union level, before any type narrowing. */
-export interface AnyUnionQuery {
+export type AnyUnionQuery = {
   select?: Record<string, boolean | undefined> | null;
   where?: Record<string, unknown> | null;
   orderBy?: Record<string, "asc" | "desc" | undefined> | null;
@@ -735,9 +727,9 @@ export interface AnyUnionQuery {
   offset?: number | null;
   distinct?: boolean;
   on?: Record<string, boolean | AnyRelationQuery | undefined> | null;
-}
+};
 
-export interface FilterCondition<Value = unknown> {
+export type FilterCondition<Value = unknown> = {
   /**
    * Equality condition - matches records where the field is equal to the specified value.
    *
@@ -845,7 +837,7 @@ export interface FilterCondition<Value = unknown> {
    * ```
    */
   contains?: string;
-}
+};
 
 export type WhereExpressionOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition

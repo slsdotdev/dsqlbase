@@ -2,13 +2,13 @@ import type { PagePlan } from "../model/normalizer.js";
 import { encodeCursor } from "./cursor.js";
 
 /** A page before `totalCount` is attached. */
-export interface Page<TItem> {
+export type Page<TItem> = {
   items: TItem[];
   hasNextPage: boolean;
   hasPreviousPage: boolean;
   startCursor: string | null;
   endCursor: string | null;
-}
+};
 
 type ResolvedRecord = Record<string, unknown> & { $$meta: Record<string, unknown> };
 

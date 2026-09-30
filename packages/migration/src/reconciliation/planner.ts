@@ -60,11 +60,11 @@ function buildSubjectRegistry(ops: IndexedDDLOperation[]): Map<string, number[]>
   return registry;
 }
 
-interface DependencyGraph {
+type DependencyGraph = {
   /** adjacency.get(a) = set of b such that a -> b (a must come before b) */
   adjacency: Map<number, Set<number>>;
   inDegree: Map<number, number>;
-}
+};
 
 function buildDependencyGraph(
   ops: IndexedDDLOperation[],

@@ -66,9 +66,9 @@ export type UnionColumns<TMembers extends AnyUnionMembers> = {
   >;
 };
 
-export interface UnionConfig<TMembers extends AnyUnionMembers> {
+export type UnionConfig<TMembers extends AnyUnionMembers> = {
   members: TMembers;
-}
+};
 
 /**
  * A set of tables that can stand in for one another — a GraphQL union or interface.

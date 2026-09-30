@@ -5,11 +5,11 @@ import { ColumnConfig, ColumnDefinition } from "./column.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
-export interface DomainConfig<
+export type DomainConfig<
   TValueType = unknown,
   TRawType = unknown,
   TNamespace extends AnyNamespaceDefinition = AnyNamespaceDefinition,
-> {
+> = {
   namespace?: NodeRef<TNamespace>;
   valueType: TValueType;
   rawType: TRawType;
@@ -17,7 +17,7 @@ export interface DomainConfig<
   notNull: boolean;
   defaultValue?: SQLNode;
   codec: ColumnCodec<TRawType, TValueType>;
-}
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDomainDefinition = DomainDefinition<string, any, any, any>;

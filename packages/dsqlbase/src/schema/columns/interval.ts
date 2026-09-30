@@ -6,7 +6,7 @@ import {
   safeParseDuration,
 } from "../utils/duration.js";
 
-export interface IntervalColumnOptions {
+export type IntervalColumnOptions = {
   /**
    * Determines how the interval is parsed and formatted, at runtime:
    * - `"iso"`: The column will handle interval values as ISO 8601 duration strings (e.g., 'P3Y6M4DT12H30M5S').
@@ -16,7 +16,7 @@ export interface IntervalColumnOptions {
    * @default "object"
    */
   mode?: "iso" | "string" | "object";
-}
+};
 
 /**
  * Defines an `interval` data type column in the database schema.

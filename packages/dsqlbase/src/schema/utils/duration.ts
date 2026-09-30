@@ -1,4 +1,4 @@
-export interface Duration {
+export type Duration = {
   years: number;
   months: number;
   days: number;
@@ -6,7 +6,7 @@ export interface Duration {
   minutes: number;
   seconds: number;
   milliseconds: number;
-}
+};
 
 export const ISO_DURATION_REGEX =
   /^P(?:(?<years>\d+)Y)?(?:(?<months>\d+)M)?(?:(?<weeks>\d+)W)?(?:(?<days>\d+)D)?(?:T(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+)(?:\.(?<fraction>\d+))?S)?)?$/;

@@ -154,7 +154,7 @@ sql.notExists = (query: SQLQuery) => {
 };
 
 /** One order key of a keyset: the expression it sorts by and which way. */
-export interface KeysetKey {
+export type KeysetKey = {
   node: SQLNode;
   direction: "asc" | "desc";
   /**
@@ -163,7 +163,7 @@ export interface KeysetKey {
    * explicitly (`ASC NULLS LAST`, `DESC NULLS FIRST`) for the predicate to agree with it.
    */
   nullable?: boolean;
-}
+};
 
 /** Which side of the cursor row a page reads: rows sorting after it, or before it. */
 export type KeysetBound = "after" | "before";

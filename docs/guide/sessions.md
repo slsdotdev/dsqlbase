@@ -7,10 +7,10 @@ _Audience: application developers._
 A `Session` is the only thing `dsqlbase` needs from your database driver. There is no built-in connection management.
 
 ```ts
-interface Session {
+type Session = {
   execute<T = unknown>(query: SQLStatement): Promise<T[]>;
   beginTransaction?(): Promise<TransactionSession>;   // required for $transaction
-}
+};
 ```
 
 Source: `packages/core/src/runtime/session.ts`.
