@@ -39,7 +39,7 @@ Aurora DSQL provides nothing underneath to catch it — no row-level security, p
 - **Claim columns are ordinary columns in the emitted DDL.** No foreign key, no index, nothing `toJSON` reports — a client-side rule is not something introspection can observe on a real database. Applications declare the claim-leading index themselves.
 - **Two schemas that used to build now throw**: one claim name with two data types across tables, and a `tenantKey` column that is not `notNull` and `readOnly`.
 - **`ExecutionContextOptions` gains `identity` and `tenancy`**; `Kind` gains `TENANT_SCOPE`; `QueryClient` and `Models` gain defaulted generics. Source-compatible.
-- **Isolation coverage is partial by construction.** `paginate`, `count` and ad-hoc joins do not exist yet; extending the PGlite isolation specs to them is an exit criterion on that work rather than a gap here. **`paginate` and `count` covered by [0008](./0008-client-pagination.md)**, cursors included; ad-hoc joins remain.
+- **Isolation coverage is partial by construction.** `paginate`, `count` and ad-hoc joins do not exist yet; extending the PGlite isolation specs to them is an exit criterion on that work rather than a gap here. **`paginate` and `count` covered by [0008](./0008-client-pagination.md)**, cursors included; ad-hoc joins remain, deferred by [0010](./0010-relation-select.md), which covers relations reached through `select`.
 - Changeset level `minor`.
 
 ## Docs

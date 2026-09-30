@@ -17,6 +17,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted |
 | [0008](./0008-client-pagination.md) | Keyset pagination | 2026-09-27 | accepted |
 | [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted |
+| [0010](./0010-relation-select.md) | Relations in `select` | 2026-09-30 | accepted |
 
 ## Template
 

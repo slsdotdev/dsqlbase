@@ -71,6 +71,13 @@ const recent = await dsql.projects.findMany({
   limit: 10,
   join: { team: true },
 });
+
+// A relation can be selected like a field; filters, order and limits on it go in `join`
+const withTeams = await dsql.projects.findMany({ select: { name: true, team: { name: true } } });
+const withProjects = await dsql.teams.findMany({
+  select: { name: true },
+  join: { projects: { orderBy: { name: "asc" }, limit: 5 } },
+});
 ```
 
 ## Multi-tenant schemas

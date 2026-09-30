@@ -11,8 +11,8 @@ import { schema } from "../db/schema";
  * and a leak would show as data rather than as a missing table. Every assertion is about what a
  * scoped client can reach, never about what it was asked for.
  *
- * Ad-hoc joins do not exist yet; extending these specs to them is an exit criterion on the
- * runtime-joins work, not an oversight here.
+ * Ad-hoc joins do not exist yet; extending these specs to them is part of that work when it is
+ * picked up, not an oversight here.
  */
 describe("tenant isolation", () => {
   const { getClient, getData } = withSeededClient();
@@ -92,6 +92,26 @@ describe("tenant isolation", () => {
       });
 
       expect(authors[0]?.authoredDocuments.map((d) => d.title)).toEqual(["Acme roadmap"]);
+    });
+
+    it("scopes a relation reached through select, as through join", async () => {
+      const data = getData();
+
+      // The same shape as the spec above, with the relation named in `select`: nothing but the
+      // tenant predicate keeps the other workspace's document out.
+      const authors = await acme().users.findMany({
+        where: { id: data.users[0].id },
+        select: { id: true, authoredDocuments: { title: true } },
+      });
+      const feed = await acme().users.findOne({
+        where: { id: { eq: data.users[0].id } },
+        select: { feed: { title: true } },
+      });
+
+      expect(authors[0]?.authoredDocuments.map((d) => d.title)).toEqual(["Acme roadmap"]);
+      expect(
+        feed?.feed.filter((item) => item.$$key === "documents").map((item) => item.title)
+      ).toEqual(["Acme roadmap"]);
     });
 
     it("scopes the second nested level as well as the first", async () => {
