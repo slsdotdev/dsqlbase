@@ -21,9 +21,9 @@ export type WithClaims<
   TColumns extends Record<string, AnyColumnDefinition>,
 > = Prettify<TenantClaimColumns<TClaims> & TColumns>;
 
-export interface TenantScopeConfig<TClaims extends Record<string, AnyColumnDefinition>> {
+export type TenantScopeConfig<TClaims extends Record<string, AnyColumnDefinition>> = {
   claims: TClaims;
-}
+};
 
 /**
  * A named set of claim columns shared by every table in one tenant boundary.

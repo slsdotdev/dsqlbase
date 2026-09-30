@@ -241,23 +241,23 @@ export function diffTableOperations(
   return { operations, errors };
 }
 
-interface TableProcessingContext {
+type TableProcessingContext = {
   local: SerializedObject<AnyTableDefinition>;
   tableName: string;
   tableNamespaceRef: string[];
-}
+};
 
-interface ColumnProcessingResult {
+type ColumnProcessingResult = {
   tableActions: AnyAlterTableAction[];
   operations: DDLOperation[];
   errors: DDLOperationError[];
   references: string[];
-}
+};
 
-interface SubjectProcessingResult {
+type SubjectProcessingResult = {
   operations: DDLOperation[];
   errors: DDLOperationError[];
-}
+};
 
 function bucketDiffs(diffs: AnyDiff[]) {
   const columns = new Map<string, AnyDiff[]>();

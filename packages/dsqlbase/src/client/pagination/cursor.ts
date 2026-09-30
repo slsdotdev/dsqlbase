@@ -40,10 +40,10 @@ export const CURSOR_PREFIX = "c1.";
 const VERSIONED = /^c\d+\./;
 
 /** One key of the total order a cursor is taken under. */
-export interface CursorKey {
+export type CursorKey = {
   field: string;
   direction: "asc" | "desc";
-}
+};
 
 /**
  * The first 8 hex characters of SHA-256 over the table alias and the ordered keys.

@@ -20,10 +20,10 @@ import {
   $enum,
 } from "dsqlbase/schema";
 
-export interface ProjectSettings {
+export type ProjectSettings = {
   notificationsEnabled: boolean;
   theme: "light" | "dark";
-}
+};
 
 const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),

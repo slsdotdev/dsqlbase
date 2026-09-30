@@ -4,13 +4,13 @@ import { createClient } from "dsqlbase";
 import { createPgLiteSession } from "dsqlbase/pglite";
 import { schema } from "./schema";
 
-export interface TestClientOptions {
+export type TestClientOptions = {
   /**
    * Whether tenant tables refuse to build a query on a client with no claims. Defaults to the
    * library default, which is `true`.
    */
   enforceTenancy?: boolean;
-}
+};
 
 export const createTestClient = (options: TestClientOptions = {}) => {
   const pg = new PGlite("memory://", { debug: 0 });

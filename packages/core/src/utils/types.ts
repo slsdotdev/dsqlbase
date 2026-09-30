@@ -20,9 +20,9 @@ export type UnionToIntersection<T> = (T extends unknown ? (arg: T) => void : nev
   ? I
   : never;
 
-export interface TypedObject<T = unknown> {
+export type TypedObject<T = unknown> = {
   readonly __type: T;
-}
+};
 
 export type NotNull<T extends TypedObject> = T & { __type: { notNull: true } };
 

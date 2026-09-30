@@ -70,11 +70,11 @@ const client = new ModelClient(context, tables.users);
  * Every result record carries `$$meta`. Neither fixture table declares `table().meta()`, so
  * only the built-ins are present; the declared half is covered separately below.
  */
-interface Meta<TAlias extends string> {
+type Meta<TAlias extends string> = {
   key: TAlias;
   table: string;
   schema?: string;
-}
+};
 
 describe("ModelClient", () => {
   it("should infer return type based on `return` selection", async () => {

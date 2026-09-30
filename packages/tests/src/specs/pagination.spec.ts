@@ -5,13 +5,13 @@ import { withSeededClient } from "../fixures/seeded-client";
 import { schema } from "../db/schema";
 
 /** A page as far as a walk cares: its items' keys, its cursors and its flags. */
-interface WalkPage {
+type WalkPage = {
   items: { $$meta: { cursor: string } }[];
   hasNextPage: boolean;
   hasPreviousPage: boolean;
   startCursor: string | null;
   endCursor: string | null;
-}
+};
 
 /**
  * Follows `endCursor` forward (or `startCursor` backward) until the page says there is nothing

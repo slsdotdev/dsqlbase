@@ -23,11 +23,11 @@ import { GlobalIdError, decodeGlobalId } from "../../schema/utils/global-id.js";
 import { NodeTable, getNodes } from "../nodes.js";
 
 /** The member arguments an `on` entry carries into a global-id lookup. */
-interface NodeArgs {
+type NodeArgs = {
   select?: Record<string, boolean>;
   where?: WhereExpressionOf<AnyTable>;
   join?: JoinExpressionOf<AnyTable, AnySchema>;
-}
+};
 
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ExecutionContext<T>;

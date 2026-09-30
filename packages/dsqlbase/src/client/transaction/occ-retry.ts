@@ -1,8 +1,8 @@
-export interface OCCRetryOptions {
+export type OCCRetryOptions = {
   maxRetries?: number;
   delay?: number;
   maxDelay?: number;
-}
+};
 
 export function backoffDelay(attempt: number, baseDelay: number, maxDelay: number): number {
   const delay = baseDelay * Math.pow(2, attempt);

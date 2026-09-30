@@ -7,23 +7,23 @@ import { SchemaRegistry } from "./registry.js";
 import { OperationsFactory } from "./operation.js";
 
 /** How a tenant table behaves on a client that carries no identity. */
-export interface TenancyOptions {
+export type TenancyOptions = {
   /**
    * Refuse to build an operation on a tenant table when there are no claims to scope it with.
    * On by default: a query that silently runs unscoped is the bug this exists to prevent.
    */
   enforce?: boolean;
-}
+};
 
 /** Page-size bounds for keyset pagination. Carried here for the client; core reads neither. */
-export interface PaginationOptions {
+export type PaginationOptions = {
   /** The page size when a call names none. */
   defaultLimit?: number;
   /** The largest page size a call may ask for. Unbounded when absent. */
   maxLimit?: number;
-}
+};
 
-export interface ExecutionContextOptions<TSchema extends DefinitionSchema> {
+export type ExecutionContextOptions<TSchema extends DefinitionSchema> = {
   session: Session;
   dialect: QueryBuilder;
   schema: SchemaRegistry<TSchema>;
@@ -40,7 +40,7 @@ export interface ExecutionContextOptions<TSchema extends DefinitionSchema> {
   tenancy?: TenancyOptions;
 
   pagination?: PaginationOptions;
-}
+};
 
 export class ExecutionContext<
   TDefinition extends DefinitionSchema = DefinitionSchema,

@@ -4,12 +4,9 @@ import { DateValueType } from "./date.js";
 import { HasDefault } from "@dsqlbase/core/utils";
 import { sql } from "@dsqlbase/core";
 
-export interface TimestampColumnConfig<
-  TValueType = unknown,
-  TRawType = unknown,
-> extends ColumnConfig<TValueType, TRawType> {
+export type TimestampColumnConfig<TValueType = unknown, TRawType = unknown> = {
   withTimezone?: boolean;
-}
+} & ColumnConfig<TValueType, TRawType>;
 
 export class TimestampColumnDefinition<
   TName extends string,
@@ -32,7 +29,7 @@ export class TimestampColumnDefinition<
   }
 }
 
-export interface DateTimeColumnOptions {
+export type DateTimeColumnOptions = {
   /**
    * Determines how the datetime is parsed and formatted, at runtime:
    * - `"iso"`: The column will handle datetime values as ISO 8601 strings (e.g., 'YYYY-MM-DDTHH:mm:ss.sssZ').
@@ -50,7 +47,7 @@ export interface DateTimeColumnOptions {
    * @default true
    */
   tz?: boolean;
-}
+};
 
 /**
  * Defines a `timestamp` type column in the database schema.

@@ -1,11 +1,11 @@
 import { counter, escapeIdentifier, escapeValue, type ParamIndexCounter } from "./utils.js";
 
-export interface SQLStatement {
+export type SQLStatement = {
   text: string;
   params: unknown[];
-}
+};
 
-export interface SQLContext {
+export type SQLContext = {
   inlineParams: boolean;
   paramCounter: ParamIndexCounter;
   escapeValue(str: string): string;
@@ -19,15 +19,15 @@ export interface SQLContext {
    * the keys are, which keeps this layer independent of the runtime.
    */
   aliases?: ReadonlyMap<unknown, string>;
-}
+};
 
 export type SQLValue = string | number | boolean | bigint | null | object;
 
 export type ValueSerializer<T> = (value: T) => unknown;
 
-export interface SQLNode {
+export type SQLNode = {
   toSQL(ctx: SQLContext): SQLStatement;
-}
+};
 
 export const isSQLNode = (value: unknown): value is SQLNode => {
   return (

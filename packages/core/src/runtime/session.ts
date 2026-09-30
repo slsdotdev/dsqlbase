@@ -7,10 +7,10 @@ import { SQLStatement } from "../sql/nodes.js";
  * for executing queries and handling transactions.
  */
 
-export interface Session {
+export type Session = {
   execute<T = unknown>(query: SQLStatement): Promise<T[]>;
   beginTransaction?(): Promise<TransactionSession>;
-}
+};
 
 /**
  * Defines the TransactionSession interface, which extends the Session interface with
@@ -20,7 +20,7 @@ export interface Session {
  * manage the transaction lifecycle explicitly.
  */
 
-export interface TransactionSession extends Session {
+export type TransactionSession = {
   commit(): Promise<void>;
   rollback(): Promise<void>;
-}
+} & Session;

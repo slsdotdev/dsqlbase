@@ -29,13 +29,13 @@ import {
  */
 export const GUID_BINDING: unique symbol = Symbol.for("dsqlbase.guid.binding");
 
-export interface GuidBinding {
+export type GuidBinding = {
   /** The node this column's values name. */
   readonly key: string;
 
   /** The field the target node's primary key is addressed by (`id`, `membershipId`, …). */
   readonly keyField: string;
-}
+};
 
 /**
  * Stamped on a keyless `guid()` column that is the `from` side of a belongs-to a union: its node
@@ -43,7 +43,7 @@ export interface GuidBinding {
  */
 export const DYNAMIC_GUID_BINDING: unique symbol = Symbol.for("dsqlbase.guid.dynamic");
 
-export interface DynamicGuidBinding {
+export type DynamicGuidBinding = {
   /** The source column holding the member alias — the node key — of each row. */
   readonly discriminator: AnyColumn;
 
@@ -52,10 +52,10 @@ export interface DynamicGuidBinding {
 
   /** Member alias → the field its key is addressed by in a payload (`id`, …). */
   readonly members: Readonly<Record<string, string>>;
-}
+};
 
 /** A table addressable by global id: one whose primary key is exactly one `guid()` column. */
-export interface NodeTable {
+export type NodeTable = {
   /** The node key ids carry — the table's schema alias, unless its key column overrode it. */
   readonly key: string;
 
@@ -68,7 +68,7 @@ export interface NodeTable {
   readonly keyField: string;
 
   readonly keyColumn: AnyColumn;
-}
+};
 
 /**
  * Node tables per registry rather than per client.
@@ -80,14 +80,14 @@ export interface NodeTable {
 const NODES = new WeakMap<SchemaRegistry<DefinitionSchema>, Map<string, NodeTable>>();
 
 /** A guid column found in the schema, before its target has been resolved. */
-interface GuidColumn {
+type GuidColumn = {
   readonly table: AnyTable;
   readonly field: string;
   readonly column: AnyColumn;
   /** The declaration, kept only to key relation pairs by identity. */
   readonly definition: object;
   readonly key: string;
-}
+};
 
 export function getGuidBinding(column: AnyColumn): GuidBinding | undefined {
   return (column as unknown as Record<symbol, GuidBinding | undefined>)[GUID_BINDING];
@@ -266,10 +266,10 @@ function agreeWith(column: DynamicColumn, fromKey: string | undefined): string {
 }
 
 /** A keyless `guid()` found on the `from` side of a belongs-to a union. */
-interface DynamicColumn {
+type DynamicColumn = {
   readonly column: AnyColumn;
   readonly binding: DynamicGuidBinding;
-}
+};
 
 /**
  * Finds every `guid()` column whose node is named per row by a discriminator — the `from` side of

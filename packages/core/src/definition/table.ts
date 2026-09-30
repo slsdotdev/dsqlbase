@@ -11,10 +11,10 @@ import {
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
-export interface TableConfig<
+export type TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
   TSchema extends AnyNamespaceDefinition,
-> {
+> = {
   namespace?: NodeRef<TSchema>;
   columns: TColumns;
   /**
@@ -23,7 +23,7 @@ export interface TableConfig<
    * deliberately absent from {@link TableDefinition.toJSON}, so it never reaches a migration.
    */
   meta?: unknown;
-}
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTableDefinition = TableDefinition<any, any, any>;

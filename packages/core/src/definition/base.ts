@@ -49,10 +49,10 @@ export const RESERVED_FIELD_NAMES: readonly string[] = Object.freeze([META_FIELD
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof Relation)[keyof typeof Relation];
 
-export interface ColumnCodec<TRaw, TValue> {
+export type ColumnCodec<TRaw, TValue> = {
   encode(value: TValue): TRaw;
   decode(raw: TRaw): TValue;
-}
+};
 
 export const defaultCodec: ColumnCodec<unknown, unknown> = {
   encode(value) {

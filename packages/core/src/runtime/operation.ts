@@ -16,25 +16,25 @@ export type OperationResult<TMode extends OperationMode, TResult> = TMode extend
   ? TResult | null
   : TResult[];
 
-export interface Operation<TMode extends OperationMode, TArgs extends object, TResult = unknown> {
+export type Operation<TMode extends OperationMode, TArgs extends object, TResult = unknown> = {
   type: OperationType;
   mode: TMode;
   name: string;
   args: TArgs;
   query: SQLStatement;
   resolve: (rows: unknown[]) => OperationResult<TMode, TResult>;
-}
+};
 
 export type AnyOperation = Operation<OperationMode, object, unknown>;
 
-export interface OperationRequest<
+export type OperationRequest<
   TArgs extends object,
   TMode extends OperationMode = OperationMode,
-> {
+> = {
   name?: string;
   mode: TMode;
   args: TArgs;
-}
+};
 
 export type FieldSelection = [
   fieldName: string,
@@ -97,19 +97,19 @@ export type ResolverEntry = FieldResolver | MetaResolver;
  * rather than a rendered `ORDER BY` term, because each member resolves the field to its own
  * column and the combined rows are then sorted by the hidden copy every branch projects.
  */
-export interface UnionOrderKey {
+export type UnionOrderKey = {
   field: string;
   direction: "asc" | "desc";
   /** States Postgres's default null placement explicitly — see {@link KeysetKey.nullable}. */
   nullable?: boolean;
-}
+};
 
 /**
  * A select over a union. `members` lists only the branches that run, each with its own
  * `select` / `where` / `join` already written against that member's columns; a member left out
  * produces no branch. Ordering, limit and offset apply across all of them.
  */
-export interface UnionSelectOperationArgs {
+export type UnionSelectOperationArgs = {
   members: [alias: string, args: SelectOperationArgs][];
   orderBy?: UnionOrderKey[];
   limit?: number;
@@ -130,9 +130,9 @@ export interface UnionSelectOperationArgs {
    * inside every branch where `$$key` is a constant. `before` also reverses the order.
    */
   keyset?: { values: (string | null)[]; bound: KeysetBound };
-}
+};
 
-export interface SelectOperationArgs {
+export type SelectOperationArgs = {
   select: FieldSelection[];
   where?: SQLNode | SQLNode[];
   orderBy?: SQLNode[];
@@ -146,77 +146,76 @@ export interface SelectOperationArgs {
    * only: no resolver reads them, so they never appear on a result record. Root level only.
    */
   keys?: AnyColumn[];
-}
+};
 
-export interface SelectOperation<
+export type SelectOperation<
   TMode extends OperationMode,
   TArgs extends SelectOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TArgs, TReturn> {
+> = {
   type: "select";
-}
+} & Operation<TMode, TArgs, TReturn>;
 
-export interface UnionSelectOperation<
+export type UnionSelectOperation<
   TMode extends OperationMode,
   TArgs extends UnionSelectOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TArgs, TReturn> {
+> = {
   type: "select";
-}
+} & Operation<TMode, TArgs, TReturn>;
 
 /** A count over a union: the members that run, each with its own `where`. */
-export interface UnionCountOperationArgs {
+export type UnionCountOperationArgs = {
   members: [alias: string, args: { where?: SQLNode | SQLNode[] }][];
-}
+};
 
-export interface CountOperationArgs {
+export type CountOperationArgs = {
   where?: SQLNode | SQLNode[];
-}
+};
 
-export interface CountOperation
-  extends Operation<"one", CountOperationArgs | UnionCountOperationArgs, number> {
+export type CountOperation = {
   type: "select";
-}
+} & Operation<"one", CountOperationArgs | UnionCountOperationArgs, number>;
 
-export interface InsertOperationArgs {
+export type InsertOperationArgs = {
   data: FieldMutation[][];
   return?: FieldSelection[];
-}
+};
 
-export interface InsertOperation<
+export type InsertOperation<
   TMode extends OperationMode,
   TArgs extends InsertOperationArgs,
   TReturn,
-> extends Operation<TMode, TArgs, TReturn> {
+> = {
   type: "insert";
-}
+} & Operation<TMode, TArgs, TReturn>;
 
-export interface UpdateOperationArgs {
+export type UpdateOperationArgs = {
   set: FieldMutation[];
   where?: SQLNode | SQLNode[];
   return?: FieldSelection[];
-}
+};
 
-export interface UpdateOperation<
+export type UpdateOperation<
   TMode extends OperationMode,
   TArgs extends UpdateOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TArgs, TReturn> {
+> = {
   type: "update";
-}
+} & Operation<TMode, TArgs, TReturn>;
 
-export interface DeleteOperationArgs {
+export type DeleteOperationArgs = {
   where?: SQLNode | SQLNode[];
   return?: FieldSelection[];
-}
+};
 
-export interface DeleteOperation<
+export type DeleteOperation<
   TMode extends OperationMode,
   TArgs extends DeleteOperationArgs = DeleteOperationArgs,
   TReturn = unknown,
-> extends Operation<TMode, TArgs, TReturn> {
+> = {
   type: "delete";
-}
+} & Operation<TMode, TArgs, TReturn>;
 
 export class OperationsFactory<
   TSchema extends AnySchema = AnySchema,

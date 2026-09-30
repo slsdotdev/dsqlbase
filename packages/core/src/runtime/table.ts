@@ -24,12 +24,12 @@ export type AnyTable = Table<any, any, any, any>;
  * discriminant when a row could have come from one of several tables. `table` is the
  * database name, which may differ.
  */
-export interface RecordMeta {
+export type RecordMeta = {
   readonly key: string;
   readonly table: string;
   readonly schema?: string;
   readonly [field: string]: unknown;
-}
+};
 
 /** Meta keys the runtime owns; `table().meta()` may not redeclare them. */
 const BUILT_IN_META_KEYS: readonly string[] = Object.freeze(["key", "table", "schema"]);

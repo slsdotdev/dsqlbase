@@ -3,10 +3,10 @@ import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
 import { AnyTableDefinition, ColumnRefs } from "./table.js";
 
-export interface IndexConfig {
+export type IndexConfig = {
   unique?: boolean;
   table: AnyTableDefinition;
-}
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyIndexDefinition = IndexDefinition<any, any>;

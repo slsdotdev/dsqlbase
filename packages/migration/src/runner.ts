@@ -9,7 +9,7 @@ import { validateDefinition } from "./validation/validate.js";
 import { OperationExecutionResult, OperationExecutor } from "./executor.js";
 import { DDLOperationOptions } from "./reconciliation/operations/base.js";
 
-export interface MigrationRunnerOptions extends Partial<DDLOperationOptions> {
+export type MigrationRunnerOptions = {
   /**
    * If true, will destroy objects that don't match the local definition.
    *
@@ -18,13 +18,13 @@ export interface MigrationRunnerOptions extends Partial<DDLOperationOptions> {
    * @default false
    */
   destructive?: boolean;
-}
+} & Partial<DDLOperationOptions>;
 
-export interface PlanResult {
+export type PlanResult = {
   operations: IndexedDDLOperation[];
   errors: DDLOperationError[];
   destructive: boolean;
-}
+};
 
 export class MigrationRunner {
   private readonly _session: Session;

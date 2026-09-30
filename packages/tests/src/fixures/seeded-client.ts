@@ -3,10 +3,10 @@ import { createTestClient, TestClient, applyMigrations } from "../db";
 import { seedData, SeededData } from "./seed";
 import { truncateTables } from "./truncate";
 
-export interface SeededFixture {
+export type SeededFixture = {
   getClient: () => TestClient;
   getData: () => SeededData;
-}
+};
 
 export function withSeededClient(): SeededFixture {
   let client: TestClient;

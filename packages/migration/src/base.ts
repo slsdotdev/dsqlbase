@@ -73,10 +73,10 @@ export function sortSchemaObjects<T extends SerializedSchema>(definitions: T): T
   });
 }
 
-interface MigrationIssue {
+type MigrationIssue = {
   code: string;
   message: string;
-}
+};
 
 export class MigrationError extends Error {
   public readonly issues: MigrationIssue[];

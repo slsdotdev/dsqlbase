@@ -6,20 +6,20 @@ export type DDLQueryResult = { job_id: string } | undefined;
 
 export type AsyncJobStatus = "submitted" | "processing" | "failed" | "completed";
 
-export interface AsyncJob {
+export type AsyncJob = {
   jobId: string;
   status: AsyncJobStatus;
   type: string;
   details?: string;
-}
+};
 
-export interface OperationExecutionResult {
+export type OperationExecutionResult = {
   opId: number;
   sql: string;
   status: "processing" | "completed" | "failed";
   asyncJob?: AsyncJob;
   result?: unknown;
-}
+};
 
 export class OperationExecutor {
   private _session: Session;

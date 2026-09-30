@@ -7,14 +7,14 @@ import { planOperations } from "./planner.js";
 
 const stubStatement = { __kind: "CREATE_TABLE" } as DDLStatement;
 
-interface MakeOpArgs {
+type MakeOpArgs = {
   id: number;
   type: DDLOperationType;
   kind?: string;
   name: string;
   namespace?: string;
   references?: string[];
-}
+};
 
 function makeOp(args: MakeOpArgs): IndexedDDLOperation {
   const object = {

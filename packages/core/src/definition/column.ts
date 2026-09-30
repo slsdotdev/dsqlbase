@@ -19,19 +19,19 @@ export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKe
 
 export type ColumnGeneratedType = "ALWAYS" | "BY DEFAULT";
 
-export interface ColumnGeneratedConfig {
+export type ColumnGeneratedConfig = {
   type: "ALWAYS";
   expression: SQLNode;
   mode: "STORED";
-}
+};
 
-export interface ColumnIdentityConfig {
+export type ColumnIdentityConfig = {
   type: ColumnGeneratedType;
   options: SequenceOptions;
   sequenceName?: string;
-}
+};
 
-export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
+export type ColumnConfig<TValueType = unknown, TRawType = unknown> = {
   dataType: string;
   valueType: TValueType;
   rawType: TRawType;
@@ -45,7 +45,7 @@ export interface ColumnConfig<TValueType = unknown, TRawType = unknown> {
   domain?: NodeRef<AnyDomainDefinition>;
   generated?: ColumnGeneratedConfig;
   identity?: ColumnIdentityConfig;
-}
+};
 
 export type AnyColumnDefinition = ColumnDefinition<string, ColumnConfig>;
 

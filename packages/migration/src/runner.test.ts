@@ -11,10 +11,10 @@ import { getSerializedSchemaObjects, MigrationError, SerializedSchema } from "./
 import { createMigrationRunner, MigrationRunner } from "./runner.js";
 import { AsyncJob } from "./executor.js";
 
-interface SessionLog {
+type SessionLog = {
   text: string;
   params: readonly unknown[];
-}
+};
 
 class TestSession implements Session {
   public readonly executed: SessionLog[] = [];

@@ -10,10 +10,10 @@ import { attachModels } from "./database/base.js";
 import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
-export interface ClientOptions<
+export type ClientOptions<
   TSchema extends DefinitionSchema,
   TEnforce extends boolean = true,
-> {
+> = {
   /**
    * Definition schema for the database, including relations configuration.
    */
@@ -45,7 +45,7 @@ export interface ClientOptions<
    * unset); `maxLimit`, when set, refuses any larger `limit` a call asks for.
    */
   pagination?: PaginationOptions;
-}
+};
 
 function assertPagination(options: PaginationOptions | undefined) {
   for (const [name, value] of Object.entries(options ?? {})) {

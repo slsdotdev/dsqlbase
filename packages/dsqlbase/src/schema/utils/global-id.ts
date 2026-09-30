@@ -42,13 +42,13 @@ export class GlobalIdError extends Error {
 export const GLOBAL_ID_PREFIX = "guid:";
 
 /** A decoded global id: the table it names, and the primary key it carries. */
-export interface GlobalId {
+export type GlobalId = {
   /** The node key — the schema alias of the table, unless the column overrode it. */
   readonly key: string;
 
   /** The primary key, by **field** name (`teamId`), not by database column name (`team_id`). */
   readonly pk: Record<string, string>;
-}
+};
 
 /**
  * Wraps a primary key as an opaque global id.

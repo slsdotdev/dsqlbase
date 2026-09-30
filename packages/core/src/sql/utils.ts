@@ -1,6 +1,6 @@
-export interface ParamIndexCounter {
+export type ParamIndexCounter = {
   next(): number;
-}
+};
 
 export function counter(): ParamIndexCounter {
   let index = 1;

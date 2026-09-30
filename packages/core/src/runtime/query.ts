@@ -1,7 +1,7 @@
 import { sql, SQLNode, SQLQuery } from "../sql/index.js";
 import { SQLScope } from "../sql/nodes.js";
 
-export interface TableJoinParams {
+export type TableJoinParams = {
   alias: string;
   type: "one" | "many";
   /** Columns on the parent level. Paired positionally with {@link TableJoinParams.to}. */
@@ -9,10 +9,10 @@ export interface TableJoinParams {
   /** Columns on the joined level. Paired positionally with {@link TableJoinParams.from}. */
   to: SQLNode[];
   params: SelectParams;
-}
+};
 
 /** One member of a `UNION ALL`: its own select, and — inside a join — its own `to` columns. */
-export interface UnionBranchParams {
+export type UnionBranchParams = {
   params: SelectParams;
   /** Paired positionally with the join's `from`. Absent at the root of a query. */
   to?: SQLNode[];
@@ -22,7 +22,7 @@ export interface UnionBranchParams {
    * correlation.
    */
   correlate?: SQLNode[];
-}
+};
 
 /**
  * A `UNION ALL` over the members of a union, each branch wrapped so it yields one JSON `data`
@@ -31,22 +31,22 @@ export interface UnionBranchParams {
  * `carry` names hidden columns every branch projects (order keys, `$$key`, primary-key
  * tiebreakers) that are lifted next to `data` so `order` can sort the combined rows by them.
  */
-export interface UnionSelectParams {
+export type UnionSelectParams = {
   branches: UnionBranchParams[];
   carry: string[];
   /** Sorts the combined rows; written over the carried names, never over a table column. */
   order?: SQLNode[];
   limit?: number;
   offset?: number;
-}
+};
 
-export interface UnionJoinParams {
+export type UnionJoinParams = {
   alias: string;
   type: "one" | "many";
   /** Columns on the parent level, paired with each branch's `to`. */
   from: SQLNode[];
   union: UnionSelectParams;
-}
+};
 
 export type JoinParams = TableJoinParams | UnionJoinParams;
 
@@ -54,11 +54,11 @@ export type JoinParams = TableJoinParams | UnionJoinParams;
  * Hands out the table and JSON-wrapper aliases for one query build. Kept per build rather
  * than on the builder so `QueryBuilder` stays stateless and safe to share across a client.
  */
-interface AliasAllocator {
+type AliasAllocator = {
   table(): string;
   json(): string;
   union(): string;
-}
+};
 
 const createAliasAllocator = (): AliasAllocator => {
   let tables = 0;
@@ -72,7 +72,7 @@ const createAliasAllocator = (): AliasAllocator => {
   };
 };
 
-export interface SelectParams {
+export type SelectParams = {
   table: SQLNode;
   select: SQLNode[];
   where?: SQLNode;
@@ -81,27 +81,27 @@ export interface SelectParams {
   offset?: number;
   distinct?: boolean;
   join?: JoinParams[];
-}
+};
 
-export interface InsertParams {
+export type InsertParams = {
   table: SQLNode;
   columns: SQLNode[];
   values: SQLNode[][];
   return?: SQLNode[];
-}
+};
 
-export interface UpdateParams {
+export type UpdateParams = {
   table: SQLNode;
   set: [column: SQLNode, value: SQLNode][];
   where?: SQLNode;
   return?: SQLNode[];
-}
+};
 
-export interface DeleteParams {
+export type DeleteParams = {
   table: SQLNode;
   where?: SQLNode;
   return?: SQLNode[];
-}
+};
 
 export class QueryBuilder {
   private _getSelection(columns: SQLNode[], joinFields: string[]): SQLNode {

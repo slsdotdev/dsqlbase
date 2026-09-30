@@ -76,11 +76,11 @@ export type SchemaUnionDefinitions<TDefinition extends DefinitionSchema> = {
     : never;
 };
 
-export interface Schema<T extends DefinitionSchema> {
+export type Schema<T extends DefinitionSchema> = {
   tables: SchemaTableDefinitions<T>;
   relations: SchemaRelationDefinitions<T>;
   unions: SchemaUnionDefinitions<T>;
-}
+};
 
 export type AnySchema = Schema<DefinitionSchema>;
 

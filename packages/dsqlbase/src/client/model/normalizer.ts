@@ -52,35 +52,35 @@ import {
 /** The page size when neither the call nor the client names one. */
 export const DEFAULT_PAGE_SIZE = 100;
 
-interface OrderKey {
+type OrderKey = {
   field: string;
   column: AnyColumn;
   direction: "asc" | "desc";
   /** Set on a page's keys only: whether the key can hold `NULL`, so its nulls must be placed. */
   nullable?: boolean;
-}
+};
 
 const flip = (direction: "asc" | "desc"): "asc" | "desc" => (direction === "asc" ? "desc" : "asc");
 
 /** What {@link shapePage} reads off a page plan, whichever kind of select produced it. */
-export interface PagePlan {
+export type PagePlan = {
   /** The total order, as the cursor signs it. */
   keys: CursorKey[];
   signature: string;
   take: number;
   bound: KeysetBound;
   cursor?: (string | null)[];
-}
+};
 
 /** Everything a union's `paginate` needs besides the select itself. */
-export interface UnionPaginateRequest extends PagePlan {
+export type UnionPaginateRequest = {
   request: OperationRequest<UnionSelectOperationArgs, "many">;
   /** The same members and filters without the keyset — what a count of the same rows uses. */
   count: OperationRequest<UnionCountOperationArgs, "one">;
-}
+} & PagePlan;
 
 /** Everything `paginate` needs besides the select itself. */
-export interface PaginateRequest {
+export type PaginateRequest = {
   request: OperationRequest<SelectOperationArgs, "many">;
   /** The caller's own filter, without the keyset — what a count of the same rows uses. */
   where?: SQLNode;
@@ -92,7 +92,7 @@ export interface PaginateRequest {
   bound: KeysetBound;
   /** The key values of the cursor row, when the call passed a cursor. */
   cursor?: (string | null)[];
-}
+};
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
