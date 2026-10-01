@@ -19,7 +19,12 @@ import {
   TableByAlias,
 } from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
-import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
+import {
+  ContainsValueOf,
+  OperatorsOf,
+  OrderableRuntimeType,
+  ShorthandRuntimeType,
+} from "./operators.js";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
@@ -944,10 +949,13 @@ export type FilterCondition<Value = unknown> = {
   endsWith?: string;
 
   /**
-   * Contains condition - matches records where the field contains the specified string.
+   * Contains condition. On a string column, matches records where the field contains the
+   * specified string; on a `jsonb` column, where the document contains the specified fragment
+   * (see {@link ContainsValueOf}).
    *
    * ```sql
    * "table"."column" LIKE '%value%'
+   * "table"."column" @> '{"fragment":true}'
    * ```
    */
   contains?: string;
@@ -959,7 +967,10 @@ export type FilterCondition<Value = unknown> = {
  * `operators.ts`, which the normalizer enforces.
  */
 export type FilterOf<R extends ColumnRuntimeType, V> =
-  | Pick<FilterCondition<V>, OperatorsOf<R>>
+  | Prettify<
+      Pick<FilterCondition<V>, Exclude<OperatorsOf<R>, "contains">> &
+        ("contains" extends OperatorsOf<R> ? { contains?: ContainsValueOf<R, V> } : unknown)
+    >
   | (R extends ShorthandRuntimeType ? V : never);
 
 /** The filter a column accepts. */

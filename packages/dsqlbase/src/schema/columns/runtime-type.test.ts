@@ -15,6 +15,7 @@ import {
   int,
   interval,
   json,
+  jsonb,
   numeric,
   real,
   smallint,
@@ -50,6 +51,7 @@ describe("column runtime types", () => {
     ["interval", interval("c"), "interval"],
     ["bytea", bytea("c"), "bytes"],
     ["json", json("c"), "json"],
+    ["jsonb", jsonb("c"), "jsonb"],
     ["array", array("c"), "array"],
   ] as [string, AnyColumnDefinition, string][])("%s is %s", (_, column, expected) => {
     expect(runtimeTypeOf(column)).toBe(expected);

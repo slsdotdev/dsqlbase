@@ -43,7 +43,8 @@ export type ColumnIdentityConfig = {
  * the column, whether a bare value stands for `eq`, and whether it can be ordered. It names the
  * database value's kind, not its JavaScript form — a `date()` read as a string is still `date`.
  *
- * `array` and `object` are reserved for document-backed array and record columns.
+ * `json` and `jsonb` are separate because only `jsonb` has equality and containment. `array`
+ * and `object` are reserved for `jsonb`-backed array and record columns.
  */
 export type ColumnRuntimeType =
   | "string"
@@ -55,6 +56,7 @@ export type ColumnRuntimeType =
   | "interval"
   | "bytes"
   | "json"
+  | "jsonb"
   | "array"
   | "object";
 

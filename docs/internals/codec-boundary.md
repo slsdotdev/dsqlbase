@@ -20,7 +20,7 @@ A codec **translates** and nothing else. Checking a value is the column's option
 
 ## Where codecs do NOT apply
 
-- **Pattern operators** — `beginsWith`, `endsWith`, `contains` build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw, and only `string` columns take them (see [Operators by runtime type](./runtime-pipeline.md#operators-by-runtime-type)), so they never meet a codec that rewrites values.
+- **Pattern operators** — `beginsWith`, `endsWith`, `contains` on a `string` column build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw, and only `string` columns take them as patterns (see [Operators by runtime type](./runtime-pipeline.md#operators-by-runtime-type)), so they never meet a codec that rewrites values. On a `jsonb` column `contains` is a document fragment instead, and goes through `Column.param`: encoded, not validated.
 - **`exists`** — a null check, no value.
 - **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.

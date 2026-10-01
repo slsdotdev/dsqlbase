@@ -167,10 +167,9 @@ describe("json .schema()", () => {
 });
 
 describe("jsonb", () => {
-  it("is a json runtime type over the jsonb data type", () => {
-    const column = jsonb("c");
-
-    expect(column.toJSON().dataType).toBe("jsonb");
-    expect(column["_runtimeType"]).toBe("json");
+  it("is its own runtime type, which json is not", () => {
+    expect(jsonb("c").toJSON().dataType).toBe("jsonb");
+    expect(jsonb("c")["_runtimeType"]).toBe("jsonb");
+    expect(json("c")["_runtimeType"]).toBe("json");
   });
 });

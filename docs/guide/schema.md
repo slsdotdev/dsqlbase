@@ -229,8 +229,9 @@ Every failure throws `ColumnValidationError` (exported from `dsqlbase`), with `c
 (`invalid`, `not_json`, `unstable`, `async`), the database `column` name, the `phase` (`write`
 or `read`) and the schema's `issues`.
 
-A JSON column filters by `exists` only, takes no bare value in `where`, cannot be an `orderBy`
-key, and cannot be compared by `distinct` (see
+A `json` column filters by `exists` only and cannot be compared by `distinct`. A `jsonb` column
+also takes `eq`, `neq` and `contains` (a fragment of the document), and `distinct` compares it.
+Neither takes a bare value in `where` or can be an `orderBy` key (see
 [Operators by column type](./querying.md#operators-by-column-type)).
 
 ## Domains and enums

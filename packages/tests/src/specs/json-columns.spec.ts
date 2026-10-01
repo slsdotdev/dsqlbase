@@ -150,16 +150,67 @@ describe("json columns", () => {
       expect(await getClient().boards.count({ where: { payload: { exists: true } } })).toBe(1);
     });
 
+    it("matches a jsonb fragment with contains, at any depth", async () => {
+      await createBoard({ payload: { a: { b: 1, c: 2 }, tags: ["x", "y"] } });
+      await createBoard({ payload: { a: { b: 2 } } });
+      await createBoard({ payload: ["x", { id: 1, name: "n" }] });
+
+      const count = (contains: unknown) =>
+        getClient().boards.count({ where: { payload: { contains } } });
+
+      expect(await count({ a: { b: 1 } })).toBe(1);
+      expect(await count({ tags: ["y"] })).toBe(1);
+      expect(await count([{ id: 1 }])).toBe(1);
+      expect(await count({ a: {} })).toBe(2);
+      expect(await count({ a: { b: 3 } })).toBe(0);
+    });
+
+    it("compares whole jsonb documents with eq and neq", async () => {
+      await createBoard({ payload: { a: 1, b: [1, 2] } });
+      await createBoard({ payload: [2, 1] });
+
+      const count = (filter: object) => getClient().boards.count({ where: { payload: filter } });
+
+      // Object keys compare in any order; array items in order.
+      expect(await count({ eq: { b: [1, 2], a: 1 } })).toBe(1);
+      expect(await count({ eq: [1, 2] })).toBe(0);
+      expect(await count({ neq: [2, 1] })).toBe(1);
+    });
+
+    it("sends a fragment as given, not through the column's schema", async () => {
+      await createBoard({ config: { kind: "list" } });
+
+      // The schema would refuse a config without a kind, and fill in columns: 3.
+      expect(
+        await getClient().boards.count({ where: { config: { contains: { columns: 3 } } } })
+      ).toBe(1);
+    });
+
+    it("compares a jsonb column under distinct", async () => {
+      await createBoard({ payload: { a: 1 } });
+      await createBoard({ payload: { a: 1 } });
+
+      const rows = await getClient().boards.findMany({
+        distinct: true,
+        select: { payload: true },
+      });
+
+      expect(rows.map((row) => row.payload)).toEqual([{ a: 1 }]);
+    });
+
     it("refuses any other operator, and a bare value, before SQL runs", () => {
       const client = getClient() as unknown as {
         boards: { findMany: (args: object) => unknown };
       };
 
-      expect(() => client.boards.findMany({ where: { payload: { eq: { a: 1 } } } })).toThrow(
-        'Operator "eq" is not valid on the json column "payload" of "boards"'
+      expect(() => client.boards.findMany({ where: { notes: { eq: { a: 1 } } } })).toThrow(
+        'Operator "eq" is not valid on the json column "notes" of "boards"'
+      );
+      expect(() => client.boards.findMany({ where: { payload: { gt: 1 } } })).toThrow(
+        'Operator "gt" is not valid on the jsonb column "payload" of "boards"'
       );
       expect(() => client.boards.findMany({ where: { config: { kind: "kanban" } } })).toThrow(
-        'Filter the json column "config" of "boards" with one of its operators'
+        'Filter the jsonb column "config" of "boards" with one of its operators'
       );
       expect(() => client.boards.findMany({ orderBy: { notes: "asc" } })).toThrow(
         'Cannot order by the json column "notes" of "boards".'

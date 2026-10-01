@@ -256,3 +256,12 @@ describe("sql.keyset", () => {
     });
   });
 });
+
+describe("sql.jsonbContains", () => {
+  it("writes jsonb containment, the fragment as a parameter", () => {
+    const query = sql`${sql.jsonbContains(sql.identifier("tags"), '["a"]')}`.toQuery();
+
+    expect(query.text).toBe('"tags" @> $1');
+    expect(query.params).toEqual(['["a"]']);
+  });
+});

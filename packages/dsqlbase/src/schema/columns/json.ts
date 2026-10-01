@@ -19,7 +19,7 @@ export type WithSchema<T extends TypedObject, S extends StandardSchemaV1> = T & 
   __type: { valueType: InferSchemaOutput<S>; inputType: InferSchemaInput<S> };
 };
 
-type JsonColumnConfig = ColumnConfig<unknown, unknown, "json">;
+type JsonColumnConfig = ColumnConfig<unknown, unknown, "json" | "jsonb">;
 
 /**
  * A `json` or `jsonb` column. A value may be any JSON value — object, array, string, number or
@@ -36,7 +36,7 @@ export class JsonColumnDefinition<
   protected _defaultInput?: { value: unknown };
 
   constructor(name: TName, config: Partial<TConfig> = {}) {
-    super(name, { ...config, runtimeType: "json", codec: plainJsonCodec } as Partial<TConfig>);
+    super(name, { ...config, codec: plainJsonCodec } as Partial<TConfig>);
   }
 
   /**
@@ -156,7 +156,10 @@ function toJson(value: unknown, column: string): string {
  * @returns Serializable column definition for a JSON column.
  */
 export function json<const TName extends string>(name: TName) {
-  return new JsonColumnDefinition<TName, JsonColumnConfig>(name, { dataType: "json" });
+  return new JsonColumnDefinition<TName, ColumnConfig<unknown, unknown, "json">>(name, {
+    dataType: "json",
+    runtimeType: "json",
+  });
 }
 
 /**
@@ -169,5 +172,8 @@ export function json<const TName extends string>(name: TName) {
  * @returns Serializable column definition for a JSONB column.
  */
 export function jsonb<const TName extends string>(name: TName) {
-  return new JsonColumnDefinition<TName, JsonColumnConfig>(name, { dataType: "jsonb" });
+  return new JsonColumnDefinition<TName, ColumnConfig<unknown, unknown, "jsonb">>(name, {
+    dataType: "jsonb",
+    runtimeType: "jsonb",
+  });
 }

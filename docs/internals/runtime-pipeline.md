@@ -277,6 +277,12 @@ Both sides read that table:
   refuses a selected column it cannot compare. All of it throws before SQL is built, so a caller
   the types cannot see (a resolver passing arguments through) gets the same rules.
 
+An operator name keeps one meaning per runtime type. `contains` is `LIKE` on `string` and
+`jsonb` containment on the `jsonb` runtime types (`JSONB_RUNTIME_TYPES`; `sql.jsonbContains`,
+`col @> $1`); `ContainsValueOf` types it as a substring or as a `JsonFragment` of the value. A
+fragment goes through `Column.param`, so it is encoded but not validated. `json` and `jsonb`
+are separate runtime types because only `jsonb` has equality and containment.
+
 A plain object counts as operators only when it names one, since a value can itself be a plain
 object (an `interval` read as a `Duration`). `where` inside a field's filter is reserved for a
 nested filter into the value and throws until it is built.
