@@ -40,6 +40,7 @@ export {
   type RelationType,
   type TableConfig,
   type TenantClaimColumns,
+  type TypeArgOf,
   type UpdateGuard,
 } from "./definition/index.js";
 export {

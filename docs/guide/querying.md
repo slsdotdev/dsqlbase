@@ -105,7 +105,8 @@ cannot see (a resolver passing arguments through).
 | `bytes`      | `bytea`                                                    | `exists`                                                                                    | no         | no        |
 | `json`       | `json`                                                     | `exists`                                                                                    | no         | no        |
 | `jsonb`      | `jsonb`                                                    | `eq` `neq` `contains` `exists`                                                              | no         | no        |
-| `array`      | `array`                                                    | `exists`                                                                                    | no         | no        |
+| `array`      | `array`                                                    | `eq` `neq` `contains` `exists`                                                              | no         | no        |
+| `object`     | `record`                                                   | `eq` `neq` `contains` `hasKey` `exists`                                                     | no         | no        |
 
 - **A bare value** is shorthand for `eq`. A plain object counts as operators when it names one;
   one that names none is a value (an `interval` read as a `Duration`).
@@ -117,7 +118,11 @@ cannot see (a resolver passing arguments through).
   keys the fragment names, at any depth, an array as a subset in any order.
   `{ layout: { contains: { panels: [{ id: 1 }] } } }` matches a layout with a panel whose `id`
   is `1`, whatever else it holds. The fragment is typed as a partial of the document and sent as
-  given; a column's `.schema()` does not validate it.
+  given; a column's `.schema()` does not validate it. The same holds for `array()` and `record()`
+  columns, both `jsonb`. On an `array()` the fragment is always an array of items —
+  `{ tags: { contains: ["a", "b"] } }` matches arrays holding both — never a lone item.
+- **`hasKey`** on a `record()` column matches objects with the key at their top level (`?`):
+  `{ limits: { hasKey: "cpu" } }`.
 - **`where` is reserved** inside a field's filter, for filtering into its value — a document's
   keys, later. It throws "not supported yet".
 - **Across a union**, a shared field filters and orders as its column does in every member.

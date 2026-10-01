@@ -59,17 +59,30 @@ export type FieldRelationOf<T extends AnyTable, K extends RelationFieldNamesOf<T
       : never
     : never;
 
+/**
+ * `V`, unless it is untyped on a column whose shape is checked: an untyped `array()` reads and
+ * writes as `unknown[]`, an untyped `record()` as `Record<string, unknown>`. The column's own
+ * value type stays `unknown`, so that `$type<T>()` gives exactly `T`.
+ */
+type ShapedTypeOf<R, V> = unknown extends V
+  ? R extends "array"
+    ? unknown[]
+    : R extends "object"
+      ? Record<string, unknown>
+      : V
+  : V;
+
 export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
-    ? T["valueType"]
-    : T["valueType"] | null
+    ? ShapedTypeOf<T["runtimeType"], T["valueType"]>
+    : ShapedTypeOf<T["runtimeType"], T["valueType"]> | null
   : never;
 
 /** What a write accepts for a column: its input type, nullable unless the column is not null. */
 export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
-    ? T["inputType"]
-    : T["inputType"] | null
+    ? ShapedTypeOf<T["runtimeType"], T["inputType"]>
+    : ShapedTypeOf<T["runtimeType"], T["inputType"]> | null
   : never;
 
 /**
@@ -959,6 +972,16 @@ export type FilterCondition<Value = unknown> = {
    * ```
    */
   contains?: string;
+
+  /**
+   * Key condition, on a `record()` column - matches records whose object has the key at its top
+   * level.
+   *
+   * ```sql
+   * "table"."column" ? 'key'
+   * ```
+   */
+  hasKey?: string;
 };
 
 /**

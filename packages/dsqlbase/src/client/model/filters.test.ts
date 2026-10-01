@@ -10,6 +10,7 @@ import {
   interval,
   json,
   jsonb,
+  record,
   table,
   text,
   union,
@@ -38,6 +39,7 @@ const docs = table("docs", {
   doc: jsonb("doc"),
   prefs: jsonb("prefs").schema(prefsSchema),
   tags: array("tags"),
+  limits: record("limits"),
   ttl: interval("ttl"),
 });
 
@@ -133,11 +135,20 @@ describe("filters by runtime type", () => {
       ["json", { settings: { theme: "dark" } }, "settings"],
       ["json", { settings: "dark" }, "settings"],
       ["bytes", { body: new Uint8Array([1]) }, "body"],
-      ["array", { tags: ["a"] }, "tags"],
     ])("is refused on a %s column", async (runtimeType, filter, field) => {
       await expect(where(filter)).rejects.toThrow(
         `Filter the ${runtimeType} column "${field}" of "docs" with one of its operators ` +
           "(exists), not a bare value."
+      );
+    });
+
+    it.each([
+      ["array", { tags: ["a"] }, "tags", "eq, neq, contains, exists"],
+      ["object", { limits: { cpu: 1 } }, "limits", "eq, neq, contains, exists, hasKey"],
+    ])("is refused on an %s column", async (runtimeType, filter, field, operators) => {
+      await expect(where(filter)).rejects.toThrow(
+        `Filter the ${runtimeType} column "${field}" of "docs" with one of its operators ` +
+          `(${operators}), not a bare value.`
       );
     });
   });
@@ -244,6 +255,62 @@ describe("filters by runtime type", () => {
       await dsql.docs.findMany({ distinct: true, select: { id: true, doc: true } });
 
       expect(calls[0]?.text).toMatch(/^SELECT DISTINCT/);
+    });
+  });
+
+  describe("array and record columns", () => {
+    const query = async (filter: object) => {
+      await where(filter);
+      const call = calls.at(-1);
+
+      return { text: call?.text.replace(/^.* WHERE /, ""), params: call?.params };
+    };
+
+    it("match items with contains, given as an array", async () => {
+      expect(await query({ tags: { contains: ["a", { id: 1 }] } })).toEqual({
+        text: '"__t0"."tags" @> $1',
+        params: ['["a",{"id":1}]'],
+      });
+    });
+
+    it("refuse a lone item for contains on an array", async () => {
+      await expect(where({ tags: { contains: "a" } })).rejects.toThrow(
+        '`contains` on the array column "tags" of "docs" takes an array of items.'
+      );
+    });
+
+    it("compare whole values with eq", async () => {
+      expect(await query({ tags: { eq: ["a", "b"] } })).toEqual({
+        text: '"__t0"."tags" = $1',
+        params: ['["a","b"]'],
+      });
+    });
+
+    it("match a record's fragment with contains, and a key with hasKey", async () => {
+      expect(await query({ limits: { contains: { cpu: 2 } } })).toEqual({
+        text: '"__t0"."limits" @> $1',
+        params: ['{"cpu":2}'],
+      });
+      expect(await query({ limits: { hasKey: "cpu" } })).toEqual({
+        text: '"__t0"."limits" ? $1',
+        params: ["cpu"],
+      });
+    });
+
+    it.each([
+      ["array", "tags"],
+      ["jsonb", "doc"],
+    ])("refuse hasKey on a %s column", async (runtimeType, field) => {
+      await expect(where({ [field]: { hasKey: "a" } })).rejects.toThrow(
+        `Operator "hasKey" is not valid on the ${runtimeType} column "${field}" of "docs" ` +
+          "(valid: eq, neq, contains, exists)."
+      );
+    });
+
+    it("refuse hasKey on a string column", async () => {
+      await expect(where({ title: { hasKey: "a" } })).rejects.toThrow(
+        'Operator "hasKey" is not valid on the string column "title"'
+      );
     });
   });
 

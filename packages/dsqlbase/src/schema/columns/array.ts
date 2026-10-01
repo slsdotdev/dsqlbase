@@ -1,26 +1,26 @@
-import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
+import { ColumnConfig } from "@dsqlbase/core";
+import { JsonColumnDefinition } from "./json.js";
 
 /**
- * Defines an `array` **runtime data type** column.
- * #### Important Notes
+ * Defines an array column, stored as `jsonb`: every value is a JSON array, checked on every write
+ * and every read. Items may be any JSON value; type them with `$type<T>()`, which takes the item
+ * type or the array type, or validate the whole array with `.schema()`.
  *
- * The column data type will be `text` in the database, and queries will use `string_to_array('1,2', ',')` at query execution time to handle array data.
+ * In Aurora DSQL a `jsonb` value is limited to 1 MiB compressed, and cannot be indexed.
  *
- * This means that while you can store any array of strings in this column, it will be stored as text and not as a native array type.
- *
- * The encoding and decoding functions will handle the conversion between JavaScript arrays and comma-separated strings.
+ * @example
+ * ```ts
+ * tags: array("tags").$type<string>()                 // string[]
+ * tags: array("tags").schema(z.array(z.string()).min(1))
+ * ```
  *
  * @param name Column name in database
  * @returns Serializable column definition for an array column.
  */
-
 export function array<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<string[], string, "array">>(name, {
-    dataType: "text",
-    runtimeType: "array",
-    codec: {
-      encode: (value) => value.join(","),
-      decode: (value) => value.split(","),
-    },
-  });
+  return new JsonColumnDefinition<TName, ColumnConfig<unknown, unknown, "array">>(
+    name,
+    { dataType: "jsonb", runtimeType: "array" },
+    "array"
+  );
 }

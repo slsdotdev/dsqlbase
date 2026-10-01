@@ -19,7 +19,15 @@ export {
   type IntervalColumnOptions,
   type IntervalValueType,
 } from "./columns/interval.js";
-export { json, jsonb, JsonColumnDefinition, type WithSchema } from "./columns/json.js";
+export {
+  json,
+  jsonb,
+  JsonColumnDefinition,
+  type JsonSchemaFor,
+  type JsonShape,
+  type WithSchema,
+} from "./columns/json.js";
+export { record } from "./columns/record.js";
 export { decimal, numeric } from "./columns/numeric.js";
 export { real, float4 } from "./columns/real.js";
 export { smallint, int2 } from "./columns/smallint.js";

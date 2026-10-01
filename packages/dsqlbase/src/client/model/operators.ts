@@ -8,8 +8,12 @@ import type { AnyColumn, ColumnRuntimeType } from "@dsqlbase/core";
 
 const COMPARISON = ["eq", "neq", "in", "gt", "gte", "lt", "lte", "between", "exists"] as const;
 const PATTERN = ["beginsWith", "endsWith", "contains"] as const;
+const KEYED = ["hasKey"] as const;
 
-export type FilterOperator = (typeof COMPARISON)[number] | (typeof PATTERN)[number];
+export type FilterOperator =
+  | (typeof COMPARISON)[number]
+  | (typeof PATTERN)[number]
+  | (typeof KEYED)[number];
 
 export type RuntimeTypeRules = {
   /** The operators a filter on the column may use. */
@@ -56,12 +60,16 @@ export const RUNTIME_TYPE_RULES: Readonly<Record<ColumnRuntimeType, RuntimeTypeR
   // `json` has no equality operator at all.
   json: { ...document, distinct: false },
   jsonb: jsonbDocument,
-  array: document,
-  object: document,
+  array: jsonbDocument,
+  object: { ...jsonbDocument, operators: [...jsonbDocument.operators, ...KEYED] },
 };
 
 /** Every operator any runtime type accepts — what tells an operator object from a value. */
-export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([...COMPARISON, ...PATTERN]);
+export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([
+  ...COMPARISON,
+  ...PATTERN,
+  ...KEYED,
+]);
 
 /**
  * Inside a column's filter, `where` is reserved for filtering into the column's value — a
@@ -71,7 +79,11 @@ export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([...COMPARI
 export const NESTED_FILTER = "where";
 
 /** The runtime types stored as `jsonb`, where `contains` is containment (`@>`). */
-export const JSONB_RUNTIME_TYPES: ReadonlySet<ColumnRuntimeType> = new Set(["jsonb"]);
+export const JSONB_RUNTIME_TYPES: ReadonlySet<ColumnRuntimeType> = new Set([
+  "jsonb",
+  "array",
+  "object",
+]);
 
 export function rulesOf(column: AnyColumn): RuntimeTypeRules {
   return RUNTIME_TYPE_RULES[column.runtimeType];
@@ -83,21 +95,24 @@ export function rulesOf(column: AnyColumn): RuntimeTypeRules {
 
 /** The operators a runtime type accepts. Mirrors {@link RUNTIME_TYPE_RULES}. */
 export type OperatorsOf<R extends ColumnRuntimeType> = R extends "string"
-  ? FilterOperator
+  ? (typeof COMPARISON)[number] | (typeof PATTERN)[number]
   : R extends "uuid" | "number" | "bigint" | "date" | "interval"
     ? (typeof COMPARISON)[number]
     : R extends "boolean"
       ? "eq" | "neq" | "exists"
-      : R extends JsonbRuntimeType
-        ? "eq" | "neq" | "contains" | "exists"
-        : "exists";
+      : R extends "object"
+        ? "eq" | "neq" | "contains" | "hasKey" | "exists"
+        : R extends JsonbRuntimeType
+          ? "eq" | "neq" | "contains" | "exists"
+          : "exists";
 
 /** The runtime types stored as `jsonb`. Mirrors {@link JSONB_RUNTIME_TYPES}. */
-export type JsonbRuntimeType = "jsonb";
+export type JsonbRuntimeType = "jsonb" | "array" | "object";
 
 /**
  * What `contains` takes on runtime type `R` holding `V`: a substring on `string`, a fragment of
- * the document on a `jsonb` type — never `null`, and anything on an untyped document.
+ * the document on a `jsonb` type — never `null`, and anything on an untyped document. On `array`
+ * the fragment is itself an array, of item fragments.
  */
 export type ContainsValueOf<R extends ColumnRuntimeType, V> = R extends "string"
   ? string

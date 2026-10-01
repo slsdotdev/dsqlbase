@@ -280,9 +280,23 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       case "endsWith":
         return sql.like(column, `%${value as string}`);
       case "contains":
-        return JSONB_RUNTIME_TYPES.has(column.runtimeType)
-          ? sql.jsonbContains(column, column.param(value as SQLValue))
-          : sql.like(column, `%${value as string}%`);
+        if (!JSONB_RUNTIME_TYPES.has(column.runtimeType)) {
+          return sql.like(column, `%${value as string}%`);
+        }
+
+        // On an array column the fragment lists items; a lone item would be ambiguous when the
+        // items are themselves arrays.
+        if (column.runtimeType === "array" && !Array.isArray(value)) {
+          throw new Error(
+            `\`contains\` on the array column "${column.name}" of "${column.table.name}" ` +
+              `takes an array of items.`
+          );
+        }
+
+        return sql.jsonbContains(column, column.param(value as SQLValue));
+      case "hasKey":
+        // A key, not a value: sent as is, never through the codec.
+        return sql.jsonbHasKey(column, value as string);
     }
   }
 

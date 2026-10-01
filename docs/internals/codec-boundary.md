@@ -67,6 +67,10 @@ Encode is `JSON.stringify`, with or without a schema. `.schema(s)` installs a va
   requires it to serialize identically (the stability check), then hands the output to encode;
 - **read** validates the decoded value and returns the schema's output.
 
+`array()` and `record()` are JSON columns with a shape: their validator checks that a value is
+an array, or a plain object, on every write (after the schema, on what will be stored) and every
+read (before the schema), with or without `.schema()`. The filters on them rely on it.
+
 A validator cannot await, so a schema that returns a `Promise` throws. Writes and reads have
 their own types here: `ColumnConfig.inputType` carries the write side (`CreateValuesOf` /
 `UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`), `valueType` the read side and filters.

@@ -19,7 +19,20 @@ export type WithSchema<T extends TypedObject, S extends StandardSchemaV1> = T & 
   __type: { valueType: InferSchemaOutput<S>; inputType: InferSchemaInput<S> };
 };
 
-type JsonColumnConfig = ColumnConfig<unknown, unknown, "json" | "jsonb">;
+type JsonColumnConfig = ColumnConfig<unknown, unknown, "json" | "jsonb" | "array" | "object">;
+
+/** The top-level shape `array()` and `record()` hold, checked on every write and every read. */
+export type JsonShape = "array" | "object";
+
+/**
+ * The schemas a JSON column takes: any, or on `array()` / `record()` one whose output is an array
+ * / an object.
+ */
+export type JsonSchemaFor<T extends TypedObject> = T["__type"] extends { runtimeType: "array" }
+  ? StandardSchemaV1<unknown, readonly unknown[]>
+  : T["__type"] extends { runtimeType: "object" }
+    ? StandardSchemaV1<unknown, object>
+    : StandardSchemaV1;
 
 /**
  * A `json` or `jsonb` column. A value may be any JSON value — object, array, string, number or
@@ -34,9 +47,16 @@ export class JsonColumnDefinition<
 > extends ColumnDefinition<TName, TConfig> {
   /** The value `.default()` was given, kept so a later `.schema()` can validate it. */
   protected _defaultInput?: { value: unknown };
+  /** The shape every value must have, if the column constrains it. */
+  protected _shape?: JsonShape;
 
-  constructor(name: TName, config: Partial<TConfig> = {}) {
+  constructor(name: TName, config: Partial<TConfig> = {}, shape?: JsonShape) {
     super(name, { ...config, codec: plainJsonCodec } as Partial<TConfig>);
+
+    if (shape) {
+      this._shape = shape;
+      this._validator = shapeValidator(name, shape) as typeof this._validator;
+    }
   }
 
   /**
@@ -64,8 +84,12 @@ export class JsonColumnDefinition<
    * // create({ data: { settings: {} } }) stores {"theme":"light"}
    * ```
    */
-  public schema<S extends StandardSchemaV1>(schema: S): WithSchema<this, S> {
-    this._validator = schemaValidator(this.name, schema) as typeof this._validator;
+  public schema<S extends JsonSchemaFor<this>>(schema: S): WithSchema<this, S> {
+    const validator = schemaValidator(this.name, schema);
+
+    this._validator = (
+      this._shape ? shapeValidator(this.name, this._shape, validator) : validator
+    ) as typeof this._validator;
 
     if (this._defaultInput) {
       this.default(this._defaultInput.value);
@@ -130,6 +154,43 @@ function schemaValidator(
       return validate(stored, "read");
     },
   };
+}
+
+/**
+ * Checks that every value is an array, or a plain object, at its top level: a write's value as it
+ * will be stored (after `inner`, the schema), a read's before `inner` sees it.
+ */
+function shapeValidator(
+  column: string,
+  shape: JsonShape,
+  inner?: ColumnValidator<unknown, unknown>
+): ColumnValidator<unknown, unknown> {
+  const check = (value: unknown, phase: "write" | "read") => {
+    if (shape === "array" ? !Array.isArray(value) : !isPlainObject(value)) {
+      throw new ColumnValidationError("invalid", column, phase, [
+        { message: shape === "array" ? "Expected an array" : "Expected an object" },
+      ]);
+    }
+
+    return value;
+  };
+
+  return {
+    write: (input) => check(inner ? inner.write(input) : input, "write"),
+    read: (stored) => {
+      check(stored, "read");
+      return inner ? inner.read(stored) : stored;
+    },
+  };
+}
+
+function isPlainObject(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
 }
 
 function toJson(value: unknown, column: string): string {

@@ -278,9 +278,13 @@ Both sides read that table:
   the types cannot see (a resolver passing arguments through) gets the same rules.
 
 An operator name keeps one meaning per runtime type. `contains` is `LIKE` on `string` and
-`jsonb` containment on the `jsonb` runtime types (`JSONB_RUNTIME_TYPES`; `sql.jsonbContains`,
-`col @> $1`); `ContainsValueOf` types it as a substring or as a `JsonFragment` of the value. A
-fragment goes through `Column.param`, so it is encoded but not validated. `json` and `jsonb`
+`jsonb` containment on the `jsonb` runtime types — `jsonb`, `array`, `object`
+(`JSONB_RUNTIME_TYPES`; `sql.jsonbContains`, `col @> $1`); `ContainsValueOf` types it as a
+substring or as a `JsonFragment` of the value, an array of item fragments on `array`, where the
+normalizer also refuses a lone item. A fragment goes through `Column.param`, so it is encoded but
+not validated. `hasKey` (`sql.jsonbHasKey`, `col ? $1`) is on `object` only: on an array or a
+scalar `?` also matches string elements, a different meaning. Its key is sent raw, never
+through the codec, since it is not a value of the column. `json` and `jsonb`
 are separate runtime types because only `jsonb` has equality and containment.
 
 A plain object counts as operators only when it names one, since a value can itself be a plain

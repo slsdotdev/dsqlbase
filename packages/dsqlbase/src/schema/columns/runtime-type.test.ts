@@ -18,6 +18,7 @@ import {
   jsonb,
   numeric,
   real,
+  record,
   smallint,
   text,
   time,
@@ -53,6 +54,7 @@ describe("column runtime types", () => {
     ["json", json("c"), "json"],
     ["jsonb", jsonb("c"), "jsonb"],
     ["array", array("c"), "array"],
+    ["record", record("c"), "object"],
   ] as [string, AnyColumnDefinition, string][])("%s is %s", (_, column, expected) => {
     expect(runtimeTypeOf(column)).toBe(expected);
   });

@@ -265,3 +265,12 @@ describe("sql.jsonbContains", () => {
     expect(query.params).toEqual(['["a"]']);
   });
 });
+
+describe("sql.jsonbHasKey", () => {
+  it("writes jsonb key existence, the key as a parameter", () => {
+    const query = sql`${sql.jsonbHasKey(sql.identifier("limits"), "cpu")}`.toQuery();
+
+    expect(query.text).toBe('"limits" ? $1');
+    expect(query.params).toEqual(["cpu"]);
+  });
+});

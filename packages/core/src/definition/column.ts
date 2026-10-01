@@ -26,6 +26,15 @@ export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKe
 
 export type ColumnGeneratedType = "ALWAYS" | "BY DEFAULT";
 
+/** What `$type<T>()` sets: `T`, or on an `array` column `T` as an array unless it is one. */
+export type TypeArgOf<TColumn extends TypedObject, T> = TColumn["__type"] extends {
+  runtimeType: "array";
+}
+  ? T extends readonly unknown[]
+    ? T
+    : T[]
+  : T;
+
 export type ColumnGeneratedConfig = {
   type: "ALWAYS";
   expression: SQLNode;
@@ -44,7 +53,7 @@ export type ColumnIdentityConfig = {
  * database value's kind, not its JavaScript form — a `date()` read as a string is still `date`.
  *
  * `json` and `jsonb` are separate because only `jsonb` has equality and containment. `array`
- * and `object` are reserved for `jsonb`-backed array and record columns.
+ * and `object` are `jsonb` columns holding an array or an object at the top level.
  */
 export type ColumnRuntimeType =
   | "string"
@@ -206,8 +215,13 @@ export class ColumnDefinition<
     return this;
   }
 
-  public $type<T>(): ValueType<this, T> {
-    return this as ValueType<this, T>;
+  /**
+   * Types the column's values. Type-only: nothing checks them. On a column of runtime type
+   * `array`, `T` may be the item type or the array type — `$type<string>()` and
+   * `$type<string[]>()` both give `string[]`.
+   */
+  public $type<T>(): ValueType<this, TypeArgOf<this, T>> {
+    return this as ValueType<this, TypeArgOf<this, T>>;
   }
 
   public $onCreate(cb: () => this["__type"]["inputType"]): this {
