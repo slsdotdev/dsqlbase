@@ -28,6 +28,7 @@ export {
   type AnyUnionMembers,
   type SharedFieldsOf,
   type ColumnCodec,
+  type ColumnValidator,
   type ColumnConfig,
   type ColumnRuntimeType,
   type DefinitionSchema,

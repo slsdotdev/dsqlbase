@@ -50,14 +50,28 @@ export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof Relation)[keyof typeof Relation];
 
 /**
- * Converts a column's values to and from what the driver sends and returns. `encode` takes what
- * a write accepts (`TInput`), `decode` returns what a read yields (`TValue`); they differ only
- * for a column whose writes accept more than its reads return — a JSON column validated by a
- * schema with defaults, for one.
+ * Converts a column's values to and from what the driver sends and returns. A codec translates
+ * and nothing else: every value bound for the column passes through `encode` — writes, filters,
+ * `Column.param` — so a codec that refused values would refuse filters too. Checking a value is
+ * {@link ColumnValidator}'s job.
  */
-export type ColumnCodec<TRaw, TValue, TInput = TValue> = {
-  encode(value: TInput): TRaw;
+export type ColumnCodec<TRaw, TValue> = {
+  encode(value: TValue): TRaw;
   decode(raw: TRaw): TValue;
+};
+
+/**
+ * Checks a column's values on their way into and out of the database. Writes run `write` before
+ * the codec encodes; reads run `read` after it decodes. Filters run neither: a filter value is a
+ * pattern to compare with, not a value to store. Either method throws to refuse a value.
+ *
+ * `write` takes what a write accepts (`TInput`) and returns what is stored (`TValue`); they
+ * differ for a column whose writes accept more than its reads return — a JSON column validated
+ * by a schema with defaults, for one.
+ */
+export type ColumnValidator<TValue, TInput = TValue> = {
+  write(input: TInput): TValue;
+  read(value: TValue): TValue;
 };
 
 export const defaultCodec: ColumnCodec<unknown, unknown> = {

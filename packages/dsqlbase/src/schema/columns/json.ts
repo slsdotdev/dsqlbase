@@ -1,4 +1,10 @@
-import { ColumnCodec, ColumnConfig, ColumnDefinition, SQLParam } from "@dsqlbase/core";
+import {
+  ColumnCodec,
+  ColumnConfig,
+  ColumnDefinition,
+  ColumnValidator,
+  SQLParam,
+} from "@dsqlbase/core";
 import { HasDefault, TypedObject } from "@dsqlbase/core/utils";
 import { ColumnValidationError } from "../utils/column-validation.js";
 import type {
@@ -47,6 +53,9 @@ export class JsonColumnDefinition<
    *
    * Failures throw {@link ColumnValidationError}. The schema must validate synchronously.
    *
+   * Filters are not validated: a filter value is compared with stored values, and may be only a
+   * fragment of one.
+   *
    * @example
    * ```ts
    * const Settings = z.object({ theme: z.enum(["light", "dark"]).default("light") });
@@ -56,7 +65,7 @@ export class JsonColumnDefinition<
    * ```
    */
   public schema<S extends StandardSchemaV1>(schema: S): WithSchema<this, S> {
-    this._codec = schemaCodec(this.name, schema) as typeof this._codec;
+    this._validator = schemaValidator(this.name, schema) as typeof this._validator;
 
     if (this._defaultInput) {
       this.default(this._defaultInput.value);
@@ -68,7 +77,7 @@ export class JsonColumnDefinition<
   /** Encoded now, so a default the column's schema refuses fails where it is declared. */
   public override default(value: this["__type"]["inputType"]): HasDefault<this> {
     this._defaultInput = { value };
-    this._defaultValue = new SQLParam(this._codec.encode(value));
+    this._defaultValue = new SQLParam(this._codec.encode(this._toValue(value)));
 
     return this as HasDefault<this>;
   }
@@ -79,7 +88,14 @@ const plainJsonCodec: ColumnCodec<unknown, unknown> = {
   decode: (value) => value,
 };
 
-function schemaCodec(column: string, schema: StandardSchemaV1): ColumnCodec<unknown, unknown> {
+/**
+ * Validates writes and reads against `schema`. A write returns the schema's output once it is
+ * known to read back as itself: serialized, validated again and serialized to the same text.
+ */
+function schemaValidator(
+  column: string,
+  schema: StandardSchemaV1
+): ColumnValidator<unknown, unknown> {
   const validate = (value: unknown, phase: "write" | "read") => {
     const result = schema["~standard"].validate(value);
 
@@ -99,7 +115,7 @@ function schemaCodec(column: string, schema: StandardSchemaV1): ColumnCodec<unkn
   };
 
   return {
-    encode(input) {
+    write(input) {
       const output = validate(input, "write");
       const text = toJson(output, column);
       const again = toJson(validate(JSON.parse(text), "write"), column);
@@ -108,9 +124,9 @@ function schemaCodec(column: string, schema: StandardSchemaV1): ColumnCodec<unkn
         throw new ColumnValidationError("unstable", column, "write");
       }
 
-      return text;
+      return output;
     },
-    decode(stored) {
+    read(stored) {
       return validate(stored, "read");
     },
   };

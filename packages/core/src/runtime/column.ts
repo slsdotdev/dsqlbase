@@ -20,6 +20,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   declare readonly __type: TConfig;
 
   readonly codec: ColumnDefinition<TName, TConfig>["_codec"];
+  /** Checks writes before they are encoded and reads after they are decoded; never filters. */
+  readonly validator: ColumnDefinition<TName, TConfig>["_validator"];
   readonly onCreate: ColumnDefinition<TName, TConfig>["_onCreate"];
   readonly onUpdate: ColumnDefinition<TName, TConfig>["_onUpdate"];
 
@@ -47,6 +49,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.tenantKey = definition["_tenantKey"];
 
     this.codec = definition["_codec"];
+    this.validator = definition["_validator"];
     this.onCreate = definition["_onCreate"];
     this.onUpdate = definition["_onUpdate"];
   }
@@ -70,7 +73,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
       return this.resolve(raw as TConfig["rawType"]);
     }
 
-    return this.rowDecoder.decode(raw, row) as TConfig["valueType"];
+    return this._validateRead(this.rowDecoder.decode(raw, row) as TConfig["valueType"]);
   }
 
   public resolve(value: TConfig["rawType"]): TConfig["valueType"] {
@@ -82,11 +85,20 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
       return null;
     }
 
-    return this.codec.decode(value);
+    return this._validateRead(this.codec.decode(value));
   }
 
+  private _validateRead(value: TConfig["valueType"]): TConfig["valueType"] {
+    return this.validator ? this.validator.read(value) : value;
+  }
+
+  /** A write's value as sent: validated, if the column has a validator, then encoded. */
+  private readonly _encodeInput = (input: TConfig["inputType"]): TConfig["rawType"] =>
+    this.codec.encode(this.validator ? this.validator.write(input) : input);
+
   /**
-   * Wraps a value as a parameter encoded by this column's codec.
+   * Wraps a value as a parameter encoded by this column's codec. It is not validated: a filter
+   * value is compared with stored values, not stored, and may be a fragment of one.
    *
    * This is the filter counterpart to {@link Column.getInsertValue} and
    * {@link Column.getUpdateValue}: a `date`, `bigint` or `interval` column only matches if
@@ -97,7 +109,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    * Also the way to filter by a codec column in raw `$query`:
    * ``sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}` ``
    */
-  public param(value: TConfig["inputType"] | SQLNode): SQLNode {
+  public param(value: TConfig["valueType"] | SQLNode): SQLNode {
     if (isSQLNode(value)) {
       return value;
     }
@@ -115,11 +127,11 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     }
 
     if (param instanceof SQLParam) {
-      param = new SQLParam(param["_value"], this.codec.encode);
+      param = new SQLParam(param["_value"], this._encodeInput);
     }
 
     if (!isSQLNode(param)) {
-      param = new SQLParam(param, this.codec.encode);
+      param = new SQLParam(param, this._encodeInput);
     }
 
     return param as SQLNode;
@@ -133,11 +145,11 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     }
 
     if (param instanceof SQLParam) {
-      param = new SQLParam(param["_value"], this.codec.encode);
+      param = new SQLParam(param["_value"], this._encodeInput);
     }
 
     if (value !== undefined && !isSQLNode(param)) {
-      param = new SQLParam(param, this.codec.encode);
+      param = new SQLParam(param, this._encodeInput);
     }
 
     return param as SQLNode;

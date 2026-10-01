@@ -10,6 +10,7 @@ export {
   type NodeKind,
   type RelationType,
   type ColumnCodec,
+  type ColumnValidator,
   type DefinitionSchema,
 } from "./base.js";
 export {

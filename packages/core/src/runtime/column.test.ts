@@ -5,7 +5,7 @@ import {
   TableDefinition,
   TenantScopeDefinition,
 } from "../definition/index.js";
-import { sql, SQLParam } from "../sql/index.js";
+import { sql, SQLNode, SQLParam } from "../sql/index.js";
 import { Table } from "./table.js";
 
 describe("Column", () => {
@@ -131,5 +131,92 @@ describe("Column.runtimeType", () => {
 
   it("is inherited by a column made from a domain", () => {
     expect(table.columns.meta.runtimeType).toBe("json");
+  });
+});
+
+describe("Column.validator", () => {
+  const seen: string[] = [];
+
+  // The codec marks what it touched; the validator trims writes, upper-cases reads, and
+  // refuses "bad" — so each step's order and presence is observable.
+  const label = () =>
+    new ColumnDefinition("label", {
+      dataType: "text",
+      codec: {
+        encode: (value: string) => `enc(${value})`,
+        decode: (value: string) => `dec(${value})`,
+      },
+      validator: {
+        write: (input: string) => {
+          seen.push(`write ${input}`);
+          if (input === "bad") throw new Error("refused");
+          return input.trim();
+        },
+        read: (value: string) => {
+          seen.push(`read ${value}`);
+          if (value === "dec(bad)") throw new Error("refused");
+          return value.toUpperCase();
+        },
+      },
+    });
+
+  const table = new Table(
+    new TableDefinition("labels", {
+      columns: { id: new ColumnDefinition("id", { primaryKey: true }), label: label() },
+    })
+  );
+  const column = table.columns.label;
+
+  const sent = (node: SQLNode) => sql`${node}`.toQuery().params;
+
+  it("validates a write, then encodes the validated value", () => {
+    seen.length = 0;
+
+    expect(sent(column.getInsertValue(" a "))).toEqual(["enc(a)"]);
+    expect(sent(column.getUpdateValue(" b "))).toEqual(["enc(b)"]);
+    expect(sent(column.getInsertValue(new SQLParam(" c ")))).toEqual(["enc(c)"]);
+    expect(seen).toEqual(["write  a ", "write  b ", "write  c "]);
+  });
+
+  it("refuses a write the validator refuses", () => {
+    expect(() => sent(column.getInsertValue("bad"))).toThrow("refused");
+    expect(() => sent(column.getUpdateValue("bad"))).toThrow("refused");
+  });
+
+  it("writes null without validating it", () => {
+    seen.length = 0;
+
+    expect(sent(column.getUpdateValue(null))).toEqual([null]);
+    expect(seen).toEqual([]);
+  });
+
+  it("decodes a read, then validates the decoded value", () => {
+    expect(column.resolve("x")).toBe("DEC(X)");
+    expect(() => column.resolve("bad")).toThrow("refused");
+    expect(column.resolve(null)).toBeNull();
+  });
+
+  it("validates a value read through a row decoder", () => {
+    const decoded = Object.assign(Object.create(Object.getPrototypeOf(column) as object), column, {
+      rowDecoder: { dependsOn: [], decode: (raw: unknown) => `row(${String(raw)})` },
+    }) as typeof column;
+
+    expect(decoded.resolveRow({ label: "x" })).toBe("ROW(X)");
+  });
+
+  // A filter value is compared with stored values, not stored: a fragment of a valid value, or
+  // a value the validator would refuse, must still reach the database as given.
+  it("does not validate a filter parameter", () => {
+    seen.length = 0;
+
+    expect(sent(column.param("bad"))).toEqual(["enc(bad)"]);
+    expect(seen).toEqual([]);
+  });
+
+  it("validates a declared default", () => {
+    const defaulted = label().default(" d ");
+
+    expect(defaulted.toJSON().defaultValue).toBe("'enc(d)'");
+    expect(() => label().default("bad").toJSON()).toThrow("refused");
   });
 });

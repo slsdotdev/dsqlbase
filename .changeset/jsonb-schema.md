@@ -10,7 +10,7 @@ Fixed: a JSON column no longer parses a value the driver already parsed. A store
 
 Breaking:
 
-- `@dsqlbase/core`: `ColumnConfig` gains `inputType` (a fourth type parameter, defaulting to the value type), and `ColumnCodec` a third (`encode` takes the input type). `.default()`, `$onCreate`, `$onUpdate`, `Column.param`, `getInsertValue` and `getUpdateValue` take the input type. `ValueType` (`$type<T>()`) sets both.
+- `@dsqlbase/core`: `ColumnConfig` gains `inputType` (a fourth type parameter, defaulting to the value type). `.default()`, `$onCreate`, `$onUpdate`, `getInsertValue` and `getUpdateValue` take the input type. `ValueType` (`$type<T>()`) sets both.
 - `dsqlbase`: `CreateValuesOf` / `UpdateValuesOf` use the input type.
 - `dsqlbase`: a JSON column's decode returns what the session returned. A custom `Session` must return `json` / `jsonb` columns parsed, as `pg` and PGlite do.
 - `dsqlbase`: `json()` returns a `JsonColumnDefinition`; its raw type is `unknown`.

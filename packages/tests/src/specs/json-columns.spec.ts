@@ -128,7 +128,7 @@ describe("json columns", () => {
       ["a type-changing transform", z.string().transform((s) => s.split(","))],
       ["a value-changing transform", z.string().transform((s) => `${s}!`)],
     ])("refuses %s on the first write", (_, schema) => {
-      expect(() => jsonb("c").schema(schema)["_codec"].encode("a,b")).toThrow(
+      expect(() => jsonb("c").schema(schema)["_validator"]?.write("a,b")).toThrow(
         ColumnValidationError
       );
     });
@@ -136,7 +136,7 @@ describe("json columns", () => {
     it("refuses an async refinement", () => {
       const schema = z.string().refine(async () => true);
 
-      expect(() => jsonb("c").schema(schema)["_codec"].encode("a")).toThrow(
+      expect(() => jsonb("c").schema(schema)["_validator"]?.write("a")).toThrow(
         expect.objectContaining({ code: "async" })
       );
     });

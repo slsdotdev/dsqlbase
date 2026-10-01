@@ -221,6 +221,9 @@ dependency, and validates every write and every read:
 - **The schema must validate synchronously.** An async refinement throws.
 - **`.default(value)`** is validated where it is declared, whichever order `.default()` and
   `.schema()` are called in.
+- **Filters are not validated.** A value in `where`, or given to `Column.param()`, is compared
+  with stored values rather than stored: it is typed by the schema's output and sent as given,
+  and may be only a fragment of a document.
 
 Every failure throws `ColumnValidationError` (exported from `dsqlbase`), with `code`
 (`invalid`, `not_json`, `unstable`, `async`), the database `column` name, the `phase` (`write`
