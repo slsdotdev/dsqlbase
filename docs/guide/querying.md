@@ -77,13 +77,42 @@ const tasks = await dsql.tasks.findMany({
   - **No `select`**, or one naming nothing as `true` (`{}`, `{ id: false }`), returns every column.
   - **Naming columns** returns those columns.
   - **Naming only relations** returns only those relations, with no columns of the row itself.
-- **`where`** — per field: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `between`, `exists` (null check), `beginsWith`, `endsWith`, `contains`; combinators `and`, `or`, `not`. A bare value is shorthand for `eq`.
+- **`where`** — per field, the operators its column type allows (below); combinators `and`, `or`, `not`. Several operators on one field all apply, AND-ed: `{ pages: { gte: 1, lte: 5 } }`. An operator set to `undefined` is skipped.
   An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
   Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
-- **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order.
+- **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below).
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
-- **`distinct`** — `SELECT DISTINCT` over the selected columns.
+- **`distinct`** — `SELECT DISTINCT` over the selected columns. A JSON column (`json` or `jsonb`) is refused, so `distinct` throws when one is selected — including when nothing is named and every column is.
 - **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
+
+### Operators by column type
+
+Every column has a runtime type: the kind of value it holds, for querying. It decides which
+operators a filter on the column takes, whether a bare value stands for `eq`, and whether the
+column can be an `orderBy` key. The types and the runtime follow the same table: an operator the
+types refuse also throws when the query is built, before any SQL runs, for a caller the types
+cannot see (a resolver passing arguments through).
+
+| Runtime type | Columns                                                    | Operators                                                                                   | Bare value | `orderBy` |
+| ------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------- | --------- |
+| `string`     | `text`, `varchar`, `char`, `domain()`, `$enum()`           | `eq` `neq` `in` `gt` `gte` `lt` `lte` `between` `exists` `beginsWith` `endsWith` `contains` | yes        | yes       |
+| `uuid`       | `uuid`, `guid`                                             | `eq` `neq` `in` `gt` `gte` `lt` `lte` `between` `exists`                                    | yes        | yes       |
+| `number`     | `int`, `smallint`, `real`, `double`, `numeric`, `identity` | same as `uuid`                                                                              | yes        | yes       |
+| `bigint`     | `bigint`                                                   | same as `uuid`                                                                              | yes        | yes       |
+| `date`       | `date`, `time`, `timestamp` (in any read mode)             | same as `uuid`                                                                              | yes        | yes       |
+| `interval`   | `interval`                                                 | same as `uuid`                                                                              | yes        | yes       |
+| `boolean`    | `boolean`                                                  | `eq` `neq` `exists`                                                                         | yes        | yes       |
+| `bytes`      | `bytea`                                                    | `exists`                                                                                    | no         | no        |
+| `json`       | `json`                                                     | `exists`                                                                                    | no         | no        |
+| `array`      | `array`                                                    | `exists`                                                                                    | no         | no        |
+
+- **A bare value** is shorthand for `eq`. A plain object counts as operators when it names one;
+  one that names none is a value (an `interval` read as a `Duration`).
+- **Document, array and binary columns take no bare value.** `{ settings: { theme: "dark" } }`
+  could be a document or a filter; it throws, asking for one of the column's operators.
+- **`where` is reserved** inside a field's filter, for filtering into its value — a document's
+  keys, later. It throws "not supported yet".
+- **Across a union**, a shared field filters and orders as its column does in every member.
 
 ### Relations in `select`
 

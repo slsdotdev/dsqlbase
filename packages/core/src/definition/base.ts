@@ -49,8 +49,14 @@ export const RESERVED_FIELD_NAMES: readonly string[] = Object.freeze([META_FIELD
 export type NodeKind = (typeof Kind)[keyof typeof Kind];
 export type RelationType = (typeof Relation)[keyof typeof Relation];
 
-export type ColumnCodec<TRaw, TValue> = {
-  encode(value: TValue): TRaw;
+/**
+ * Converts a column's values to and from what the driver sends and returns. `encode` takes what
+ * a write accepts (`TInput`), `decode` returns what a read yields (`TValue`); they differ only
+ * for a column whose writes accept more than its reads return — a JSON column validated by a
+ * schema with defaults, for one.
+ */
+export type ColumnCodec<TRaw, TValue, TInput = TValue> = {
+  encode(value: TInput): TRaw;
   decode(raw: TRaw): TValue;
 };
 

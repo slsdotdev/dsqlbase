@@ -10,6 +10,10 @@ export {
   type GlobalIdErrorCode,
 } from "./schema/utils/global-id.js";
 export {
+  ColumnValidationError,
+  type ColumnValidationErrorCode,
+} from "./schema/utils/column-validation.js";
+export {
   CURSOR_PREFIX,
   InvalidCursorError,
   type InvalidCursorCode,

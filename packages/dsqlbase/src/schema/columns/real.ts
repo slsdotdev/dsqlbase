@@ -10,8 +10,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  * @returns Serializable column definition for a real column.
  */
 export function real<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<number, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<number, string, "number">>(name, {
     dataType: "real",
+    runtimeType: "number",
     codec: {
       encode: (value) => value.toString(),
       decode: (value) => parseFloat(value),

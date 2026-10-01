@@ -8,8 +8,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function boolean<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<boolean, boolean>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<boolean, boolean, "boolean">>(name, {
     dataType: "boolean",
+    runtimeType: "boolean",
     codec: {
       encode: (value) => value,
       decode: (value) => value,

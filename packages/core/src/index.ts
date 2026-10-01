@@ -29,6 +29,7 @@ export {
   type SharedFieldsOf,
   type ColumnCodec,
   type ColumnConfig,
+  type ColumnRuntimeType,
   type DefinitionSchema,
   type DomainConfig,
   type FieldRelation,

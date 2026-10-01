@@ -6,6 +6,7 @@ import {
   AnyTableRelations,
   AnyUnionMembers,
   ColumnConfig,
+  ColumnRuntimeType,
   SharedFieldsOf,
   TableDefinition,
   UnionDefinition,
@@ -18,6 +19,7 @@ import {
   TableByAlias,
 } from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
+import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
@@ -56,6 +58,13 @@ export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
     ? T["valueType"]
     : T["valueType"] | null
+  : never;
+
+/** What a write accepts for a column: its input type, nullable unless the column is not null. */
+export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
+  ? T["notNull"] extends true
+    ? T["inputType"]
+    : T["inputType"] | null
   : never;
 
 /**
@@ -229,9 +238,9 @@ export type TenantKeysOf<T extends AnyTable> = {
 }[FieldNamesOf<T>];
 
 export type CreateValuesOf<T extends AnyTable> = {
-  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
 } & {
-  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type ReturningResultOf<
@@ -268,7 +277,7 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 }>;
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
@@ -663,6 +672,20 @@ type SharedValueOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
     : never;
 }[keyof TMembers];
 
+/** The runtime type a shared field has, across every member of a union. */
+type SharedRuntimeTypeOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
+  [A in keyof TMembers]: TMembers[A]["__type"]["columns"][K] extends AnyColumnDefinition
+    ? TMembers[A]["__type"]["columns"][K]["__type"]["runtimeType"]
+    : never;
+}[keyof TMembers];
+
+/** The shared fields of a union that can be ordered by. */
+type OrderableSharedFieldsOf<TMembers extends AnyUnionMembers> = {
+  [K in SharedFieldsOf<TMembers>]: IsOrderable<SharedRuntimeTypeOf<TMembers, K>> extends true
+    ? K
+    : never;
+}[SharedFieldsOf<TMembers>];
+
 /**
  * A filter on which member a row comes from. Decided while the query is built, member by
  * member, so a member that cannot match produces no branch — it never reaches SQL.
@@ -679,9 +702,10 @@ export type KeyFilterOf<TAlias extends string> =
  * to remove a member from both.
  */
 export type UnionWhereExpressionOf<TMembers extends AnyUnionMembers> = {
-  [K in SharedFieldsOf<TMembers>]?:
-    | FilterCondition<SharedValueOf<TMembers, K>>
-    | SharedValueOf<TMembers, K>;
+  [K in SharedFieldsOf<TMembers>]?: FilterOf<
+    SharedRuntimeTypeOf<TMembers, K>,
+    SharedValueOf<TMembers, K>
+  >;
 } & {
   $$key?: KeyFilterOf<keyof TMembers & string>;
   and?: UnionWhereExpressionOf<TMembers>[];
@@ -703,7 +727,7 @@ export type UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extends Any
    * by member alias and then the primary key, so the order is total whenever the members' keys
    * line up.
    */
-  orderBy?: Partial<Record<SharedFieldsOf<TMembers> | "$$key", "asc" | "desc">>;
+  orderBy?: Partial<Record<OrderableSharedFieldsOf<TMembers> | "$$key", "asc" | "desc">>;
   limit?: number;
   offset?: number;
   /**
@@ -929,9 +953,29 @@ export type FilterCondition<Value = unknown> = {
   contains?: string;
 };
 
+/**
+ * A filter on a value of runtime type `R` holding `V`: the operators the runtime type allows,
+ * and, where it allows one, a bare value meaning `{ eq: value }`. Mirrors the table in
+ * `operators.ts`, which the normalizer enforces.
+ */
+export type FilterOf<R extends ColumnRuntimeType, V> =
+  | Pick<FilterCondition<V>, OperatorsOf<R>>
+  | (R extends ShorthandRuntimeType ? V : never);
+
+/** The filter a column accepts. */
+export type ColumnFilterOf<C extends ColumnConfig> = FilterOf<C["runtimeType"], ValueTypeOf<C>>;
+
+/** Whether a column of runtime type `R` can be ordered by — `true` if any of `R` can. */
+type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false : true;
+
+/** The fields of a table that can be ordered by: not documents, arrays or binary. */
+export type OrderableFieldNamesOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true ? K : never;
+}[FieldNamesOf<T>];
+
 export type WhereExpressionOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
-    ? FilterCondition<ValueTypeOf<ColumnTypeOf<T, K>>> | ValueTypeOf<ColumnTypeOf<T, K>>
+    ? ColumnFilterOf<ColumnTypeOf<T, K>>
     : never;
 } & {
   and?: WhereExpressionOf<T>[];
@@ -940,7 +984,7 @@ export type WhereExpressionOf<T extends AnyTable> = {
 };
 
 export type OrderByExpressionOf<T extends AnyTable> = Partial<
-  Record<FieldNamesOf<T>, "asc" | "desc">
+  Record<OrderableFieldNamesOf<T>, "asc" | "desc">
 >;
 
 export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {

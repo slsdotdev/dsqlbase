@@ -7,8 +7,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function bytea<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<Uint8Array, Buffer>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<Uint8Array, Buffer, "bytes">>(name, {
     dataType: "bytea",
+    runtimeType: "bytes",
     codec: {
       encode: (value) => Buffer.from(value),
       decode: (value) => new Uint8Array(value),

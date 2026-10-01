@@ -25,8 +25,9 @@ export function date<const TName extends string, const TOptions extends DateColu
   name: TName,
   options?: TOptions
 ) {
-  return new ColumnDefinition<TName, ColumnConfig<DateValueType<TOptions>, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<DateValueType<TOptions>, string, "date">>(name, {
     dataType: "date",
+    runtimeType: "date",
     codec: {
       encode: (value) => formatDate(safeParseDate(value)),
       decode: (value) => {

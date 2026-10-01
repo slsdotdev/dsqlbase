@@ -163,6 +163,35 @@ const open = await dsql.tasks.count({ where: { status: "todo" } });
 
 See the [pagination guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/pagination.md).
 
+## JSON columns
+
+`jsonb()` holds any JSON value. `.schema()` takes any [Standard Schema](https://standardschema.dev)
+— zod, valibot, arktype, none of them a dependency — and validates every write and every read:
+
+```ts
+import { z } from "zod";
+import { jsonb } from "dsqlbase/schema";
+
+const Settings = z.object({
+  theme: z.enum(["light", "dark"]).default("light"),
+  since: z.coerce.date(),
+});
+
+export const users = table("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  settings: jsonb("settings").schema(Settings),
+});
+
+await dsql.users.create({ data: { settings: { since: "2026-10-01" } } });
+// stored: {"theme":"light","since":"2026-10-01T00:00:00.000Z"}
+// read:   { theme: "light", since: Date }
+```
+
+A write stores the schema's output — defaults filled — and checks it reads back as itself, so a
+transforming schema is refused on its first write. Filters, order and operators follow each
+column's type: a JSON column filters by `exists`. See the
+[schema guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/schema.md#json-columns).
+
 ## Polymorphic relations
 
 `union()` groups tables that stand in for one another — a GraphQL union or interface — and

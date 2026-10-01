@@ -4,6 +4,7 @@ import {
   date,
   datetime,
   json,
+  jsonb,
   table,
   text,
   uuid,
@@ -19,6 +20,7 @@ import {
   union,
   $enum,
 } from "dsqlbase/schema";
+import { z } from "zod";
 
 export type ProjectSettings = {
   notificationsEnabled: boolean;
@@ -426,6 +428,33 @@ const userFeedRelations = relations(users, {
   feed: hasMany(userFeed, { from: [users.columns.id], to: [userFeed.columns.authorId] }),
 });
 
+/**
+ * JSON columns: `config` validated by a zod schema with a default and a coercion, `payload` any
+ * JSON value, `notes` the older `json` type.
+ */
+const BoardConfig = z.object({
+  kind: z.enum(["kanban", "list"]),
+  columns: z.number().int().positive().default(3),
+  since: z.coerce.date().optional(),
+});
+
+const boards = table("boards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull(),
+  name: text("name").notNull(),
+  config: jsonb("config").schema(BoardConfig).notNull(),
+  payload: jsonb("payload"),
+  notes: json("notes"),
+});
+
+const boardRelations = relations(boards, {
+  project: belongsTo(projects, { from: [boards.columns.projectId], to: [projects.columns.id] }),
+});
+
+const projectBoardRelations = relations(projects, {
+  boards: hasMany(boards, { from: [projects.columns.id], to: [boards.columns.projectId] }),
+});
+
 export {
   teams,
   members,
@@ -471,4 +500,7 @@ export {
   postCommentRelations,
   folderRelations,
   userFeedRelations,
+  boards,
+  boardRelations,
+  projectBoardRelations,
 };

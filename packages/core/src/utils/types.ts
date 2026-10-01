@@ -55,8 +55,9 @@ export type TenantKey<T extends TypedObject> = T & {
   __type: { tenantKey: true };
 };
 
+/** Narrows what a column reads and writes to one type — `$type<T>()`. */
 export type ValueType<T extends TypedObject, TValue> = T & {
-  __type: { valueType: TValue };
+  __type: { valueType: TValue; inputType: TValue };
 };
 
 export type Generated<T extends TypedObject, TGeneration> = T & {

@@ -18,7 +18,7 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
 
 ## Where codecs do NOT apply
 
-- **Pattern operators** — `beginsWith`, `endsWith`, `contains` build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw.
+- **Pattern operators** — `beginsWith`, `endsWith`, `contains` build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw, and only `string` columns take them (see [Operators by runtime type](./runtime-pipeline.md#operators-by-runtime-type)), so they never meet a codec that rewrites values.
 - **`exists`** — a null check, no value.
 - **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.
@@ -29,6 +29,27 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
   `Date` milliseconds, so a cursor rebuilt from the decoded `Date` of a row at `.123456`
   becomes `.123` and the next page skips every row in that millisecond. The same holds for a
   bound codec such as the guid wrapper: a guid order key travels as its raw uuid.
+
+## JSON columns: the driver parses, the codec validates
+
+`json` and `jsonb` columns (`packages/dsqlbase/src/schema/columns/json.ts`) rely on the session
+returning them **parsed**, as `pg` and PGlite do, and a joined row arrives inside parsed JSON
+anyway. Their decode therefore never parses: it receives a value, and a JSON string such as
+`"123"` stays the string it is. (It used to parse any string again, so `"123"` read back as the
+number `123`.) A custom `Session` must return JSON columns parsed.
+
+Encode is `JSON.stringify`. With `.schema(s)` the codec is replaced by one that validates inside
+both directions — the codec is the only path every write and read passes through, joins
+included:
+
+- **encode** validates, serializes the schema's output, validates that serialized form again and
+  requires it to serialize identically (the stability check), then sends the text;
+- **decode** validates the stored value and returns the schema's output.
+
+A codec cannot await, so a schema that returns a `Promise` throws. The codec takes what a write
+accepts and returns what a read yields, which differ here: `ColumnConfig.inputType` carries the
+write side (`CreateValuesOf` / `UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`,
+`Column.param`), `valueType` the read side. They are the same type for every other column.
 
 ## Filtering by a codec column in raw SQL
 

@@ -8,6 +8,7 @@ Sources:
 - SQL feature index — https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-postgresql-compatibility-supported-sql-subsets.html
 - `ALTER TABLE` — https://docs.aws.amazon.com/aurora-dsql/latest/userguide/alter-table-syntax-support.html
 - General constraints — https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with.html
+- Data types — https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-postgresql-compatibility-supported-data-types.html (verified 2026-10-01)
 
 ## `ALTER TABLE` forms vs. the migration module
 
@@ -42,6 +43,7 @@ Sources:
 - **Sequences**: `CACHE` must be `1` or `>= 65536` (validated: `INVALID_SEQUENCE_CACHE`).
 - **Identifiers**: 63 bytes (Postgres limit; validated: `IDENTIFIER_TOO_LONG`).
 - **Generated columns**: `STORED` only.
+- **JSON** (verified 2026-10-01): `json` and `jsonb` are storable column types, each value limited to 1 MiB **compressed**, with **no index support** — a filter on a JSON column scans. "All PostgreSQL JSON functions and operators" are supported with identical behaviour; `json_populate_record` and friends work with table row types only, because **`CREATE TYPE` is not supported** (so no composite types). Arrays and `inet` are query-runtime types only, not storable.
 - **Unsupported PG types** (`money`, `xml`, `tsvector`, ranges, inherited tables) are excluded at compile time by the column builders; no runtime rule.
 
 ## To verify on a real DSQL cluster

@@ -1,5 +1,5 @@
 import { TypedObject } from "../utils/index.js";
-import { ColumnConfig, ColumnDefinition } from "../definition/index.js";
+import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLParam, SQLStatement, isSQLNode, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
 
@@ -27,6 +27,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly name: TName;
   /** The database type, or the domain's name for a domain column. */
   readonly dataType: string;
+  /** The kind of value the column holds, for querying; see {@link ColumnRuntimeType}. */
+  readonly runtimeType: ColumnRuntimeType;
   readonly notNull: TConfig["notNull"];
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
@@ -37,6 +39,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.table = table;
     this.name = definition.name;
     this.dataType = definition["_dataType"];
+    this.runtimeType = definition["_runtimeType"];
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];
@@ -94,7 +97,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    * Also the way to filter by a codec column in raw `$query`:
    * ``sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}` ``
    */
-  public param(value: TConfig["valueType"] | SQLNode): SQLNode {
+  public param(value: TConfig["inputType"] | SQLNode): SQLNode {
     if (isSQLNode(value)) {
       return value;
     }
@@ -103,7 +106,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   public getInsertValue(
-    value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined
+    value: TConfig["inputType"] | SQLParam<TConfig["inputType"]> | null | undefined
   ) {
     let param = value ?? undefined;
 
@@ -122,7 +125,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     return param as SQLNode;
   }
 
-  getUpdateValue(value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined) {
+  getUpdateValue(value: TConfig["inputType"] | SQLParam<TConfig["inputType"]> | null | undefined) {
     let param = value;
 
     if (param === undefined) {

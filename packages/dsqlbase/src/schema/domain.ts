@@ -17,9 +17,10 @@ import { AnyNamespaceDefinition, DomainDefinition, sql } from "@dsqlbase/core";
  */
 
 export function domain<TName extends string>(name: TName) {
-  return new DomainDefinition<TName, string, string, AnyNamespaceDefinition>(name, {
+  return new DomainDefinition<TName, string, string, AnyNamespaceDefinition, "string">(name, {
     notNull: false,
     dataType: "text",
+    runtimeType: "string",
     codec: {
       encode: (value) => value,
       decode: (value) => value,
@@ -31,16 +32,20 @@ export function $enum<TName extends string, const TValues extends string[]>(
   name: TName,
   values: TValues
 ) {
-  const domain = new DomainDefinition<TName, TValues[number], string, AnyNamespaceDefinition>(
-    name,
-    {
-      dataType: "text",
-      codec: {
-        encode: (value) => value,
-        decode: (value) => value,
-      },
-    }
-  );
+  const domain = new DomainDefinition<
+    TName,
+    TValues[number],
+    string,
+    AnyNamespaceDefinition,
+    "string"
+  >(name, {
+    dataType: "text",
+    runtimeType: "string",
+    codec: {
+      encode: (value) => value,
+      decode: (value) => value,
+    },
+  });
 
   return domain.check((v) => sql.in(v, values), `${name}_enum_check`);
 }

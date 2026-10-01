@@ -9,8 +9,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function smallint<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<number, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<number, string, "number">>(name, {
     dataType: "smallint",
+    runtimeType: "number",
     codec: {
       encode: (value) => value.toString(),
       decode: (value) => parseInt(value, 10),

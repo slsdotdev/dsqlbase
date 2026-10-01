@@ -15,6 +15,7 @@ export {
 export {
   ColumnDefinition,
   type ColumnConfig,
+  type ColumnRuntimeType,
   type AnyColumnDefinition,
   type UpdateGuard,
   type ColumnGeneratedConfig,
