@@ -31,8 +31,33 @@ export type ColumnIdentityConfig = {
   sequenceName?: string;
 };
 
-export type ColumnConfig<TValueType = unknown, TRawType = unknown> = {
+/**
+ * The kind of value a column holds, for querying: it decides which filter operators apply to
+ * the column, whether a bare value stands for `eq`, and whether it can be ordered. It names the
+ * database value's kind, not its JavaScript form — a `date()` read as a string is still `date`.
+ *
+ * `array` and `object` are reserved for document-backed array and record columns.
+ */
+export type ColumnRuntimeType =
+  | "string"
+  | "uuid"
+  | "number"
+  | "bigint"
+  | "boolean"
+  | "date"
+  | "interval"
+  | "bytes"
+  | "json"
+  | "array"
+  | "object";
+
+export type ColumnConfig<
+  TValueType = unknown,
+  TRawType = unknown,
+  TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
+> = {
   dataType: string;
+  runtimeType: TRuntimeType;
   valueType: TValueType;
   rawType: TRawType;
   notNull: boolean;
@@ -56,6 +81,7 @@ export class ColumnDefinition<
   readonly kind = Kind.COLUMN;
 
   protected _dataType: string;
+  protected _runtimeType: ColumnRuntimeType;
   protected _notNull: boolean;
   protected _primaryKey: boolean;
   protected _unique: boolean;
@@ -75,6 +101,7 @@ export class ColumnDefinition<
     super(name);
 
     this._dataType = config.domain?.name ?? config.dataType ?? "text";
+    this._runtimeType = config.runtimeType ?? "string";
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;

@@ -1,12 +1,16 @@
-import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core/definition";
+import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "@dsqlbase/core/definition";
 import { DateTimeMode, formatTimestamp, safeParseDate } from "../utils/date.js";
 import { DateValueType } from "./date.js";
 import { HasDefault } from "@dsqlbase/core/utils";
 import { sql } from "@dsqlbase/core";
 
-export type TimestampColumnConfig<TValueType = unknown, TRawType = unknown> = {
+export type TimestampColumnConfig<
+  TValueType = unknown,
+  TRawType = unknown,
+  TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
+> = {
   withTimezone?: boolean;
-} & ColumnConfig<TValueType, TRawType>;
+} & ColumnConfig<TValueType, TRawType, TRuntimeType>;
 
 export class TimestampColumnDefinition<
   TName extends string,
@@ -66,9 +70,10 @@ export function timestamp<const TName extends string, const TOptions extends Dat
 
   return new TimestampColumnDefinition<
     TName,
-    TimestampColumnConfig<DateValueType<TOptions>, string>
+    TimestampColumnConfig<DateValueType<TOptions>, string, "date">
   >(name, {
     dataType,
+    runtimeType: "date",
     withTimezone,
     codec: {
       encode: (value) => formatTimestamp(safeParseDate(value), { tz: withTimezone }),

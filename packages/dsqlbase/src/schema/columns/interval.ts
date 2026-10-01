@@ -29,8 +29,9 @@ export function interval<const TName extends string, const TOptions extends Inte
   name: TName,
   options?: TOptions
 ) {
-  return new ColumnDefinition<TName, ColumnConfig<IntervalValueType<TOptions>, string>>(name, {
+  return new ColumnDefinition<TName, IntervalColumnConfig<TOptions>>(name, {
     dataType: "interval",
+    runtimeType: "interval",
     codec: {
       encode: (value) => {
         const duration = safeParseDuration(value);
@@ -62,6 +63,12 @@ export function interval<const TName extends string, const TOptions extends Inte
 }
 
 export { interval as duration };
+
+type IntervalColumnConfig<TOptions extends IntervalColumnOptions> = ColumnConfig<
+  IntervalValueType<TOptions>,
+  string,
+  "interval"
+>;
 
 export type IntervalValueType<TOptions extends IntervalColumnOptions> = TOptions["mode"] extends
   | "iso"

@@ -5,6 +5,7 @@ import { GlobalIdError, isGlobalId } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
+  Column,
   CountOperationArgs,
   DefinitionSchema,
   DeleteOperationArgs,
@@ -48,6 +49,7 @@ import {
   InvalidCursorError,
   keysetSignature,
 } from "../pagination/cursor.js";
+import { FILTER_OPERATORS, FilterOperator, NESTED_FILTER, rulesOf } from "./operators.js";
 
 /** The page size when neither the call nor the client names one. */
 export const DEFAULT_PAGE_SIZE = 100;
@@ -151,90 +153,128 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
       }
 
-      const polymorphic = this._getPolymorphicFilter(column, condition);
-
-      if (polymorphic) {
-        expressions.push(polymorphic);
-        continue;
-      }
-
-      // Comparison values go through `column.param` so the column's codec writes them the
-      // same way it wrote them on insert. Pattern operators below stay raw: they compare
-      // against a `LIKE` pattern, not a column value.
-      if (isFilterType(condition, "eq")) {
-        expressions.push(sql.eq(column, column.param(condition.eq)));
-        continue;
-      }
-
-      if (isFilterType(condition, "neq")) {
-        expressions.push(sql.ne(column, column.param(condition.neq)));
-        continue;
-      }
-
-      if (isFilterType(condition, "gt")) {
-        expressions.push(sql.gt(column, column.param(condition.gt)));
-        continue;
-      }
-
-      if (isFilterType(condition, "gte")) {
-        expressions.push(sql.gte(column, column.param(condition.gte)));
-        continue;
-      }
-
-      if (isFilterType(condition, "lt")) {
-        expressions.push(sql.lt(column, column.param(condition.lt)));
-        continue;
-      }
-
-      if (isFilterType(condition, "lte")) {
-        expressions.push(sql.lte(column, column.param(condition.lte)));
-        continue;
-      }
-
-      if (isFilterType(condition, "in")) {
-        expressions.push(sql.in(column, condition.in.map((value) => column.param(value))));
-        continue;
-      }
-
-      if (isFilterType(condition, "between")) {
-        expressions.push(
-          sql`${column} BETWEEN ${column.param(condition.between[0])} AND ${column.param(
-            condition.between[1]
-          )}`
-        );
-        continue;
-      }
-
-      if (isFilterType(condition, "exists")) {
-        if (condition.exists) {
-          expressions.push(sql.isNotNull(column));
-        } else {
-          expressions.push(sql.isNull(column));
-        }
-        continue;
-      }
-
-      if (isFilterType(condition, "beginsWith")) {
-        expressions.push(sql.like(column, `${condition.beginsWith}%`));
-        continue;
-      }
-
-      if (isFilterType(condition, "endsWith")) {
-        expressions.push(sql.like(column, `%${condition.endsWith}`));
-        continue;
-      }
-
-      if (isFilterType(condition, "contains")) {
-        expressions.push(sql.like(column, `%${condition.contains}%`));
-        continue;
-      }
-
-      // Value shorthand: `{ id: "123" }` means `{ id: { eq: "123" } }`.
-      expressions.push(sql.eq(column, column.param(condition as SQLValue)));
+      expressions.push(...this._getColumnFilter(table, fieldName, column, condition));
     }
 
     // `{}` selects everything, the same as no `where` at all — not an empty `WHERE`.
     return expressions.length > 0 ? sql.and(expressions) : undefined;
+  }
+
+  /**
+   * One column's filter, as its runtime type allows (`operators.ts`): a bare value means
+   * `{ eq: value }` where the type takes one, and every operator in an object adds a condition,
+   * AND-ed with the rest. Anything the type does not allow throws before SQL is built.
+   */
+  private _getColumnFilter(
+    table: AnyTable,
+    fieldName: string,
+    column: AnyColumn,
+    condition: unknown
+  ): SQLNode[] {
+    const rules = rulesOf(column);
+    const subject = `${column.runtimeType} column "${fieldName}" of "${table.name}"`;
+
+    if (!this._isOperatorObject(condition)) {
+      if (!rules.shorthand) {
+        throw new Error(
+          `Filter the ${subject} with one of its operators (${rules.operators.join(", ")}), ` +
+            `not a bare value.`
+        );
+      }
+
+      // Value shorthand: `{ id: "123" }` means `{ id: { eq: "123" } }`.
+      return [this._getOperatorFilter(column, "eq", condition)];
+    }
+
+    const nodes: SQLNode[] = [];
+
+    for (const [operator, value] of Object.entries(condition)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (operator === NESTED_FILTER) {
+        throw new Error(`A nested \`where\` on the ${subject} is not supported yet.`);
+      }
+
+      if (!rules.operators.includes(operator as FilterOperator)) {
+        throw new Error(
+          FILTER_OPERATORS.has(operator)
+            ? `Operator "${operator}" is not valid on the ${subject} ` +
+                `(valid: ${rules.operators.join(", ")}).`
+            : `Unknown operator "${operator}" in the filter on the ${subject}.`
+        );
+      }
+
+      nodes.push(this._getOperatorFilter(column, operator as FilterOperator, value));
+    }
+
+    return nodes;
+  }
+
+  /**
+   * Whether a column's filter is an object of operators rather than a value: a plain object
+   * naming at least one. A value can itself be a plain object — an `interval` read as a
+   * `Duration`, a JSON document — so one that names no operator is a value.
+   */
+  private _isOperatorObject(condition: unknown): condition is Record<string, unknown> {
+    if (typeof condition !== "object" || condition === null) {
+      return false;
+    }
+
+    const prototype = Object.getPrototypeOf(condition) as unknown;
+
+    if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
+
+    return Object.keys(condition).some((key) => FILTER_OPERATORS.has(key) || key === NESTED_FILTER);
+  }
+
+  private _getOperatorFilter(column: AnyColumn, operator: FilterOperator, value: unknown): SQLNode {
+    // Comparison values go through `column.param` so the column's codec writes them the same
+    // way it wrote them on insert. Pattern operators stay raw: they compare against a `LIKE`
+    // pattern, not a column value.
+    switch (operator) {
+      case "eq":
+        return (
+          this._getPolymorphicFilter(column, value) ??
+          sql.eq(column, column.param(value as SQLValue))
+        );
+      case "neq":
+        return (
+          this._getPolymorphicFilter(column, { neq: value }) ??
+          sql.ne(column, column.param(value as SQLValue))
+        );
+      case "in":
+        return (
+          this._getPolymorphicFilter(column, { in: value }) ??
+          sql.in(
+            column,
+            (value as SQLValue[]).map((item) => column.param(item))
+          )
+        );
+      case "gt":
+        return sql.gt(column, column.param(value as SQLValue));
+      case "gte":
+        return sql.gte(column, column.param(value as SQLValue));
+      case "lt":
+        return sql.lt(column, column.param(value as SQLValue));
+      case "lte":
+        return sql.lte(column, column.param(value as SQLValue));
+      case "between": {
+        const [from, to] = value as [SQLValue, SQLValue];
+        return sql`${column} BETWEEN ${column.param(from)} AND ${column.param(to)}`;
+      }
+      case "exists":
+        return value ? sql.isNotNull(column) : sql.isNull(column);
+      case "beginsWith":
+        return sql.like(column, `${value as string}%`);
+      case "endsWith":
+        return sql.like(column, `%${value as string}`);
+      case "contains":
+        return sql.like(column, `%${value as string}%`);
+    }
   }
 
   /**
@@ -369,6 +409,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (!column) {
         throw new Error(`Invalid field "${field}" in orderBy for table "${table.name}".`);
+      }
+
+      if (!rulesOf(column).orderable) {
+        throw new Error(
+          `Cannot order by the ${column.runtimeType} column "${field}" of "${table.name}".`
+        );
       }
 
       if (direction === "asc" || direction === "desc") {
@@ -777,6 +823,16 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         );
       }
 
+      if (field !== KEY_FIELD) {
+        const column = union.getMemberColumn(union.memberAliases[0] as string, field);
+
+        if (!rulesOf(column).orderable) {
+          throw new Error(
+            `Cannot order by the ${column.runtimeType} field "${field}" of union "${union.alias}".`
+          );
+        }
+      }
+
       if (direction === "asc" || direction === "desc") {
         keys.push({ field, direction });
       }
@@ -902,6 +958,20 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return group ? sql.wrap(group) : undefined;
   }
 
+  /** `distinct` compares whole rows, so every column it reads needs an equality operator. */
+  private _assertDistinct(table: AnyTable, select: FieldSelection[] | undefined): void {
+    const fields = select ?? table.getColumnEntries();
+
+    for (const [field, column] of fields) {
+      if (column instanceof Column && !rulesOf(column).distinct) {
+        throw new Error(
+          `\`distinct\` cannot compare the ${column.runtimeType} column "${field}" of ` +
+            `"${table.name}"; leave it out of the selection.`
+        );
+      }
+    }
+  }
+
   private _getSelectArgs<TTable extends AnyTable>(
     table: TTable,
     args: QueryArgs<TTable, this["__type"]>
@@ -917,6 +987,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       selection.join as JoinExpressionOf<TTable, this["__type"]>
     );
     const orderBy = this._getOrderByEntries(table, args.orderBy);
+
+    if (args.distinct) {
+      this._assertDistinct(table, selection.select);
+    }
 
     return {
       select: selection.select,

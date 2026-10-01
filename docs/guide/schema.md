@@ -159,21 +159,26 @@ members is enough.
 
 ## Column types
 
-| Constructor(s)                                          | PG type                         | Notes                                                                 |
-| ------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
-| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                       |
-| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                              |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                             |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                       |
-| `boolean`/`bool`                                        | `boolean`                       |                                                                       |
-| `bytea`                                                 | `bytea`                         |                                                                       |
-| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)               |
-| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                            |
-| `json`                                                  | `json`                          | `unknown`; use `.$type<T>()` to narrow. No validation, no `jsonb` yet |
-| `array(inner)`                                          | `inner[]`                       |                                                                       |
-| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation               |
+| Constructor(s)                                          | PG type                         | Notes                                                                                                  |
+| ------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                        |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                               |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                              |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                                                        |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                                                        |
+| `bytea`                                                 | `bytea`                         |                                                                                                        |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                             |
+| `json`                                                  | `json`                          | `unknown`; use `.$type<T>()` to narrow. No validation, no `jsonb` yet                                  |
+| `array`                                                 | `text`                          | `string[]` stored comma-joined; a value containing `,` does not survive, and `[]` reads back as `[""]` |
+| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                                |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
+
+Each constructor also sets the column's **runtime type** — the kind of value it holds, for
+querying — which decides the filter operators it takes, whether a bare value means `eq`, and
+whether it can be ordered by. `domain()` and `$enum()` columns are `string`. See
+[Operators by column type](./querying.md#operators-by-column-type).
 
 ## Domains and enums
 

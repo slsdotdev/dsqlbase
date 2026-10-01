@@ -12,8 +12,9 @@ export function char<const TName extends string, const TLength extends number>(
   name: TName,
   length: TLength
 ) {
-  return new ColumnDefinition<TName, ColumnConfig<string, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<string, string, "string">>(name, {
     dataType: `char(${length})`,
+    runtimeType: "string",
     codec: {
       encode: (value) => value,
       decode: (value) => value,

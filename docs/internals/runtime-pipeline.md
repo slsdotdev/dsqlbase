@@ -256,7 +256,30 @@ which are client concerns. `$$meta` is copied, never written to, since `Table.me
 
 ## Query args surface
 
-Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns, and relations as field maps), `where` (`eq/neq/gt/gte/lt/lte/in/between/exists/beginsWith/endsWith/contains` plus `and/or/not`, or value shorthand), `orderBy` (object of field → `asc|desc`, relies on key insertion order), `distinct`, `limit`, `offset`, `join` (relations only). `PaginateArgs` takes `select`, `where`, `orderBy` and `join` from it, plus `limit`, `after`, `before` and `count`; `CountArgs` takes `where`. No aggregate beyond `count`, and no row-value comparison in `sql.*`. **`findMany` applies no default limit** — the operations factory passes `limit` through unchanged; only `paginate` has one. (The JSDoc used to promise a default of 100; it was wrong and has been removed.)
+Defined in `packages/dsqlbase/src/client/model/base.ts`: `select` (columns, and relations as field maps), `where` (per field, the operators of the column's runtime type plus `and/or/not`, or value shorthand where the type takes one — see below), `orderBy` (object of field → `asc|desc`, relies on key insertion order; orderable runtime types only), `distinct`, `limit`, `offset`, `join` (relations only). `PaginateArgs` takes `select`, `where`, `orderBy` and `join` from it, plus `limit`, `after`, `before` and `count`; `CountArgs` takes `where`. No aggregate beyond `count`, and no row-value comparison in `sql.*`. **`findMany` applies no default limit** — the operations factory passes `limit` through unchanged; only `paginate` has one. (The JSDoc used to promise a default of 100; it was wrong and has been removed.)
+
+### Operators by runtime type
+
+Every column carries a **runtime type** — `ColumnConfig.runtimeType`, set by each builder,
+inherited from a domain, exposed as `Column.runtimeType` (`packages/core`). It is the kind of
+value the column holds for querying, not its JavaScript form. Core attaches no meaning to it.
+
+The client gives it one: `packages/dsqlbase/src/client/model/operators.ts` holds a single table
+of runtime type → operators, value shorthand, orderable, and whether `distinct` can compare it.
+Both sides read that table:
+
+- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` and `OrderableFieldNamesOf` in `base.ts` are
+  written from it (`OperatorsOf`, `ShorthandRuntimeType`, `OrderableRuntimeType`), for tables and
+  for a union's shared fields.
+- **Runtime** — `RequestNormalizer._getColumnFilter` checks every operator of a field's filter
+  against the column's set and AND-s the ones present; a bare value is accepted only where the
+  type takes one; `_getOrderKeys` / `_getUnionOrderKeys` refuse unorderable columns; `distinct`
+  refuses a selected column it cannot compare. All of it throws before SQL is built, so a caller
+  the types cannot see (a resolver passing arguments through) gets the same rules.
+
+A plain object counts as operators only when it names one, since a value can itself be a plain
+object (an `interval` read as a `Duration`). `where` inside a field's filter is reserved for a
+nested filter into the value and throws until it is built.
 
 ## Read-only columns
 

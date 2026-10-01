@@ -24,7 +24,7 @@ export class IdentityColumnDefinition<
   TIdentity extends IdentityConfig<IdentityColumnOptions>,
 > extends ColumnDefinition<
   TName,
-  Omit<ColumnConfig<number, string>, "identity"> & {
+  Omit<ColumnConfig<number, string, "number">, "identity"> & {
     notNull: true;
     hasDefault: true;
     identity: TIdentity;
@@ -35,7 +35,7 @@ export class IdentityColumnDefinition<
   constructor(
     name: TName,
     config: Partial<
-      Omit<ColumnConfig<number, string>, "identity"> & {
+      Omit<ColumnConfig<number, string, "number">, "identity"> & {
         notNull: true;
         hasDefault: true;
         identity: TIdentity;
@@ -124,6 +124,7 @@ export function identity<const TName extends string, const TOptions extends Iden
 
   return new IdentityColumnDefinition<TName, IdentityConfig<TOptions>>(name, {
     dataType: "bigint",
+    runtimeType: "number",
     identity,
     codec: {
       encode: (value) => value.toString(),

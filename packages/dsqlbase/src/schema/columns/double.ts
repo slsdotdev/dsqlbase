@@ -11,8 +11,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function double<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<number, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<number, string, "number">>(name, {
     dataType: "double precision",
+    runtimeType: "number",
     codec: {
       encode: (value) => value.toString(),
       decode: (value) => parseFloat(value),

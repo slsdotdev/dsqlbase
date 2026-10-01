@@ -61,12 +61,13 @@ export class GuidColumnDefinition<
  * existing column produces no DDL.
  */
 export function guid<const TName extends string>(name: TName, key?: string) {
-  return new GuidColumnDefinition<TName, ColumnConfig<string, string>>(
+  return new GuidColumnDefinition<TName, ColumnConfig<string, string, "uuid">>(
     name,
     {
       dataType: "uuid",
+      runtimeType: "uuid",
       codec: { encode: (value) => value, decode: (value) => value },
     },
     key
-  ) as Guid<GuidColumnDefinition<TName, ColumnConfig<string, string>>>;
+  ) as Guid<GuidColumnDefinition<TName, ColumnConfig<string, string, "uuid">>>;
 }

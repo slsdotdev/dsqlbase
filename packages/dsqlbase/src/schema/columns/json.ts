@@ -9,8 +9,9 @@ import { safeParseJson } from "../utils/json.js";
  */
 
 export function json<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<unknown, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<unknown, string, "json">>(name, {
     dataType: "json",
+    runtimeType: "json",
     codec: {
       encode: (value) => JSON.stringify(value),
       decode: (value) => safeParseJson(value),

@@ -9,8 +9,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function bigint<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<bigint, string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<bigint, string, "bigint">>(name, {
     dataType: "bigint",
+    runtimeType: "bigint",
     codec: {
       encode: (value) => value.toString(),
       decode: (value) => BigInt(value),

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ColumnDefinition, TableDefinition, TenantScopeDefinition } from "../definition/index.js";
+import {
+  ColumnDefinition,
+  DomainDefinition,
+  TableDefinition,
+  TenantScopeDefinition,
+} from "../definition/index.js";
 import { sql, SQLParam } from "../sql/index.js";
 import { Table } from "./table.js";
 
@@ -101,5 +106,30 @@ describe("Column / tenantKey", () => {
   it("defaults to false for every other column", () => {
     expect(table.columns.number.tenantKey).toBe(false);
     expect(table.columns.id.tenantKey).toBe(false);
+  });
+});
+
+describe("Column.runtimeType", () => {
+  const document = new DomainDefinition("document", { dataType: "jsonb", runtimeType: "json" });
+  const table = new Table(
+    new TableDefinition("files", {
+      columns: {
+        id: new ColumnDefinition("id", { primaryKey: true, runtimeType: "uuid" }),
+        name: new ColumnDefinition("name"),
+        meta: document.column("meta"),
+      },
+    })
+  );
+
+  it("carries the definition's runtime type", () => {
+    expect(table.columns.id.runtimeType).toBe("uuid");
+  });
+
+  it("defaults to string, as the data type defaults to text", () => {
+    expect(table.columns.name.runtimeType).toBe("string");
+  });
+
+  it("is inherited by a column made from a domain", () => {
+    expect(table.columns.meta.runtimeType).toBe("json");
   });
 });

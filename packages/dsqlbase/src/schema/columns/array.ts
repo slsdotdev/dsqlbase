@@ -15,8 +15,9 @@ import { ColumnConfig, ColumnDefinition } from "@dsqlbase/core";
  */
 
 export function array<const TName extends string>(name: TName) {
-  return new ColumnDefinition<TName, ColumnConfig<string[], string>>(name, {
+  return new ColumnDefinition<TName, ColumnConfig<string[], string, "array">>(name, {
     dataType: "text",
+    runtimeType: "array",
     codec: {
       encode: (value) => value.join(","),
       decode: (value) => value.split(","),

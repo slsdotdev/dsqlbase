@@ -1,5 +1,5 @@
 import { TypedObject } from "../utils/index.js";
-import { ColumnConfig, ColumnDefinition } from "../definition/index.js";
+import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLParam, SQLStatement, isSQLNode, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
 
@@ -27,6 +27,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly name: TName;
   /** The database type, or the domain's name for a domain column. */
   readonly dataType: string;
+  /** The kind of value the column holds, for querying; see {@link ColumnRuntimeType}. */
+  readonly runtimeType: ColumnRuntimeType;
   readonly notNull: TConfig["notNull"];
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
@@ -37,6 +39,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.table = table;
     this.name = definition.name;
     this.dataType = definition["_dataType"];
+    this.runtimeType = definition["_runtimeType"];
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];

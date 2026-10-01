@@ -1,7 +1,7 @@
 import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
 import { HasDefault, NotNull, WithDomain, ValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
-import { ColumnConfig, ColumnDefinition } from "./column.js";
+import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "./column.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
@@ -9,41 +9,50 @@ export type DomainConfig<
   TValueType = unknown,
   TRawType = unknown,
   TNamespace extends AnyNamespaceDefinition = AnyNamespaceDefinition,
+  TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
 > = {
   namespace?: NodeRef<TNamespace>;
   valueType: TValueType;
   rawType: TRawType;
   dataType: string;
+  /** Carried to every column made from the domain; see {@link ColumnRuntimeType}. */
+  runtimeType: TRuntimeType;
   notNull: boolean;
   defaultValue?: SQLNode;
   codec: ColumnCodec<TRawType, TValueType>;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDomainDefinition = DomainDefinition<string, any, any, any>;
+export type AnyDomainDefinition = DomainDefinition<string, any, any, any, any>;
 
 export class DomainDefinition<
   TName extends string,
   TValueType,
   TRawType,
   TNamespace extends AnyNamespaceDefinition,
-> extends DefinitionNode<TName, DomainConfig<TValueType, TRawType, TNamespace>> {
+  TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
+> extends DefinitionNode<TName, DomainConfig<TValueType, TRawType, TNamespace, TRuntimeType>> {
   readonly kind = Kind.DOMAIN;
 
-  declare readonly __type: DomainConfig<TValueType, TRawType, TNamespace>;
+  declare readonly __type: DomainConfig<TValueType, TRawType, TNamespace, TRuntimeType>;
 
   protected _namespace?: NodeRef<TNamespace>;
   protected _dataType: DomainConfig<TValueType, TRawType>["dataType"];
+  protected _runtimeType: ColumnRuntimeType;
   protected _notNull: DomainConfig<TValueType, TRawType>["notNull"];
   protected _defaultValue?: DomainConfig<TValueType, TRawType>["defaultValue"];
   protected _check?: AnyCheckConstraintDefinition;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
 
-  constructor(name: TName, config: Partial<DomainConfig<TValueType, TRawType, TNamespace>> = {}) {
+  constructor(
+    name: TName,
+    config: Partial<DomainConfig<TValueType, TRawType, TNamespace, TRuntimeType>> = {}
+  ) {
     super(name);
 
     this._dataType = config.dataType ?? "text";
+    this._runtimeType = config.runtimeType ?? "string";
     this._notNull = config.notNull ?? false;
     this._defaultValue = config.defaultValue;
     this._namespace = config.namespace;
@@ -87,12 +96,17 @@ export class DomainDefinition<
   ): WithDomain<
     ColumnDefinition<
       TColumnName,
-      ColumnConfig<this["__type"]["valueType"], this["__type"]["rawType"]>
+      ColumnConfig<
+        this["__type"]["valueType"],
+        this["__type"]["rawType"],
+        this["__type"]["runtimeType"]
+      >
     >,
     this
   > {
     return new ColumnDefinition(name, {
       dataType: this.name,
+      runtimeType: this._runtimeType,
       notNull: this._notNull,
       defaultValue: this._defaultValue,
       codec: this._codec,
@@ -100,7 +114,11 @@ export class DomainDefinition<
     }) as WithDomain<
       ColumnDefinition<
         TColumnName,
-        ColumnConfig<this["__type"]["valueType"], this["__type"]["rawType"]>
+        ColumnConfig<
+          this["__type"]["valueType"],
+          this["__type"]["rawType"],
+          this["__type"]["runtimeType"]
+        >
       >,
       this
     >;
