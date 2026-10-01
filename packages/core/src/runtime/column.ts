@@ -97,7 +97,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    * Also the way to filter by a codec column in raw `$query`:
    * ``sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}` ``
    */
-  public param(value: TConfig["valueType"] | SQLNode): SQLNode {
+  public param(value: TConfig["inputType"] | SQLNode): SQLNode {
     if (isSQLNode(value)) {
       return value;
     }
@@ -106,7 +106,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   public getInsertValue(
-    value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined
+    value: TConfig["inputType"] | SQLParam<TConfig["inputType"]> | null | undefined
   ) {
     let param = value ?? undefined;
 
@@ -125,7 +125,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     return param as SQLNode;
   }
 
-  getUpdateValue(value: TConfig["valueType"] | SQLParam<TConfig["valueType"]> | null | undefined) {
+  getUpdateValue(value: TConfig["inputType"] | SQLParam<TConfig["inputType"]> | null | undefined) {
     let param = value;
 
     if (param === undefined) {

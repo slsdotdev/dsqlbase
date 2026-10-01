@@ -169,7 +169,7 @@ members is enough.
 | `bytea`                                                 | `bytea`                         |                                                                                                        |
 | `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                |
 | `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                             |
-| `json`                                                  | `json`                          | `unknown`; use `.$type<T>()` to narrow. No validation, no `jsonb` yet                                  |
+| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                  |
 | `array`                                                 | `text`                          | `string[]` stored comma-joined; a value containing `,` does not survive, and `[]` reads back as `[""]` |
 | `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                                |
 
@@ -179,6 +179,56 @@ Each constructor also sets the column's **runtime type** — the kind of value i
 querying — which decides the filter operators it takes, whether a bare value means `eq`, and
 whether it can be ordered by. `domain()` and `$enum()` columns are `string`. See
 [Operators by column type](./querying.md#operators-by-column-type).
+
+## JSON columns
+
+`jsonb(name)` and `json(name)` hold any JSON value — an object, an array, a string, a number or a
+boolean. `null` is SQL `NULL`, never a JSON `null`. Prefer `jsonb`: Postgres stores it parsed and
+can compare it, while `json` keeps the text as written and has no equality operator. In Aurora
+DSQL a value is limited to 1 MiB compressed, and neither type can be indexed.
+
+```ts
+import { z } from "zod";
+import { jsonb, table, uuid } from "dsqlbase/schema";
+
+const Settings = z.object({
+  theme: z.enum(["light", "dark"]).default("light"),
+  since: z.coerce.date(),
+});
+
+export const users = table("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  settings: jsonb("settings").schema(Settings), // validated, typed from the schema
+  tags: jsonb("tags").$type<string[]>(), // typed only
+});
+```
+
+`.$type<T>()` only types the column; nothing checks the values. `.schema(s)` takes any
+[Standard Schema](https://standardschema.dev) — zod, valibot, arktype — with none of them a
+dependency, and validates every write and every read:
+
+- **A write** takes the schema's input type, validates it, and stores the schema's **output**
+  in its JSON form: `create({ data: { settings: { since: "2026-10-01" } } })` stores
+  `{"theme":"light","since":"2026-10-01T00:00:00.000Z"}`. Defaults are stored, so they are what
+  the row holds.
+- **The output must read back as itself.** After validating, the write validates the stored
+  form again and compares. Defaults, coercions and refinements pass. A **transform** fails —
+  its output no longer validates as its input, or changes on a second pass — and throws on the
+  first write that reaches it. Transforming schemas are not supported.
+- **A read** validates the stored value and returns the schema's output, so the type holds for
+  every row: `user.settings.since` is a `Date`. A stored value the schema refuses — written by
+  raw SQL, or under an older schema — fails the whole read.
+- **The schema must validate synchronously.** An async refinement throws.
+- **`.default(value)`** is validated where it is declared, whichever order `.default()` and
+  `.schema()` are called in.
+
+Every failure throws `ColumnValidationError` (exported from `dsqlbase`), with `code`
+(`invalid`, `not_json`, `unstable`, `async`), the database `column` name, the `phase` (`write`
+or `read`) and the schema's `issues`.
+
+A JSON column filters by `exists` only, takes no bare value in `where`, cannot be an `orderBy`
+key, and cannot be compared by `distinct` (see
+[Operators by column type](./querying.md#operators-by-column-type)).
 
 ## Domains and enums
 

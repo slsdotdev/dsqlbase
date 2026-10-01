@@ -19,7 +19,7 @@ export {
   type IntervalColumnOptions,
   type IntervalValueType,
 } from "./columns/interval.js";
-export { json } from "./columns/json.js";
+export { json, jsonb, JsonColumnDefinition, type WithSchema } from "./columns/json.js";
 export { decimal, numeric } from "./columns/numeric.js";
 export { real, float4 } from "./columns/real.js";
 export { smallint, int2 } from "./columns/smallint.js";
@@ -46,4 +46,5 @@ export { relations, belongsTo, hasMany, hasOne } from "./relations.js";
 
 export { type Duration } from "./utils/duration.js";
 export { type GlobalId, type GlobalIdErrorCode } from "./utils/global-id.js";
+export type { StandardSchemaV1 } from "./utils/standard-schema.js";
 export { type DateTimeMode } from "./utils/date.js";

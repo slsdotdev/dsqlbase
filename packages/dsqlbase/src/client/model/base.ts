@@ -60,6 +60,13 @@ export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
     : T["valueType"] | null
   : never;
 
+/** What a write accepts for a column: its input type, nullable unless the column is not null. */
+export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
+  ? T["notNull"] extends true
+    ? T["inputType"]
+    : T["inputType"] | null
+  : never;
+
 /**
  * The metadata a table declared with `table().meta()`, or `object` when it declared none.
  * Accepts a `Table` or a `TableDefinition` — both carry it on `__type`.
@@ -231,9 +238,9 @@ export type TenantKeysOf<T extends AnyTable> = {
 }[FieldNamesOf<T>];
 
 export type CreateValuesOf<T extends AnyTable> = {
-  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
 } & {
-  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type ReturningResultOf<
@@ -270,7 +277,7 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 }>;
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: ValueTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{

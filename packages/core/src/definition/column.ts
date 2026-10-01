@@ -55,17 +55,21 @@ export type ColumnConfig<
   TValueType = unknown,
   TRawType = unknown,
   TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
+  TInputType = TValueType,
 > = {
   dataType: string;
   runtimeType: TRuntimeType;
+  /** What a read returns. */
   valueType: TValueType;
+  /** What a write — `create`, `update`, a default — accepts. The read type unless set apart. */
+  inputType: TInputType;
   rawType: TRawType;
   notNull: boolean;
   primaryKey: boolean;
   unique: boolean;
   readOnly: boolean;
   tenantKey: boolean;
-  codec: ColumnCodec<TRawType, TValueType>;
+  codec: ColumnCodec<TRawType, TValueType, TInputType>;
   defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
   generated?: ColumnGeneratedConfig;
@@ -93,9 +97,13 @@ export class ColumnDefinition<
   protected _generated?: ColumnGeneratedConfig;
   protected _identity?: ColumnIdentityConfig;
 
-  protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
-  protected _onCreate?: () => this["__type"]["valueType"];
-  protected _onUpdate?: () => this["__type"]["valueType"];
+  protected _codec: ColumnCodec<
+    this["__type"]["rawType"],
+    this["__type"]["valueType"],
+    this["__type"]["inputType"]
+  >;
+  protected _onCreate?: () => this["__type"]["inputType"];
+  protected _onUpdate?: () => this["__type"]["inputType"];
 
   constructor(name: TName, config: Partial<TConfig> = {}) {
     super(name);
@@ -155,7 +163,7 @@ export class ColumnDefinition<
     return Object.assign(Object.create(Object.getPrototypeOf(this) as object), this) as this;
   }
 
-  public default(value: this["__type"]["valueType"]): HasDefault<this> {
+  public default(value: this["__type"]["inputType"]): HasDefault<this> {
     this._defaultValue = new SQLParam(value, this._codec.encode);
     return this as HasDefault<this>;
   }
@@ -186,12 +194,12 @@ export class ColumnDefinition<
     return this as ValueType<this, T>;
   }
 
-  public $onCreate(cb: () => this["__type"]["valueType"]): this {
+  public $onCreate(cb: () => this["__type"]["inputType"]): this {
     this._onCreate = cb;
     return this;
   }
 
-  public $onUpdate(cb: () => this["__type"]["valueType"]): UpdateGuard<this> {
+  public $onUpdate(cb: () => this["__type"]["inputType"]): UpdateGuard<this> {
     if (this._primaryKey) {
       throw new Error("Cannot set onUpdate callback for a primary key column.");
     }

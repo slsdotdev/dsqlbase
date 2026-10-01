@@ -30,6 +30,27 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
   becomes `.123` and the next page skips every row in that millisecond. The same holds for a
   bound codec such as the guid wrapper: a guid order key travels as its raw uuid.
 
+## JSON columns: the driver parses, the codec validates
+
+`json` and `jsonb` columns (`packages/dsqlbase/src/schema/columns/json.ts`) rely on the session
+returning them **parsed**, as `pg` and PGlite do, and a joined row arrives inside parsed JSON
+anyway. Their decode therefore never parses: it receives a value, and a JSON string such as
+`"123"` stays the string it is. (It used to parse any string again, so `"123"` read back as the
+number `123`.) A custom `Session` must return JSON columns parsed.
+
+Encode is `JSON.stringify`. With `.schema(s)` the codec is replaced by one that validates inside
+both directions — the codec is the only path every write and read passes through, joins
+included:
+
+- **encode** validates, serializes the schema's output, validates that serialized form again and
+  requires it to serialize identically (the stability check), then sends the text;
+- **decode** validates the stored value and returns the schema's output.
+
+A codec cannot await, so a schema that returns a `Promise` throws. The codec takes what a write
+accepts and returns what a read yields, which differ here: `ColumnConfig.inputType` carries the
+write side (`CreateValuesOf` / `UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`,
+`Column.param`), `valueType` the read side. They are the same type for every other column.
+
 ## Filtering by a codec column in raw SQL
 
 ```ts

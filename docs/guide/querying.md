@@ -82,7 +82,7 @@ const tasks = await dsql.tasks.findMany({
   Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below).
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
-- **`distinct`** — `SELECT DISTINCT` over the selected columns. A `json` column cannot be compared, so `distinct` throws when one is selected — including when nothing is named and every column is.
+- **`distinct`** — `SELECT DISTINCT` over the selected columns. A JSON column (`json` or `jsonb`) is refused, so `distinct` throws when one is selected — including when nothing is named and every column is.
 - **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
 
 ### Operators by column type
