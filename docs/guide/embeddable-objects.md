@@ -90,6 +90,29 @@ await dsql.invoices.findMany({
   A member that cannot be ordered — a JSON column — is refused as it would be at table level.
 - **`paginate`** takes member keys the same way; the cursor records them by field path.
 
+## Writing
+
+A group is written as an object of its members:
+
+```ts
+await dsql.invoices.create({ data: { netValue: { amount: 10n } } }); // currency: its default
+await dsql.invoices.update({ where: { id }, set: { netValue: { amount: 11n } } }); // one column
+await dsql.invoices.update({ where: { id }, set: { billing: null } }); // every billing_* NULL
+```
+
+- **`create`** writes the members given; every other member takes its `$onCreate` or its
+  default, as a column left out of `create` does. A group must be given when it has a required
+  member — `.notNull()`, no default — and no `.default(obj)` of its own; within it, the required
+  members must be given.
+- **`update`** writes only the members given and leaves the rest as they are; the group is
+  assumed to satisfy its constraints already. A member's `$onUpdate` runs on every update, as a
+  column's does — so a group whose members are all nullable reads as present after any update
+  if one of them has a hook.
+- **`null`** sets every column of the group `NULL`. Only a group whose members are all nullable
+  takes it; on any other it is a type error and throws.
+- A read-only member is left out of both inputs, as a read-only column is. A `guid()` member
+  takes a global id or a raw uuid.
+
 ## Related
 
 - [Schema](./schema.md#embedded-objects) — declaring objects and placing them as groups

@@ -1263,4 +1263,54 @@ describe("OperationFactory / column groups", () => {
 
     expect(row?.invoices?.[0]?.netValue).toEqual({ amount: "5", currency: "USD" });
   });
+
+  it("inserts every real column, a member written through its column and the rest DEFAULT", () => {
+    mockDialect.buildInsertQuery.mockClear();
+    mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
+    factory.createInsertOperation(table, {
+      mode: "one",
+      args: {
+        data: [
+          [
+            ["id", sql.param(1)],
+            [netValue.columns.amount as AnyColumn, sql.param("10")],
+            [netValue.columns.currency as AnyColumn, sql.param("EUR")],
+          ],
+        ],
+      },
+    });
+
+    const [params] = mockDialect.buildInsertQuery.mock.lastCall ?? [];
+    const rendered = (params?.values?.[0] ?? []).map((node) => sql`${node}`.toQuery().text);
+
+    expect(params?.columns.map((column) => (column as SQLIdentifier).name)).toEqual([
+      "id",
+      "net_value_amount",
+      "net_value_currency",
+      "billing_city",
+      "billing_zip",
+    ]);
+    expect(rendered).toEqual(["$1", "$1", "$1", "DEFAULT", "DEFAULT"]);
+  });
+
+  it("updates a member through its column", () => {
+    mockDialect.buildUpdateQuery.mockClear();
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    factory.createUpdateOperation(table, {
+      mode: "many",
+      args: { set: [[billing.columns.city as AnyColumn, sql.param("Cluj")]] },
+    });
+
+    const [params] = mockDialect.buildUpdateQuery.mock.lastCall ?? [];
+
+    expect(params?.set.map(([column]) => (column as SQLIdentifier).name)).toEqual(["billing_city"]);
+  });
+
+  it("refuses a column of another table", () => {
+    const other = groups.getTable("customers").columns.id as AnyColumn;
+
+    expect(() =>
+      factory.createUpdateOperation(table, { mode: "many", args: { set: [[other, sql.param(1)]] } })
+    ).toThrow(`Column "id" does not exist on table "invoices"`);
+  });
 });

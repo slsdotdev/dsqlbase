@@ -140,6 +140,13 @@ level passes through `_resolveSelectParams`.
 
 ### Insert fill
 
+`_resolveInsertEntries` writes every real column — `Table.getLeafEntries()`, a group's members
+included — so one the caller did not write takes its `$onCreate` or `DEFAULT`. A `FieldMutation`
+names its column by field, or carries the column itself: that is how the normalizer writes a
+group's member, flattening a group's value (`_getGroupMutations`) — `null` to every column, an
+object to the members it names. A column carried directly must belong to the table. `update`
+runs `$onUpdate` over the same leaf columns, so a member's hook fires on every update too.
+
 `_resolveInsertEntries` fills each `tenantKeys` column from the identity, ahead of the generic
 `getInsertValue` fallback, so `onCreate` and `DEFAULT` never apply to one. It throws in **both**
 modes when there are no claims: the column is `notNull` and nothing else can fill it, so the

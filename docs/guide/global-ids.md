@@ -98,6 +98,9 @@ await dsql.articles.findOne({ where: { id: { eq: "3f1c0e3e-…" } } }); // ✓ r
 await dsql.articles.create({ data: { authorId: someAuthorId, title: "…" } }); // ✓ either
 ```
 
+A `guid()` member of an [embedded object](./embeddable-objects.md) carries ids the same way,
+read and written through its group.
+
 An id naming the **wrong** node throws `GlobalIdError` with `code: "key_mismatch"`, when the
 query is built rather than when it runs. That is the safety net a bare uuid cannot provide: the
 same mistake with plain uuids is a query that quietly matches nothing.

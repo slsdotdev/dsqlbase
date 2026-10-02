@@ -155,7 +155,7 @@ await dsql.tasks.findOne({ where: { id: { eq: id } }, select: { project: true } 
   a member's own fields through `join` and `on`.
 - Naming the same relation in both `select` and `join` is refused: a type error at the call, and
   an error when the query is built (at any depth). A `false` in `join` beside it is ignored.
-- `return` on `create` / `update` / `delete` takes columns only.
+- `return` on `create` / `update` / `delete` takes columns and column groups only, no relations.
 
 For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
 `offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.

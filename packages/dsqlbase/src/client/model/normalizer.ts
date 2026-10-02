@@ -36,6 +36,7 @@ import {
   AnyUnionQuery,
   CountArgs,
   CreateArgs,
+  CreateValuesOf,
   DeleteArgs,
   FieldSelectionOf,
   JoinExpressionOf,
@@ -582,12 +583,17 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   private _getMutationEntries<TTable extends AnyTable>(
     table: TTable,
-    values: UpdateValuesOf<TTable>
+    values: CreateValuesOf<TTable> | UpdateValuesOf<TTable>
   ): FieldMutation[] {
     const entries: FieldMutation[] = [];
 
     for (const [fieldName, value] of Object.entries(values as Record<string, SQLValue>)) {
       const column = table.getColumn(fieldName);
+
+      if (column instanceof ColumnGroup) {
+        entries.push(...this._getGroupMutations(table, [fieldName], column, value));
+        continue;
+      }
 
       if (!(column instanceof Column)) {
         throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
@@ -603,6 +609,66 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     return this._fillDiscriminators(table, values as Record<string, unknown>, entries);
+  }
+
+  /**
+   * A group's value as writes to its members' columns. An object writes the members it names
+   * and leaves the rest alone — on insert they take their defaults, on update they keep their
+   * value — and `null` sets every column `NULL`, which only a group whose members are all
+   * nullable can take.
+   */
+  private _getGroupMutations(
+    table: AnyTable,
+    path: string[],
+    group: AnyColumnGroup,
+    value: unknown
+  ): FieldMutation[] {
+    const subject = `group "${path.join(".")}" of "${table.name}"`;
+
+    if (value === undefined) {
+      return [];
+    }
+
+    if (value === null) {
+      if (!group.nullable) {
+        throw new Error(
+          `Cannot set the ${subject} to null: it has a member that is not null, so it is ` +
+            `always present.`
+        );
+      }
+
+      return group.leafColumns().map((column): FieldMutation => [column, null]);
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Write the ${subject} as an object of its members, or null.`);
+    }
+
+    const entries: FieldMutation[] = [];
+
+    for (const [member, memberValue] of Object.entries(value)) {
+      const field = group.getColumn(member);
+
+      if (field instanceof ColumnGroup) {
+        entries.push(...this._getGroupMutations(table, [...path, member], field, memberValue));
+        continue;
+      }
+
+      if (!(field instanceof Column)) {
+        throw new Error(
+          `Invalid field "${[...path, member].join(".")}" in values for table "${table.name}".`
+        );
+      }
+
+      // Dropped as a plain read-only column is, for the same reason.
+      if (field.readOnly || memberValue === undefined) {
+        continue;
+      }
+
+      entries.push([field, memberValue as SQLValue]);
+    }
+
+    return entries;
   }
 
   /**

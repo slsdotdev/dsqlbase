@@ -357,7 +357,86 @@ export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
 } & {
   [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-};
+} & ([GroupFieldNamesOf<T>] extends [never]
+    ? unknown
+    : {
+        -readonly [K in GroupFieldNamesOf<T> &
+          RequiredMembersOf<T["__type"]["columns"]>]: MemberInputOf<T["__type"]["columns"][K]>;
+      } & {
+        -readonly [K in Exclude<
+          GroupFieldNamesOf<T>,
+          RequiredMembersOf<T["__type"]["columns"]>
+        >]?: MemberInputOf<T["__type"]["columns"][K]>;
+      });
+
+/**
+ * Whether a member must be given on `create`: a column that is not null and has no default, or
+ * a group with such a member and no default of its own. A read-only member never is.
+ */
+type IsRequiredMember<M> =
+  M extends GroupOf<infer GC>
+    ? M extends { __type: { hasDefault: true } }
+      ? false
+      : true extends { [K in keyof GC]-?: IsRequiredMember<GC[K]> }[keyof GC]
+        ? true
+        : false
+    : M extends { __type: { notNull: true } }
+      ? M extends { __type: { hasDefault: true } }
+        ? false
+        : M extends { __type: { readOnly: true } }
+          ? false
+          : true
+      : false;
+
+/** The members a write may set: every one but a read-only column. */
+type WritableMembersOf<C> = {
+  [K in keyof C]-?: C[K] extends GroupOf<unknown>
+    ? K
+    : C[K] extends { __type: { readOnly: true } }
+      ? never
+      : K;
+}[keyof C];
+
+type RequiredMembersOf<C> = {
+  [K in keyof C]-?: IsRequiredMember<C[K]> extends true ? K : never;
+}[keyof C];
+
+/** What a member takes on `create`: a column's input, or a group's object. */
+type MemberInputOf<M> =
+  M extends GroupOf<infer GC>
+    ? GroupInputOf<GC>
+    : M extends { __type: infer TConfig extends ColumnConfig }
+      ? InputTypeOf<TConfig>
+      : never;
+
+/**
+ * A group's value on `create`: its required members, the rest optional — an omitted member
+ * takes its default. `null` too when every member is nullable.
+ */
+export type GroupInputOf<C> =
+  | Prettify<
+      {
+        -readonly [K in Extract<
+          keyof C,
+          WritableMembersOf<C> & RequiredMembersOf<C>
+        >]: MemberInputOf<C[K]>;
+      } & {
+        -readonly [K in Exclude<WritableMembersOf<C>, RequiredMembersOf<C>>]?: MemberInputOf<C[K]>;
+      }
+    >
+  | (IsNullableGroup<C> extends true ? null : never);
+
+/**
+ * A group's value on `update`: any of its members, nested groups likewise — the ones named are
+ * written and the rest keep their value. `null` too when every member is nullable.
+ */
+export type GroupUpdateOf<C> =
+  | Prettify<{
+      -readonly [K in WritableMembersOf<C>]?: C[K] extends GroupOf<infer GC>
+        ? GroupUpdateOf<GC>
+        : MemberInputOf<C[K]>;
+    }>
+  | (IsNullableGroup<C> extends true ? null : never);
 
 export type ReturningResultOf<
   T extends AnyTable,
@@ -394,7 +473,13 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 
 export type UpdateValuesOf<T extends AnyTable> = {
   [K in Exclude<ColumnFieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-};
+} & ([GroupFieldNamesOf<T>] extends [never]
+  ? unknown
+  : {
+      -readonly [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer C>
+        ? GroupUpdateOf<C>
+        : never;
+    });
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
   set: UpdateValuesOf<TTable>;
