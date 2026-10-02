@@ -117,3 +117,4 @@ await dsql.invoices.update({ where: { id }, set: { billing: null } }); // every 
 
 - [Schema](./schema.md#embedded-objects) — declaring objects and placing them as groups
 - [Querying](./querying.md)
+- [0013 — Embedded objects as column groups](../decisions/0013-embeddable-objects.md)

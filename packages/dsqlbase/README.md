@@ -209,6 +209,36 @@ await dsql.boards.findMany({ where: { limits: { hasKey: "cpu" } } });
 See the
 [schema guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/schema.md#json-columns).
 
+## Embedded objects
+
+`embedded()` declares a reusable value object; `.column(name)` places it in a table as real
+columns, `<name>_<member>`, read and written as one nested object:
+
+```ts
+import { embedded, numeric, table, text, uuid } from "dsqlbase/schema";
+
+export const money = embedded({
+  amount: numeric("amount").notNull(),
+  currency: text("currency").notNull().default("EUR"),
+});
+
+export const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  netValue: money.column("net_value"), // net_value_amount, net_value_currency
+});
+
+invoices.index("invoices_net_value_idx").columns((c) => [c.netValue.amount]);
+
+await dsql.invoices.create({ data: { netValue: { amount: 120 } } });
+await dsql.invoices.findMany({
+  where: { netValue: { where: { amount: { gt: 100 } } } },
+  orderBy: { netValue: { amount: "desc" } },
+});
+```
+
+A group whose members are all nullable reads `null` when all of them are. See the
+[embedded objects guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/embeddable-objects.md).
+
 ## Polymorphic relations
 
 `union()` groups tables that stand in for one another — a GraphQL union or interface — and

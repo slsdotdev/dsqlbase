@@ -9,4 +9,4 @@ Core adds `EmbeddedObjectDefinition`, `ColumnGroupDefinition`, `columnEntries`, 
 
 Breaking, in `@dsqlbase/core`: `TableConfig.columns` and the table, namespace and tenant-scope column maps accept groups (`TableColumnDefinitions`); `ColumnRefs` nests for a group, and constraint and index callbacks return `ColumnRefOf` (any ref, however deep); `ColumnConfigRefs` nests; `IndexColumnDefinition`'s column parameter is any `DefinitionNode`.
 
-Docs: docs/guide/schema.md, docs/internals/architecture.md
+Docs: docs/guide/schema.md, docs/guide/migrations.md, docs/internals/architecture.md, docs/decisions/0013-embeddable-objects.md (new), packages/dsqlbase/README.md, README.md

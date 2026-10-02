@@ -20,6 +20,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0010](./0010-relation-select.md) | Relations in `select` | 2026-09-30 | accepted |
 | [0011](./0011-json-columns.md) | JSON columns and operators by runtime type | 2026-10-01 | accepted |
 | [0012](./0012-json-array-record.md) | Column validators, `jsonb` operators, `array()` / `record()` on `jsonb` | 2026-10-02 | accepted |
+| [0013](./0013-embeddable-objects.md) | Embedded objects as column groups | 2026-10-02 | accepted |
 
 ## Template
 

@@ -21,6 +21,8 @@ import {
   $enum,
   array,
   record,
+  embedded,
+  numeric,
 } from "dsqlbase/schema";
 import { z } from "zod";
 
@@ -460,6 +462,39 @@ const projectBoardRelations = relations(projects, {
   boards: hasMany(boards, { from: [projects.columns.id], to: [boards.columns.projectId] }),
 });
 
+/**
+ * Column groups. `money` has required members, so `netValue` is never null, and `discount`
+ * can be left out of a create because its group default fills the one required member without
+ * one. `address` has only nullable members and a nested `geo`, so `billing` can be absent.
+ * `review.by` is a `guid()` member pointing at authors; `review.at` has an `$onUpdate` hook.
+ */
+const currency = $enum("currency", ["EUR", "USD", "RON"]);
+
+const money = embedded({
+  amount: numeric("amount").notNull(),
+  currency: currency.column("currency").notNull().default("EUR"),
+});
+
+const geo = embedded({ lat: numeric("lat"), lng: numeric("lng") });
+
+const address = embedded({ city: text("city"), zip: text("zip"), geo: geo.column("geo") });
+
+const review = embedded({
+  by: guid("by", "authors"),
+  at: text("at").$onUpdate(() => "updated"),
+});
+
+const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: text("number").notNull(),
+  netValue: money.column("net_value"),
+  discount: money.column("discount").default({ amount: 0 }),
+  billing: address.column("billing"),
+  review: review.column("review"),
+});
+
+invoices.index("invoices_net_value_amount_idx").columns((c) => [c.netValue.amount]);
+
 export {
   teams,
   members,
@@ -508,4 +543,6 @@ export {
   boards,
   boardRelations,
   projectBoardRelations,
+  currency,
+  invoices,
 };
