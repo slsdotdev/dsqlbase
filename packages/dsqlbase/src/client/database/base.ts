@@ -17,8 +17,8 @@ import {
   GlobalIdOptionsOf,
   GlobalIdResultOf,
   JoinExpressionOf,
-  WhereExpressionOf,
 } from "../model/base.js";
+import { WhereExpressionOf } from "../model/filters.js";
 import { GlobalIdError, decodeGlobalId } from "../../schema/utils/global-id.js";
 import { NodeTable, getNodes } from "../nodes.js";
 

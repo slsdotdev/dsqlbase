@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema, Session } from "@dsqlbase/core";
 import type { TableByAlias } from "@dsqlbase/core/runtime";
 import { createClient } from "../create.js";
-import type { WhereExpressionOf } from "./base.js";
+import type { WhereExpressionOf } from "./filters.js";
 import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
 import { array, record, table, uuid } from "../../schema/index.js";
 

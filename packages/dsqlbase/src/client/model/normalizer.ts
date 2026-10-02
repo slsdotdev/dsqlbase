@@ -1,7 +1,7 @@
 import { TypedObject } from "@dsqlbase/core/utils";
 import { KEY_FIELD } from "@dsqlbase/core/definition";
 import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
-import { GlobalIdError, isGlobalId } from "../../schema/utils/global-id.js";
+import { GlobalIdError } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
@@ -34,14 +34,12 @@ import {
   CreateArgs,
   DeleteArgs,
   FieldSelectionOf,
-  isFilterType,
   JoinExpressionOf,
   OrderByExpressionOf,
   PaginateArgs,
   QueryArgs,
   UpdateArgs,
   UpdateValuesOf,
-  WhereExpressionOf,
 } from "./base.js";
 import {
   CursorKey,
@@ -49,13 +47,7 @@ import {
   InvalidCursorError,
   keysetSignature,
 } from "../pagination/cursor.js";
-import {
-  FILTER_OPERATORS,
-  FilterOperator,
-  JSONB_RUNTIME_TYPES,
-  NESTED_FILTER,
-  rulesOf,
-} from "./operators.js";
+import { rulesOf, WhereBuilder, WhereExpressionOf } from "./filters.js";
 
 /** The page size when neither the call nor the client names one. */
 export const DEFAULT_PAGE_SIZE = 100;
@@ -108,218 +100,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   declare readonly __type: Schema<TDefinition>;
 
   private readonly _ctx: ExecutionContext;
+  private readonly _where = new WhereBuilder();
 
   constructor(context: ExecutionContext) {
     this._ctx = context;
-  }
-
-  private _getWhereExpression<TTable extends AnyTable>(
-    table: TTable,
-    where: WhereExpressionOf<TTable> | null | undefined
-  ): SQLNode | undefined {
-    if (!where) {
-      return undefined;
-    }
-
-    const expressions: SQLNode[] = [];
-
-    for (const [fieldName, condition] of Object.entries(where)) {
-      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
-        const children = condition
-          .map((expr) => this._getWhereExpression(table, expr))
-          .filter(Boolean) as SQLNode[];
-
-        // An empty group constrains nothing; left in, it would render as `()`.
-        if (children.length > 0) {
-          expressions.push(sql.wrap(fieldName === "and" ? sql.and(children) : sql.or(children)));
-        }
-
-        continue;
-      }
-
-      if (
-        fieldName === "not" &&
-        typeof condition === "object" &&
-        condition !== null &&
-        !Array.isArray(condition)
-      ) {
-        const shouldWrapNot = Object.keys(condition).length > 1;
-        const expr = this._getWhereExpression(table, condition);
-
-        if (expr) {
-          expressions.push(shouldWrapNot ? sql.wrap(sql.not(expr)) : sql.not(expr));
-        }
-
-        continue;
-      }
-
-      const column = table.getColumn(fieldName);
-
-      if (!column) {
-        throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
-      }
-
-      expressions.push(...this._getColumnFilter(table, fieldName, column, condition));
-    }
-
-    // `{}` selects everything, the same as no `where` at all — not an empty `WHERE`.
-    return expressions.length > 0 ? sql.and(expressions) : undefined;
-  }
-
-  /**
-   * One column's filter, as its runtime type allows (`operators.ts`): a bare value means
-   * `{ eq: value }` where the type takes one, and every operator in an object adds a condition,
-   * AND-ed with the rest. Anything the type does not allow throws before SQL is built.
-   */
-  private _getColumnFilter(
-    table: AnyTable,
-    fieldName: string,
-    column: AnyColumn,
-    condition: unknown
-  ): SQLNode[] {
-    const rules = rulesOf(column);
-    const subject = `${column.runtimeType} column "${fieldName}" of "${table.name}"`;
-
-    if (!this._isOperatorObject(condition)) {
-      if (!rules.shorthand) {
-        throw new Error(
-          `Filter the ${subject} with one of its operators (${rules.operators.join(", ")}), ` +
-            `not a bare value.`
-        );
-      }
-
-      // Value shorthand: `{ id: "123" }` means `{ id: { eq: "123" } }`.
-      return [this._getOperatorFilter(column, "eq", condition)];
-    }
-
-    const nodes: SQLNode[] = [];
-
-    for (const [operator, value] of Object.entries(condition)) {
-      if (value === undefined) {
-        continue;
-      }
-
-      if (operator === NESTED_FILTER) {
-        throw new Error(`A nested \`where\` on the ${subject} is not supported yet.`);
-      }
-
-      if (!rules.operators.includes(operator as FilterOperator)) {
-        throw new Error(
-          FILTER_OPERATORS.has(operator)
-            ? `Operator "${operator}" is not valid on the ${subject} ` +
-                `(valid: ${rules.operators.join(", ")}).`
-            : `Unknown operator "${operator}" in the filter on the ${subject}.`
-        );
-      }
-
-      nodes.push(this._getOperatorFilter(column, operator as FilterOperator, value));
-    }
-
-    return nodes;
-  }
-
-  /**
-   * Whether a column's filter is an object of operators rather than a value: a plain object
-   * naming at least one. A value can itself be a plain object — an `interval` read as a
-   * `Duration`, a JSON document — so one that names no operator is a value.
-   */
-  private _isOperatorObject(condition: unknown): condition is Record<string, unknown> {
-    if (typeof condition !== "object" || condition === null) {
-      return false;
-    }
-
-    const prototype = Object.getPrototypeOf(condition) as unknown;
-
-    if (prototype !== Object.prototype && prototype !== null) {
-      return false;
-    }
-
-    return Object.keys(condition).some((key) => FILTER_OPERATORS.has(key) || key === NESTED_FILTER);
-  }
-
-  private _getOperatorFilter(column: AnyColumn, operator: FilterOperator, value: unknown): SQLNode {
-    // Comparison values go through `column.param` so the column's codec writes them the same
-    // way it wrote them on insert. Pattern operators stay raw: they compare against a `LIKE`
-    // pattern, not a column value. A `jsonb` fragment is encoded but, like every filter value,
-    // not validated, so a partial document reaches the database as given.
-    switch (operator) {
-      case "eq":
-        return (
-          this._getPolymorphicFilter(column, value) ??
-          sql.eq(column, column.param(value as SQLValue))
-        );
-      case "neq":
-        return (
-          this._getPolymorphicFilter(column, { neq: value }) ??
-          sql.ne(column, column.param(value as SQLValue))
-        );
-      case "in":
-        return (
-          this._getPolymorphicFilter(column, { in: value }) ??
-          sql.in(
-            column,
-            (value as SQLValue[]).map((item) => column.param(item))
-          )
-        );
-      case "gt":
-        return sql.gt(column, column.param(value as SQLValue));
-      case "gte":
-        return sql.gte(column, column.param(value as SQLValue));
-      case "lt":
-        return sql.lt(column, column.param(value as SQLValue));
-      case "lte":
-        return sql.lte(column, column.param(value as SQLValue));
-      case "between": {
-        const [from, to] = value as [SQLValue, SQLValue];
-        return sql`${column} BETWEEN ${column.param(from)} AND ${column.param(to)}`;
-      }
-      case "exists":
-        return value ? sql.isNotNull(column) : sql.isNull(column);
-      case "beginsWith":
-        return sql.like(column, `${value as string}%`);
-      case "endsWith":
-        return sql.like(column, `%${value as string}`);
-      case "contains":
-        if (!JSONB_RUNTIME_TYPES.has(column.runtimeType)) {
-          return sql.like(column, `%${value as string}%`);
-        }
-
-        // On an array column the fragment lists items; a lone item would be ambiguous when the
-        // items are themselves arrays.
-        if (column.runtimeType === "array" && !Array.isArray(value)) {
-          throw new Error(
-            `\`contains\` on the array column "${column.name}" of "${column.table.name}" ` +
-              `takes an array of items.`
-          );
-        }
-
-        return sql.jsonbContains(column, column.param(value as SQLValue));
-      case "hasKey":
-        // A key, not a value: sent as is, never through the codec.
-        return sql.jsonbHasKey(column, value as string);
-    }
-  }
-
-  /**
-   * The `where` of an operation that requires one — `findOne`, `update`, `delete` — refusing a
-   * filter that selects nothing in particular. `{}` means "every row" everywhere else; here it
-   * would pick an arbitrary row to read, or every row to change.
-   */
-  private _getRequiredWhere<TTable extends AnyTable>(
-    table: TTable,
-    where: WhereExpressionOf<TTable> | null | undefined,
-    operation: string
-  ): SQLNode {
-    const expression = this._getWhereExpression(table, where);
-
-    if (!expression) {
-      throw new Error(
-        `${operation} on "${table.name}" needs a where that names the rows it applies to; ` +
-          `an empty one would match every row.`
-      );
-    }
-
-    return expression;
   }
 
   /** The columns a `return` names, or `undefined` — every column — when it names none. */
@@ -562,172 +346,6 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   }
 
   /**
-   * Refuses a field the members of `union` do not all share, anywhere in a shared `where` —
-   * inside `and` / `or` / `not` included. Checked on the union rather than per member, so the
-   * error names the union instead of whichever member happened to lack the field.
-   */
-  private _assertSharedWhere(union: Union, where: Record<string, unknown> | null | undefined) {
-    for (const [fieldName, condition] of Object.entries(where ?? {})) {
-      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
-        for (const child of condition) {
-          this._assertSharedWhere(union, child as Record<string, unknown>);
-        }
-
-        continue;
-      }
-
-      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
-        this._assertSharedWhere(union, condition as Record<string, unknown>);
-        continue;
-      }
-
-      if (fieldName === KEY_FIELD) {
-        this._getKeyCondition(union, condition);
-        continue;
-      }
-
-      if (!union.isShared(fieldName)) {
-        throw new Error(
-          `Invalid field "${fieldName}" in where for union "${union.alias}": only fields every ` +
-            `member shares filter across a union. Filter one member through \`on\`.`
-        );
-      }
-    }
-  }
-
-  /**
-   * A `$$key` condition as a test on a member alias. `$$key` accepts `eq`, `neq`, `in` and the
-   * bare-value shorthand, each naming member aliases; anything else — another operator, a
-   * value that is not a member — is refused, since it could only ever be a typo.
-   */
-  private _getKeyCondition(union: Union, condition: unknown): (alias: string) => boolean {
-    const assertMembers = (values: unknown[]) => {
-      for (const value of values) {
-        if (typeof value !== "string" || !union.hasMember(value)) {
-          throw new Error(
-            `${KEY_FIELD} in where for union "${union.alias}" names ${JSON.stringify(value)}, ` +
-              `which is not a member (members: ${union.memberAliases.join(", ")}).`
-          );
-        }
-      }
-    };
-
-    if (typeof condition === "string") {
-      assertMembers([condition]);
-      return (alias) => alias === condition;
-    }
-
-    const entries = Object.entries((condition ?? {}) as Record<string, unknown>).filter(
-      ([, value]) => value !== undefined
-    );
-
-    const tests = entries.map(([operator, value]): ((alias: string) => boolean) => {
-      if (operator === "eq" || operator === "neq") {
-        assertMembers([value]);
-        return operator === "eq" ? (alias) => alias === value : (alias) => alias !== value;
-      }
-
-      if (operator === "in" && Array.isArray(value)) {
-        assertMembers(value);
-        return (alias) => value.includes(alias);
-      }
-
-      throw new Error(
-        `${KEY_FIELD} in where for union "${union.alias}" accepts eq, neq and in; got "${operator}".`
-      );
-    });
-
-    return (alias) => tests.every((test) => test(alias));
-  }
-
-  /**
-   * A shared `where` as seen from one member, with every `$$key` condition decided.
-   *
-   * Inside a branch the member alias is a constant, so a `$$key` condition is simply true or
-   * false there. Folding it away here, rather than rendering `'photos' = 'videos'` into SQL,
-   * lets a member that can never match be pruned before a branch is built at all:
-   *
-   * - `false` — no row of this member can match; the member produces no branch;
-   * - otherwise the `where` that is left, with every decided condition removed. An `or` holding
-   *   a true child is dropped whole; a `not` flips its child.
-   */
-  private _foldKeyWhere(
-    union: Union,
-    where: Record<string, unknown>,
-    alias: string
-  ): Record<string, unknown> | false {
-    const residual: Record<string, unknown> = {};
-
-    for (const [fieldName, condition] of Object.entries(where)) {
-      if (fieldName === KEY_FIELD) {
-        if (!this._getKeyCondition(union, condition)(alias)) {
-          return false;
-        }
-
-        continue;
-      }
-
-      if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
-        // An empty group constrains nothing, exactly as outside a union.
-        if (condition.length === 0) {
-          continue;
-        }
-
-        const children = condition.map((child) =>
-          this._foldKeyWhere(union, child as Record<string, unknown>, alias)
-        );
-
-        if (fieldName === "and") {
-          if (children.some((child) => child === false)) {
-            return false;
-          }
-
-          const kept = children.filter((child) => Object.keys(child as object).length > 0);
-
-          if (kept.length > 0) {
-            residual.and = kept;
-          }
-
-          continue;
-        }
-
-        // `or`: one child true for this member makes the whole group true.
-        if (children.some((child) => child !== false && Object.keys(child).length === 0)) {
-          continue;
-        }
-
-        const kept = children.filter((child) => child !== false);
-
-        if (kept.length === 0) {
-          return false;
-        }
-
-        residual.or = kept;
-        continue;
-      }
-
-      if (fieldName === "not" && typeof condition === "object" && condition !== null) {
-        const inner = this._foldKeyWhere(union, condition as Record<string, unknown>, alias);
-
-        if (inner === false) {
-          continue;
-        }
-
-        if (Object.keys(inner).length === 0 && Object.keys(condition).length > 0) {
-          return false;
-        }
-
-        residual.not = inner;
-        continue;
-      }
-
-      residual[fieldName] = condition;
-    }
-
-    return residual;
-  }
-
-  /**
    * The arguments of a select over a union, one entry per member that runs.
    *
    * The shared `select` / `where` apply to every member, written against that member's own
@@ -764,7 +382,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
-    this._assertSharedWhere(union, args.where as Record<string, unknown> | undefined);
+    this._where.assertShared(union, args.where as Record<string, unknown> | undefined);
 
     const members: [string, SelectOperationArgs][] = [];
 
@@ -776,7 +394,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
 
       const sharedWhere = args.where
-        ? this._foldKeyWhere(union, args.where as Record<string, unknown>, alias)
+        ? this._where.foldKey(union, args.where as Record<string, unknown>, alias)
         : undefined;
 
       // A `$$key` condition this member can never satisfy: no branch at all.
@@ -803,8 +421,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       );
 
       const where = [
-        this._getWhereExpression(member, sharedWhere as WhereExpressionOf<AnyTable> | undefined),
-        this._getWhereExpression(member, own.where),
+        this._where.build(member, sharedWhere as WhereExpressionOf<AnyTable> | undefined),
+        this._where.build(member, own.where),
       ].filter((node): node is SQLNode => node !== undefined);
 
       members.push([
@@ -926,61 +544,6 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return entries;
   }
 
-  /**
-   * A filter on a polymorphic id. A global id names a member as well as a key, and two members
-   * may hold the same key, so matching it takes both: `(discriminator = key AND id = pk)`. `in`
-   * becomes an `OR` of such groups, raw uuids among them compared on the id alone. `undefined`
-   * for any other operator, or a filter with no global id in it — the ordinary path handles those.
-   */
-  private _getPolymorphicFilter(column: AnyColumn, condition: unknown): SQLNode | undefined {
-    const binding = getDynamicGuidBinding(column);
-
-    if (!binding) {
-      return undefined;
-    }
-
-    const { discriminator, members } = binding;
-    const match = (value: unknown) => {
-      const member = decodeMemberId(value, members);
-
-      return member
-        ? sql.and([
-            sql.eq(discriminator, discriminator.param(member.key)),
-            sql.eq(column, column.param(member.value)),
-          ])
-        : undefined;
-    };
-
-    if (isFilterType(condition, "in")) {
-      const values = condition.in as unknown[];
-
-      if (!values.some(isGlobalId)) {
-        return undefined;
-      }
-
-      const raw = values.filter((value) => !isGlobalId(value));
-      const groups: SQLNode[] = values.flatMap((value) =>
-        isGlobalId(value) ? [sql.wrap(match(value) as SQLNode)] : []
-      );
-
-      if (raw.length > 0) {
-        groups.push(sql.in(column, raw.map((value) => column.param(value as SQLValue))));
-      }
-
-      return sql.wrap(sql.or(groups));
-    }
-
-    if (isFilterType(condition, "neq")) {
-      const group = match(condition.neq);
-      return group ? sql.not(group) : undefined;
-    }
-
-    const value = isFilterType(condition, "eq") ? condition.eq : condition;
-    const group = typeof value === "string" ? match(value) : undefined;
-
-    return group ? sql.wrap(group) : undefined;
-  }
-
   /** `distinct` compares whole rows, so every column it reads needs an equality operator. */
   private _assertDistinct(table: AnyTable, select: FieldSelection[] | undefined): void {
     const fields = select ?? table.getColumnEntries();
@@ -1004,7 +567,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       args.select as Record<string, unknown> | undefined,
       args.join as Record<string, unknown> | undefined
     );
-    const where = this._getWhereExpression(table, args.where);
+    const where = this._where.build(table, args.where);
     const join = this._getJoinEntries(
       table,
       selection.join as JoinExpressionOf<TTable, this["__type"]>
@@ -1035,7 +598,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     // `findOne` requires a where by type; one that selects nothing in particular is refused.
     if (mode === "one") {
-      request.where = this._getRequiredWhere(table, args.where, "findOne");
+      request.where = this._where.buildRequired(table, args.where, "findOne");
     }
 
     return { mode, args: request };
@@ -1078,7 +641,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     const base = this._getSelectArgs(table, { select: args.select, join: args.join });
-    const where = this._getWhereExpression(table, args.where);
+    const where = this._where.build(table, args.where);
     const keyset = cursor
       ? sql.keyset(
           keys.map(({ column, direction, nullable }) => ({ node: column, direction, nullable })),
@@ -1242,7 +805,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   ): OperationRequest<CountOperationArgs, "one"> {
     return {
       mode: "one",
-      args: { where: this._getWhereExpression(table, args.where) },
+      args: { where: this._where.build(table, args.where) },
     };
   }
 
@@ -1269,7 +832,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<UpdateOperationArgs, TMode> {
     const values = this._getMutationEntries(table, args.set);
-    const where = this._getRequiredWhere(table, args.where, "update");
+    const where = this._where.buildRequired(table, args.where, "update");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {
@@ -1287,7 +850,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TArgs extends DeleteArgs<TTable>,
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<DeleteOperationArgs, TMode> {
-    const where = this._getRequiredWhere(table, args.where, "delete");
+    const where = this._where.buildRequired(table, args.where, "delete");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {

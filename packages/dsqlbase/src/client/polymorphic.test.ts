@@ -255,36 +255,4 @@ describe("a polymorphic belongs-to", () => {
       expect(params()?.slice(0, 2)).toEqual([PERSON, "persons"]);
     });
   });
-
-  describe("filtering", () => {
-    it("matches a global id on the discriminator and the key together", async () => {
-      await dsql.ledgerEntries.findMany({ where: { counterpartyId: { eq: companyId } } });
-
-      expect(text_()).toContain(
-        `WHERE ("__t0"."counterparty_type" = $1 AND "__t0"."counterparty_id" = $2)`
-      );
-      expect(params()).toEqual(["companies", COMPANY]);
-    });
-
-    it("negates the pair for neq, and matches the id alone for a raw uuid", async () => {
-      await dsql.ledgerEntries.findMany({ where: { counterpartyId: { neq: personId } } });
-      expect(text_()).toContain(`WHERE NOT ("__t0"."counterparty_type" = $1 AND`);
-
-      calls = [];
-      await dsql.ledgerEntries.findMany({ where: { counterpartyId: COMPANY } });
-      expect(text_()).toContain(`WHERE "__t0"."counterparty_id" = $1`);
-    });
-
-    it("ORs one pair per global id in an in, with raw uuids on the id alone", async () => {
-      await dsql.ledgerEntries.findMany({
-        where: { counterpartyId: { in: [companyId, personId, COMPANY] } },
-      });
-
-      expect(text_()).toContain(
-        'WHERE (("__t0"."counterparty_type" = $1 AND "__t0"."counterparty_id" = $2) OR ' +
-          '("__t0"."counterparty_type" = $3 AND "__t0"."counterparty_id" = $4) OR ' +
-          '"__t0"."counterparty_id" IN ($5))'
-      );
-    });
-  });
 });

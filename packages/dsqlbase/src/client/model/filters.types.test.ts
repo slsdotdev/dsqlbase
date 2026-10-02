@@ -2,7 +2,8 @@ import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema, Session } from "@dsqlbase/core";
 import type { TableByAlias } from "@dsqlbase/core/runtime";
 import { createClient } from "../create.js";
-import type { OrderByExpressionOf, WhereExpressionOf } from "./base.js";
+import type { OrderByExpressionOf } from "./base.js";
+import type { WhereExpressionOf } from "./filters.js";
 import {
   $enum,
   array,

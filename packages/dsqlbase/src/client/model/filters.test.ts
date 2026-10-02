@@ -1,16 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session, SQLStatement } from "@dsqlbase/core";
+import { ColumnDefinition, type Session, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
+import { encodeGlobalId } from "../../schema/utils/global-id.js";
 import {
   array,
+  belongsTo,
+  bigint,
   boolean,
   bytea,
+  date,
+  datetime,
+  duration,
+  guid,
   int,
   interval,
   json,
   jsonb,
+  numeric,
   record,
+  relations,
   table,
   text,
   union,
@@ -54,7 +63,7 @@ const items = union({ docs, notes });
 const schema = { docs, notes, items };
 
 /**
- * Filters, `orderBy` and `distinct` follow the column's runtime type (`operators.ts`). The
+ * Filters, `orderBy` and `distinct` follow the column's runtime type (`filters.ts`). The
  * calls the types refuse are cast through `any`: they test the runtime, which enforces the same
  * rules for a caller the types cannot see — a resolver passing arguments through.
  */
@@ -326,5 +335,273 @@ describe("filters by runtime type", () => {
         'Cannot order by the json field "settings" of union "items".'
       );
     });
+  });
+});
+
+const events = table("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  day: date("day"),
+  at: datetime("at"),
+  span: duration("span", { mode: "iso" }),
+  size: bigint("size"),
+});
+
+const eventsSchema = { events };
+
+const DAY = new Date("2026-05-01T00:00:00.000Z");
+const AT = new Date("2026-01-02T03:04:05.000Z");
+
+describe("filter values", () => {
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<typeof eventsSchema>>;
+
+  beforeEach(() => {
+    calls = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: eventsSchema, session });
+  });
+
+  const params = () => calls[0]?.params;
+  const text_ = () => calls[0]?.text ?? "";
+
+  // A `date` column stores "2026-05-01"; a filter that sent a JS Date object relied on the
+  // driver to serialize it the same way. Encoding through the column's codec makes the
+  // filter match what the column actually wrote.
+  describe("comparison operators encode through the column codec", () => {
+    it.each([
+      ["eq", { day: { eq: DAY } }],
+      ["neq", { day: { neq: DAY } }],
+      ["gt", { day: { gt: DAY } }],
+      ["gte", { day: { gte: DAY } }],
+      ["lt", { day: { lt: DAY } }],
+      ["lte", { day: { lte: DAY } }],
+    ] as const)("%s", async (_op, where) => {
+      await dsql.events.findMany({ where });
+      expect(params()).toEqual(["2026-05-01"]);
+    });
+
+    it("in encodes every value", async () => {
+      await dsql.events.findMany({
+        where: { day: { in: [DAY, new Date("2026-06-02T00:00:00Z")] } },
+      });
+      expect(params()).toEqual(["2026-05-01", "2026-06-02"]);
+    });
+
+    it("between encodes both bounds", async () => {
+      await dsql.events.findMany({
+        where: { day: { between: [DAY, new Date("2026-06-02T00:00:00Z")] } },
+      });
+      expect(params()).toEqual(["2026-05-01", "2026-06-02"]);
+      expect(text_()).toContain("BETWEEN");
+    });
+
+    it("the bare-value shorthand encodes", async () => {
+      await dsql.events.findMany({ where: { day: DAY } });
+      expect(params()).toEqual(["2026-05-01"]);
+    });
+  });
+
+  describe("per column type", () => {
+    it("datetime", async () => {
+      await dsql.events.findMany({ where: { at: { gt: AT } } });
+      expect(params()).toEqual(["2026-01-02T03:04:05.000Z"]);
+    });
+
+    it("bigint", async () => {
+      await dsql.events.findMany({ where: { size: { eq: 9007199254740993n } } });
+      expect(params()).toEqual(["9007199254740993"]);
+    });
+
+    it("duration", async () => {
+      await dsql.events.findMany({ where: { span: { eq: "PT8H" } } });
+      expect(params()).toEqual(["PT8H"]);
+    });
+  });
+
+  // Pattern operators compare against a LIKE pattern, not a column value, so encoding them
+  // would corrupt the pattern.
+  describe("pattern operators stay raw", () => {
+    it.each([
+      ["beginsWith", { name: { beginsWith: "Al" } }, "Al%"],
+      ["endsWith", { name: { endsWith: "ce" } }, "%ce"],
+      ["contains", { name: { contains: "li" } }, "%li%"],
+    ] as const)("%s", async (_op, where, expected) => {
+      await dsql.events.findMany({ where });
+      expect(params()).toEqual([expected]);
+      expect(text_()).toContain("LIKE");
+    });
+  });
+
+  describe("non-value conditions", () => {
+    it("exists emits a null check with no parameter", async () => {
+      await dsql.events.findMany({ where: { day: { exists: false } } });
+      expect(params()).toEqual([]);
+      expect(text_()).toContain("IS NULL");
+    });
+  });
+
+  describe("mutations", () => {
+    it("encodes update.where", async () => {
+      await dsql.events.update({ set: { name: "x" }, where: { day: { eq: DAY } } });
+      expect(params()).toEqual(["x", "2026-05-01"]);
+    });
+
+    it("encodes delete.where", async () => {
+      await dsql.events.delete({ where: { day: { eq: DAY } } });
+      expect(params()).toEqual(["2026-05-01"]);
+    });
+  });
+
+  // `where: {}` used to render a bare `WHERE ` — invalid SQL. A resolver forwarding an empty
+  // filter object is ordinary, so reads treat it as no filter; the operations that require a
+  // `where` refuse it instead, since there it would reach an arbitrary row, or every row.
+  describe("an empty where", () => {
+    it.each([
+      ["findMany", () => dsql.events.findMany({ where: {} })],
+      ["count", () => dsql.events.count({ where: {} })],
+      ["paginate", () => dsql.events.paginate({ where: {} })],
+      ["an empty and group", () => dsql.events.findMany({ where: { and: [] } })],
+      ["an empty or group", () => dsql.events.findMany({ where: { or: [{}] } })],
+    ])("%s selects every row", async (_, run) => {
+      await run();
+      expect(text_()).not.toContain("WHERE");
+    });
+
+    it("keeps the other conditions beside an empty group", async () => {
+      await dsql.events.findMany({ where: { name: "a", or: [] } });
+      expect(text_()).toContain(`WHERE "__t0"."name" = $1`);
+      expect(text_()).not.toContain("()");
+    });
+
+    it.each([
+      ["findOne", () => dsql.events.findOne({ where: {} })],
+      ["update", () => dsql.events.update({ set: { name: "x" }, where: {} })],
+      ["delete", () => dsql.events.delete({ where: {} })],
+    ])("%s refuses it before any SQL", (operation, run) => {
+      expect(run).toThrow(`${operation} on "events" needs a where`);
+      expect(calls).toHaveLength(0);
+    });
+  });
+
+  // The built-in `pg` / PGlite drivers happen to coerce JS Dates and BigInts themselves, so
+  // the columns above would also have worked unencoded. A codec that rewrites the value is
+  // the case that cannot work without this — and the one `guid` columns will rely on.
+  it("encodes a codec that rewrites the value", async () => {
+    const calls: SQLStatement[] = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    const prefixed = table("prefixed", {
+      id: new ColumnDefinition("id", {
+        dataType: "text",
+        codec: {
+          encode: (value: string) => value.replace(/^id_/, ""),
+          decode: (value: string) => `id_${value}`,
+        },
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const client = createClient({ schema: { prefixed }, session });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (client as any).prefixed.findMany({ where: { id: { eq: "id_42" } } });
+
+    expect(calls[0]?.params).toEqual(["42"]);
+  });
+});
+
+const companies = table("companies", {
+  id: guid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+const persons = table("persons", {
+  id: guid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+const tradingEntities = union({ companies, persons });
+
+const ledgerEntries = table("ledger_entries", {
+  id: guid("id").primaryKey().defaultRandom(),
+  counterpartyType: text("counterparty_type"),
+  counterpartyId: guid("counterparty_id"),
+  amount: numeric("amount").notNull(),
+});
+
+const ledgerRelations = relations(ledgerEntries, {
+  counterparty: belongsTo(tradingEntities, {
+    from: [ledgerEntries.columns.counterpartyId],
+    to: [tradingEntities.columns.id],
+    discriminator: ledgerEntries.columns.counterpartyType,
+  }),
+});
+
+const ledgerSchema = { companies, persons, tradingEntities, ledgerEntries, ledgerRelations };
+
+const COMPANY = "11111111-1111-4111-8111-111111111111";
+const PERSON = "22222222-2222-4222-8222-222222222222";
+const companyId = encodeGlobalId("companies", { id: COMPANY });
+const personId = encodeGlobalId("persons", { id: PERSON });
+
+describe("filters on a polymorphic id", () => {
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<typeof ledgerSchema>>;
+
+  beforeEach(() => {
+    calls = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: ledgerSchema, session });
+  });
+
+  const text_ = () => calls[0]?.text ?? "";
+  const params = () => calls[0]?.params;
+
+  it("matches a global id on the discriminator and the key together", async () => {
+    await dsql.ledgerEntries.findMany({ where: { counterpartyId: { eq: companyId } } });
+
+    expect(text_()).toContain(
+      `WHERE ("__t0"."counterparty_type" = $1 AND "__t0"."counterparty_id" = $2)`
+    );
+    expect(params()).toEqual(["companies", COMPANY]);
+  });
+
+  it("negates the pair for neq, and matches the id alone for a raw uuid", async () => {
+    await dsql.ledgerEntries.findMany({ where: { counterpartyId: { neq: personId } } });
+    expect(text_()).toContain(`WHERE NOT ("__t0"."counterparty_type" = $1 AND`);
+
+    calls = [];
+    await dsql.ledgerEntries.findMany({ where: { counterpartyId: COMPANY } });
+    expect(text_()).toContain(`WHERE "__t0"."counterparty_id" = $1`);
+  });
+
+  it("ORs one pair per global id in an in, with raw uuids on the id alone", async () => {
+    await dsql.ledgerEntries.findMany({
+      where: { counterpartyId: { in: [companyId, personId, COMPANY] } },
+    });
+
+    expect(text_()).toContain(
+      'WHERE (("__t0"."counterparty_type" = $1 AND "__t0"."counterparty_id" = $2) OR ' +
+        '("__t0"."counterparty_type" = $3 AND "__t0"."counterparty_id" = $4) OR ' +
+        '"__t0"."counterparty_id" IN ($5))'
+    );
   });
 });
