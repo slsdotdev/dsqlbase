@@ -11,6 +11,8 @@ import { ModelClient } from "./client.js";
 import {
   array,
   belongsTo,
+  bigint,
+  embedded,
   datetime,
   hasMany,
   json,
@@ -845,6 +847,137 @@ describe("array and record columns", () => {
 
         array("a").schema(labels);
         record("r").schema(quotas);
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+  });
+});
+
+describe("column groups", () => {
+  const money = embedded({
+    amount: bigint("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: text("lat"), lng: text("lng") });
+  const address = embedded({ city: text("city"), geo: geo.column("geo") });
+
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema: { invoices }, session });
+
+  type NetValue = { amount: bigint; currency: string };
+  type Billing = { city: string | null; geo: { lat: string | null; lng: string | null } | null };
+
+  describe("a group's read types", () => {
+    it("reads a group as an object, null too when every member is nullable", async () => {
+      const invoice = await dsql.invoices.findOne({ where: { id: "i1" } });
+
+      expectTypeOf(invoice?.netValue).toEqualTypeOf<NetValue | undefined>();
+      expectTypeOf(invoice?.billing).toEqualTypeOf<Billing | null | undefined>();
+    });
+
+    it("reads a group selected as true whole, and a member map as those members", async () => {
+      const invoice = await dsql.invoices.findOne({
+        where: { id: "i1" },
+        select: { netValue: true, billing: { geo: { lat: true } } },
+      });
+
+      expectTypeOf(invoice).toEqualTypeOf<{
+        netValue: NetValue;
+        billing: { geo: { lat: string | null } | null } | null;
+        $$meta: Meta<"invoices">;
+      } | null>();
+    });
+
+    it("reads a group in a write's return", () => {
+      const query = dsql.invoices.delete({
+        where: { id: "i1" },
+        return: { netValue: { amount: true } },
+      });
+
+      expectTypeOf(query.$typeOf).toEqualTypeOf<{
+        netValue: { amount: bigint };
+        $$meta: Meta<"invoices">;
+      } | null>();
+    });
+
+    it("refuses a member the group does not have, and a map on a column", () => {
+      const check = () => {
+        // @ts-expect-error `nope` is not a member of `netValue`
+        dsql.invoices.findMany({ select: { netValue: { nope: true } } });
+
+        // @ts-expect-error a column takes true, not a map
+        dsql.invoices.findMany({ select: { id: { x: true } } });
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+  });
+
+  describe("a group's write types", () => {
+    const priced = embedded({
+      amount: bigint("amount").notNull(),
+      currency: text("currency").notNull().default("EUR"),
+      stamp: text("stamp").readOnly(),
+    });
+
+    const orders = table("orders", {
+      id: uuid("id").primaryKey().defaultRandom(),
+      price: priced.column("price"),
+      shipping: address.column("shipping"),
+      fallback: priced.column("fallback").default({ amount: 0n }),
+    });
+
+    const dsql = createClient({ schema: { orders }, session });
+
+    type Create = Parameters<typeof dsql.orders.create>[0]["data"];
+    type Update = Parameters<typeof dsql.orders.update>[0]["set"];
+
+    // A read-only member is left out of both, as a read-only column is.
+    it("requires a group with a required member, takes the rest optional", () => {
+      expectTypeOf<Create["price"]>().toEqualTypeOf<{ amount: bigint; currency?: string }>();
+      expectTypeOf<Create["shipping"]>().toEqualTypeOf<
+        | {
+            city?: string | null;
+            geo?: { lat?: string | null; lng?: string | null } | null;
+          }
+        | null
+        | undefined
+      >();
+      expectTypeOf<Create["fallback"]>().toEqualTypeOf<
+        { amount: bigint; currency?: string } | undefined
+      >();
+
+      const check = () => {
+        dsql.orders.create({ data: { price: { amount: 1n } } });
+
+        // @ts-expect-error `price` has a required member and no default
+        dsql.orders.create({ data: {} });
+
+        // @ts-expect-error `amount` is required within it
+        dsql.orders.create({ data: { price: { currency: "EUR" } } });
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+
+    it("updates any members, and null only a group whose members are all nullable", () => {
+      expectTypeOf<Update["price"]>().toEqualTypeOf<
+        { amount?: bigint; currency?: string } | undefined
+      >();
+
+      const check = () => {
+        dsql.orders.update({ where: { id: "o1" }, set: { shipping: { geo: { lat: "1" } } } });
+        dsql.orders.update({ where: { id: "o1" }, set: { shipping: null } });
+
+        // @ts-expect-error `price` has a member that is not null
+        dsql.orders.update({ where: { id: "o1" }, set: { price: null } });
       };
 
       expectTypeOf(check).toBeFunction();

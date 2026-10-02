@@ -73,7 +73,7 @@ const tasks = await dsql.tasks.findMany({
 });
 ```
 
-- **`select`** — columns, and relations as field maps (below). Virtual or computed fields are not supported yet.
+- **`select`** — columns, column groups (`true` or a map of their members — see [Embedded objects](./embeddable-objects.md#reading)), and relations as field maps (below). Virtual or computed fields are not supported yet.
   - **No `select`**, or one naming nothing as `true` (`{}`, `{ id: false }`), returns every column.
   - **Naming columns** returns those columns.
   - **Naming only relations** returns only those relations, with no columns of the row itself.
@@ -123,8 +123,10 @@ cannot see (a resolver passing arguments through).
   `{ tags: { contains: ["a", "b"] } }` matches arrays holding both — never a lone item.
 - **`hasKey`** on a `record()` column matches objects with the key at their top level (`?`):
   `{ limits: { hasKey: "cpu" } }`.
-- **`where` is reserved** inside a field's filter, for filtering into its value — a document's
-  keys, later. It throws "not supported yet".
+- **`where`** inside a field's filter is the nested filter. A column group takes it, with
+  `exists`: `{ netValue: { where: { amount: { gt: 100n } } } }` — see
+  [Embedded objects](./embeddable-objects.md#filtering-and-ordering). Inside a column's filter it
+  is reserved for filtering into a document's keys, later, and throws "not supported yet".
 - **Across a union**, a shared field filters and orders as its column does in every member.
 
 ### Relations in `select`
@@ -153,7 +155,7 @@ await dsql.tasks.findOne({ where: { id: { eq: id } }, select: { project: true } 
   a member's own fields through `join` and `on`.
 - Naming the same relation in both `select` and `join` is refused: a type error at the call, and
   an error when the query is built (at any depth). A `false` in `join` beside it is ignored.
-- `return` on `create` / `update` / `delete` takes columns only.
+- `return` on `create` / `update` / `delete` takes columns and column groups only, no relations.
 
 For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
 `offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.
@@ -228,6 +230,7 @@ await dsql.$query(
 
 ## Related
 
+- [Embedded objects](./embeddable-objects.md)
 - [Relations](./relations.md)
 - [Pagination](./pagination.md)
 - [Transactions](./transactions.md)

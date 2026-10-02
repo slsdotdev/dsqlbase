@@ -44,6 +44,7 @@ export { uuid, UUIDColumnDefinition } from "./columns/uuid.js";
 export { varchar } from "./columns/varchar.js";
 
 export { domain, $enum } from "./domain.js";
+export { embedded } from "./embedded.js";
 export { namespace, schema } from "./namespace.js";
 export { sequence } from "./sequence.js";
 export { table } from "./table.js";

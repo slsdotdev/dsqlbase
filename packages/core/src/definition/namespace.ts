@@ -1,5 +1,5 @@
 import { DefinitionNode, Kind, NodeRef } from "./base.js";
-import { AnyColumnDefinition } from "./column.js";
+import { TableColumnDefinitions } from "./embedded.js";
 import { DomainDefinition } from "./domain.js";
 import { SequenceDefinition } from "./sequence.js";
 import { TableDefinition } from "./table.js";
@@ -10,7 +10,7 @@ export type AnyNamespaceDefinition = NamespaceDefinition<any>;
 export class NamespaceDefinition<TName extends string> extends DefinitionNode<TName> {
   public readonly kind = Kind.SCHEMA;
 
-  public table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
+  public table<TName extends string, TColumns extends TableColumnDefinitions>(
     name: TName,
     columns: TColumns
   ): TableDefinition<TName, TColumns, this> {

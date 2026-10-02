@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   ColumnDefinition,
+  EmbeddedObjectDefinition,
   Relation,
   RelationsDefinition,
   TableDefinition,
@@ -9,6 +10,8 @@ import {
 import { sql, SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
+import { AnyColumn } from "./column.js";
+import { AnyColumnGroup } from "./group.js";
 import { FieldMutation, OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
 import { QueryBuilder } from "./query.js";
@@ -1089,5 +1092,225 @@ describe("OperationFactory / count", () => {
     expect(() =>
       unscoped.createCountOperation(tenantRegistry.getTable("invoices"), { mode: "one", args: {} })
     ).toThrow(TenancyError);
+  });
+});
+
+describe("OperationFactory / $onUpdate", () => {
+  const articles = new TableDefinition("articles", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      title: new ColumnDefinition("title"),
+      revision: new ColumnDefinition("revision").$onUpdate(() => "next"),
+      updatedAt: new ColumnDefinition("updated_at").readOnly().$onUpdate(() => "now"),
+    },
+  });
+
+  const hooks = new SchemaRegistry({ articles });
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: hooks, dialect: mockDialect, session: mockSession })
+    );
+  });
+
+  const update = (set: FieldMutation[]) => {
+    mockDialect.buildUpdateQuery.mockClear();
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    factory.createUpdateOperation(hooks.getTable("articles"), { mode: "many", args: { set } });
+
+    const [params] = mockDialect.buildUpdateQuery.mock.lastCall ?? [];
+
+    return (params?.set ?? []).map(([column, value]) => [
+      (column as SQLIdentifier).name,
+      (value as SQLParam<unknown>)["_value"],
+    ]);
+  };
+
+  it("runs on every update, for columns the update does not name", () => {
+    expect(update([["title", sql.param("Draft")]])).toEqual([
+      ["title", "Draft"],
+      ["revision", "next"],
+      ["updated_at", "now"],
+    ]);
+  });
+
+  it("gives way to a value the update names", () => {
+    expect(update([["revision", sql.param("pinned")]])).toEqual([
+      ["revision", "pinned"],
+      ["updated_at", "now"],
+    ]);
+  });
+});
+
+describe("OperationFactory / column groups", () => {
+  const money = new EmbeddedObjectDefinition({
+    amount: new ColumnDefinition("amount").notNull(),
+    currency: new ColumnDefinition("currency").notNull(),
+  });
+  const address = new EmbeddedObjectDefinition({
+    city: new ColumnDefinition("city"),
+    zip: new ColumnDefinition("zip"),
+  });
+
+  const invoices = new TableDefinition("invoices", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      netValue: money.column("net_value"),
+      billing: address.column("billing"),
+    },
+  });
+  const customers = new TableDefinition("customers", {
+    columns: { id: new ColumnDefinition("id").primaryKey() },
+  });
+  const customerRelations = new RelationsDefinition(customers, {
+    invoices: {
+      type: Relation.HAS_MANY,
+      target: invoices,
+      from: [customers.columns.id],
+      to: [invoices.columns.id],
+    },
+  });
+
+  const groups = new SchemaRegistry({ invoices, customers, customerRelations });
+  const table = groups.getTable("invoices");
+  const netValue = table.columns.netValue as AnyColumnGroup;
+  const billing = table.columns.billing as AnyColumnGroup;
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: groups, dialect: mockDialect, session: mockSession })
+    );
+  });
+
+  const select = (args: Parameters<typeof factory.createSelectOperation>[1]["args"]) => {
+    mockDialect.buildSelectQuery.mockClear();
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+    const operation = factory.createSelectOperation(table, { mode: "many", args });
+    const [params] = mockDialect.buildSelectQuery.mock.lastCall ?? [];
+
+    return {
+      operation,
+      projected: (params?.select ?? []).map((column) => (column as AnyColumn).name),
+    };
+  };
+
+  it("projects a group's columns and reads them back as one object", () => {
+    const { operation, projected } = select({ select: [["netValue", netValue]] });
+
+    expect(projected).toEqual(["net_value_amount", "net_value_currency"]);
+    expect(operation.resolve([{ net_value_amount: "10", net_value_currency: "EUR" }])).toEqual([
+      {
+        $$meta: { key: "invoices", table: "invoices" },
+        netValue: { amount: "10", currency: "EUR" },
+      },
+    ]);
+  });
+
+  it("projects every column of a nullable group for a partial selection, and emits the selected", () => {
+    const { operation, projected } = select({
+      select: [["billing", billing, [["zip", billing.columns.zip as AnyColumn]]]],
+    });
+
+    expect(projected).toEqual(["billing_zip", "billing_city"]);
+    expect(
+      operation.resolve([
+        { billing_zip: null, billing_city: "Cluj" },
+        { billing_zip: null, billing_city: null },
+      ])
+    ).toEqual([
+      expect.objectContaining({ billing: { zip: null } }),
+      expect.objectContaining({ billing: null }),
+    ]);
+  });
+
+  it("reads groups with no selection", () => {
+    const { operation, projected } = select({});
+
+    expect(projected).toEqual([
+      "id",
+      "net_value_amount",
+      "net_value_currency",
+      "billing_city",
+      "billing_zip",
+    ]);
+    expect(
+      operation.resolve([
+        {
+          id: 1,
+          net_value_amount: "1",
+          net_value_currency: "RON",
+          billing_city: null,
+          billing_zip: null,
+        },
+      ])
+    ).toEqual([
+      expect.objectContaining({ id: 1, netValue: { amount: "1", currency: "RON" }, billing: null }),
+    ]);
+  });
+
+  it("reads a group on a joined level", () => {
+    mockDialect.buildSelectQuery.mockReturnValue(sql`SELECT`);
+    const operation = factory.createSelectOperation(groups.getTable("customers"), {
+      mode: "many",
+      args: { join: [["invoices", { select: [["netValue", netValue]] }]] },
+    });
+
+    const [row] = operation.resolve([
+      { id: 1, invoices: [{ net_value_amount: "5", net_value_currency: "USD" }] },
+    ]) as Record<string, Record<string, unknown>[]>[];
+
+    expect(row?.invoices?.[0]?.netValue).toEqual({ amount: "5", currency: "USD" });
+  });
+
+  it("inserts every real column, a member written through its column and the rest DEFAULT", () => {
+    mockDialect.buildInsertQuery.mockClear();
+    mockDialect.buildInsertQuery.mockReturnValue(sql`INSERT`);
+    factory.createInsertOperation(table, {
+      mode: "one",
+      args: {
+        data: [
+          [
+            ["id", sql.param(1)],
+            [netValue.columns.amount as AnyColumn, sql.param("10")],
+            [netValue.columns.currency as AnyColumn, sql.param("EUR")],
+          ],
+        ],
+      },
+    });
+
+    const [params] = mockDialect.buildInsertQuery.mock.lastCall ?? [];
+    const rendered = (params?.values?.[0] ?? []).map((node) => sql`${node}`.toQuery().text);
+
+    expect(params?.columns.map((column) => (column as SQLIdentifier).name)).toEqual([
+      "id",
+      "net_value_amount",
+      "net_value_currency",
+      "billing_city",
+      "billing_zip",
+    ]);
+    expect(rendered).toEqual(["$1", "$1", "$1", "DEFAULT", "DEFAULT"]);
+  });
+
+  it("updates a member through its column", () => {
+    mockDialect.buildUpdateQuery.mockClear();
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    factory.createUpdateOperation(table, {
+      mode: "many",
+      args: { set: [[billing.columns.city as AnyColumn, sql.param("Cluj")]] },
+    });
+
+    const [params] = mockDialect.buildUpdateQuery.mock.lastCall ?? [];
+
+    expect(params?.set.map(([column]) => (column as SQLIdentifier).name)).toEqual(["billing_city"]);
+  });
+
+  it("refuses a column of another table", () => {
+    const other = groups.getTable("customers").columns.id as AnyColumn;
+
+    expect(() =>
+      factory.createUpdateOperation(table, { mode: "many", args: { set: [[other, sql.param(1)]] } })
+    ).toThrow(`Column "id" does not exist on table "invoices"`);
   });
 });

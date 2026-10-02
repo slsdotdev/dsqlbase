@@ -14,6 +14,13 @@ export type {
 } from "./base.js";
 export { Column, type AnyColumn, type ColumnRowDecoder } from "./column.js";
 export {
+  ColumnGroup,
+  type AnyColumnGroup,
+  type AnyField,
+  type GroupReader,
+  type GroupSelection,
+} from "./group.js";
+export {
   ExecutionContext,
   type ExecutionContextOptions,
   type PaginationOptions,

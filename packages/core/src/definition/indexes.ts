@@ -1,7 +1,7 @@
 import { Unique } from "../utils/index.js";
 import { DefinitionNode, Kind, NodeRef } from "./base.js";
-import { AnyColumnDefinition } from "./column.js";
-import { AnyTableDefinition, ColumnRefs } from "./table.js";
+import { ColumnGroupDefinition, GroupOf, TableColumnDefinitions } from "./embedded.js";
+import { AnyTableDefinition, ColumnRefOf, ColumnRefs } from "./table.js";
 
 export type IndexConfig = {
   unique?: boolean;
@@ -11,17 +11,31 @@ export type IndexConfig = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyIndexDefinition = IndexDefinition<any, any>;
 
+/** Index columns for `columns` — a group nests its members' — as `index().columns()` gets them. */
+export type IndexColumnRefs<
+  TIndexName extends string,
+  TColumns extends TableColumnDefinitions,
+> = Readonly<{
+  readonly [K in keyof TColumns]: TColumns[K] extends GroupOf<infer TGroupColumns>
+    ? IndexColumnRefs<TIndexName, TGroupColumns>
+    : IndexColumnDefinition<TIndexName, TColumns[K]>;
+}>;
+
+type IndexColumnOf<TIndexName extends string, TColumns extends TableColumnDefinitions> = {
+  [K in keyof TColumns]: TColumns[K] extends GroupOf<infer TGroupColumns>
+    ? IndexColumnOf<TIndexName, TGroupColumns>
+    : IndexColumnDefinition<TIndexName, TColumns[K]>;
+}[keyof TColumns];
+
 export type ColumnConfigRefs<
   TIndexName extends string,
   TTable extends AnyTableDefinition,
-> = Readonly<{
-  readonly [K in keyof TTable["columns"]]: IndexColumnDefinition<TIndexName, TTable["columns"][K]>;
-}>;
+> = IndexColumnRefs<TIndexName, TTable["columns"]>;
 
 export type ColumnConfigType<
   TIndexName extends string,
   TTable extends AnyTableDefinition,
-> = ColumnConfigRefs<TIndexName, TTable>[keyof TTable["columns"]];
+> = IndexColumnOf<TIndexName, TTable["columns"]>;
 
 export class IndexDefinition<
   TName extends string,
@@ -32,7 +46,7 @@ export class IndexDefinition<
   protected _table: TTable;
   protected _unique: boolean;
   protected _columns: ColumnConfigType<TName, TTable>[] = [];
-  protected _include?: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
+  protected _include?: ColumnRefOf<TTable["columns"]>[];
   protected _distinctNulls?: boolean;
 
   constructor(name: TName, config: IndexConfig) {
@@ -43,11 +57,15 @@ export class IndexDefinition<
     this._distinctNulls = true;
   }
 
-  private _getColumnConfigRefs(): ColumnConfigRefs<TName, TTable> {
+  private _getColumnConfigRefs(
+    columns: TableColumnDefinitions = this._table.columns
+  ): ColumnConfigRefs<TName, TTable> {
     return Object.fromEntries(
-      Object.entries<AnyColumnDefinition>(this._table.columns).map(([field, column]) => [
+      Object.entries(columns).map(([field, column]) => [
         field,
-        new IndexColumnDefinition(this.name, column),
+        column instanceof ColumnGroupDefinition
+          ? this._getColumnConfigRefs(column.columns)
+          : new IndexColumnDefinition(this.name, column),
       ])
     ) as ColumnConfigRefs<TName, TTable>;
   }
@@ -65,9 +83,7 @@ export class IndexDefinition<
   }
 
   public include(
-    cb: (
-      columns: ColumnRefs<TTable["columns"]>
-    ) => ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][]
+    cb: (columns: ColumnRefs<TTable["columns"]>) => ColumnRefOf<TTable["columns"]>[]
   ): this {
     this._include = cb(this._table._getColumnRefs());
     return this;
@@ -98,7 +114,8 @@ export class IndexDefinition<
 
 export class IndexColumnDefinition<
   TIdxName extends string,
-  TColumn extends AnyColumnDefinition,
+  // A column; typed as any definition so a ref need not be checked against the column class.
+  TColumn extends DefinitionNode,
 > extends DefinitionNode<`${TIdxName}_column_${TColumn["name"]}`> {
   public readonly kind = Kind.INDEX_COLUMN;
 

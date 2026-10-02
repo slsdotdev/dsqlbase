@@ -54,6 +54,10 @@ The repo's e2e suite runs `{ asyncIndexes: false, destructive: true, safeOperati
 
 Changes DSQL cannot express (or that the module does not model yet) come back as refusals in `plan().errors` rather than being silently skipped: a structured record with a `code` (`IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT`, …), the subject, and the blocked diffs. `run` and `dryRun` throw when any refusal is present. Several current refusals are stricter than DSQL requires; the capability table tracks which.
 
+A [column group](./embeddable-objects.md) is plain columns to the migration module: changing an
+embedded object adds or drops its members' columns in every table that embeds it, and is planned
+— or refused — exactly as those column changes would be.
+
 ## Deployment
 
 The runner exposes primitives (`validate` / `introspect` / `reconcile` / `plan`) so that a durable host — a CloudFormation custom resource, a CI job — can drive them with its own retry and observability. A CDK construct and a CLI are planned, not shipped.

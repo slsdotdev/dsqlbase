@@ -1,7 +1,11 @@
 import { DefinitionNode } from "@dsqlbase/core";
 import { SerializedSchema } from "../base.js";
 import { Rule, ValidationContext, ValidationResult, ValidationRules } from "./context.js";
-import { identifierTooLong, noDuplicateObjectNames } from "./rules/global.js";
+import {
+  duplicateSequenceName,
+  identifierTooLong,
+  noDuplicateObjectNames,
+} from "./rules/global.js";
 import { reservedNamespace } from "./rules/schema.js";
 import { invalidSequenceCache } from "./rules/sequence.js";
 import {
@@ -16,7 +20,7 @@ import {
   varcharWithoutLength,
 } from "./rules/table.js";
 
-export const globalRules = Object.freeze([noDuplicateObjectNames] as const);
+export const globalRules = Object.freeze([noDuplicateObjectNames, duplicateSequenceName] as const);
 
 export const defaultRules: ValidationRules = Object.freeze({
   SCHEMA: [reservedNamespace],

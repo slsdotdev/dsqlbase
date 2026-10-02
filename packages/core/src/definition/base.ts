@@ -19,6 +19,8 @@ export const Kind = Object.freeze({
   TENANT_SCOPE: "TENANT_SCOPE",
   UNION: "UNION",
   UNION_COLUMN: "UNION_COLUMN",
+  EMBEDDED_OBJECT: "EMBEDDED_OBJECT",
+  COLUMN_GROUP: "COLUMN_GROUP",
 } as const);
 
 export const Relation = Object.freeze({

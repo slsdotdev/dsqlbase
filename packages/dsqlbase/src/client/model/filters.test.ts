@@ -12,6 +12,7 @@ import {
   date,
   datetime,
   duration,
+  embedded,
   guid,
   int,
   interval,
@@ -603,5 +604,110 @@ describe("filters on a polymorphic id", () => {
         '("__t0"."counterparty_type" = $3 AND "__t0"."counterparty_id" = $4) OR ' +
         '"__t0"."counterparty_id" IN ($5))'
     );
+  });
+});
+
+describe("filters on a column group", () => {
+  // `exists` is a member here on purpose: members are named only inside `where`, so it can
+  // never be read as the operator.
+  const flags = embedded({ exists: boolean("exists"), note: text("note") });
+  const money = embedded({
+    amount: bigint("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: numeric("lat"), lng: numeric("lng") });
+  const address = embedded({
+    city: text("city"),
+    geo: geo.column("geo"),
+    flags: flags.column("flags"),
+  });
+
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<{ invoices: typeof invoices }>>;
+
+  beforeEach(() => {
+    calls = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: { invoices }, session });
+  });
+
+  const text_ = () => calls[0]?.text ?? "";
+  const params = () => calls[0]?.params;
+
+  it("filters members through the nested where, encoded by each member's codec", async () => {
+    await dsql.invoices.findMany({
+      where: { netValue: { where: { amount: { gt: 100n }, currency: "EUR" } } },
+    });
+
+    expect(text_()).toContain(
+      `WHERE "__t0"."net_value_amount" > $1 AND "__t0"."net_value_currency" = $2`
+    );
+    expect(params()).toEqual(["100", "EUR"]);
+  });
+
+  it("filters a nested group's members, and combines them with and / or / not", async () => {
+    await dsql.invoices.findMany({
+      where: {
+        billing: {
+          where: {
+            or: [{ city: "Cluj" }, { geo: { where: { lat: { gte: 44, lte: 45 } } } }],
+            not: { flags: { where: { exists: true } } },
+          },
+        },
+      },
+    });
+
+    expect(text_()).toContain(
+      `WHERE ("__t0"."billing_city" = $1 OR "__t0"."billing_geo_lat" >= $2 AND ` +
+        `"__t0"."billing_geo_lat" <= $3) AND NOT ("__t0"."billing_flags_exists" = $4)`
+    );
+  });
+
+  it("tests presence with exists: any column set, or every column NULL", async () => {
+    await dsql.invoices.findMany({ where: { billing: { where: { geo: { exists: true } } } } });
+    expect(text_()).toContain(
+      `WHERE ("__t0"."billing_geo_lat" IS NOT NULL OR "__t0"."billing_geo_lng" IS NOT NULL)`
+    );
+
+    calls = [];
+    await dsql.invoices.findMany({ where: { billing: { exists: false } } });
+    expect(text_()).toContain(
+      `WHERE "__t0"."billing_city" IS NULL AND "__t0"."billing_geo_lat" IS NULL`
+    );
+  });
+
+  it("refuses a value, a member beside where, or another operator on a group", () => {
+    expect(() =>
+      dsql.invoices.findMany({ where: { netValue: { amount: 1n, currency: "EUR" } } as never })
+    ).toThrow(/Operator "amount" is not valid on the group "netValue" of "invoices"/);
+    expect(() => dsql.invoices.findMany({ where: { netValue: "x" } as never })).toThrow(
+      /Filter the group "netValue" of "invoices" with `exists` or a nested `where`, not a value/
+    );
+    expect(() => dsql.invoices.findMany({ where: { netValue: { eq: 1 } } as never })).toThrow(
+      /Operator "eq" is not valid on the group/
+    );
+  });
+
+  it("refuses a member the group does not have, and an operator its type does not take", () => {
+    expect(() =>
+      dsql.invoices.findMany({ where: { netValue: { where: { nope: 1 } } } as never })
+    ).toThrow(/Invalid field "netValue.nope" in where clause/);
+    expect(() =>
+      dsql.invoices.findMany({
+        where: { netValue: { where: { amount: { beginsWith: "1" } } } } as never,
+      })
+    ).toThrow(/not valid on the bigint column "netValue.amount" of "invoices"/);
   });
 });

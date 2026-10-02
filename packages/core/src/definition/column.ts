@@ -116,6 +116,8 @@ export class ColumnDefinition<
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
+  /** What `.check()` was called with, so a renamed copy can rebuild the constraint. */
+  protected _checkSource?: { build: (self: SQLIdentifier) => SQLNode; name?: string };
   protected _generated?: ColumnGeneratedConfig;
   protected _identity?: ColumnIdentityConfig;
 
@@ -183,6 +185,36 @@ export class ColumnDefinition<
     return Object.assign(Object.create(Object.getPrototypeOf(this) as object), this) as this;
   }
 
+  /**
+   * A copy of this definition under another database name — a member of an embedded object
+   * placed in a column group (`definition/embedded.ts`).
+   *
+   * Unlike {@link ColumnDefinition.clone}, nothing mutable is shared: the identity config is
+   * copied, and a column check is rebuilt against the new name. An explicit check name is
+   * prefixed with `prefix`, since a shape placed twice on one table would otherwise declare it
+   * twice.
+   *
+   * @internal
+   */
+  public _renamed(name: string, prefix: string): this {
+    const copy = this.clone();
+    (copy as { name: string }).name = name;
+
+    if (this._identity) {
+      copy._identity = {
+        ...this._identity,
+        options: { ...this._identity.options },
+      };
+    }
+
+    if (this._checkSource) {
+      const { build, name: checkName } = this._checkSource;
+      copy.check(build, checkName === undefined ? undefined : `${prefix}_${checkName}`);
+    }
+
+    return copy;
+  }
+
   public default(value: this["__type"]["inputType"]): HasDefault<this> {
     this._defaultValue = new SQLParam(value, (input) => this._codec.encode(this._toValue(input)));
     return this as HasDefault<this>;
@@ -210,6 +242,7 @@ export class ColumnDefinition<
 
   public check(cb: (self: SQLIdentifier) => SQLNode, name?: string): this {
     const sql = new SQLQuery(cb(new SQLIdentifier(this.name)));
+    this._checkSource = { build: cb, name };
     this._check = new CheckConstraintDefinition(name ?? `${this.name}_check`, { expression: sql });
 
     return this;

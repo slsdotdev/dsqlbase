@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ValidationContext } from "../context.js";
-import { identifierTooLong, noDuplicateObjectNames } from "./global.js";
+import { duplicateSequenceName, identifierTooLong, noDuplicateObjectNames } from "./global.js";
 import { SerializedSchema } from "../../base.js";
 
 const tableNode = (name: string, namespace = "public") =>
@@ -19,6 +19,30 @@ const sequenceNode = (name: string, namespace = "public") =>
     name,
     namespace,
     options: { dataType: "bigint", cache: 1, cycle: false, increment: 1 },
+  }) as unknown as SerializedSchema[number];
+
+const identityTable = (
+  name: string,
+  sequenceNames: (string | undefined)[],
+  namespace = "public",
+  indexes: string[] = []
+) =>
+  ({
+    kind: "TABLE",
+    name,
+    namespace,
+    columns: sequenceNames.map((sequenceName, index) => ({
+      kind: "COLUMN",
+      name: `c${index}`,
+      dataType: "bigint",
+      identity: {
+        type: "ALWAYS",
+        sequenceName,
+        options: { dataType: "bigint", cache: 1, cycle: false, increment: 1 },
+      },
+    })),
+    indexes: indexes.map((index) => ({ kind: "INDEX", name: index })),
+    constraints: [],
   }) as unknown as SerializedSchema[number];
 
 describe("noDuplicateObjectNames", () => {
@@ -67,5 +91,53 @@ describe("identifierTooLong", () => {
     identifierTooLong(node, context);
     expect(context.issues).toHaveLength(1);
     expect(context.issues[0]?.code).toBe("IDENTIFIER_TOO_LONG");
+  });
+});
+
+describe("duplicateSequenceName", () => {
+  const run = (schema: SerializedSchema) => {
+    const context = new ValidationContext(schema);
+    duplicateSequenceName(schema, context);
+    return context.issues;
+  };
+
+  it("reports nothing for identities without a sequence name", () => {
+    expect(
+      run([identityTable("a", [undefined, undefined]), identityTable("b", [undefined])])
+    ).toEqual([]);
+  });
+
+  it("reports nothing for distinct sequence names", () => {
+    expect(run([identityTable("a", ["a_seq"]), identityTable("b", ["b_seq"])])).toEqual([]);
+  });
+
+  it("reports two identities sharing a sequence name", () => {
+    const issues = run([identityTable("a", ["shared_seq"]), identityTable("b", ["shared_seq"])]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.code).toBe("DUPLICATE_SEQUENCE_NAME");
+    expect(issues[0]?.path).toEqual(["public", "b", "columns", "c0"]);
+  });
+
+  it("reports two identities on one table sharing a sequence name", () => {
+    const issues = run([identityTable("a", ["shared_seq", "shared_seq"])]);
+
+    expect(issues.map((issue) => issue.code)).toEqual(["DUPLICATE_SEQUENCE_NAME"]);
+  });
+
+  it("reports a sequence name taken by a sequence, a table or an index", () => {
+    const issues = run([
+      sequenceNode("counter"),
+      tableNode("users"),
+      identityTable("a", ["counter", "users", "a_idx"], "public", ["a_idx"]),
+    ]);
+
+    expect(issues.map((issue) => issue.path.at(-1))).toEqual(["c0", "c1", "c2"]);
+  });
+
+  it("ignores the same sequence name in another namespace", () => {
+    expect(
+      run([identityTable("a", ["shared_seq"]), identityTable("b", ["shared_seq"], "billing")])
+    ).toEqual([]);
   });
 });

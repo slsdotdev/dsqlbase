@@ -126,6 +126,13 @@ cannot see that sibling, so the read side is a **row decoder** instead:
 
 **Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper, a future embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
+## Column groups
+
+A column group's members are ordinary columns, each with its own codec and validator, so every
+boundary above applies per member: a group is decoded member by member when it is read, and each
+member value is validated and encoded on its own when it is written or filtered. A group has no
+codec or validator of its own; a check across members is not supported yet.
+
 ## Rules for new work
 
 - A cursor, token or cache key that must compare equal to a stored value carries the

@@ -5,9 +5,11 @@ import {
   belongsTo,
   date,
   datetime,
+  embedded,
   guid,
   hasMany,
   hasOne,
+  json,
   numeric,
   relations,
   table,
@@ -767,6 +769,235 @@ describe("polymorphic writes", () => {
         expect(text_()).toContain('SET "counterparty_id" = $1, "counterparty_type" = $2');
         expect(params()?.slice(0, 2)).toEqual([PERSON, "persons"]);
       });
+    });
+  });
+});
+
+describe("column groups", () => {
+  const money = embedded({
+    amount: numeric("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: text("lat"), lng: text("lng") });
+  const address = embedded({ city: text("city"), notes: json("notes"), geo: geo.column("geo") });
+
+  const customers = table("customers", { id: uuid("id").primaryKey().defaultRandom() });
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id").notNull(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+  const invoiceRelations = relations(invoices, {
+    customer: belongsTo(customers, {
+      from: [invoices.columns.customerId],
+      to: [customers.columns.id],
+    }),
+  });
+
+  let calls: SQLStatement[];
+  let rows: Record<string, unknown>[];
+  let dsql: ReturnType<
+    typeof createClient<{
+      customers: typeof customers;
+      invoices: typeof invoices;
+      invoiceRelations: typeof invoiceRelations;
+    }>
+  >;
+
+  beforeEach(() => {
+    calls = [];
+    rows = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return rows;
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: { customers, invoices, invoiceRelations }, session });
+  });
+
+  const projected = () =>
+    [...(calls[0]?.text.matchAll(/"((?:net_value|billing)_\w+)"/g) ?? [])].map(([, name]) => name);
+
+  it("reads a group selected as true as one object", async () => {
+    rows = [{ net_value_amount: "12.50", net_value_currency: "EUR" }];
+
+    const [invoice] = await dsql.invoices.findMany({ select: { netValue: true } });
+
+    expect(projected()).toEqual(["net_value_amount", "net_value_currency"]);
+    expect(invoice?.netValue).toEqual({ amount: 12.5, currency: "EUR" });
+  });
+
+  it("reads the members a map names, nested groups included", async () => {
+    rows = [
+      { billing_city: "Cluj", billing_notes: null, billing_geo_lat: "46.7", billing_geo_lng: null },
+    ];
+
+    const [invoice] = await dsql.invoices.findMany({
+      select: { billing: { city: true, geo: { lat: true } } },
+    });
+
+    expect(invoice?.billing).toEqual({ city: "Cluj", geo: { lat: "46.7" } });
+  });
+
+  it("projects a nullable group's every column, and reads it null when all are", async () => {
+    rows = [
+      { billing_city: null, billing_notes: null, billing_geo_lat: null, billing_geo_lng: null },
+    ];
+
+    const [invoice] = await dsql.invoices.findMany({ select: { billing: { city: true } } });
+
+    expect(projected()).toEqual([
+      "billing_city",
+      "billing_notes",
+      "billing_geo_lat",
+      "billing_geo_lng",
+    ]);
+    expect(invoice?.billing).toBeNull();
+  });
+
+  it("reads every group with no select, and beside a relation", async () => {
+    await dsql.invoices.findMany({});
+    expect(projected()).toContain("net_value_amount");
+    expect(projected()).toContain("billing_geo_lng");
+
+    calls = [];
+    await dsql.invoices.findMany({ select: { netValue: { amount: true }, customer: true } });
+    expect(projected()).toEqual(["net_value_amount"]);
+  });
+
+  it("selects a group in a write's return", async () => {
+    await dsql.invoices.delete({ where: { id: "i-1" }, return: { netValue: true } });
+
+    expect(calls[0]?.text).toContain(`RETURNING`);
+    expect(projected()).toEqual(["net_value_amount", "net_value_currency"]);
+  });
+
+  it("refuses a member the group does not have, and a map on a column", () => {
+    expect(() => dsql.invoices.findMany({ select: { netValue: { nope: true } } as never })).toThrow(
+      /Invalid field "netValue.nope"/
+    );
+    expect(() =>
+      dsql.invoices.findMany({ select: { netValue: { amount: { x: true } } } as never })
+    ).toThrow(/column "netValue.amount" of "invoices": a column takes true/);
+  });
+
+  it("orders by a member through a nested order object", async () => {
+    await dsql.invoices.findMany({
+      orderBy: { netValue: { amount: "desc" }, billing: { geo: { lat: "asc" } } },
+    });
+
+    expect(calls[0]?.text).toContain(
+      `ORDER BY "__t0"."net_value_amount" DESC, "__t0"."billing_geo_lat" ASC`
+    );
+  });
+
+  it("refuses a direction on a group, and a member that cannot be ordered", () => {
+    expect(() => dsql.invoices.findMany({ orderBy: { netValue: "asc" } as never })).toThrow(
+      /Cannot order by the group "netValue" of "invoices"; order by its members/
+    );
+    expect(() =>
+      dsql.invoices.findMany({ orderBy: { billing: { notes: "asc" } } as never })
+    ).toThrow(/Cannot order by the json column "billing.notes" of "invoices"/);
+  });
+
+  it("pages by a member, carrying it as a keyset key", async () => {
+    await dsql.invoices.paginate({ orderBy: { netValue: { amount: "desc" } }, limit: 2 });
+
+    expect(calls[0]?.text).toContain(`"__t0"."net_value_amount"::text AS "__k0"`);
+    expect(calls[0]?.text).toContain(`ORDER BY "__t0"."net_value_amount" DESC, "__t0"."id" DESC`);
+  });
+
+  it("refuses distinct over a group projecting a column it cannot compare", () => {
+    expect(() =>
+      dsql.invoices.findMany({ select: { billing: { city: true } }, distinct: true })
+    ).toThrow(/`distinct` cannot compare the json column "billing \(billing_notes\)"/);
+  });
+
+  describe("writes", () => {
+    const audit = embedded({
+      by: guid("by", "customers"),
+      at: text("at")
+        .readOnly()
+        .$onUpdate(() => "now"),
+    });
+    const priced = embedded({
+      amount: numeric("amount").notNull(),
+      currency: text("currency").notNull().default("EUR"),
+    });
+    const orders = table("orders", {
+      id: uuid("id").primaryKey().defaultRandom(),
+      price: priced.column("price"),
+      shipping: address.column("shipping").default({ city: "-" }),
+      audit: audit.column("audit"),
+    });
+    const people = table("customers", { id: guid("id").primaryKey().defaultRandom() });
+
+    let write: ReturnType<typeof createClient<{ orders: typeof orders; customers: typeof people }>>;
+
+    beforeEach(() => {
+      write = createClient({
+        schema: { orders, customers: people },
+        session: {
+          execute: vi.fn(async (query: SQLStatement) => (calls.push(query), [])),
+        } as unknown as Session,
+      });
+    });
+
+    it("creates a group from its members, the rest taking their defaults", async () => {
+      await write.orders.create({ data: { price: { amount: 5 } } });
+
+      expect(calls[0]?.text).toContain(
+        `("id", "price_amount", "price_currency", "shipping_city", "shipping_notes", ` +
+          `"shipping_geo_lat", "shipping_geo_lng", "audit_by", "audit_at")`
+      );
+      expect(calls[0]?.text).toContain(
+        `VALUES (DEFAULT, $1, DEFAULT, DEFAULT, DEFAULT, DEFAULT, DEFAULT, DEFAULT, DEFAULT)`
+      );
+      expect(calls[0]?.params).toEqual(["5"]);
+    });
+
+    it("updates only the members named, and runs a member's $onUpdate", async () => {
+      await write.orders.update({ where: { id: "o-1" }, set: { shipping: { geo: { lat: "1" } } } });
+
+      expect(calls[0]?.text).toContain(`SET "shipping_geo_lat" = $1, "audit_at" = $2`);
+      expect(calls[0]?.params).toEqual(["1", "now", "o-1"]);
+    });
+
+    it("sets every column NULL for a null group, and refuses null on a group that is never null", async () => {
+      await write.orders.update({ where: { id: "o-1" }, set: { shipping: null } });
+
+      expect(calls[0]?.text).toContain(
+        `SET "shipping_city" = $1, "shipping_notes" = $2, "shipping_geo_lat" = $3, ` +
+          `"shipping_geo_lng" = $4`
+      );
+      expect(() =>
+        write.orders.update({ where: { id: "o-1" }, set: { price: null } as never })
+      ).toThrow(/Cannot set the group "price" of "orders" to null/);
+    });
+
+    it("writes a guid member as the raw id, and drops a read-only member", async () => {
+      const id = "8f14e45f-ceea-467a-9575-6a1f3b3f2c11";
+
+      await write.orders.create({
+        data: {
+          price: { amount: 1 },
+          audit: { by: encodeGlobalId("customers", { id }), at: "x" } as never,
+        },
+      });
+
+      expect(calls[0]?.params).toEqual(["1", id]);
+    });
+
+    it("refuses a member the group does not have, and a value that is not an object", () => {
+      expect(() =>
+        write.orders.create({ data: { price: { amount: 1, nope: 2 } } as never })
+      ).toThrow(/Invalid field "price.nope" in values for table "orders"/);
+      expect(() => write.orders.create({ data: { price: 5 } as never })).toThrow(
+        /Write the group "price" of "orders" as an object of its members, or null/
+      );
     });
   });
 });

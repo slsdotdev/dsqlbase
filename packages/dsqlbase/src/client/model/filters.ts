@@ -4,11 +4,27 @@ import type {
   ColumnConfig,
   ColumnRuntimeType,
 } from "@dsqlbase/core/definition";
-import { AnyColumn, AnyTable, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
+import {
+  AnyColumn,
+  AnyColumnGroup,
+  AnyTable,
+  Column,
+  ColumnGroup,
+  sql,
+  SQLNode,
+  SQLValue,
+  Union,
+} from "@dsqlbase/core";
 import type { Prettify } from "@dsqlbase/core/utils";
 import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
 import { isGlobalId } from "../../schema/utils/global-id.js";
-import type { ColumnTypeOf, FieldNamesOf, ValueTypeOf } from "./base.js";
+import type {
+  ColumnTypeOf,
+  ColumnFieldNamesOf,
+  GroupFieldNamesOf,
+  GroupOf,
+  ValueTypeOf,
+} from "./base.js";
 
 /**
  * The `where` language: what a column of each runtime type can be filtered and ordered by, the
@@ -301,13 +317,41 @@ export type FilterOf<R extends ColumnRuntimeType, V> =
 export type ColumnFilterOf<C extends ColumnConfig> = FilterOf<C["runtimeType"], ValueTypeOf<C>>;
 
 export type WhereExpressionOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
+  [K in ColumnFieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
     ? ColumnFilterOf<ColumnTypeOf<T, K>>
     : never;
 } & {
   and?: WhereExpressionOf<T>[];
   or?: WhereExpressionOf<T>[];
   not?: WhereExpressionOf<T>;
+} & ([GroupFieldNamesOf<T>] extends [never]
+    ? unknown
+    : {
+        [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer C>
+          ? GroupFilterOf<C>
+          : never;
+      });
+
+/**
+ * A column group's filter: whether it is present, and a nested `where` over its members. Members
+ * are named only inside `where`, never beside `exists`.
+ */
+export type GroupFilterOf<C> = {
+  exists?: boolean;
+  where?: MembersWhereOf<C>;
+};
+
+/** A nested `where` over a group's members: the same language as a table's. */
+export type MembersWhereOf<C> = {
+  -readonly [K in keyof C]?: C[K] extends GroupOf<infer GC>
+    ? GroupFilterOf<GC>
+    : C[K] extends { __type: infer TConfig extends ColumnConfig }
+      ? ColumnFilterOf<TConfig>
+      : never;
+} & {
+  and?: MembersWhereOf<C>[];
+  or?: MembersWhereOf<C>[];
+  not?: MembersWhereOf<C>;
 };
 
 export function isFilterType<T extends keyof FilterCondition>(
@@ -336,6 +380,19 @@ export class WhereBuilder {
     table: TTable,
     where: WhereExpressionOf<TTable> | null | undefined
   ): SQLNode | undefined {
+    return this._build(table, undefined, where as Record<string, unknown> | null | undefined);
+  }
+
+  /**
+   * A `where` over the fields of `table`, or — inside a group's nested `where` — over the members
+   * of `group`. The same language at every level: fields, `and` / `or` / `not`.
+   */
+  private _build(
+    table: AnyTable,
+    group: AnyColumnGroup | undefined,
+    where: Record<string, unknown> | null | undefined,
+    path: string[] = []
+  ): SQLNode | undefined {
     if (!where) {
       return undefined;
     }
@@ -345,7 +402,7 @@ export class WhereBuilder {
     for (const [fieldName, condition] of Object.entries(where)) {
       if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
         const children = condition
-          .map((expr) => this.build(table, expr))
+          .map((expr) => this._build(table, group, expr as Record<string, unknown>, path))
           .filter(Boolean) as SQLNode[];
 
         // An empty group constrains nothing; left in, it would render as `()`.
@@ -363,7 +420,7 @@ export class WhereBuilder {
         !Array.isArray(condition)
       ) {
         const shouldWrapNot = Object.keys(condition).length > 1;
-        const expr = this.build(table, condition);
+        const expr = this._build(table, group, condition as Record<string, unknown>, path);
 
         if (expr) {
           expressions.push(shouldWrapNot ? sql.wrap(sql.not(expr)) : sql.not(expr));
@@ -372,13 +429,19 @@ export class WhereBuilder {
         continue;
       }
 
-      const column = table.getColumn(fieldName);
+      const field = group ? group.getColumn(fieldName) : table.getColumn(fieldName);
+      const fieldPath = [...path, fieldName].join(".");
 
-      if (!column) {
-        throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
+      if (field instanceof ColumnGroup) {
+        expressions.push(...this._getGroupFilter(table, [...path, fieldName], field, condition));
+        continue;
       }
 
-      expressions.push(...this._getColumnFilter(table, fieldName, column, condition));
+      if (!(field instanceof Column)) {
+        throw new Error(`Invalid field "${fieldPath}" in where clause for table "${table.name}".`);
+      }
+
+      expressions.push(...this._getColumnFilter(table, fieldPath, field, condition));
     }
 
     // `{}` selects everything, the same as no `where` at all — not an empty `WHERE`.
@@ -432,6 +495,59 @@ export class WhereBuilder {
       }
 
       nodes.push(this._getOperatorFilter(column, operator as FilterOperator, value));
+    }
+
+    return nodes;
+  }
+
+  /**
+   * A column group's filter: `exists` — whether the group is present, by the rule it is read
+   * `null` by — and the nested `where` over its members. Members are only ever named inside
+   * `where`, so a member called `exists` cannot be mistaken for the operator.
+   */
+  private _getGroupFilter(
+    table: AnyTable,
+    path: string[],
+    group: AnyColumnGroup,
+    condition: unknown
+  ): SQLNode[] {
+    const subject = `group "${path.join(".")}" of "${table.name}"`;
+
+    if (
+      typeof condition !== "object" ||
+      condition === null ||
+      Array.isArray(condition) ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(condition) as object | null)
+    ) {
+      throw new Error(`Filter the ${subject} with \`exists\` or a nested \`where\`, not a value.`);
+    }
+
+    const nodes: SQLNode[] = [];
+
+    for (const [operator, value] of Object.entries(condition)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (operator === "exists") {
+        nodes.push(group.exists(Boolean(value)));
+        continue;
+      }
+
+      if (operator === NESTED_FILTER) {
+        const nested = this._build(table, group, value as Record<string, unknown>, path);
+
+        if (nested) {
+          nodes.push(nested);
+        }
+
+        continue;
+      }
+
+      throw new Error(
+        `Operator "${operator}" is not valid on the ${subject} (valid: exists, ${NESTED_FILTER}); ` +
+          `filter its members inside \`${NESTED_FILTER}\`.`
+      );
     }
 
     return nodes;
