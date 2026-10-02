@@ -190,7 +190,23 @@ await dsql.users.create({ data: { settings: { since: "2026-10-01" } } });
 A write stores the schema's output — defaults filled — and checks it reads back as itself, so a
 transforming schema is refused on its first write. Filters, order and operators follow each
 column's type: a `json` column filters by `exists`, and a `jsonb` column also by `eq`, `neq` and
-`contains` — a fragment of the document, matched with `@>`. See the
+`contains` — a fragment of the document, matched with `@>`. Filter values are never validated.
+
+`array()` and `record()` are `jsonb` columns holding an array, or an object, checked on every
+write and read:
+
+```ts
+export const boards = table("boards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tags: array("tags").$type<string>(), // string[]
+  limits: record("limits").schema(z.record(z.string(), z.number())),
+});
+
+await dsql.boards.findMany({ where: { tags: { contains: ["urgent"] } } });
+await dsql.boards.findMany({ where: { limits: { hasKey: "cpu" } } });
+```
+
+See the
 [schema guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/schema.md#json-columns).
 
 ## Polymorphic relations

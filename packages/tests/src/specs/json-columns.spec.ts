@@ -10,7 +10,7 @@ import { schema } from "../db/schema";
  * `jsonb` / `json` columns against a real database: what is stored, what reads back, and what
  * a zod schema on the column refuses. `boards.config` is validated by
  * `{ kind: enum, columns: int = 3, since?: coerce.date }`; `payload` (jsonb) and `notes` (json)
- * take any JSON value.
+ * take any JSON value; `labels` is an `array()` of strings, `limits` a `record()` of numbers.
  */
 describe("json columns", () => {
   const { getClient, getData } = withSeededClient();
@@ -19,6 +19,8 @@ describe("json columns", () => {
     config?: { kind: "kanban" | "list"; columns?: number; since?: unknown };
     payload?: unknown;
     notes?: unknown;
+    labels?: string[] | null;
+    limits?: Record<string, number> | null;
   };
 
   const createBoard = (data: BoardInput = {}) =>
@@ -215,6 +217,104 @@ describe("json columns", () => {
       expect(() => client.boards.findMany({ orderBy: { notes: "asc" } })).toThrow(
         'Cannot order by the json column "notes" of "boards".'
       );
+    });
+  });
+
+  describe("array() and record()", () => {
+    const read = async (id: string | undefined) =>
+      getClient().boards.findOne({
+        where: { id: { eq: id } },
+        select: { labels: true, limits: true },
+      });
+
+    // The text-backed array() lost both.
+    it("round-trips items with commas, and an empty array, as jsonb", async () => {
+      const withComma = await createBoard({ labels: ["a,b", "c"], limits: { cpu: 2 } });
+      const empty = await createBoard({ labels: [], limits: {} });
+
+      expect(await read(withComma?.id)).toMatchObject({ labels: ["a,b", "c"], limits: { cpu: 2 } });
+      expect(await read(empty?.id)).toMatchObject({ labels: [], limits: {} });
+
+      const [types] = await getClient().$execute<Record<string, unknown>>({
+        text: `SELECT jsonb_typeof(labels) AS labels, jsonb_typeof(limits) AS limits FROM boards WHERE id = $1`,
+        params: [withComma?.id],
+      });
+      expect(types).toEqual({ labels: "array", limits: "object" });
+    });
+
+    it("refuses a value of the wrong shape on write, and the record's schema too", () => {
+      const client = getClient() as unknown as {
+        boards: { create: (args: object) => unknown };
+      };
+      const write = (data: object) =>
+        client.boards.create({
+          data: {
+            projectId: getData().projects[0].id,
+            name: "Board",
+            config: { kind: "list" },
+            ...data,
+          },
+        });
+
+      expect(() => write({ labels: "a,b" })).toThrow(
+        'Invalid value for column "labels" on write: Expected an array'
+      );
+      expect(() => write({ limits: [1] })).toThrow(ColumnValidationError);
+      expect(() => write({ limits: { cpu: "two" } })).toThrow(
+        expect.objectContaining({ code: "invalid", column: "limits", phase: "write" })
+      );
+    });
+
+    it("fails a read of a stored value of the wrong shape", async () => {
+      const board = await createBoard();
+
+      await getClient().$execute({
+        text: `UPDATE boards SET labels = '"a,b"' WHERE id = $1`,
+        params: [board?.id],
+      });
+
+      await expect(read(board?.id)).rejects.toThrow(
+        'Invalid value for column "labels" on read: Expected an array'
+      );
+    });
+
+    it("filters an array by contains: every given item, in any order", async () => {
+      await createBoard({ labels: ["a", "b", "c"] });
+      await createBoard({ labels: ["b"] });
+      await createBoard({ labels: [] });
+
+      const count = (contains: string[]) =>
+        getClient().boards.count({ where: { labels: { contains } } });
+
+      expect(await count(["c", "a"])).toBe(1);
+      expect(await count(["b"])).toBe(2);
+      expect(await count([])).toBe(3);
+      expect(
+        await getClient().boards.count({
+          where: { or: [{ labels: { contains: ["c"] } }, { labels: { eq: ["b"] } }] },
+        })
+      ).toBe(2);
+    });
+
+    it("compares an array with eq, in order", async () => {
+      await createBoard({ labels: ["a", "b"] });
+
+      const count = (eq: string[]) => getClient().boards.count({ where: { labels: { eq } } });
+
+      expect(await count(["a", "b"])).toBe(1);
+      expect(await count(["b", "a"])).toBe(0);
+    });
+
+    it("filters a record by a fragment, and by key", async () => {
+      await createBoard({ limits: { cpu: 2, memory: 512 } });
+      await createBoard({ limits: { memory: 256 } });
+
+      const count = (filter: object) => getClient().boards.count({ where: { limits: filter } });
+
+      expect(await count({ contains: { cpu: 2 } })).toBe(1);
+      expect(await count({ hasKey: "memory" })).toBe(2);
+      expect(await count({ hasKey: "disk" })).toBe(0);
+      expect(await count({ hasKey: "memory", contains: { memory: 256 } })).toBe(1);
     });
   });
 
