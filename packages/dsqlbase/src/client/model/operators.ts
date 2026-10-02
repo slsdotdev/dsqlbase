@@ -8,8 +8,12 @@ import type { AnyColumn, ColumnRuntimeType } from "@dsqlbase/core";
 
 const COMPARISON = ["eq", "neq", "in", "gt", "gte", "lt", "lte", "between", "exists"] as const;
 const PATTERN = ["beginsWith", "endsWith", "contains"] as const;
+const KEYED = ["hasKey"] as const;
 
-export type FilterOperator = (typeof COMPARISON)[number] | (typeof PATTERN)[number];
+export type FilterOperator =
+  | (typeof COMPARISON)[number]
+  | (typeof PATTERN)[number]
+  | (typeof KEYED)[number];
 
 export type RuntimeTypeRules = {
   /** The operators a filter on the column may use. */
@@ -35,6 +39,15 @@ const document: RuntimeTypeRules = {
   distinct: true,
 };
 
+/**
+ * `jsonb` equality and containment. `contains` means `@>` here, not `LIKE`: the value is a
+ * fragment of a document, matched recursively.
+ */
+const jsonbDocument: RuntimeTypeRules = {
+  ...document,
+  operators: ["eq", "neq", "contains", "exists"],
+};
+
 export const RUNTIME_TYPE_RULES: Readonly<Record<ColumnRuntimeType, RuntimeTypeRules>> = {
   string: { ...comparable, operators: [...COMPARISON, ...PATTERN] },
   uuid: comparable,
@@ -44,14 +57,19 @@ export const RUNTIME_TYPE_RULES: Readonly<Record<ColumnRuntimeType, RuntimeTypeR
   interval: comparable,
   boolean: { ...comparable, operators: ["eq", "neq", "exists"] },
   bytes: document,
-  // `json` has no equality operator at all; `jsonb` will.
+  // `json` has no equality operator at all.
   json: { ...document, distinct: false },
-  array: document,
-  object: document,
+  jsonb: jsonbDocument,
+  array: jsonbDocument,
+  object: { ...jsonbDocument, operators: [...jsonbDocument.operators, ...KEYED] },
 };
 
 /** Every operator any runtime type accepts — what tells an operator object from a value. */
-export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([...COMPARISON, ...PATTERN]);
+export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([
+  ...COMPARISON,
+  ...PATTERN,
+  ...KEYED,
+]);
 
 /**
  * Inside a column's filter, `where` is reserved for filtering into the column's value — a
@@ -59,6 +77,13 @@ export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([...COMPARI
  * name; not supported yet.
  */
 export const NESTED_FILTER = "where";
+
+/** The runtime types stored as `jsonb`, where `contains` is containment (`@>`). */
+export const JSONB_RUNTIME_TYPES: ReadonlySet<ColumnRuntimeType> = new Set([
+  "jsonb",
+  "array",
+  "object",
+]);
 
 export function rulesOf(column: AnyColumn): RuntimeTypeRules {
   return RUNTIME_TYPE_RULES[column.runtimeType];
@@ -70,12 +95,44 @@ export function rulesOf(column: AnyColumn): RuntimeTypeRules {
 
 /** The operators a runtime type accepts. Mirrors {@link RUNTIME_TYPE_RULES}. */
 export type OperatorsOf<R extends ColumnRuntimeType> = R extends "string"
-  ? FilterOperator
+  ? (typeof COMPARISON)[number] | (typeof PATTERN)[number]
   : R extends "uuid" | "number" | "bigint" | "date" | "interval"
     ? (typeof COMPARISON)[number]
     : R extends "boolean"
       ? "eq" | "neq" | "exists"
-      : "exists";
+      : R extends "object"
+        ? "eq" | "neq" | "contains" | "hasKey" | "exists"
+        : R extends JsonbRuntimeType
+          ? "eq" | "neq" | "contains" | "exists"
+          : "exists";
+
+/** The runtime types stored as `jsonb`. Mirrors {@link JSONB_RUNTIME_TYPES}. */
+export type JsonbRuntimeType = "jsonb" | "array" | "object";
+
+/**
+ * What `contains` takes on runtime type `R` holding `V`: a substring on `string`, a fragment of
+ * the document on a `jsonb` type — never `null`, and anything on an untyped document. On `array`
+ * the fragment is itself an array, of item fragments.
+ */
+export type ContainsValueOf<R extends ColumnRuntimeType, V> = R extends "string"
+  ? string
+  : R extends JsonbRuntimeType
+    ? unknown extends V
+      ? unknown
+      : JsonFragment<NonNullable<V>>
+    : never;
+
+/**
+ * A part of a JSON value, as `@>` matches it: any object member may be left out, at any depth,
+ * and an array lists some of its items.
+ */
+export type JsonFragment<T> = T extends Date
+  ? T
+  : T extends readonly (infer I)[]
+    ? JsonFragment<I>[]
+    : T extends object
+      ? { [K in keyof T]?: JsonFragment<T[K]> }
+      : T;
 
 /** The runtime types where a bare value stands for `{ eq: value }`. */
 export type ShorthandRuntimeType =

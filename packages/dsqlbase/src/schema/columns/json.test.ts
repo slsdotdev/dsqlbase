@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ColumnValidationError } from "../utils/column-validation.js";
 import type { StandardSchemaV1 } from "../utils/standard-schema.js";
-import { json, jsonb } from "./json.js";
+import { json, jsonb, JsonColumnDefinition } from "./json.js";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyJsonColumn = JsonColumnDefinition<string, any>;
 
 // `pg` and PGlite parse `json` / `jsonb` into JS values before a row reaches the codec, and a
 // joined row arrives inside parsed JSON. What the codec decodes is a value, never JSON text.
@@ -45,6 +48,19 @@ function schemaOf<In, Out>(
   };
 }
 
+/** A write as the built column runs it: validated, if there is a schema, then encoded. */
+function write<C extends AnyJsonColumn>(column: C, input: C["__type"]["inputType"]): unknown {
+  const validator = column["_validator"];
+  return column["_codec"].encode(validator ? validator.write(input) : input);
+}
+
+/** A read as the built column runs it: decoded, then validated if there is a schema. */
+function read(column: AnyJsonColumn, stored: unknown): unknown {
+  const validator = column["_validator"];
+  const value = column["_codec"].decode(stored);
+  return validator ? validator.read(value) : value;
+}
+
 type Settings = { theme: "light" | "dark"; since: string };
 
 // Fills `theme`, and coerces `since` (a date string or Date) to its ISO form.
@@ -61,16 +77,16 @@ const settings = schemaOf<{ theme?: "light" | "dark"; since: string | Date }, Se
 });
 
 describe("json .schema()", () => {
-  const codec = () => jsonb("settings").schema(settings)["_codec"];
+  const column = () => jsonb("settings").schema(settings);
 
   it("stores the validated output, defaults filled, in its JSON form", () => {
-    expect(codec().encode({ since: "2026-10-01" })).toBe(
+    expect(write(column(), { since: "2026-10-01" })).toBe(
       '{"theme":"light","since":"2026-10-01T00:00:00.000Z"}'
     );
   });
 
   it("validates a read and returns the output", () => {
-    expect(codec().decode({ theme: "dark", since: "2026-10-01" })).toEqual({
+    expect(read(column(), { theme: "dark", since: "2026-10-01" })).toEqual({
       theme: "dark",
       since: "2026-10-01T00:00:00.000Z",
     });
@@ -78,12 +94,12 @@ describe("json .schema()", () => {
 
   it("refuses a value the schema refuses, on write and on read", () => {
     // @ts-expect-error not a theme: the runtime refuses it as the types do
-    expect(() => codec().encode({ theme: "blue", since: "2026-10-01" })).toThrow(
+    expect(() => write(column(), { theme: "blue", since: "2026-10-01" })).toThrow(
       new ColumnValidationError("invalid", "settings", "write", [
         { message: "expected light or dark", path: ["theme"] },
       ])
     );
-    expect(() => codec().decode({ theme: "blue" })).toThrow(
+    expect(() => read(column(), { theme: "blue" })).toThrow(
       'Invalid value for column "settings" on read: theme: expected light or dark'
     );
   });
@@ -94,10 +110,10 @@ describe("json .schema()", () => {
     );
     const exclaim = schemaOf<string, string>((value) => ({ value: `${value as string}!` }));
 
-    expect(() => json("tags").schema(split)["_codec"].encode("a,b")).toThrow(
+    expect(() => write(json("tags").schema(split), "a,b")).toThrow(
       'Invalid value for column "tags" on write'
     );
-    expect(() => json("note").schema(exclaim)["_codec"].encode("x")).toThrow(
+    expect(() => write(json("note").schema(exclaim), "x")).toThrow(
       expect.objectContaining({ code: "unstable", column: "note" })
     );
   });
@@ -105,7 +121,7 @@ describe("json .schema()", () => {
   it("refuses an output with no JSON form", () => {
     const big = schemaOf<number, bigint>((value) => ({ value: BigInt(value as number) }));
 
-    expect(() => json("n").schema(big)["_codec"].encode(1)).toThrow(
+    expect(() => write(json("n").schema(big), 1)).toThrow(
       expect.objectContaining({ code: "not_json" })
     );
   });
@@ -119,7 +135,7 @@ describe("json .schema()", () => {
       },
     };
 
-    expect(() => json("c").schema(pending)["_codec"].encode("x")).toThrow(
+    expect(() => write(json("c").schema(pending), "x")).toThrow(
       expect.objectContaining({ code: "async", phase: "write" })
     );
   });
@@ -138,15 +154,22 @@ describe("json .schema()", () => {
   });
 
   it("leaves a column without a schema unvalidated", () => {
-    expect(jsonb("c")["_codec"].encode({ any: ["thing"] })).toBe('{"any":["thing"]}');
+    expect(write(jsonb("c"), { any: ["thing"] })).toBe('{"any":["thing"]}');
+  });
+
+  // Filters encode with the codec alone, so a fragment of a document, or a value the schema
+  // would refuse, is sent as given.
+  it("keeps the codec to translating: encoding does not validate", () => {
+    const { encode } = jsonb("settings").schema(settings)["_codec"];
+
+    expect(encode({ theme: "blue" } as unknown as Settings)).toBe('{"theme":"blue"}');
   });
 });
 
 describe("jsonb", () => {
-  it("is a json runtime type over the jsonb data type", () => {
-    const column = jsonb("c");
-
-    expect(column.toJSON().dataType).toBe("jsonb");
-    expect(column["_runtimeType"]).toBe("json");
+  it("is its own runtime type, which json is not", () => {
+    expect(jsonb("c").toJSON().dataType).toBe("jsonb");
+    expect(jsonb("c")["_runtimeType"]).toBe("jsonb");
+    expect(json("c")["_runtimeType"]).toBe("json");
   });
 });

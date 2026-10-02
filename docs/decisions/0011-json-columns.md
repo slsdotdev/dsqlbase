@@ -68,6 +68,8 @@ several operators kept only the first (`{ gte: 1, lte: 5 }` dropped `lte`).
   Defaults and coercions pass the check and are stored; a transform fails it on the first write
   that reaches it. A schema that answers with a `Promise` throws, since a codec is synchronous.
   Failures throw `ColumnValidationError` (`code`, `column`, `phase`, `issues`).
+  **Amended by [0012](./0012-json-array-record.md):** this validation ran inside the codec, so
+  filters were validated too. It is now a column validator, run on writes and reads only.
 
 - **Writes and reads have their own types.** `ColumnConfig.inputType` (defaulting to the value
   type) is what `create`, `update`, `.default()`, `$onCreate`, `$onUpdate` and `Column.param`
@@ -95,7 +97,7 @@ several operators kept only the first (`{ gte: 1, lte: 5 }` dropped `lte`).
   optional path only when a write reaches it.
 - **Breaking, in `@dsqlbase/core`:** `ColumnConfig` gains `runtimeType` and `inputType`,
   `DomainConfig` `runtimeType`, `ColumnCodec` a third type parameter; the write-side methods
-  take the input type.
+  take the input type. (`0012` removed `ColumnCodec`'s third parameter before a release.)
 - **Breaking, in `dsqlbase`:**
   - `json`, `array()` and `bytea` columns filter by `exists` only, take no bare value, and
     cannot be ordered by; pattern operators are refused off `string`, ordering operators off
@@ -108,12 +110,14 @@ several operators kept only the first (`{ gte: 1, lte: 5 }` dropped `lte`).
 
 - **Nested `where`** into a `jsonb` document.
 - **A `jsonb` runtime type of its own**, when `jsonb` gains `eq` and `@>`, which `json` cannot
-  have; it would also let `distinct` accept `jsonb`.
+  have; it would also let `distinct` accept `jsonb`. **Resolved by
+  [0012](./0012-json-array-record.md).**
 - **Separate read and write types for transforming schemas**, should transforms be wanted.
 - **`array()` and a `record()` rebuilt on `jsonb`**, runtime types `array` / `object`, item
   types enforced by the codec. Today's `array()` stores comma-joined `text` and loses data
   (`["a,b"]` reads as `["a","b"]`, `[]` as `[""]`); the rebuild changes storage, so it needs a
-  migration story.
+  migration story. **Resolved by [0012](./0012-json-array-record.md)**, the migration left to the
+  migrations work.
 - **Embeddable objects.** Their review notes, to start the re-draft from:
   - a nullable group read through a partial `select` needs its required leaves projected to
     tell absent from present;

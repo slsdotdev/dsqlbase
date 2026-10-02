@@ -4,6 +4,8 @@ _Audience: contributors and agents._
 
 Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values; a future embeddable type would too. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
 
+A codec **translates** and nothing else. Checking a value is the column's optional `ColumnConfig.validator { write, read }`, which runs on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters).
+
 ## Where codecs apply
 
 | Path                                                           | Direction | Location                                                                                                                                  |
@@ -18,7 +20,7 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
 
 ## Where codecs do NOT apply
 
-- **Pattern operators** — `beginsWith`, `endsWith`, `contains` build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw, and only `string` columns take them (see [Operators by runtime type](./runtime-pipeline.md#operators-by-runtime-type)), so they never meet a codec that rewrites values.
+- **Pattern operators** — `beginsWith`, `endsWith`, `contains` on a `string` column build a `LIKE` pattern rather than a column value, so encoding them would corrupt the pattern. They stay raw, and only `string` columns take them as patterns (see [Operators by runtime type](./runtime-pipeline.md#operators-by-runtime-type)), so they never meet a codec that rewrites values. On a `jsonb` column `contains` is a document fragment instead, and goes through `Column.param`: encoded, not validated.
 - **`exists`** — a null check, no value.
 - **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.
@@ -30,7 +32,28 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/s
   becomes `.123` and the next page skips every row in that millisecond. The same holds for a
   bound codec such as the guid wrapper: a guid order key travels as its raw uuid.
 
-## JSON columns: the driver parses, the codec validates
+## Validators: run on writes and reads, never on filters
+
+A column may carry a `ColumnValidator` (`packages/core/src/definition/base.ts`) beside its codec.
+`Column` (`packages/core/src/runtime/column.ts`) runs it around the codec:
+
+| Path                                                                               | Order                                  |
+| ---------------------------------------------------------------------------------- | -------------------------------------- |
+| insert, update, `$onCreate`, `$onUpdate` (`getInsertValue`, `getUpdateValue`)      | `validator.write`, then `codec.encode` |
+| `ColumnDefinition.default()`                                                       | `validator.write`, then `codec.encode` |
+| reads, root and joined (`Column.resolve`), and a row decoder (`Column.resolveRow`) | `codec.decode`, then `validator.read`  |
+| where-clause values, tenant predicates (`Column.param`)                            | `codec.encode` only                    |
+
+`NULL` reaches neither. A filter value is compared with stored values, not stored, and may be a
+fragment of one (a containment pattern), so validating it would refuse or rewrite it. This is why
+validation is not in the codec: every value bound for the column passes through `encode`, so a
+codec that validated would validate filters too. `write` takes the column's `inputType` and
+returns its `valueType`; `Column.param` takes `valueType`.
+
+Core gives the validator no meaning. `dsqlbase` installs one for `.schema()` on JSON columns,
+below.
+
+## JSON columns: the driver parses, the validator checks
 
 `json` and `jsonb` columns (`packages/dsqlbase/src/schema/columns/json.ts`) rely on the session
 returning them **parsed**, as `pg` and PGlite do, and a joined row arrives inside parsed JSON
@@ -38,18 +61,20 @@ anyway. Their decode therefore never parses: it receives a value, and a JSON str
 `"123"` stays the string it is. (It used to parse any string again, so `"123"` read back as the
 number `123`.) A custom `Session` must return JSON columns parsed.
 
-Encode is `JSON.stringify`. With `.schema(s)` the codec is replaced by one that validates inside
-both directions — the codec is the only path every write and read passes through, joins
-included:
+Encode is `JSON.stringify`, with or without a schema. `.schema(s)` installs a validator:
 
-- **encode** validates, serializes the schema's output, validates that serialized form again and
-  requires it to serialize identically (the stability check), then sends the text;
-- **decode** validates the stored value and returns the schema's output.
+- **write** validates, serializes the schema's output, validates that serialized form again and
+  requires it to serialize identically (the stability check), then hands the output to encode;
+- **read** validates the decoded value and returns the schema's output.
 
-A codec cannot await, so a schema that returns a `Promise` throws. The codec takes what a write
-accepts and returns what a read yields, which differ here: `ColumnConfig.inputType` carries the
-write side (`CreateValuesOf` / `UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`,
-`Column.param`), `valueType` the read side. They are the same type for every other column.
+`array()` and `record()` are JSON columns with a shape: their validator checks that a value is
+an array, or a plain object, on every write (after the schema, on what will be stored) and every
+read (before the schema), with or without `.schema()`. The filters on them rely on it.
+
+A validator cannot await, so a schema that returns a `Promise` throws. Writes and reads have
+their own types here: `ColumnConfig.inputType` carries the write side (`CreateValuesOf` /
+`UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`), `valueType` the read side and filters.
+They are the same type for every other column.
 
 ## Filtering by a codec column in raw SQL
 

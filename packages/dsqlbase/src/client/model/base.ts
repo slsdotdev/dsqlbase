@@ -19,7 +19,12 @@ import {
   TableByAlias,
 } from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
-import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
+import {
+  ContainsValueOf,
+  OperatorsOf,
+  OrderableRuntimeType,
+  ShorthandRuntimeType,
+} from "./operators.js";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
@@ -54,17 +59,30 @@ export type FieldRelationOf<T extends AnyTable, K extends RelationFieldNamesOf<T
       : never
     : never;
 
+/**
+ * `V`, unless it is untyped on a column whose shape is checked: an untyped `array()` reads and
+ * writes as `unknown[]`, an untyped `record()` as `Record<string, unknown>`. The column's own
+ * value type stays `unknown`, so that `$type<T>()` gives exactly `T`.
+ */
+type ShapedTypeOf<R, V> = unknown extends V
+  ? R extends "array"
+    ? unknown[]
+    : R extends "object"
+      ? Record<string, unknown>
+      : V
+  : V;
+
 export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
-    ? T["valueType"]
-    : T["valueType"] | null
+    ? ShapedTypeOf<T["runtimeType"], T["valueType"]>
+    : ShapedTypeOf<T["runtimeType"], T["valueType"]> | null
   : never;
 
 /** What a write accepts for a column: its input type, nullable unless the column is not null. */
 export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
   ? T["notNull"] extends true
-    ? T["inputType"]
-    : T["inputType"] | null
+    ? ShapedTypeOf<T["runtimeType"], T["inputType"]>
+    : ShapedTypeOf<T["runtimeType"], T["inputType"]> | null
   : never;
 
 /**
@@ -944,13 +962,26 @@ export type FilterCondition<Value = unknown> = {
   endsWith?: string;
 
   /**
-   * Contains condition - matches records where the field contains the specified string.
+   * Contains condition. On a string column, matches records where the field contains the
+   * specified string; on a `jsonb` column, where the document contains the specified fragment
+   * (see {@link ContainsValueOf}).
    *
    * ```sql
    * "table"."column" LIKE '%value%'
+   * "table"."column" @> '{"fragment":true}'
    * ```
    */
   contains?: string;
+
+  /**
+   * Key condition, on a `record()` column - matches records whose object has the key at its top
+   * level.
+   *
+   * ```sql
+   * "table"."column" ? 'key'
+   * ```
+   */
+  hasKey?: string;
 };
 
 /**
@@ -959,7 +990,10 @@ export type FilterCondition<Value = unknown> = {
  * `operators.ts`, which the normalizer enforces.
  */
 export type FilterOf<R extends ColumnRuntimeType, V> =
-  | Pick<FilterCondition<V>, OperatorsOf<R>>
+  | Prettify<
+      Pick<FilterCondition<V>, Exclude<OperatorsOf<R>, "contains">> &
+        ("contains" extends OperatorsOf<R> ? { contains?: ContainsValueOf<R, V> } : unknown)
+    >
   | (R extends ShorthandRuntimeType ? V : never);
 
 /** The filter a column accepts. */

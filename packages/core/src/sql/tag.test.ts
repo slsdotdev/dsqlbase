@@ -256,3 +256,21 @@ describe("sql.keyset", () => {
     });
   });
 });
+
+describe("sql.jsonbContains", () => {
+  it("writes jsonb containment, the fragment as a parameter", () => {
+    const query = sql`${sql.jsonbContains(sql.identifier("tags"), '["a"]')}`.toQuery();
+
+    expect(query.text).toBe('"tags" @> $1');
+    expect(query.params).toEqual(['["a"]']);
+  });
+});
+
+describe("sql.jsonbHasKey", () => {
+  it("writes jsonb key existence, the key as a parameter", () => {
+    const query = sql`${sql.jsonbHasKey(sql.identifier("limits"), "cpu")}`.toQuery();
+
+    expect(query.text).toBe('"limits" ? $1');
+    expect(query.params).toEqual(["cpu"]);
+  });
+});

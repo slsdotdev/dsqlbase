@@ -159,19 +159,20 @@ members is enough.
 
 ## Column types
 
-| Constructor(s)                                          | PG type                         | Notes                                                                                                  |
-| ------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                        |
-| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                               |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                              |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                                                        |
-| `boolean`/`bool`                                        | `boolean`                       |                                                                                                        |
-| `bytea`                                                 | `bytea`                         |                                                                                                        |
-| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                |
-| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                             |
-| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                  |
-| `array`                                                 | `text`                          | `string[]` stored comma-joined; a value containing `,` does not survive, and `[]` reads back as `[""]` |
-| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                                |
+| Constructor(s)                                          | PG type                         | Notes                                                                                     |
+| ------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                           |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                  |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                 |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                                           |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                                           |
+| `bytea`                                                 | `bytea`                         |                                                                                           |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                   |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                |
+| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`     |
+| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type |
+| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type       |
+| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                   |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
 
@@ -203,6 +204,24 @@ export const users = table("users", {
 });
 ```
 
+`array(name)` and `record(name)` are `jsonb` columns that hold an array, or an object, at the
+top level. The shape is checked on every write and every read, with or without a schema, and
+they take the operators of their shape (see
+[Operators by column type](./querying.md#operators-by-column-type)):
+
+```ts
+export const boards = table("boards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tags: array("tags").$type<string>(), // string[]; $type<string[]>() is the same
+  labels: array("labels").schema(z.array(z.string()).min(1)),
+  limits: record("limits").$type<{ cpu: number; memory?: number }>(), // exactly as given
+  quotas: record("quotas").schema(z.record(z.string(), z.number())),
+});
+```
+
+Untyped, they read as `unknown[]` and `Record<string, unknown>`. `.schema()` takes a schema for
+the whole value, and the types refuse one whose output is not an array (or an object).
+
 `.$type<T>()` only types the column; nothing checks the values. `.schema(s)` takes any
 [Standard Schema](https://standardschema.dev) — zod, valibot, arktype — with none of them a
 dependency, and validates every write and every read:
@@ -221,13 +240,17 @@ dependency, and validates every write and every read:
 - **The schema must validate synchronously.** An async refinement throws.
 - **`.default(value)`** is validated where it is declared, whichever order `.default()` and
   `.schema()` are called in.
+- **Filters are not validated.** A value in `where`, or given to `Column.param()`, is compared
+  with stored values rather than stored: it is typed by the schema's output and sent as given,
+  and may be only a fragment of a document.
 
 Every failure throws `ColumnValidationError` (exported from `dsqlbase`), with `code`
 (`invalid`, `not_json`, `unstable`, `async`), the database `column` name, the `phase` (`write`
 or `read`) and the schema's `issues`.
 
-A JSON column filters by `exists` only, takes no bare value in `where`, cannot be an `orderBy`
-key, and cannot be compared by `distinct` (see
+A `json` column filters by `exists` only and cannot be compared by `distinct`. A `jsonb`,
+`array()` or `record()` column also takes `eq`, `neq` and `contains` (a fragment of the value),
+a `record()` also `hasKey`, and `distinct` compares them. None takes a bare value in `where` or can be an `orderBy` key (see
 [Operators by column type](./querying.md#operators-by-column-type)).
 
 ## Domains and enums

@@ -10,6 +10,7 @@ import {
   bytea,
   int,
   json,
+  jsonb,
   table,
   text,
   union,
@@ -26,6 +27,8 @@ const docs = table("docs", {
   draft: boolean("draft"),
   body: bytea("body"),
   settings: json("settings").$type<{ theme: string }>(),
+  doc: jsonb("doc"),
+  layout: jsonb("layout").$type<{ theme: string; panels: { id: number; open: boolean }[] }>(),
   tags: array("tags"),
 });
 
@@ -66,6 +69,24 @@ describe("filters follow the runtime type", () => {
     >();
     expectTypeOf<Where["settings"]>().toEqualTypeOf<{ exists?: boolean } | undefined>();
     expectTypeOf<Where["body"]>().toEqualTypeOf<{ exists?: boolean } | undefined>();
+  });
+
+  it("gives a jsonb column equality and containment", () => {
+    type Layout = { theme: string; panels: { id: number; open: boolean }[] };
+
+    expectTypeOf<Where["layout"]>().toEqualTypeOf<
+      | {
+          eq?: Layout | null;
+          neq?: Layout | null;
+          exists?: boolean;
+          contains?: { theme?: string; panels?: { id?: number; open?: boolean }[] };
+        }
+      | undefined
+    >();
+  });
+
+  it("takes any fragment on an untyped jsonb column", () => {
+    expectTypeOf<Exclude<Where["doc"], undefined>["contains"]>().toEqualTypeOf<unknown>();
   });
 
   it("keeps an enum's values and the shorthand on comparable columns", () => {
@@ -120,6 +141,27 @@ describe("filters follow the runtime type", () => {
         where: { settings: { eq: "x" } },
       });
 
+      dsql.docs.findMany({
+        // @ts-expect-error a jsonb column has no value shorthand
+        where: { layout: { theme: "dark" } },
+      });
+
+      dsql.docs.findMany({
+        // @ts-expect-error a jsonb fragment is still typed by the document
+        where: { layout: { contains: { theme: 1 } } },
+      });
+
+      dsql.docs.findMany({
+        // @ts-expect-error eq takes the whole document
+        where: { layout: { eq: { theme: "dark" } } },
+      });
+
+      dsql.docs.findMany({
+        // @ts-expect-error a jsonb column cannot be ordered by
+        orderBy: { layout: "asc" },
+      });
+
+      dsql.docs.findMany({ where: { layout: { contains: { panels: [{ id: 1 }] } } } });
       dsql.docs.findMany({ where: { settings: { exists: true } } });
       dsql.items.findMany({ where: { settings: { exists: false } }, orderBy: { title: "asc" } });
     };

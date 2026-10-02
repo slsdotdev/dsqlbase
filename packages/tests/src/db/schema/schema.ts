@@ -19,6 +19,8 @@ import {
   guid,
   union,
   $enum,
+  array,
+  record,
 } from "dsqlbase/schema";
 import { z } from "zod";
 
@@ -430,7 +432,8 @@ const userFeedRelations = relations(users, {
 
 /**
  * JSON columns: `config` validated by a zod schema with a default and a coercion, `payload` any
- * JSON value, `notes` the older `json` type.
+ * JSON value, `notes` the older `json` type; `labels` an array typed by its items, `limits` a
+ * record validated by zod.
  */
 const BoardConfig = z.object({
   kind: z.enum(["kanban", "list"]),
@@ -445,6 +448,8 @@ const boards = table("boards", {
   config: jsonb("config").schema(BoardConfig).notNull(),
   payload: jsonb("payload"),
   notes: json("notes"),
+  labels: array("labels").$type<string>(),
+  limits: record("limits").schema(z.record(z.string(), z.number())),
 });
 
 const boardRelations = relations(boards, {

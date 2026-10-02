@@ -121,6 +121,20 @@ sql.notILike = (node: SQLNode, pattern: SQLValue) => {
   return sql.join([node, sql.raw("NOT ILIKE"), asNode(pattern)]);
 };
 
+/**
+ * `jsonb` containment, `node @> value`: the document holds `value`, matched recursively — objects
+ * by the keys `value` names, arrays as a subset in any order. `value` is the JSON text of a
+ * fragment.
+ */
+sql.jsonbContains = (node: SQLNode, value: SQLValue) => {
+  return sql.join([node, sql.raw("@>"), asNode(value)]);
+};
+
+/** `jsonb` key existence, `node ? key`: the object has `key` at its top level. */
+sql.jsonbHasKey = (node: SQLNode, key: SQLValue) => {
+  return sql.join([node, sql.raw("?"), asNode(key)]);
+};
+
 sql.between = (node: SQLNode, lower: SQLValue, upper: SQLValue) => {
   return sql.join([node, sql.raw("BETWEEN"), asNode(lower), sql.raw("AND"), asNode(upper)]);
 };

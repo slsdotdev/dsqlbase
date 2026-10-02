@@ -79,10 +79,10 @@ const tasks = await dsql.tasks.findMany({
   - **Naming only relations** returns only those relations, with no columns of the row itself.
 - **`where`** — per field, the operators its column type allows (below); combinators `and`, `or`, `not`. Several operators on one field all apply, AND-ed: `{ pages: { gte: 1, lte: 5 } }`. An operator set to `undefined` is skipped.
   An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
-  Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted.
+  Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. On a string column, `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted; on a `jsonb` column, `contains` takes a fragment of the document (below).
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below).
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
-- **`distinct`** — `SELECT DISTINCT` over the selected columns. A JSON column (`json` or `jsonb`) is refused, so `distinct` throws when one is selected — including when nothing is named and every column is.
+- **`distinct`** — `SELECT DISTINCT` over the selected columns. A `json` column has no equality and is refused, so `distinct` throws when one is selected — including when nothing is named and every column is. A `jsonb` column is compared.
 - **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
 
 ### Operators by column type
@@ -104,12 +104,25 @@ cannot see (a resolver passing arguments through).
 | `boolean`    | `boolean`                                                  | `eq` `neq` `exists`                                                                         | yes        | yes       |
 | `bytes`      | `bytea`                                                    | `exists`                                                                                    | no         | no        |
 | `json`       | `json`                                                     | `exists`                                                                                    | no         | no        |
-| `array`      | `array`                                                    | `exists`                                                                                    | no         | no        |
+| `jsonb`      | `jsonb`                                                    | `eq` `neq` `contains` `exists`                                                              | no         | no        |
+| `array`      | `array`                                                    | `eq` `neq` `contains` `exists`                                                              | no         | no        |
+| `object`     | `record`                                                   | `eq` `neq` `contains` `hasKey` `exists`                                                     | no         | no        |
 
 - **A bare value** is shorthand for `eq`. A plain object counts as operators when it names one;
   one that names none is a value (an `interval` read as a `Duration`).
 - **Document, array and binary columns take no bare value.** `{ settings: { theme: "dark" } }`
   could be a document or a filter; it throws, asking for one of the column's operators.
+- **`jsonb` filters compare documents.** `eq` / `neq` take a whole document, compared as
+  Postgres compares `jsonb`: object keys in any order, array items in order. `contains` is
+  containment (`@>`): the document holds the fragment, matched recursively — an object by the
+  keys the fragment names, at any depth, an array as a subset in any order.
+  `{ layout: { contains: { panels: [{ id: 1 }] } } }` matches a layout with a panel whose `id`
+  is `1`, whatever else it holds. The fragment is typed as a partial of the document and sent as
+  given; a column's `.schema()` does not validate it. The same holds for `array()` and `record()`
+  columns, both `jsonb`. On an `array()` the fragment is always an array of items —
+  `{ tags: { contains: ["a", "b"] } }` matches arrays holding both — never a lone item.
+- **`hasKey`** on a `record()` column matches objects with the key at their top level (`?`):
+  `{ limits: { hasKey: "cpu" } }`.
 - **`where` is reserved** inside a field's filter, for filtering into its value — a document's
   keys, later. It throws "not supported yet".
 - **Across a union**, a shared field filters and orders as its column does in every member.

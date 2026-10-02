@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session, SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
+import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
 import {
   array,
   boolean,
@@ -8,11 +9,25 @@ import {
   int,
   interval,
   json,
+  jsonb,
+  record,
   table,
   text,
   union,
   uuid,
 } from "../../schema/index.js";
+
+// Refuses anything but a full `{ theme }`, so a filter value it validated would throw.
+const prefsSchema: StandardSchemaV1<{ theme: string }> = {
+  "~standard": {
+    version: 1,
+    vendor: "test",
+    validate: (value) =>
+      typeof (value as { theme?: unknown }).theme === "string"
+        ? { value: value as { theme: string } }
+        : { issues: [{ message: "theme is required" }] },
+  },
+};
 
 const docs = table("docs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -21,7 +36,10 @@ const docs = table("docs", {
   draft: boolean("draft"),
   body: bytea("body"),
   settings: json("settings"),
+  doc: jsonb("doc"),
+  prefs: jsonb("prefs").schema(prefsSchema),
   tags: array("tags"),
+  limits: record("limits"),
   ttl: interval("ttl"),
 });
 
@@ -117,11 +135,20 @@ describe("filters by runtime type", () => {
       ["json", { settings: { theme: "dark" } }, "settings"],
       ["json", { settings: "dark" }, "settings"],
       ["bytes", { body: new Uint8Array([1]) }, "body"],
-      ["array", { tags: ["a"] }, "tags"],
     ])("is refused on a %s column", async (runtimeType, filter, field) => {
       await expect(where(filter)).rejects.toThrow(
         `Filter the ${runtimeType} column "${field}" of "docs" with one of its operators ` +
           "(exists), not a bare value."
+      );
+    });
+
+    it.each([
+      ["array", { tags: ["a"] }, "tags", "eq, neq, contains, exists"],
+      ["object", { limits: { cpu: 1 } }, "limits", "eq, neq, contains, exists, hasKey"],
+    ])("is refused on an %s column", async (runtimeType, filter, field, operators) => {
+      await expect(where(filter)).rejects.toThrow(
+        `Filter the ${runtimeType} column "${field}" of "docs" with one of its operators ` +
+          `(${operators}), not a bare value.`
       );
     });
   });
@@ -167,6 +194,123 @@ describe("filters by runtime type", () => {
       await dsql.docs.findMany({ distinct: true, select: { title: true } });
 
       expect(calls[0]?.text).toMatch(/^SELECT DISTINCT/);
+    });
+  });
+
+  describe("jsonb columns", () => {
+    const query = async (filter: object) => {
+      await where(filter);
+      const call = calls.at(-1);
+
+      return { text: call?.text.replace(/^.* WHERE /, ""), params: call?.params };
+    };
+
+    it("compare whole documents with eq and neq, sent as JSON", async () => {
+      expect(await query({ doc: { eq: { a: [1, 2] } } })).toEqual({
+        text: '"__t0"."doc" = $1',
+        params: ['{"a":[1,2]}'],
+      });
+      expect(await query({ doc: { neq: "x" } })).toEqual({
+        text: '"__t0"."doc" <> $1',
+        params: ['"x"'],
+      });
+    });
+
+    it("match a fragment with contains, as containment rather than LIKE", async () => {
+      expect(await query({ doc: { contains: { a: { b: 1 } } } })).toEqual({
+        text: '"__t0"."doc" @> $1',
+        params: ['{"a":{"b":1}}'],
+      });
+    });
+
+    it("send a fragment as given, never through the column's schema", async () => {
+      expect(await query({ prefs: { contains: { size: 1 } } })).toEqual({
+        text: '"__t0"."prefs" @> $1',
+        params: ['{"size":1}'],
+      });
+      expect((await query({ prefs: { eq: {} } })).params).toEqual(["{}"]);
+    });
+
+    it.each(["in", "gt", "beginsWith"])("refuse %s", async (operator) => {
+      await expect(where({ doc: { [operator]: "x" } })).rejects.toThrow(
+        `Operator "${operator}" is not valid on the jsonb column "doc" of "docs" ` +
+          "(valid: eq, neq, contains, exists)."
+      );
+    });
+
+    it("take no bare value", async () => {
+      await expect(where({ doc: { a: 1 } })).rejects.toThrow(
+        'Filter the jsonb column "doc" of "docs" with one of its operators ' +
+          "(eq, neq, contains, exists), not a bare value."
+      );
+    });
+
+    it("cannot be ordered by", () => {
+      expect(() => loose.docs.findMany({ orderBy: { doc: "asc" } })).toThrow(
+        'Cannot order by the jsonb column "doc" of "docs".'
+      );
+    });
+
+    it("can be compared by distinct", async () => {
+      await dsql.docs.findMany({ distinct: true, select: { id: true, doc: true } });
+
+      expect(calls[0]?.text).toMatch(/^SELECT DISTINCT/);
+    });
+  });
+
+  describe("array and record columns", () => {
+    const query = async (filter: object) => {
+      await where(filter);
+      const call = calls.at(-1);
+
+      return { text: call?.text.replace(/^.* WHERE /, ""), params: call?.params };
+    };
+
+    it("match items with contains, given as an array", async () => {
+      expect(await query({ tags: { contains: ["a", { id: 1 }] } })).toEqual({
+        text: '"__t0"."tags" @> $1',
+        params: ['["a",{"id":1}]'],
+      });
+    });
+
+    it("refuse a lone item for contains on an array", async () => {
+      await expect(where({ tags: { contains: "a" } })).rejects.toThrow(
+        '`contains` on the array column "tags" of "docs" takes an array of items.'
+      );
+    });
+
+    it("compare whole values with eq", async () => {
+      expect(await query({ tags: { eq: ["a", "b"] } })).toEqual({
+        text: '"__t0"."tags" = $1',
+        params: ['["a","b"]'],
+      });
+    });
+
+    it("match a record's fragment with contains, and a key with hasKey", async () => {
+      expect(await query({ limits: { contains: { cpu: 2 } } })).toEqual({
+        text: '"__t0"."limits" @> $1',
+        params: ['{"cpu":2}'],
+      });
+      expect(await query({ limits: { hasKey: "cpu" } })).toEqual({
+        text: '"__t0"."limits" ? $1',
+        params: ["cpu"],
+      });
+    });
+
+    it.each([
+      ["array", "tags"],
+      ["jsonb", "doc"],
+    ])("refuse hasKey on a %s column", async (runtimeType, field) => {
+      await expect(where({ [field]: { hasKey: "a" } })).rejects.toThrow(
+        `Operator "hasKey" is not valid on the ${runtimeType} column "${field}" of "docs" ` +
+          "(valid: eq, neq, contains, exists)."
+      );
+    });
+
+    it("refuse hasKey on a string column", async () => {
+      await expect(where({ title: { hasKey: "a" } })).rejects.toThrow(
+        'Operator "hasKey" is not valid on the string column "title"'
+      );
     });
   });
 

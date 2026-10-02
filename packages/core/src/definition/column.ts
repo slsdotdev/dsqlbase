@@ -8,7 +8,14 @@ import {
   Unique,
   ValueType,
 } from "../utils/index.js";
-import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
+import {
+  ColumnCodec,
+  ColumnValidator,
+  defaultCodec,
+  DefinitionNode,
+  Kind,
+  NodeRef,
+} from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
 import { SequenceOptions } from "./sequence.js";
@@ -18,6 +25,15 @@ export type UpdateGuard<T extends TypedObject> = T["__type"] extends { primaryKe
   : T;
 
 export type ColumnGeneratedType = "ALWAYS" | "BY DEFAULT";
+
+/** What `$type<T>()` sets: `T`, or on an `array` column `T` as an array unless it is one. */
+export type TypeArgOf<TColumn extends TypedObject, T> = TColumn["__type"] extends {
+  runtimeType: "array";
+}
+  ? T extends readonly unknown[]
+    ? T
+    : T[]
+  : T;
 
 export type ColumnGeneratedConfig = {
   type: "ALWAYS";
@@ -36,7 +52,8 @@ export type ColumnIdentityConfig = {
  * the column, whether a bare value stands for `eq`, and whether it can be ordered. It names the
  * database value's kind, not its JavaScript form — a `date()` read as a string is still `date`.
  *
- * `array` and `object` are reserved for document-backed array and record columns.
+ * `json` and `jsonb` are separate because only `jsonb` has equality and containment. `array`
+ * and `object` are `jsonb` columns holding an array or an object at the top level.
  */
 export type ColumnRuntimeType =
   | "string"
@@ -48,6 +65,7 @@ export type ColumnRuntimeType =
   | "interval"
   | "bytes"
   | "json"
+  | "jsonb"
   | "array"
   | "object";
 
@@ -61,7 +79,10 @@ export type ColumnConfig<
   runtimeType: TRuntimeType;
   /** What a read returns. */
   valueType: TValueType;
-  /** What a write — `create`, `update`, a default — accepts. The read type unless set apart. */
+  /**
+   * What a write — `create`, `update`, a default — accepts: the validator's input. The read type
+   * unless set apart. Filters take the read type, since they compare with stored values.
+   */
   inputType: TInputType;
   rawType: TRawType;
   notNull: boolean;
@@ -69,7 +90,8 @@ export type ColumnConfig<
   unique: boolean;
   readOnly: boolean;
   tenantKey: boolean;
-  codec: ColumnCodec<TRawType, TValueType, TInputType>;
+  codec: ColumnCodec<TRawType, TValueType>;
+  validator?: ColumnValidator<TValueType, TInputType>;
   defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
   generated?: ColumnGeneratedConfig;
@@ -97,11 +119,8 @@ export class ColumnDefinition<
   protected _generated?: ColumnGeneratedConfig;
   protected _identity?: ColumnIdentityConfig;
 
-  protected _codec: ColumnCodec<
-    this["__type"]["rawType"],
-    this["__type"]["valueType"],
-    this["__type"]["inputType"]
-  >;
+  protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
+  protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
   protected _onCreate?: () => this["__type"]["inputType"];
   protected _onUpdate?: () => this["__type"]["inputType"];
 
@@ -117,6 +136,7 @@ export class ColumnDefinition<
     this._tenantKey = config.tenantKey ?? false;
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
+    this._validator = config.validator;
     this._domain = config.domain;
     this._generated = config.generated;
     this._identity = config.identity;
@@ -164,8 +184,13 @@ export class ColumnDefinition<
   }
 
   public default(value: this["__type"]["inputType"]): HasDefault<this> {
-    this._defaultValue = new SQLParam(value, this._codec.encode);
+    this._defaultValue = new SQLParam(value, (input) => this._codec.encode(this._toValue(input)));
     return this as HasDefault<this>;
+  }
+
+  /** A value a write accepts, as it will be stored: through the validator, if there is one. */
+  protected _toValue(input: this["__type"]["inputType"]): this["__type"]["valueType"] {
+    return this._validator ? this._validator.write(input) : input;
   }
 
   /**
@@ -190,8 +215,13 @@ export class ColumnDefinition<
     return this;
   }
 
-  public $type<T>(): ValueType<this, T> {
-    return this as ValueType<this, T>;
+  /**
+   * Types the column's values. Type-only: nothing checks them. On a column of runtime type
+   * `array`, `T` may be the item type or the array type — `$type<string>()` and
+   * `$type<string[]>()` both give `string[]`.
+   */
+  public $type<T>(): ValueType<this, TypeArgOf<this, T>> {
+    return this as ValueType<this, TypeArgOf<this, T>>;
   }
 
   public $onCreate(cb: () => this["__type"]["inputType"]): this {

@@ -28,6 +28,7 @@ export {
   type AnyUnionMembers,
   type SharedFieldsOf,
   type ColumnCodec,
+  type ColumnValidator,
   type ColumnConfig,
   type ColumnRuntimeType,
   type DefinitionSchema,
@@ -39,6 +40,7 @@ export {
   type RelationType,
   type TableConfig,
   type TenantClaimColumns,
+  type TypeArgOf,
   type UpdateGuard,
 } from "./definition/index.js";
 export {

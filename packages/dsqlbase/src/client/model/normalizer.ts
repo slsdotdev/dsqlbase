@@ -49,7 +49,13 @@ import {
   InvalidCursorError,
   keysetSignature,
 } from "../pagination/cursor.js";
-import { FILTER_OPERATORS, FilterOperator, NESTED_FILTER, rulesOf } from "./operators.js";
+import {
+  FILTER_OPERATORS,
+  FilterOperator,
+  JSONB_RUNTIME_TYPES,
+  NESTED_FILTER,
+  rulesOf,
+} from "./operators.js";
 
 /** The page size when neither the call nor the client names one. */
 export const DEFAULT_PAGE_SIZE = 100;
@@ -234,7 +240,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   private _getOperatorFilter(column: AnyColumn, operator: FilterOperator, value: unknown): SQLNode {
     // Comparison values go through `column.param` so the column's codec writes them the same
     // way it wrote them on insert. Pattern operators stay raw: they compare against a `LIKE`
-    // pattern, not a column value.
+    // pattern, not a column value. A `jsonb` fragment is encoded but, like every filter value,
+    // not validated, so a partial document reaches the database as given.
     switch (operator) {
       case "eq":
         return (
@@ -273,7 +280,23 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       case "endsWith":
         return sql.like(column, `%${value as string}`);
       case "contains":
-        return sql.like(column, `%${value as string}%`);
+        if (!JSONB_RUNTIME_TYPES.has(column.runtimeType)) {
+          return sql.like(column, `%${value as string}%`);
+        }
+
+        // On an array column the fragment lists items; a lone item would be ambiguous when the
+        // items are themselves arrays.
+        if (column.runtimeType === "array" && !Array.isArray(value)) {
+          throw new Error(
+            `\`contains\` on the array column "${column.name}" of "${column.table.name}" ` +
+              `takes an array of items.`
+          );
+        }
+
+        return sql.jsonbContains(column, column.param(value as SQLValue));
+      case "hasKey":
+        // A key, not a value: sent as is, never through the codec.
+        return sql.jsonbHasKey(column, value as string);
     }
   }
 
