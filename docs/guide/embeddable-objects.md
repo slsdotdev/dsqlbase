@@ -61,6 +61,35 @@ invoice.billing; // { city: "Cluj", geo: { lat: 46.77 } | null } | null
   members named. `distinct` compares those extra columns too.
 - A map naming a member the group does not have, or giving a column a map, throws.
 
+## Filtering and ordering
+
+A group is filtered through two operators of its own: `exists`, and the nested `where` over its
+members. Members are named only inside `where` — never beside `exists` — so a member called
+`exists` or `eq` is never mistaken for an operator.
+
+```ts
+await dsql.invoices.findMany({
+  where: {
+    netValue: { where: { amount: { gt: 100n }, currency: "EUR" } },
+    billing: {
+      exists: true,
+      where: { or: [{ city: "Cluj" }, { geo: { where: { lat: { gte: 44, lte: 45 } } } }] },
+    },
+  },
+  orderBy: { netValue: { amount: "desc" }, billing: { geo: { lat: "asc" } } },
+});
+```
+
+- **`where`** takes the same language as a table's: each member's operators, by its own column
+  type and encoded by its own codec, `and` / `or` / `not`, and nested groups in turn.
+- **`exists: true`** matches a present group — any of its columns set; **`exists: false`** an
+  absent one — every column `NULL`. It is the same rule a read uses to return `null`, so the two
+  never disagree.
+- A group takes nothing else: a bare value, a member beside `where`, or another operator throws.
+- **`orderBy`** orders by members, through a nested object; a group has no direction of its own.
+  A member that cannot be ordered — a JSON column — is refused as it would be at table level.
+- **`paginate`** takes member keys the same way; the cursor records them by field path.
+
 ## Related
 
 - [Schema](./schema.md#embedded-objects) — declaring objects and placing them as groups

@@ -884,6 +884,32 @@ describe("column groups", () => {
     ).toThrow(/column "netValue.amount" of "invoices": a column takes true/);
   });
 
+  it("orders by a member through a nested order object", async () => {
+    await dsql.invoices.findMany({
+      orderBy: { netValue: { amount: "desc" }, billing: { geo: { lat: "asc" } } },
+    });
+
+    expect(calls[0]?.text).toContain(
+      `ORDER BY "__t0"."net_value_amount" DESC, "__t0"."billing_geo_lat" ASC`
+    );
+  });
+
+  it("refuses a direction on a group, and a member that cannot be ordered", () => {
+    expect(() => dsql.invoices.findMany({ orderBy: { netValue: "asc" } as never })).toThrow(
+      /Cannot order by the group "netValue" of "invoices"; order by its members/
+    );
+    expect(() =>
+      dsql.invoices.findMany({ orderBy: { billing: { notes: "asc" } } as never })
+    ).toThrow(/Cannot order by the json column "billing.notes" of "invoices"/);
+  });
+
+  it("pages by a member, carrying it as a keyset key", async () => {
+    await dsql.invoices.paginate({ orderBy: { netValue: { amount: "desc" } }, limit: 2 });
+
+    expect(calls[0]?.text).toContain(`"__t0"."net_value_amount"::text AS "__k0"`);
+    expect(calls[0]?.text).toContain(`ORDER BY "__t0"."net_value_amount" DESC, "__t0"."id" DESC`);
+  });
+
   it("refuses distinct over a group projecting a column it cannot compare", () => {
     expect(() =>
       dsql.invoices.findMany({ select: { billing: { city: true } }, distinct: true })

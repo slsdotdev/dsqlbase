@@ -4,6 +4,7 @@ import {
   EmbeddedObjectDefinition,
   TableDefinition,
 } from "../definition/index.js";
+import { sql, SQLNode } from "../sql/index.js";
 import { Column } from "./column.js";
 import { ColumnGroup, GroupSelection } from "./group.js";
 import { Table } from "./table.js";
@@ -141,5 +142,21 @@ describe("ColumnGroup.reader", () => {
     const other = invoices.columns.id as unknown as Column<string, never, typeof invoices>;
 
     expect(() => netValue.reader([["amount", other]])).toThrow(/no member "amount"/);
+  });
+});
+
+describe("ColumnGroup.exists", () => {
+  const render = (node: SQLNode) => sql`${node}`.toQuery().text;
+
+  it("is present when any column is set", () => {
+    expect(render(billingGeo.exists(true))).toBe(
+      `("invoices"."billing_geo_lat" IS NOT NULL OR "invoices"."billing_geo_lng" IS NOT NULL)`
+    );
+  });
+
+  it("is absent when every column is NULL", () => {
+    expect(render(billingGeo.exists(false))).toBe(
+      `"invoices"."billing_geo_lat" IS NULL AND "invoices"."billing_geo_lng" IS NULL`
+    );
   });
 });

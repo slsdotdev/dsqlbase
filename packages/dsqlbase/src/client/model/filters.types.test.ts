@@ -7,8 +7,10 @@ import type { WhereExpressionOf } from "./filters.js";
 import {
   $enum,
   array,
+  bigint,
   boolean,
   bytea,
+  embedded,
   int,
   json,
   jsonb,
@@ -247,5 +249,87 @@ describe("array and record columns", () => {
 
       expectTypeOf(check).toBeFunction();
     });
+  });
+});
+
+describe("column groups", () => {
+  const money = embedded({
+    amount: bigint("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: text("lat"), notes: json("notes") });
+  const address = embedded({ city: text("city"), geo: geo.column("geo") });
+
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+
+  const schema = { invoices };
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema, session });
+
+  type Invoices = TableByAlias<Schema<typeof schema>, "invoices">;
+  type Where = WhereExpressionOf<Invoices>;
+  type OrderBy = OrderByExpressionOf<Invoices>;
+  type GroupWhere<K extends "netValue" | "billing"> = Exclude<Where[K], undefined>;
+
+  it("filters a group by exists and a nested where, members only inside it", () => {
+    expectTypeOf<keyof GroupWhere<"netValue">>().toEqualTypeOf<"exists" | "where">();
+
+    type Members = Exclude<GroupWhere<"netValue">["where"], undefined>;
+    expectTypeOf<Members["amount"]>().toEqualTypeOf<
+      | bigint
+      | {
+          eq?: bigint;
+          neq?: bigint;
+          in?: bigint[];
+          gt?: bigint;
+          gte?: bigint;
+          lt?: bigint;
+          lte?: bigint;
+          between?: [bigint, bigint];
+          exists?: boolean;
+        }
+      | undefined
+    >();
+
+    const check = () => {
+      dsql.invoices.findMany({
+        where: {
+          netValue: { where: { amount: { gt: 1n }, currency: "EUR" } },
+          billing: {
+            exists: true,
+            where: { or: [{ city: "x" }, { geo: { where: { lat: "1" } } }] },
+          },
+        },
+      });
+
+      // @ts-expect-error members are filtered inside `where`
+      dsql.invoices.findMany({ where: { netValue: { amount: 1n } } });
+
+      // @ts-expect-error a group takes no value
+      dsql.invoices.findMany({ where: { netValue: { amount: 1n, currency: "EUR" } } });
+    };
+
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("orders by members through a nested object, never by the group", () => {
+    expectTypeOf<OrderBy["netValue"]>().toEqualTypeOf<
+      { amount?: "asc" | "desc"; currency?: "asc" | "desc" } | undefined
+    >();
+
+    // A json member cannot be ordered by, so it is not offered.
+    type BillingOrder = Exclude<OrderBy["billing"], undefined>;
+    expectTypeOf<keyof Exclude<BillingOrder["geo"], undefined>>().toEqualTypeOf<"lat">();
+
+    const check = () => {
+      // @ts-expect-error a group has no direction
+      dsql.invoices.findMany({ orderBy: { netValue: "asc" } });
+    };
+
+    expectTypeOf(check).toBeFunction();
   });
 });

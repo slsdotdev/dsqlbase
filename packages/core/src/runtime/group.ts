@@ -5,6 +5,7 @@ import {
   ColumnGroupDefinition,
   TableColumnDefinitions,
 } from "../definition/index.js";
+import { sql, SQLNode } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
 import type { AnyTable } from "./table.js";
 
@@ -83,6 +84,19 @@ export class ColumnGroup<
     return Object.values(this.columns).flatMap((member) =>
       member instanceof ColumnGroup ? member.leafColumns() : [member]
     );
+  }
+
+  /**
+   * The filter for whether the group is present — any of its columns not `NULL` — or absent,
+   * every one `NULL`. The same rule {@link ColumnGroup.reader} reads it `null` by, so a filter
+   * and a read never disagree.
+   */
+  public exists(present: boolean): SQLNode {
+    const columns = this.leafColumns();
+
+    return present
+      ? sql.wrap(sql.or(columns.map((column) => sql.isNotNull(column))))
+      : sql.and(columns.map((column) => sql.isNull(column)));
   }
 
   /**

@@ -39,7 +39,7 @@ export type FieldNamesOf<T extends AnyTable> = ColumnFieldNamesOf<T> | GroupFiel
  * Matches a column group by `kind`: comparing a column against the group class structurally is
  * costly enough, across a schema, to exhaust the checker.
  */
-type GroupOf<C> = { readonly kind: "COLUMN_GROUP"; readonly columns: C };
+export type GroupOf<C> = { readonly kind: "COLUMN_GROUP"; readonly columns: C };
 
 type GroupKeysOf<C> = {
   [K in keyof C & string]: C[K] extends GroupOf<unknown> ? K : never;
@@ -82,7 +82,9 @@ export type FieldValueOf<T extends AnyTable, K extends FieldNamesOf<T>> = Member
  * map of its members, the same shape again.
  */
 export type ColumnsSelectionOf<C> = {
-  [K in keyof C]?: C[K] extends GroupOf<infer GC> ? boolean | ColumnsSelectionOf<GC> : boolean;
+  -readonly [K in keyof C]?: C[K] extends GroupOf<infer GC>
+    ? boolean | ColumnsSelectionOf<GC>
+    : boolean;
 };
 
 /** What member `M` reads as under selection `S`: all of it for `true`, a group's named members for a map. */
@@ -969,7 +971,25 @@ export type OrderableFieldNamesOf<T extends AnyTable> = {
 
 export type OrderByExpressionOf<T extends AnyTable> = Partial<
   Record<OrderableFieldNamesOf<T>, "asc" | "desc">
->;
+> &
+  ([GroupFieldNamesOf<T>] extends [never]
+    ? unknown
+    : {
+        [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer C>
+          ? MembersOrderByOf<C>
+          : never;
+      });
+
+/** An order over a group's members: a direction per orderable member, a nested object per group. */
+export type MembersOrderByOf<C> = {
+  -readonly [K in keyof C as C[K] extends GroupOf<unknown>
+    ? K
+    : C[K] extends { __type: { runtimeType: infer R } }
+      ? IsOrderable<R> extends true
+        ? K
+        : never
+      : never]?: C[K] extends GroupOf<infer GC> ? MembersOrderByOf<GC> : "asc" | "desc";
+};
 
 export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {
   [K in RelationFieldNamesOf<T>]?: RelationQueryOf<T, S, K> | boolean | null | undefined;

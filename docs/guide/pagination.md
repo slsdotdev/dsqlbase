@@ -26,6 +26,9 @@ page.endCursor; // the last item's cursor, or null on an empty page
 
 ## Order
 
+A member of a [column group](./embeddable-objects.md) is an order key like any column, written as
+a nested object: `orderBy: { netValue: { amount: "desc" } }`.
+
 A page is read under a **total order**: the `orderBy` you wrote, then every primary-key column you did not already name. Two rows never tie, so every row has exactly one position and a cursor names it unambiguously. An appended key runs in the direction of your last one, or ascending when you gave no `orderBy`.
 
 ```ts

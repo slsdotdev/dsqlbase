@@ -123,8 +123,10 @@ cannot see (a resolver passing arguments through).
   `{ tags: { contains: ["a", "b"] } }` matches arrays holding both — never a lone item.
 - **`hasKey`** on a `record()` column matches objects with the key at their top level (`?`):
   `{ limits: { hasKey: "cpu" } }`.
-- **`where` is reserved** inside a field's filter, for filtering into its value — a document's
-  keys, later. It throws "not supported yet".
+- **`where`** inside a field's filter is the nested filter. A column group takes it, with
+  `exists`: `{ netValue: { where: { amount: { gt: 100n } } } }` — see
+  [Embedded objects](./embeddable-objects.md#filtering-and-ordering). Inside a column's filter it
+  is reserved for filtering into a document's keys, later, and throws "not supported yet".
 - **Across a union**, a shared field filters and orders as its column does in every member.
 
 ### Relations in `select`

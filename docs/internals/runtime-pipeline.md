@@ -291,8 +291,9 @@ The client gives it one: `packages/dsqlbase/src/client/model/filters.ts` holds a
 (`RUNTIME_TYPE_RULES`) of runtime type → operators, value shorthand, orderable, and whether
 `distinct` can compare it. Both sides read that table:
 
-- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` / `WhereExpressionOf` in `filters.ts`, and
-  `OrderableFieldNamesOf` in `base.ts`, are written from it (`OperatorsOf`,
+- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` / `WhereExpressionOf` (with `GroupFilterOf` /
+  `MembersWhereOf` for a column group) in `filters.ts`, and `OrderableFieldNamesOf` /
+  `MembersOrderByOf` in `base.ts`, are written from it (`OperatorsOf`,
   `ShorthandRuntimeType`, `OrderableRuntimeType`), for tables and for a union's shared fields.
 - **Runtime** — `WhereBuilder._getColumnFilter` checks every operator of a field's filter
   against the column's set and AND-s the ones present; a bare value is accepted only where the
@@ -311,8 +312,18 @@ through the codec, since it is not a value of the column. `json` and `jsonb`
 are separate runtime types because only `jsonb` has equality and containment.
 
 A plain object counts as operators only when it names one, since a value can itself be a plain
-object (an `interval` read as a `Duration`). `where` inside a field's filter is reserved for a
-nested filter into the value and throws until it is built.
+object (an `interval` read as a `Duration`). `where` inside a field's filter is the nested
+filter. On a column group it is built: `WhereBuilder._getGroupFilter` takes `exists` —
+`ColumnGroup.exists`, any column `IS NOT NULL` or every one `IS NULL`, the rule the group is read
+`null` by — and `where`, which recurses into `_build` with the group as the scope, so a nested
+`where` has fields and `and` / `or` / `not` like a table's. Members are named only inside it, so a
+member called `exists` is never read as the operator, and anything else on a group throws. Inside
+a column's filter `where` is still reserved — for a `jsonb` document's keys — and throws until it
+is built.
+
+`orderBy` on a group takes a nested object, never a direction: `_getFieldOrderKeys` recurses with
+the group and names each member key by its field path (`netValue.amount`), which is also what a
+keyset cursor's signature records.
 
 ## Read-only columns
 

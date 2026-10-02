@@ -280,10 +280,37 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     table: TTable,
     orderBy: OrderByExpressionOf<TTable> | null | undefined
   ): OrderKey[] {
+    return this._getFieldOrderKeys(table, undefined, orderBy ?? {}, []);
+  }
+
+  /**
+   * Order keys over a table's fields, or a group's members: a group takes a nested order object
+   * — never a direction of its own — and each member key is its column, named by its field path
+   * (`netValue.amount`), which is also what a cursor's signature records.
+   */
+  private _getFieldOrderKeys(
+    table: AnyTable,
+    group: AnyColumnGroup | undefined,
+    orderBy: object,
+    path: string[]
+  ): OrderKey[] {
     const keys: OrderKey[] = [];
 
-    for (const [field, direction] of Object.entries(orderBy ?? {})) {
-      const column = table.getColumn(field);
+    for (const [name, direction] of Object.entries(orderBy)) {
+      const column = group ? group.getColumn(name) : table.getColumn(name);
+      const field = [...path, name].join(".");
+
+      if (column instanceof ColumnGroup) {
+        if (typeof direction !== "object" || direction === null) {
+          throw new Error(
+            `Cannot order by the group "${field}" of "${table.name}"; order by its members: ` +
+              `{ ${name}: { member: "asc" } }.`
+          );
+        }
+
+        keys.push(...this._getFieldOrderKeys(table, column, direction, [...path, name]));
+        continue;
+      }
 
       if (!(column instanceof Column)) {
         throw new Error(`Invalid field "${field}" in orderBy for table "${table.name}".`);
