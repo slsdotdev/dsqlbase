@@ -183,6 +183,22 @@ describe("Column.validator", () => {
     expect(() => sent(column.getUpdateValue("bad"))).toThrow("refused");
   });
 
+  it("validates and encodes an $onUpdate value like any other write", () => {
+    const hooked = new Table(
+      new TableDefinition("hooked", {
+        columns: {
+          id: new ColumnDefinition("id", { primaryKey: true }),
+          label: label().$onUpdate(() => " h "),
+        },
+      })
+    ).columns.label;
+
+    seen.length = 0;
+
+    expect(sent(hooked.getUpdateValue(undefined))).toEqual(["enc(h)"]);
+    expect(seen).toEqual(["write  h "]);
+  });
+
   it("writes null without validating it", () => {
     seen.length = 0;
 

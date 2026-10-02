@@ -450,6 +450,7 @@ export class OperationsFactory<
     data: FieldMutation[]
   ): [SQLNode, SQLNode][] {
     const entries: [SQLNode, SQLNode][] = [];
+    const named = new Set<AnyColumn>();
 
     for (const [key, value] of data) {
       const column = table.getColumn(key);
@@ -468,6 +469,16 @@ export class OperationsFactory<
 
       const param = column.getUpdateValue(value);
       entries.push([new SQLIdentifier(column.name), param]);
+      named.add(column);
+    }
+
+    // `$onUpdate` runs on every update, not only when the caller names its column — the way
+    // `$onCreate` runs on every insert. A read-only column is written here too: the hook is the
+    // owner the caller is kept out for.
+    for (const [, column] of table.getColumnEntries()) {
+      if (column.onUpdate && !named.has(column)) {
+        entries.push([new SQLIdentifier(column.name), column.getUpdateValue(undefined)]);
+      }
     }
 
     return entries;

@@ -148,7 +148,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
       param = new SQLParam(param["_value"], this._encodeInput);
     }
 
-    if (value !== undefined && !isSQLNode(param)) {
+    // `param`, not `value`: an `$onUpdate` result is a value to validate and encode as well.
+    if (param !== undefined && !isSQLNode(param)) {
       param = new SQLParam(param, this._encodeInput);
     }
 

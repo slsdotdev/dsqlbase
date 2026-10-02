@@ -1091,3 +1091,51 @@ describe("OperationFactory / count", () => {
     ).toThrow(TenancyError);
   });
 });
+
+describe("OperationFactory / $onUpdate", () => {
+  const articles = new TableDefinition("articles", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      title: new ColumnDefinition("title"),
+      revision: new ColumnDefinition("revision").$onUpdate(() => "next"),
+      updatedAt: new ColumnDefinition("updated_at").readOnly().$onUpdate(() => "now"),
+    },
+  });
+
+  const hooks = new SchemaRegistry({ articles });
+  let factory: OperationsFactory;
+
+  beforeAll(() => {
+    factory = new OperationsFactory(
+      new ExecutionContext({ schema: hooks, dialect: mockDialect, session: mockSession })
+    );
+  });
+
+  const update = (set: FieldMutation[]) => {
+    mockDialect.buildUpdateQuery.mockClear();
+    mockDialect.buildUpdateQuery.mockReturnValue(sql`UPDATE`);
+    factory.createUpdateOperation(hooks.getTable("articles"), { mode: "many", args: { set } });
+
+    const [params] = mockDialect.buildUpdateQuery.mock.lastCall ?? [];
+
+    return (params?.set ?? []).map(([column, value]) => [
+      (column as SQLIdentifier).name,
+      (value as SQLParam<unknown>)["_value"],
+    ]);
+  };
+
+  it("runs on every update, for columns the update does not name", () => {
+    expect(update([["title", sql.param("Draft")]])).toEqual([
+      ["title", "Draft"],
+      ["revision", "next"],
+      ["updated_at", "now"],
+    ]);
+  });
+
+  it("gives way to a value the update names", () => {
+    expect(update([["revision", sql.param("pinned")]])).toEqual([
+      ["revision", "pinned"],
+      ["updated_at", "now"],
+    ]);
+  });
+});
