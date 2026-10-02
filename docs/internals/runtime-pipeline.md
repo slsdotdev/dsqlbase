@@ -6,7 +6,8 @@ Every client feature threads through one chain. Know it before adding anything t
 
 ```
 ModelClient            packages/dsqlbase/src/client/model/client.ts
-  → RequestNormalizer  packages/dsqlbase/src/client/model/normalizer.ts   where/select/orderBy/join → SQL nodes
+  → RequestNormalizer  packages/dsqlbase/src/client/model/normalizer.ts   select/orderBy/join/pages/mutations → operation args
+      WhereBuilder     packages/dsqlbase/src/client/model/filters.ts      where → SQL node (held by the normalizer)
   → OperationsFactory  packages/core/src/runtime/operation.ts             column resolution, SelectParams, result resolvers
   → QueryBuilder       packages/core/src/runtime/query.ts                 SQL text
   → ExecutableQuery    packages/core/src/runtime/executor.ts             (CompositeQuery: several, combined)
@@ -50,7 +51,7 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
   `UnionSelectOperationArgs`, with one `SelectOperationArgs` per member that runs. It maps the
   shared `select` / `where` onto each member's columns, merges `on.<alias>`, drops members set
   to `false`, and refuses non-shared fields and `distinct`. `$$key` conditions in the shared
-  `where` are folded per member by `_foldKeyWhere`. The alias is a constant inside a branch, so
+  `where` are folded per member by `WhereBuilder.foldKey`. The alias is a constant inside a branch, so
   each condition is decided before any SQL exists: a member whose `where` folds to `false`
   produces no branch, and a decided condition leaves no trace in SQL. `orderBy` stays structured
   (`UnionOrderKey[]`), because each member resolves the field to its own column.
@@ -96,8 +97,8 @@ only ran when the caller happened to filter would not be a rule at all.
 | one                     | that node, untouched — no parentheses are added                                  |
 | several                 | `sql.and` over each node **wrapped**, so an `OR` among them keeps its precedence |
 
-The normalizer folds a user `where` object into one node before it reaches here
-(`packages/dsqlbase/src/client/model/normalizer.ts`) — or into none at all, when the object
+The normalizer's `WhereBuilder` folds a user `where` object into one node before it reaches here
+(`packages/dsqlbase/src/client/model/filters.ts`) — or into none at all, when the object
 selects nothing in particular: `{}` and an empty `and` / `or` group mean "no filter", and the
 operations that require a `where` (`findOne`, `update`, `delete`) refuse one that folds to
 nothing. The array form is for callers that drive `OperationsFactory` directly, for whatever the
@@ -264,24 +265,24 @@ Every column carries a **runtime type** — `ColumnConfig.runtimeType`, set by e
 inherited from a domain, exposed as `Column.runtimeType` (`packages/core`). It is the kind of
 value the column holds for querying, not its JavaScript form. Core attaches no meaning to it.
 
-The client gives it one: `packages/dsqlbase/src/client/model/operators.ts` holds a single table
-of runtime type → operators, value shorthand, orderable, and whether `distinct` can compare it.
-Both sides read that table:
+The client gives it one: `packages/dsqlbase/src/client/model/filters.ts` holds a single table
+(`RUNTIME_TYPE_RULES`) of runtime type → operators, value shorthand, orderable, and whether
+`distinct` can compare it. Both sides read that table:
 
-- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` and `OrderableFieldNamesOf` in `base.ts` are
-  written from it (`OperatorsOf`, `ShorthandRuntimeType`, `OrderableRuntimeType`), for tables and
-  for a union's shared fields.
-- **Runtime** — `RequestNormalizer._getColumnFilter` checks every operator of a field's filter
+- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` / `WhereExpressionOf` in `filters.ts`, and
+  `OrderableFieldNamesOf` in `base.ts`, are written from it (`OperatorsOf`,
+  `ShorthandRuntimeType`, `OrderableRuntimeType`), for tables and for a union's shared fields.
+- **Runtime** — `WhereBuilder._getColumnFilter` checks every operator of a field's filter
   against the column's set and AND-s the ones present; a bare value is accepted only where the
-  type takes one; `_getOrderKeys` / `_getUnionOrderKeys` refuse unorderable columns; `distinct`
-  refuses a selected column it cannot compare. All of it throws before SQL is built, so a caller
+  type takes one; the normalizer's `_getOrderKeys` / `_getUnionOrderKeys` refuse unorderable
+  columns, and `distinct` refuses a selected column it cannot compare. All of it throws before SQL is built, so a caller
   the types cannot see (a resolver passing arguments through) gets the same rules.
 
 An operator name keeps one meaning per runtime type. `contains` is `LIKE` on `string` and
 `jsonb` containment on the `jsonb` runtime types — `jsonb`, `array`, `object`
 (`JSONB_RUNTIME_TYPES`; `sql.jsonbContains`, `col @> $1`); `ContainsValueOf` types it as a
 substring or as a `JsonFragment` of the value, an array of item fragments on `array`, where the
-normalizer also refuses a lone item. A fragment goes through `Column.param`, so it is encoded but
+`WhereBuilder` also refuses a lone item. A fragment goes through `Column.param`, so it is encoded but
 not validated. `hasKey` (`sql.jsonbHasKey`, `col ? $1`) is on `object` only: on an array or a
 scalar `?` also matches string elements, a different meaning. Its key is sent raw, never
 through the codec, since it is not a value of the column. `json` and `jsonb`

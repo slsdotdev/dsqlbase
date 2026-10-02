@@ -2,7 +2,8 @@ import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema, Session } from "@dsqlbase/core";
 import type { TableByAlias } from "@dsqlbase/core/runtime";
 import { createClient } from "../create.js";
-import type { OrderByExpressionOf, WhereExpressionOf } from "./base.js";
+import type { OrderByExpressionOf } from "./base.js";
+import type { WhereExpressionOf } from "./filters.js";
 import {
   $enum,
   array,
@@ -11,11 +12,13 @@ import {
   int,
   json,
   jsonb,
+  record,
   table,
   text,
   union,
   uuid,
 } from "../../schema/index.js";
+import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
 
 const status = $enum("status", ["draft", "live"]);
 
@@ -167,5 +170,82 @@ describe("filters follow the runtime type", () => {
     };
 
     expectTypeOf(check).toBeFunction();
+  });
+});
+
+describe("array and record columns", () => {
+  type Panel = { id: number; open: boolean };
+  type Limits = { cpu: number; memory?: number };
+
+  // Typed only: these tests never validate a value.
+  const labels = {} as StandardSchemaV1<string[], string[]>;
+  const quotas = {} as StandardSchemaV1<Record<string, number>>;
+
+  const boards = table("boards", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tags: array("tags").$type<string>().notNull(),
+    aliases: array("aliases").$type<string[]>(),
+    grid: array("grid").$type<number[][]>(),
+    panels: array("panels").$type<Panel>(),
+    labels: array("labels").schema(labels),
+    anything: array("anything"),
+    limits: record("limits").$type<Limits>(),
+    quotas: record("quotas").schema(quotas),
+    meta: record("meta"),
+  });
+
+  const schema = { boards };
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema, session });
+
+  type Where = WhereExpressionOf<TableByAlias<Schema<typeof schema>, "boards">>;
+  type Filter<K extends keyof Where> = Exclude<Where[K], undefined>;
+
+  describe("array() and record() types", () => {
+    it("filters an array by item fragments, a record by fragment and key", () => {
+      expectTypeOf<keyof Filter<"panels">>().toEqualTypeOf<"eq" | "neq" | "contains" | "exists">();
+      expectTypeOf<Filter<"panels">["contains"]>().toEqualTypeOf<
+        { id?: number; open?: boolean }[] | undefined
+      >();
+      expectTypeOf<Filter<"anything">["contains"]>().toEqualTypeOf<unknown[] | undefined>();
+
+      expectTypeOf<keyof Filter<"limits">>().toEqualTypeOf<
+        "eq" | "neq" | "contains" | "hasKey" | "exists"
+      >();
+      expectTypeOf<Filter<"limits">["contains"]>().toEqualTypeOf<
+        { cpu?: number; memory?: number } | undefined
+      >();
+      expectTypeOf<Filter<"limits">["hasKey"]>().toEqualTypeOf<string | undefined>();
+    });
+
+    // Type-checked only.
+    it("refuses what the runtime refuses", () => {
+      const check = () => {
+        dsql.boards.findMany({
+          // @ts-expect-error contains on an array takes an array of items
+          where: { tags: { contains: "a" } },
+        });
+
+        dsql.boards.findMany({
+          // @ts-expect-error hasKey is a record operator
+          where: { tags: { hasKey: "a" } },
+        });
+
+        dsql.boards.findMany({
+          // @ts-expect-error an array column has no value shorthand
+          where: { tags: ["a"] },
+        });
+
+        dsql.boards.findMany({
+          // @ts-expect-error a record column cannot be ordered by
+          orderBy: { limits: "asc" },
+        });
+
+        dsql.boards.findMany({ where: { panels: { contains: [{ id: 1 }] } } });
+        dsql.boards.findMany({ where: { limits: { hasKey: "cpu", contains: { cpu: 2 } } } });
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
   });
 });

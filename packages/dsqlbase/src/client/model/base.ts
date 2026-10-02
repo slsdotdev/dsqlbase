@@ -1,4 +1,3 @@
-import { SQLValue } from "@dsqlbase/core";
 import {
   AnyColumnDefinition,
   AnyNamespaceDefinition,
@@ -6,7 +5,6 @@ import {
   AnyTableRelations,
   AnyUnionMembers,
   ColumnConfig,
-  ColumnRuntimeType,
   SharedFieldsOf,
   TableDefinition,
   UnionDefinition,
@@ -19,12 +17,7 @@ import {
   TableByAlias,
 } from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
-import {
-  ContainsValueOf,
-  OperatorsOf,
-  OrderableRuntimeType,
-  ShorthandRuntimeType,
-} from "./operators.js";
+import { FilterOf, OrderableRuntimeType, WhereExpressionOf } from "./filters.js";
 
 export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
@@ -861,144 +854,6 @@ export type AnyUnionQuery = {
   on?: Record<string, boolean | AnyRelationQuery | undefined> | null;
 };
 
-export type FilterCondition<Value = unknown> = {
-  /**
-   * Equality condition - matches records where the field is equal to the specified value.
-   *
-   * ```sql
-   * "table"."column" = value
-   * ```
-   */
-  eq?: Value;
-
-  /**
-   * Inequality condition - matches records where the field is not equal to the specified value.
-   *
-   * ```sql
-   * "table"."column" <> value
-   * ```
-   */
-  neq?: Value;
-
-  /**
-   * Greater than condition - matches records where the field is greater than the specified value.
-   *
-   * ```sql
-   * "table"."column" > value
-   * ```
-   */
-  gt?: Value;
-
-  /**
-   * Greater than or equal condition - matches records where the field is greater than or equal to the specified value.
-   *
-   * ```sql
-   * "table"."column" >= value
-   * ```
-   */
-  gte?: Value;
-
-  /**
-   * Less than condition - matches records where the field is less than the specified value.
-   *
-   * ```sql
-   * "table"."column" < value
-   * ```
-   */
-  lt?: Value;
-
-  /**
-   * Less than or equal condition - matches records where the field is less than or equal to the specified value.
-   *
-   * ```sql
-   * "table"."column" <= value
-   * ```
-   */
-  lte?: Value;
-
-  /**
-   * In condition - matches records where the field is equal to any of the values in the specified array.
-   *
-   * ```sql
-   * "table"."column" IN (value1, value2, ...)
-   * ```
-   */
-  in?: Value[];
-
-  /**
-   * Between condition - matches records where the field is between the two specified values (inclusive).
-   *
-   * ```sql
-   * "table"."column" BETWEEN value1 AND value2
-   * ```
-   */
-  between?: [Value, Value];
-
-  /**
-   * Exists condition - matches records where the field exists (is not null).
-   *
-   * ```sql
-   * "table"."column" IS NOT NULL
-   * ```
-   */
-  exists?: boolean;
-
-  /**
-   * Begins with condition - matches records where the field starts with the specified string.
-   *
-   * ```sql
-   * "table"."column" LIKE 'value%'
-   * ```
-   */
-  beginsWith?: string;
-
-  /**
-   * Ends with condition - matches records where the field ends with the specified string.
-   *
-   * ```sql
-   * "table"."column" LIKE '%value'
-   * ```
-   */
-  endsWith?: string;
-
-  /**
-   * Contains condition. On a string column, matches records where the field contains the
-   * specified string; on a `jsonb` column, where the document contains the specified fragment
-   * (see {@link ContainsValueOf}).
-   *
-   * ```sql
-   * "table"."column" LIKE '%value%'
-   * "table"."column" @> '{"fragment":true}'
-   * ```
-   */
-  contains?: string;
-
-  /**
-   * Key condition, on a `record()` column - matches records whose object has the key at its top
-   * level.
-   *
-   * ```sql
-   * "table"."column" ? 'key'
-   * ```
-   */
-  hasKey?: string;
-};
-
-/**
- * A filter on a value of runtime type `R` holding `V`: the operators the runtime type allows,
- * and, where it allows one, a bare value meaning `{ eq: value }`. Mirrors the table in
- * `operators.ts`, which the normalizer enforces.
- */
-export type FilterOf<R extends ColumnRuntimeType, V> =
-  | Prettify<
-      Pick<FilterCondition<V>, Exclude<OperatorsOf<R>, "contains">> &
-        ("contains" extends OperatorsOf<R> ? { contains?: ContainsValueOf<R, V> } : unknown)
-    >
-  | (R extends ShorthandRuntimeType ? V : never);
-
-/** The filter a column accepts. */
-export type ColumnFilterOf<C extends ColumnConfig> = FilterOf<C["runtimeType"], ValueTypeOf<C>>;
-
 /** Whether a column of runtime type `R` can be ordered by — `true` if any of `R` can. */
 type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false : true;
 
@@ -1006,16 +861,6 @@ type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false
 export type OrderableFieldNamesOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true ? K : never;
 }[FieldNamesOf<T>];
-
-export type WhereExpressionOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
-    ? ColumnFilterOf<ColumnTypeOf<T, K>>
-    : never;
-} & {
-  and?: WhereExpressionOf<T>[];
-  or?: WhereExpressionOf<T>[];
-  not?: WhereExpressionOf<T>;
-};
 
 export type OrderByExpressionOf<T extends AnyTable> = Partial<
   Record<OrderableFieldNamesOf<T>, "asc" | "desc">
@@ -1028,18 +873,6 @@ export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {
 export type AnyRelationQuery =
   | RelationQueryOf<AnyTable, AnySchema, RelationFieldNamesOf<AnyTable>>
   | boolean;
-
-export function isFilterType<T extends keyof FilterCondition>(
-  value: unknown,
-  type: T
-): value is Required<Pick<FilterCondition<SQLValue>, T>> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    type in value &&
-    value[type as keyof typeof value] !== undefined
-  );
-}
 
 /* -------------------------------------------------------------------------------------------
  * Global ids

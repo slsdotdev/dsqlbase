@@ -14,7 +14,7 @@ A codec **translates** and nothing else. Checking a value is the column's option
 | Insert values                                                  | encode    | `getInsertValue` in `runtime/column.ts`                                                                                                   |
 | Update values                                                  | encode    | `getUpdateValue` in `runtime/column.ts`                                                                                                   |
 | Column defaults set from JS                                    | encode    | `ColumnDefinition.default()` in `definition/column.ts`                                                                                    |
-| Where-clause values, including `update.where` / `delete.where` | encode    | `Column.param` in `runtime/column.ts`, applied by `packages/dsqlbase/src/client/model/normalizer.ts`                                      |
+| Where-clause values, including `update.where` / `delete.where` | encode    | `Column.param` in `runtime/column.ts`, applied by `WhereBuilder` in `packages/dsqlbase/src/client/model/filters.ts`                       |
 | Tenant predicate values                                        | encode    | `Column.param`, applied by `_tenantPredicate` in `runtime/operation.ts`                                                                   |
 | Tenant claim values on insert                                  | encode    | `getInsertValue` in `runtime/column.ts`, from the identity rather than from `data`                                                        |
 
@@ -120,9 +120,9 @@ cannot see that sibling, so the read side is a **row decoder** instead:
   column when `createClient` runs, next to a codec whose `encode` accepts an id for any member.
   A `NULL` discriminator, or one naming no member, reads the id raw.
 - **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
-  `(discriminator = key AND id = pk)` or a write filling the discriminator, are the normalizer's
-  job (`_getPolymorphicFilter` / `_fillDiscriminators`). Only it sees the whole filter or the
-  whole row.
+  `(discriminator = key AND id = pk)` or a write filling the discriminator, are the client's
+  job: `WhereBuilder._getPolymorphicFilter` (`filters.ts`) and the normalizer's
+  `_fillDiscriminators`. Only they see the whole filter or the whole row.
 
 **Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper, a future embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 

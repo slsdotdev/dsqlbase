@@ -34,7 +34,8 @@ several operators kept only the first (`{ gte: 1, lte: 5 }` dropped `lte`).
   `bytes`, `json`, with `array` and `object` reserved. Every builder sets it; a domain carries
   it to its columns. `uuid` is its own type because `LIKE` on a uuid is a Postgres error;
   `time` and a `date()` read as a string are `date`.
-- **One table** in the client (`packages/dsqlbase/src/client/model/operators.ts`) decides, per
+- **One table** in the client (`packages/dsqlbase/src/client/model/operators.ts`, since moved to
+  `filters.ts`) decides, per
   runtime type, the `where` operators, whether a bare value means `eq`, whether the column can
   be an `orderBy` key, and whether `distinct` can compare it. The filter types and the normalizer
   both read it, so the runtime refuses exactly what the types refuse, before SQL is built — for

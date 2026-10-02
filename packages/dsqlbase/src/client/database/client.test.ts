@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { sql, TenancyError, type Session, type SQLStatement } from "@dsqlbase/core";
+import { type Session, sql, type SQLStatement, TenancyError } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
-import { guid, relations, hasMany, table, tenantScope, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, relations, table, tenantScope, text, uuid } from "../../schema/index.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
@@ -394,5 +394,42 @@ describe("global id lookups on a derived client", () => {
     const record = await dsql.$transaction(async (tx) => tx.$findByGlobalId({ id: authorId }));
 
     expect(record?.$$key).toBe("authors");
+  });
+});
+
+describe("global-id lookups with a widened on map", () => {
+  const authors = table("authors", {
+    id: guid("id").primaryKey(),
+    name: text("name").notNull(),
+  });
+  const books = table("books", {
+    id: guid("id").primaryKey(),
+    authorId: guid("author_id", "authors").notNull(),
+    title: text("title").notNull(),
+  });
+  const authorRelations = relations(authors, {
+    books: hasMany(books, { from: [authors.columns.id], to: [books.columns.authorId] }),
+  });
+  const nodeSchema = { authors, books, authorRelations };
+
+  it("ANDs on.<alias>.where with the key filter and forwards on.<alias>.join", async () => {
+    const calls: SQLStatement[] = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    const dsql = createClient({ schema: nodeSchema, session });
+    const id = encodeGlobalId("authors", { id: "7b3c3a52-3c0a-4a57-9d6b-3b8f1ffb1b0a" });
+
+    await dsql.$findByGlobalId({
+      id,
+      on: { authors: { where: { name: { beginsWith: "A" } }, join: { books: true } } },
+    });
+
+    expect(calls[0]?.text).toContain(`WHERE ("__t0"."id" = $1 AND "__t0"."name" LIKE $2)`);
+    expect(calls[0]?.text).toContain('AS "__join_books" ON true');
   });
 });
