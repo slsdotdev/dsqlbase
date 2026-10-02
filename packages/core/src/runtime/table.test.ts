@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Table } from "./table.js";
 import { Column } from "./column.js";
+import { ColumnGroup } from "./group.js";
 import { sql } from "../sql/index.js";
 import {
   ColumnDefinition,
+  EmbeddedObjectDefinition,
   Relation,
   RelationsDefinition,
   NamespaceDefinition,
@@ -308,5 +310,53 @@ describe("Table.tenantKeys", () => {
     );
 
     expect(table.tenantKeys).toEqual([]);
+  });
+});
+
+describe("Table with column groups", () => {
+  const money = new EmbeddedObjectDefinition({
+    amount: new ColumnDefinition("amount").notNull(),
+    currency: new ColumnDefinition("currency").notNull(),
+  });
+  const geo = new EmbeddedObjectDefinition({
+    lat: new ColumnDefinition("lat"),
+    lng: new ColumnDefinition("lng"),
+  });
+  const address = new EmbeddedObjectDefinition({
+    city: new ColumnDefinition("city"),
+    zip: new ColumnDefinition("zip"),
+    geo: geo.column("geo"),
+  });
+  const invoices = new Table(
+    new TableDefinition("invoices", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        netValue: money.column("net_value"),
+        billing: address.column("billing"),
+      },
+    })
+  );
+  it("keeps groups out of its plain column entries", () => {
+    expect(invoices.getColumnEntries().map(([field]) => field)).toEqual(["id"]);
+    expect(invoices.getGroupEntries().map(([field]) => field)).toEqual(["netValue", "billing"]);
+  });
+
+  it("returns a group from getColumn, and finds no member by its database name", () => {
+    expect(invoices.getColumn("netValue")).toBeInstanceOf(ColumnGroup);
+    expect(invoices.getColumn("net_value_amount")).toBeUndefined();
+  });
+
+  it("lists every real column with its field path", () => {
+    expect(
+      invoices.getLeafEntries().map(([path, column]) => [path.join("."), column.name])
+    ).toEqual([
+      ["id", "id"],
+      ["netValue.amount", "net_value_amount"],
+      ["netValue.currency", "net_value_currency"],
+      ["billing.city", "billing_city"],
+      ["billing.zip", "billing_zip"],
+      ["billing.geo.lat", "billing_geo_lat"],
+      ["billing.geo.lng", "billing_geo_lng"],
+    ]);
   });
 });

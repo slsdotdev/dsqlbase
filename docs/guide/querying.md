@@ -73,7 +73,7 @@ const tasks = await dsql.tasks.findMany({
 });
 ```
 
-- **`select`** — columns, and relations as field maps (below). Virtual or computed fields are not supported yet.
+- **`select`** — columns, column groups (`true` or a map of their members — see [Embedded objects](./embeddable-objects.md#reading)), and relations as field maps (below). Virtual or computed fields are not supported yet.
   - **No `select`**, or one naming nothing as `true` (`{}`, `{ id: false }`), returns every column.
   - **Naming columns** returns those columns.
   - **Naming only relations** returns only those relations, with no columns of the row itself.
@@ -228,6 +228,7 @@ await dsql.$query(
 
 ## Related
 
+- [Embedded objects](./embeddable-objects.md)
 - [Relations](./relations.md)
 - [Pagination](./pagination.md)
 - [Transactions](./transactions.md)

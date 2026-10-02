@@ -4,14 +4,18 @@ import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
 import { GlobalIdError } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
+  AnyColumnGroup,
+  AnyField,
   AnyTable,
   Column,
+  ColumnGroup,
   CountOperationArgs,
   DefinitionSchema,
   DeleteOperationArgs,
   ExecutionContext,
   FieldMutation,
   FieldSelection,
+  GroupSelection,
   InsertOperationArgs,
   KeysetBound,
   OperationMode,
@@ -119,17 +123,84 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     for (const [fieldName, isSelected] of Object.entries(selection)) {
       if (isSelected) {
-        const column = table.getColumn(fieldName);
+        const field = table.getColumn(fieldName);
 
-        if (!column) {
+        if (!field) {
           throw new Error(`Invalid field "${fieldName}" in selection for table "${table.name}".`);
         }
 
-        entries.push([fieldName, column]);
+        entries.push(this._getFieldSelection(table, fieldName, field, isSelected));
       }
     }
 
     return entries.length > 0 ? entries : undefined;
+  }
+
+  /**
+   * One selected field: a column takes `true`; a group takes `true` — every member — or a map
+   * naming some, each a member column or a nested group read the same way.
+   */
+  private _getFieldSelection(
+    table: AnyTable,
+    path: string,
+    field: AnyField,
+    selected: unknown
+  ): FieldSelection {
+    if (field instanceof Column) {
+      if (selected !== true) {
+        throw new Error(
+          `Invalid selection for column "${path}" of "${table.name}": a column takes true.`
+        );
+      }
+
+      return [path.split(".").at(-1) as string, field];
+    }
+
+    return [
+      path.split(".").at(-1) as string,
+      field,
+      this._getGroupSelection(table, path, field, selected),
+    ];
+  }
+
+  private _getGroupSelection(
+    table: AnyTable,
+    path: string,
+    group: AnyColumnGroup,
+    selected: unknown
+  ): GroupSelection | undefined {
+    if (selected === true) {
+      return undefined;
+    }
+
+    if (typeof selected !== "object" || selected === null || Array.isArray(selected)) {
+      throw new Error(
+        `Invalid selection for group "${path}" of "${table.name}": a group takes true or a ` +
+          `map of its members.`
+      );
+    }
+
+    const entries: GroupSelection = [];
+
+    for (const [member, value] of Object.entries(selected)) {
+      if (value === false || value === null || value === undefined) {
+        continue;
+      }
+
+      const field = group.getColumn(member);
+
+      if (!field) {
+        throw new Error(
+          `Invalid field "${path}.${member}" in selection for table "${table.name}".`
+        );
+      }
+
+      entries.push(
+        this._getFieldSelection(table, `${path}.${member}`, field, value) as GroupSelection[number]
+      );
+    }
+
+    return entries;
   }
 
   /**
@@ -157,9 +228,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       const column = table.getColumn(fieldName);
 
-      if (column && value === true) {
+      if (column && (value === true || column instanceof ColumnGroup)) {
         if (!columns.some(([name]) => name === fieldName)) {
-          columns.push([fieldName, column]);
+          columns.push(this._getFieldSelection(table, fieldName, column, value));
         }
 
         continue;
@@ -214,7 +285,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     for (const [field, direction] of Object.entries(orderBy ?? {})) {
       const column = table.getColumn(field);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(`Invalid field "${field}" in orderBy for table "${table.name}".`);
       }
 
@@ -491,7 +562,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     for (const [fieldName, value] of Object.entries(values as Record<string, SQLValue>)) {
       const column = table.getColumn(fieldName);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
       }
 
@@ -546,7 +617,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   /** `distinct` compares whole rows, so every column it reads needs an equality operator. */
   private _assertDistinct(table: AnyTable, select: FieldSelection[] | undefined): void {
-    const fields = select ?? table.getColumnEntries();
+    // Every column the read projects is compared, a group's included — a nullable group
+    // projects all of its columns to tell whether it is present.
+    const fields: [string, unknown][] = select
+      ? select.flatMap(([field, column, members]): [string, unknown][] =>
+          column instanceof ColumnGroup
+            ? column.reader(members).columns.map((leaf) => [`${field} (${leaf.name})`, leaf])
+            : [[field, column]]
+        )
+      : table.getLeafEntries().map(([path, column]) => [path.join("."), column]);
 
     for (const [field, column] of fields) {
       if (column instanceof Column && !rulesOf(column).distinct) {

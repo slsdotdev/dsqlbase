@@ -6,6 +6,7 @@ import {
   AnyTableDefinition,
   AnyTableRelations,
   AnyUnionDefinition,
+  columnEntries,
   DefinitionSchema,
   RESERVED_FIELD_NAMES,
   Relation,
@@ -265,11 +266,29 @@ export class SchemaRegistry<
    * does not belong to it. Identity, not name: a column from a different table that happens
    * to share a name is not a match, which is the copy-paste mistake this catches.
    */
+  /**
+   * The field a column is declared under on a table, if it is one of its plain columns. A
+   * relation key or a discriminator naming a column group's member throws: relations correlate
+   * plain columns only, as primary keys and tenant claims do.
+   */
   private _findColumnAlias(
     table: AnyTableDefinition,
     column: AnyColumnDefinition
   ): string | undefined {
-    return Object.entries(table.columns).find(([, candidate]) => candidate === column)?.[0];
+    const alias = Object.entries(table.columns).find(([, candidate]) => candidate === column)?.[0];
+
+    if (alias === undefined) {
+      const member = columnEntries(table.columns).find(([, candidate]) => candidate === column);
+
+      if (member) {
+        throw new Error(
+          `Column "${column.name}" is a member of the column group "${member[0][0]}" on table ` +
+            `"${table.name}". A relation key or a discriminator must be a plain column.`
+        );
+      }
+    }
+
+    return alias;
   }
 
   /**

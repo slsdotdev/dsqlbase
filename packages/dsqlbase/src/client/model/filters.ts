@@ -4,11 +4,11 @@ import type {
   ColumnConfig,
   ColumnRuntimeType,
 } from "@dsqlbase/core/definition";
-import { AnyColumn, AnyTable, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
+import { AnyColumn, AnyTable, Column, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
 import type { Prettify } from "@dsqlbase/core/utils";
 import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
 import { isGlobalId } from "../../schema/utils/global-id.js";
-import type { ColumnTypeOf, FieldNamesOf, ValueTypeOf } from "./base.js";
+import type { ColumnTypeOf, ColumnFieldNamesOf, ValueTypeOf } from "./base.js";
 
 /**
  * The `where` language: what a column of each runtime type can be filtered and ordered by, the
@@ -301,7 +301,7 @@ export type FilterOf<R extends ColumnRuntimeType, V> =
 export type ColumnFilterOf<C extends ColumnConfig> = FilterOf<C["runtimeType"], ValueTypeOf<C>>;
 
 export type WhereExpressionOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
+  [K in ColumnFieldNamesOf<T>]?: T["__type"]["columns"][K] extends AnyColumnDefinition
     ? ColumnFilterOf<ColumnTypeOf<T, K>>
     : never;
 } & {
@@ -374,7 +374,7 @@ export class WhereBuilder {
 
       const column = table.getColumn(fieldName);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(`Invalid field "${fieldName}" in where clause for table "${table.name}".`);
       }
 

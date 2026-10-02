@@ -4,7 +4,8 @@ import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
-import { AnyColumn } from "./column.js";
+import { AnyColumn, Column } from "./column.js";
+import { AnyColumnGroup, AnyField, ColumnGroup, GroupSelection } from "./group.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -36,10 +37,13 @@ export type OperationRequest<
   args: TArgs;
 };
 
-export type FieldSelection = [
-  fieldName: string,
-  column: AnyColumn | SQLIdentifier | FieldSelection[],
-];
+/**
+ * One selected field: a column, or a column group with the members selected within it — none
+ * meaning all of them.
+ */
+export type FieldSelection =
+  | [fieldName: string, column: AnyColumn | SQLIdentifier | FieldSelection[]]
+  | [fieldName: string, group: AnyColumnGroup, selection?: GroupSelection];
 
 export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
 
@@ -363,23 +367,47 @@ export class OperationsFactory<
       resolvers.push([fieldName, (row) => column.resolveRow(row)]);
     };
 
+    // A group projects its columns and is resolved from the row as one value — the group
+    // decides which columns that takes (`runtime/group.ts`).
+    const addGroup = (fieldName: string, group: AnyColumnGroup, members?: GroupSelection) => {
+      const reader = group.reader(members);
+
+      for (const column of reader.columns) {
+        if (!columns.includes(column)) {
+          columns.push(column);
+        }
+      }
+
+      resolvers.push([fieldName, (row) => reader.resolve(row)]);
+    };
+
+    const addField = (fieldName: string, field: AnyField, members?: GroupSelection) => {
+      if (field instanceof ColumnGroup) {
+        addGroup(fieldName, field, members);
+      } else {
+        add(fieldName, field);
+      }
+    };
+
     if (!selection) {
-      for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
-        add(fieldName, column);
+      for (const [fieldName, field] of Object.entries<AnyField>(table.columns)) {
+        addField(fieldName, field);
       }
 
       return { columns, resolvers };
     }
 
-    for (const [fieldName, selected] of selection) {
+    for (const [fieldName, selected, members] of selection) {
       if (selected) {
-        const column = table.columns[fieldName as keyof typeof table.columns];
+        const field = table.columns[fieldName as keyof typeof table.columns] as
+          | AnyField
+          | undefined;
 
-        if (!column) {
+        if (!field) {
           throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
         }
 
-        add(fieldName, column);
+        addField(fieldName, field, members);
       }
     }
 
@@ -455,7 +483,7 @@ export class OperationsFactory<
     for (const [key, value] of data) {
       const column = table.getColumn(key);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
       }
 
@@ -599,7 +627,7 @@ export class OperationsFactory<
       const toColumns = (relation.to as AnyColumnDefinition[]).map((ref) => {
         const column = targetTable.getColumn(ref.name);
 
-        if (!column) {
+        if (!(column instanceof Column)) {
           throw new Error(
             `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}" on target table "${targetTable.name}"`
           );
@@ -640,7 +668,7 @@ export class OperationsFactory<
     return from.map((ref) => {
       const column = table.getColumn(ref.name);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(
           `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
         );

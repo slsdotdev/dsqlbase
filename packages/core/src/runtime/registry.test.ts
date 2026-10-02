@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ColumnDefinition,
+  EmbeddedObjectDefinition,
   Relation,
   RelationsDefinition,
   TableDefinition,
@@ -246,6 +247,57 @@ describe("SchemaRegistry", () => {
             rel: relate([assignments.columns.teamId], [memberships.columns.teamId]),
           })
       ).toThrow(/targets table "memberships", which is not in the schema/);
+    });
+  });
+
+  describe("column groups", () => {
+    const money = new EmbeddedObjectDefinition({
+      currency: new ColumnDefinition("currency", { dataType: "text" }),
+    });
+    const prices = new TableDefinition("prices", {
+      columns: {
+        id: new ColumnDefinition("id", { primaryKey: true }),
+        amount: money.column("amount"),
+      },
+    });
+    const currencies = new TableDefinition("currencies", {
+      columns: { code: new ColumnDefinition("code", { dataType: "text", primaryKey: true }) },
+    });
+
+    it("rejects a relation keyed on a group member", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            prices,
+            currencies,
+            rel: new RelationsDefinition(prices, {
+              currency: {
+                type: Relation.BELONGS_TO,
+                target: currencies,
+                from: [prices.columns.amount.columns.currency],
+                to: [currencies.columns.code],
+              },
+            }),
+          })
+      ).toThrow(/member of the column group "amount" on table "prices"/);
+    });
+
+    it("rejects a relation named like a group", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            prices,
+            currencies,
+            rel: new RelationsDefinition(prices, {
+              amount: {
+                type: Relation.BELONGS_TO,
+                target: currencies,
+                from: [prices.columns.id],
+                to: [currencies.columns.code],
+              },
+            }),
+          })
+      ).toThrow(/collides with a column of the same name/);
     });
   });
 

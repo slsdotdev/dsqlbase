@@ -11,6 +11,8 @@ import { ModelClient } from "./client.js";
 import {
   array,
   belongsTo,
+  bigint,
+  embedded,
   datetime,
   hasMany,
   json,
@@ -845,6 +847,73 @@ describe("array and record columns", () => {
 
         array("a").schema(labels);
         record("r").schema(quotas);
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+  });
+});
+
+describe("column groups", () => {
+  const money = embedded({
+    amount: bigint("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: text("lat"), lng: text("lng") });
+  const address = embedded({ city: text("city"), geo: geo.column("geo") });
+
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema: { invoices }, session });
+
+  type NetValue = { amount: bigint; currency: string };
+  type Billing = { city: string | null; geo: { lat: string | null; lng: string | null } | null };
+
+  describe("a group's read types", () => {
+    it("reads a group as an object, null too when every member is nullable", async () => {
+      const invoice = await dsql.invoices.findOne({ where: { id: "i1" } });
+
+      expectTypeOf(invoice?.netValue).toEqualTypeOf<NetValue | undefined>();
+      expectTypeOf(invoice?.billing).toEqualTypeOf<Billing | null | undefined>();
+    });
+
+    it("reads a group selected as true whole, and a member map as those members", async () => {
+      const invoice = await dsql.invoices.findOne({
+        where: { id: "i1" },
+        select: { netValue: true, billing: { geo: { lat: true } } },
+      });
+
+      expectTypeOf(invoice).toEqualTypeOf<{
+        netValue: NetValue;
+        billing: { geo: { lat: string | null } | null } | null;
+        $$meta: Meta<"invoices">;
+      } | null>();
+    });
+
+    it("reads a group in a write's return", () => {
+      const query = dsql.invoices.delete({
+        where: { id: "i1" },
+        return: { netValue: { amount: true } },
+      });
+
+      expectTypeOf(query.$typeOf).toEqualTypeOf<{
+        netValue: { amount: bigint };
+        $$meta: Meta<"invoices">;
+      } | null>();
+    });
+
+    it("refuses a member the group does not have, and a map on a column", () => {
+      const check = () => {
+        // @ts-expect-error `nope` is not a member of `netValue`
+        dsql.invoices.findMany({ select: { netValue: { nope: true } } });
+
+        // @ts-expect-error a column takes true, not a map
+        dsql.invoices.findMany({ select: { id: { x: true } } });
       };
 
       expectTypeOf(check).toBeFunction();

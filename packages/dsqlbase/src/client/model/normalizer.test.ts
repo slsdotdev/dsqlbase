@@ -5,9 +5,11 @@ import {
   belongsTo,
   date,
   datetime,
+  embedded,
   guid,
   hasMany,
   hasOne,
+  json,
   numeric,
   relations,
   table,
@@ -768,5 +770,123 @@ describe("polymorphic writes", () => {
         expect(params()?.slice(0, 2)).toEqual([PERSON, "persons"]);
       });
     });
+  });
+});
+
+describe("column groups", () => {
+  const money = embedded({
+    amount: numeric("amount").notNull(),
+    currency: text("currency").notNull(),
+  });
+  const geo = embedded({ lat: text("lat"), lng: text("lng") });
+  const address = embedded({ city: text("city"), notes: json("notes"), geo: geo.column("geo") });
+
+  const customers = table("customers", { id: uuid("id").primaryKey().defaultRandom() });
+  const invoices = table("invoices", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id").notNull(),
+    netValue: money.column("net_value"),
+    billing: address.column("billing"),
+  });
+  const invoiceRelations = relations(invoices, {
+    customer: belongsTo(customers, {
+      from: [invoices.columns.customerId],
+      to: [customers.columns.id],
+    }),
+  });
+
+  let calls: SQLStatement[];
+  let rows: Record<string, unknown>[];
+  let dsql: ReturnType<
+    typeof createClient<{
+      customers: typeof customers;
+      invoices: typeof invoices;
+      invoiceRelations: typeof invoiceRelations;
+    }>
+  >;
+
+  beforeEach(() => {
+    calls = [];
+    rows = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return rows;
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: { customers, invoices, invoiceRelations }, session });
+  });
+
+  const projected = () =>
+    [...(calls[0]?.text.matchAll(/"((?:net_value|billing)_\w+)"/g) ?? [])].map(([, name]) => name);
+
+  it("reads a group selected as true as one object", async () => {
+    rows = [{ net_value_amount: "12.50", net_value_currency: "EUR" }];
+
+    const [invoice] = await dsql.invoices.findMany({ select: { netValue: true } });
+
+    expect(projected()).toEqual(["net_value_amount", "net_value_currency"]);
+    expect(invoice?.netValue).toEqual({ amount: 12.5, currency: "EUR" });
+  });
+
+  it("reads the members a map names, nested groups included", async () => {
+    rows = [
+      { billing_city: "Cluj", billing_notes: null, billing_geo_lat: "46.7", billing_geo_lng: null },
+    ];
+
+    const [invoice] = await dsql.invoices.findMany({
+      select: { billing: { city: true, geo: { lat: true } } },
+    });
+
+    expect(invoice?.billing).toEqual({ city: "Cluj", geo: { lat: "46.7" } });
+  });
+
+  it("projects a nullable group's every column, and reads it null when all are", async () => {
+    rows = [
+      { billing_city: null, billing_notes: null, billing_geo_lat: null, billing_geo_lng: null },
+    ];
+
+    const [invoice] = await dsql.invoices.findMany({ select: { billing: { city: true } } });
+
+    expect(projected()).toEqual([
+      "billing_city",
+      "billing_notes",
+      "billing_geo_lat",
+      "billing_geo_lng",
+    ]);
+    expect(invoice?.billing).toBeNull();
+  });
+
+  it("reads every group with no select, and beside a relation", async () => {
+    await dsql.invoices.findMany({});
+    expect(projected()).toContain("net_value_amount");
+    expect(projected()).toContain("billing_geo_lng");
+
+    calls = [];
+    await dsql.invoices.findMany({ select: { netValue: { amount: true }, customer: true } });
+    expect(projected()).toEqual(["net_value_amount"]);
+  });
+
+  it("selects a group in a write's return", async () => {
+    await dsql.invoices.delete({ where: { id: "i-1" }, return: { netValue: true } });
+
+    expect(calls[0]?.text).toContain(`RETURNING`);
+    expect(projected()).toEqual(["net_value_amount", "net_value_currency"]);
+  });
+
+  it("refuses a member the group does not have, and a map on a column", () => {
+    expect(() => dsql.invoices.findMany({ select: { netValue: { nope: true } } as never })).toThrow(
+      /Invalid field "netValue.nope"/
+    );
+    expect(() =>
+      dsql.invoices.findMany({ select: { netValue: { amount: { x: true } } } as never })
+    ).toThrow(/column "netValue.amount" of "invoices": a column takes true/);
+  });
+
+  it("refuses distinct over a group projecting a column it cannot compare", () => {
+    expect(() =>
+      dsql.invoices.findMany({ select: { billing: { city: true } }, distinct: true })
+    ).toThrow(/`distinct` cannot compare the json column "billing \(billing_notes\)"/);
   });
 });

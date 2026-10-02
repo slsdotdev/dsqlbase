@@ -13,6 +13,7 @@ import {
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
+import { AnyColumnGroup, AnyField, ColumnGroup } from "./group.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
@@ -86,9 +87,13 @@ export type TableColumnName<T extends AnyTable> = T["__type"] extends { columns:
 export type TableColumns<T extends AnyTable> = {
   readonly [K in TableColumnName<T>]: T["__type"] extends { columns: infer C }
     ? C extends Record<K, infer CD>
-      ? CD extends ColumnDefinition<infer CName, infer CConfig>
-        ? Column<CName, CConfig, T>
-        : never
+      ? CD extends { readonly kind: "COLUMN_GROUP"; readonly columns: infer GC }
+        ? GC extends TableColumnDefinitions
+          ? ColumnGroup<string, GC, T>
+          : never
+        : CD extends ColumnDefinition<infer CName, infer CConfig>
+          ? Column<CName, CConfig, T>
+          : never
       : never
     : never;
 };
@@ -168,14 +173,11 @@ export class Table<
   private _buildColumns(
     definition: TableDefinition<TName, TColumns, TNamespace>
   ): TableColumns<this> {
-    const columns = {} as Record<string, Column<string, ColumnConfig, this>>;
+    const columns = {} as Record<string, AnyField>;
 
     for (const [name, def] of Object.entries(definition.columns)) {
-      if (def instanceof ColumnGroupDefinition) {
-        throw new Error(`Column group "${name}" on table "${this.name}" is not supported yet.`);
-      }
-
-      columns[name] = new Column(this, def);
+      columns[name] =
+        def instanceof ColumnGroupDefinition ? new ColumnGroup(this, def) : new Column(this, def);
     }
 
     return columns as TableColumns<this>;
@@ -210,7 +212,7 @@ export class Table<
     return constraint["_columns"].map((ref) => {
       const column = this.getColumn(ref.name);
 
-      if (!column) {
+      if (!(column instanceof Column)) {
         throw new Error(
           `Primary key constraint "${constraint.name}" on table "${this.name}" references unknown column "${ref.name}"`
         );
@@ -244,18 +246,46 @@ export class Table<
     return Object.hasOwn(this.columns, name);
   }
 
-  public getColumn(name: string) {
-    if (this.columns[name as TableColumnName<this>]) {
-      return this.columns[name as TableColumnName<this>];
+  /**
+   * The field `name` — a column or a column group — or the plain column whose database name it
+   * is. A group's member is reached through the group: `getColumn("netValue")`, then the
+   * group's `getColumn("amount")`.
+   */
+  public getColumn(name: string): AnyField | undefined {
+    if (this.hasColumn(name)) {
+      return this.columns[name as TableColumnName<this>] as AnyField;
     }
 
-    return Object.values<Column<string, ColumnConfig, this>>(this.columns).find(
-      (col) => col.name === name
+    return this.getColumnEntries().find(([, column]) => column.name === name)?.[1];
+  }
+
+  /** The table's plain columns, by field. A column group's members are not among them. */
+  public getColumnEntries(): [string, Column<string, ColumnConfig, this>][] {
+    return Object.entries<AnyField>(this.columns).filter(
+      (entry): entry is [string, Column<string, ColumnConfig, this>] => entry[1] instanceof Column
     );
   }
 
-  public getColumnEntries(): [string, Column<string, ColumnConfig, this>][] {
-    return Object.entries(this.columns);
+  /** The table's column groups, by field. */
+  public getGroupEntries(): [string, AnyColumnGroup][] {
+    return Object.entries<AnyField>(this.columns).filter(
+      (entry): entry is [string, AnyColumnGroup] => entry[1] instanceof ColumnGroup
+    );
+  }
+
+  /**
+   * Every real column of the table with its field path — `["netValue", "amount"]` for a group's
+   * member — groups walked depth first, in declaration order.
+   */
+  public getLeafEntries(): [path: string[], column: AnyColumn][] {
+    const walk = (fields: Readonly<Record<string, AnyField>>, path: string[]) =>
+      Object.entries(fields).flatMap(([field, member]): [string[], AnyColumn][] =>
+        member instanceof ColumnGroup
+          ? walk(member.columns, [...path, field])
+          : [[[...path, field], member]]
+      );
+
+    return walk(this.columns as Record<string, AnyField>, []);
   }
 
   public hasRelation(fieldName: string): boolean {

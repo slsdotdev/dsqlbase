@@ -20,13 +20,92 @@ import {
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { FilterOf, OrderableRuntimeType, WhereExpressionOf } from "./filters.js";
 
-export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
+/** A table's plain columns, by field. A column group is not one: {@link GroupFieldNamesOf}. */
+export type ColumnFieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
     ? T["__type"]["columns"][K] extends AnyColumnDefinition
       ? K
       : never
     : never
   : never;
+
+/** A table's column groups, by field. */
+export type GroupFieldNamesOf<T extends AnyTable> = GroupKeysOf<T["__type"]["columns"]>;
+
+/** Every field a table stores: its plain columns and its column groups. */
+export type FieldNamesOf<T extends AnyTable> = ColumnFieldNamesOf<T> | GroupFieldNamesOf<T>;
+
+/**
+ * Matches a column group by `kind`: comparing a column against the group class structurally is
+ * costly enough, across a schema, to exhaust the checker.
+ */
+type GroupOf<C> = { readonly kind: "COLUMN_GROUP"; readonly columns: C };
+
+type GroupKeysOf<C> = {
+  [K in keyof C & string]: C[K] extends GroupOf<unknown> ? K : never;
+}[keyof C & string];
+
+/**
+ * Whether a group can be absent: every member, nested groups included, is nullable. Mirrors
+ * `ColumnGroup.nullable` (`packages/core/src/runtime/group.ts`).
+ */
+type IsNullableGroup<C> = {
+  [K in keyof C]-?: C[K] extends GroupOf<infer GC>
+    ? IsNullableGroup<GC>
+    : C[K] extends { __type: { notNull: true } }
+      ? false
+      : true;
+}[keyof C] extends true
+  ? true
+  : false;
+
+/** What a member reads as: a column's value, or a group's object. */
+type MemberValueOf<M> =
+  M extends GroupOf<infer GC>
+    ? GroupValueOf<GC>
+    : M extends { __type: infer TConfig extends ColumnConfig }
+      ? ValueTypeOf<TConfig>
+      : never;
+
+/** What a group reads as: an object of its members — `null` too when it can be absent. */
+export type GroupValueOf<C> =
+  | Prettify<{ -readonly [K in keyof C]: MemberValueOf<C[K]> }>
+  | (IsNullableGroup<C> extends true ? null : never);
+
+/** Field `K` of a table as a read returns it: a column's value, or a group's object. */
+export type FieldValueOf<T extends AnyTable, K extends FieldNamesOf<T>> = MemberValueOf<
+  T["__type"]["columns"][K]
+>;
+
+/**
+ * Which of `C` a selection names: a column takes `true`; a group `true` — every member — or a
+ * map of its members, the same shape again.
+ */
+export type ColumnsSelectionOf<C> = {
+  [K in keyof C]?: C[K] extends GroupOf<infer GC> ? boolean | ColumnsSelectionOf<GC> : boolean;
+};
+
+/** What member `M` reads as under selection `S`: all of it for `true`, a group's named members for a map. */
+type SelectedMemberValueOf<M, S> = S extends true
+  ? MemberValueOf<M>
+  : M extends GroupOf<infer GC>
+    ? S extends object
+      ? SelectedGroupValueOf<GC, S>
+      : never
+    : never;
+
+/** The keys a selection map names: `true`, or a group's member map. */
+type SelectedKeysOf<S> = {
+  [K in keyof S]-?: S[K] extends true | object ? K : never;
+}[keyof S];
+
+type SelectedGroupValueOf<C, S> = [SelectedKeysOf<S>] extends [never]
+  ? GroupValueOf<C>
+  :
+      | Prettify<{
+          -readonly [K in SelectedKeysOf<S> & keyof C]: SelectedMemberValueOf<C[K], S[K]>;
+        }>
+      | (IsNullableGroup<C> extends true ? null : never);
 
 export type RelationFieldNamesOf<T extends AnyTable> =
   T["__type"]["relations"] extends AnyTableRelations
@@ -39,7 +118,7 @@ export type RelationFieldNamesOf<T extends AnyTable> =
       : never
     : never;
 
-export type ColumnTypeOf<T extends AnyTable, K extends FieldNamesOf<T>> =
+export type ColumnTypeOf<T extends AnyTable, K extends ColumnFieldNamesOf<T>> =
   T["__type"]["columns"] extends Record<K, infer TColumn>
     ? TColumn extends AnyColumnDefinition
       ? TColumn["__type"]
@@ -131,20 +210,43 @@ export type RecordMetaOf<T, TAlias extends string = string> = Prettify<
   { key: TAlias; table: string; schema?: string } & DeclaredMetaOf<T>
 >;
 
-/** The columns a `return` may name. A read's `select` also takes relations: {@link SelectionOf}. */
-export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
+/**
+ * The fields a `return` may name: columns as `true`, groups as `true` or a member map. A read's
+ * `select` also takes relations: {@link SelectionOf}.
+ */
+export type FieldSelectionOf<T extends AnyTable> = Partial<Record<ColumnFieldNamesOf<T>, boolean>> &
+  // Only when there are groups: an empty object type in the intersection would accept `true`
+  // and switch off excess-property checks.
+  ([GroupFieldNamesOf<T>] extends [never]
+    ? unknown
+    : {
+        [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer GC>
+          ? boolean | ColumnsSelectionOf<GC>
+          : never;
+      });
 
-/** The columns a selection names as `true` — never its relations. */
+/** The fields a selection names — a column as `true`, a group as `true` or a map; never a relation. */
 export type SelectedFieldsOf<
   TTable extends AnyTable,
   TSelection extends FieldSelectionOf<TTable>,
 > = {
-  [K in keyof TSelection]: K extends FieldNamesOf<TTable>
+  [K in keyof TSelection]: K extends ColumnFieldNamesOf<TTable>
     ? TSelection[K] extends true
       ? K
       : never
-    : never;
+    : K extends GroupFieldNamesOf<TTable>
+      ? TSelection[K] extends true | object
+        ? K
+        : never
+      : never;
 }[keyof TSelection];
+
+/** Field `K` of a table as selection `S` reads it. */
+export type SelectedFieldValueOf<
+  T extends AnyTable,
+  K extends FieldNamesOf<T>,
+  S,
+> = SelectedMemberValueOf<T["__type"]["columns"][K], S>;
 
 /**
  * Every key a selection names: a column as `true`, a relation as `true` or a field map. None
@@ -208,12 +310,12 @@ export type NoSelectJoinOverlap<TArgs> = TArgs extends {
 type OverlapOf<TSelect, TJoin> = Extract<NamedKeysOf<TSelect>, NamedKeysOf<TJoin>> & string;
 
 export type RequiredFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
     ? ColumnTypeOf<T, K> extends { hasDefault: true }
       ? never
       : K
     : never;
-}[FieldNamesOf<T>];
+}[ColumnFieldNamesOf<T>];
 
 export type RelationTypeOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> = FieldRelationOf<
   T,
@@ -226,28 +328,28 @@ export type RelationTargetOf<
 > = FieldRelationOf<T, K>["target"];
 
 export type OptionalFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
     ? ColumnTypeOf<T, K> extends { hasDefault: true }
       ? K
       : never
     : K;
-}[FieldNamesOf<T>];
+}[ColumnFieldNamesOf<T>];
 
 /**
  * Fields the caller may not write. They stay fully readable — selectable, filterable and
  * orderable — and are only removed from the two mutation inputs.
  */
 export type ReadOnlyFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
-}[FieldNamesOf<T>];
+  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
+}[ColumnFieldNamesOf<T>];
 
 /**
  * The claim fields a table is scoped by — the keys an identity must carry for it to be
  * readable. Empty for a global table.
  */
 export type TenantKeysOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { tenantKey: true } ? K : never;
-}[FieldNamesOf<T>];
+  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { tenantKey: true } ? K : never;
+}[ColumnFieldNamesOf<T>];
 
 export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
@@ -265,10 +367,10 @@ export type ReturningResultOf<
   ? R extends FieldSelectionOf<T>
     ? Prettify<
         ([SelectedFieldsOf<T, R>] extends [never]
-          ? { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> }
+          ? { [K in FieldNamesOf<T>]: FieldValueOf<T, K> }
           : {
               [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
-                ? ValueTypeOf<ColumnTypeOf<T, K>>
+                ? SelectedFieldValueOf<T, K, R[K]>
                 : never;
             }) & {
           $$meta: RecordMetaOf<T, TAlias>;
@@ -276,7 +378,7 @@ export type ReturningResultOf<
       >
     : R extends true
       ? Prettify<
-          { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> } & {
+          { [K in FieldNamesOf<T>]: FieldValueOf<T, K> } & {
             $$meta: RecordMetaOf<T, TAlias>;
           }
         >
@@ -289,7 +391,7 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 }>;
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<ColumnFieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
 };
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
@@ -556,13 +658,13 @@ export type SelectionResultOf<
   // column map, so it would not extend it.
   TArgs["select"] extends object
     ? [NamedKeysOf<TArgs["select"]>] extends [never]
-      ? { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }
+      ? { [K in FieldNamesOf<TTable>]: FieldValueOf<TTable, K> }
       : {
           [K in SelectedFieldsOf<TTable, TArgs["select"]>]: K extends FieldNamesOf<TTable>
-            ? ValueTypeOf<ColumnTypeOf<TTable, K>>
+            ? SelectedFieldValueOf<TTable, K, TArgs["select"][K]>
             : never;
         }
-    : { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> };
+    : { [K in FieldNamesOf<TTable>]: FieldValueOf<TTable, K> };
 
 export type RelationJoinResultOf<
   TTable extends AnyTable,
@@ -860,8 +962,10 @@ type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false
 
 /** The fields of a table that can be ordered by: not documents, arrays or binary. */
 export type OrderableFieldNamesOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true ? K : never;
-}[FieldNamesOf<T>];
+  [K in ColumnFieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true
+    ? K
+    : never;
+}[ColumnFieldNamesOf<T>];
 
 export type OrderByExpressionOf<T extends AnyTable> = Partial<
   Record<OrderableFieldNamesOf<T>, "asc" | "desc">
@@ -887,8 +991,10 @@ export type AnyRelationQuery =
  * table yields `never` here exactly as it fails to become a node there.
  */
 export type NodeKeyFieldOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true; guid: true } ? K : never;
-}[FieldNamesOf<T>];
+  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true; guid: true }
+    ? K
+    : never;
+}[ColumnFieldNamesOf<T>];
 
 /** The aliases of a schema that can be addressed by global id. */
 export type NodeAliasesOf<TSchema extends AnySchema> = {
@@ -985,7 +1091,9 @@ export type GlobalIdListResultOf<TSchema extends AnySchema, TOn = undefined> = {
           TSchema,
           NodeArgsOf<TSchema, K, TOn> extends { select: infer TSelect }
             ? Omit<NodeArgsOf<TSchema, K, TOn>, "select"> & {
-                select: TSelect & Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true>;
+                select: TSelect &
+                  Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true> &
+                  FieldSelectionOf<TableByAlias<TSchema, K>>;
               }
             : NodeArgsOf<TSchema, K, TOn>
         >

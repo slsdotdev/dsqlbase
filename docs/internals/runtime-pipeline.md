@@ -36,7 +36,8 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - A read's `select` takes columns and relations. `RequestNormalizer._getReadSelection` splits it before anything else: a relation named there (`true` or a field map) is merged into `join` as `true` or `{ select: map }`, ahead of the caller's own `join` entries, so everything downstream — `_getJoinEntries`, union args, core — sees one join form. The same relation truthy in both is refused. `on.<alias>.select` is split the same way. A write's `return` takes columns only.
 - Which columns a level projects is carried by `SelectOperationArgs.select`: omitted means every column, `[]` means none. The normalizer sends `undefined` when the caller named nothing as `true`, and `[]` only when it named relations and no column — so `select: {}` still reads every column, and a relation-only select reads only its joins. `_resolveFields` is where the difference is made.
-- Selection accepts no computed values. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
+- Selection accepts no computed values. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual fields are close in the resolver but absent in the normalizer and the types.
+- A column group is selected as `[field, ColumnGroup, GroupSelection?]`: the group and the members chosen within it, none meaning all. See [Column groups](#column-groups).
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
 - A relation may target a `union()` — see [Union joins](#union-joins).
 
@@ -162,10 +163,10 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 — the same row the column branch reads from. A resolver that needs the database's own text
 representation of a value rather than the decoded one therefore has it.
 
-Two things produce a `MetaResolver`. One is a column with a row decoder
+Three things produce a `MetaResolver`. One is a column group (below). Another is a column with a row decoder
 (`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
 its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
-The other is `$$meta`, which `_resolveFields` pushes first for every level it
+The third is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:
 
@@ -190,6 +191,27 @@ runs that member's list, `$$meta` included, and puts `$$key` on the record ahead
 naming a member that did not run throws, because this builder cannot produce one. Dispatch
 decides _which_ resolvers run, so it happens before any field is read, not in a post-processing
 step ([0004](../decisions/0004-record-meta.md)).
+
+## Column groups
+
+A column group (`ColumnGroup`, `packages/core/src/runtime/group.ts`) is a table field whose
+members are built columns and nested groups. `Table.columns` holds it beside the plain columns;
+`getColumn(field)` returns either, and a member is reached through its group
+(`group.getColumn("amount")`) — there are no dotted paths. `getColumnEntries()` lists plain
+columns only, `getGroupEntries()` the groups, and `getLeafEntries()` every real column with its
+field path.
+
+The group owns how it is read. `ColumnGroup.reader(selection)` returns the columns to project and
+a `resolve(row)` that builds the object; `_resolveFields` projects the columns and pushes the
+resolve as a `MetaResolver`, so no resolver kind was added. A group is `nullable` when every
+member, nested groups included, is nullable, and resolves to `null` when every one of its columns
+is `NULL` — so a nullable group projects all of its columns whatever the selection names, and
+emits only the selected members. Nested groups resolve inside out. A join level reads a group
+the same way, since its rows are keyed by column name too.
+
+Relation keys, discriminators, primary keys and tenant claims are plain columns: the registry
+refuses a relation or discriminator naming a member, the table definition a primary key on one,
+and the embedded object a primary-key or claim member.
 
 ## Pagination and count
 
