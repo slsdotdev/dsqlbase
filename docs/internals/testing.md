@@ -25,6 +25,7 @@ Per package (`cd packages/<pkg>`):
 
 - Unit tests sit next to the source (`foo.ts` / `foo.test.ts`).
 - Type-level tests sit next to the source too, as `foo.types.test.ts`, and use `expectTypeOf` / `assertType`. They only run where `test.typecheck` is enabled — today that is `packages/dsqlbase`.
+- **One module, one suite.** A test belongs in the suite of the module whose code it exercises, even when it drives that code through the client — a `where` case goes in `filters.test.ts`, a select case in `normalizer.test.ts`. There is no suite without a module (`select.test.ts`, `array-record.test.ts`), and no new file for a case or two that fit an existing suite. When one suite would be unreadable, split it by scope and keep the module's name: `client.union.types.test.ts`. Fixtures that clash when suites merge go inside a `describe` of their own, rather than being renamed.
 - `packages/tests/src/specs/` holds end-to-end specs that run the full schema → migration → client stack against in-process PGlite. `src/db/schema/schema.ts` is the shared fixture; `src/db/client.ts` and `src/db/migrate.ts` are the reference wiring.
 - Every pull request runs all of the above except coverage — build, lint, typecheck, unit and e2e — in the quality gate ([Conventions](./conventions.md)), and must pass it to merge.
 - There is no DSQL cluster in CI. Anything that only DSQL can answer is listed in [DSQL capabilities → To verify](./dsql-capabilities.md#to-verify-on-a-real-dsql-cluster).

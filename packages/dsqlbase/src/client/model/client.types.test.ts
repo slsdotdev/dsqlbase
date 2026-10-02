@@ -1,20 +1,29 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import type { Session } from "@dsqlbase/core";
 import {
-  ExecutionContext,
-  SchemaRegistry,
-  QueryBuilder,
   ExecutableQuery,
+  ExecutionContext,
+  QueryBuilder,
+  SchemaRegistry,
 } from "@dsqlbase/core/runtime";
+import { createClient } from "../create.js";
+import { ModelClient } from "./client.js";
 import {
+  array,
   belongsTo,
+  datetime,
   hasMany,
+  json,
+  jsonb,
+  record,
   relations,
   table,
   tenantScope,
   text,
+  union,
   uuid,
 } from "../../schema/index.js";
-import { ModelClient } from "./client.js";
+import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
 
 const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -504,5 +513,341 @@ describe("count", () => {
       // @ts-expect-error `title` is not a users field.
       void client.count({ where: { title: "x" } });
     }).toBeFunction();
+  });
+});
+
+describe("selection", () => {
+  const users = table("users", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+  });
+
+  const posts = table("posts", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authorId: uuid("author_id").notNull(),
+    title: text("title").notNull(),
+    subtitle: text("subtitle"),
+  });
+
+  const comments = table("comments", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    postId: uuid("post_id").notNull(),
+    authorId: uuid("author_id").notNull(),
+    body: text("body").notNull(),
+  });
+
+  const tasks = table("tasks", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    parentId: uuid("parent_id"),
+    title: text("title").notNull(),
+  });
+
+  const photos = table("photos", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+    photoUrl: text("photo_url").notNull(),
+  });
+
+  const videos = table("videos", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("owner_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+    videoUrl: text("video_url").notNull(),
+  });
+
+  const media = union({ photos, videos });
+
+  const userRelations = relations(users, {
+    posts: hasMany(posts, { from: [users.columns.id], to: [posts.columns.authorId] }),
+    feed: hasMany(media, { from: [users.columns.id], to: [media.columns.userId] }),
+  });
+
+  const postRelations = relations(posts, {
+    author: belongsTo(users, { from: [posts.columns.authorId], to: [users.columns.id] }),
+    comments: hasMany(comments, { from: [posts.columns.id], to: [comments.columns.postId] }),
+  });
+
+  const commentRelations = relations(comments, {
+    author: belongsTo(users, { from: [comments.columns.authorId], to: [users.columns.id] }),
+  });
+
+  const taskRelations = relations(tasks, {
+    parent: belongsTo(tasks, { from: [tasks.columns.parentId], to: [tasks.columns.id] }),
+    children: hasMany(tasks, { from: [tasks.columns.id], to: [tasks.columns.parentId] }),
+  });
+
+  const schema = {
+    users,
+    posts,
+    comments,
+    tasks,
+    photos,
+    videos,
+    media,
+    userRelations,
+    postRelations,
+    commentRelations,
+    taskRelations,
+  };
+
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema, session });
+
+  const where = { id: { eq: "p1" } };
+
+  type Meta<K extends string> = { key: K; table: string; schema?: string };
+
+  describe("which columns a select returns", () => {
+    it("returns every column with no select", () => {
+      expectTypeOf(dsql.posts.findOne({ where }).$typeOf).toEqualTypeOf<{
+        id: string;
+        authorId: string;
+        title: string;
+        subtitle: string | null;
+        $$meta: Meta<"posts">;
+      } | null>();
+    });
+
+    it("returns every column when select names nothing, as the runtime does", () => {
+      const none = dsql.posts.findOne({ where }).$typeOf;
+
+      expectTypeOf(dsql.posts.findOne({ where, select: {} }).$typeOf).toEqualTypeOf(none);
+      expectTypeOf(
+        dsql.posts.findOne({ where, select: { id: false, title: false } }).$typeOf
+      ).toEqualTypeOf(none);
+    });
+
+    it("returns only the relations when select names only relations", () => {
+      expectTypeOf(dsql.posts.findOne({ where, select: { author: true } }).$typeOf).toEqualTypeOf<{
+        $$meta: Meta<"posts">;
+        author: { id: string; name: string; $$meta: Meta<"users"> } | null;
+      } | null>();
+    });
+
+    it("returns every column on a write's return that names nothing", () => {
+      expectTypeOf(
+        dsql.posts.create({ data: { authorId: "u", title: "t" }, return: {} }).$typeOf
+      ).toEqualTypeOf<{
+        id: string;
+        authorId: string;
+        title: string;
+        subtitle: string | null;
+        $$meta: Meta<"posts">;
+      } | null>();
+    });
+  });
+
+  describe("a relation in select", () => {
+    it("is typed as the join form", () => {
+      const selected = dsql.posts.findMany({
+        select: { title: true, author: { name: true }, comments: true },
+      }).$typeOf;
+      const joined = dsql.posts.findMany({
+        select: { title: true },
+        join: { author: { select: { name: true } }, comments: true },
+      }).$typeOf;
+
+      expectTypeOf(selected).toEqualTypeOf(joined);
+    });
+
+    it("nests a relation inside a relation's field map", () => {
+      const query = dsql.posts.findMany({
+        select: { comments: { body: true, author: { name: true } } },
+      });
+
+      expectTypeOf(query.$typeOf).items.toHaveProperty("comments").toEqualTypeOf<
+        {
+          body: string;
+          $$meta: Meta<"comments">;
+          author: { name: string; $$meta: Meta<"users"> } | null;
+        }[]
+      >();
+    });
+
+    it("follows a self-referential relation", async () => {
+      const task = await dsql.tasks.findOne({
+        where: { id: { eq: "t1" } },
+        select: { title: true, parent: { title: true, parent: { id: true } }, children: true },
+      });
+
+      expectTypeOf(task?.parent?.parent?.id).toEqualTypeOf<string | undefined>();
+      expectTypeOf(task?.children[0]?.parentId).toEqualTypeOf<string | null | undefined>();
+    });
+
+    it("takes a union's shared fields", async () => {
+      const user = await dsql.users.findOne({
+        where: { id: { eq: "u1" } },
+        select: { feed: { id: true, createdAt: true } },
+      });
+      const post = user?.feed[0];
+
+      expectTypeOf(post?.$$key).toEqualTypeOf<"photos" | "videos" | undefined>();
+      expectTypeOf(post?.createdAt).toEqualTypeOf<Date | undefined>();
+      expectTypeOf(user).not.toHaveProperty("name");
+    });
+
+    it("carries through a page's items", async () => {
+      const page = await dsql.posts.paginate({ select: { title: true, author: { name: true } } });
+
+      expectTypeOf(page.items).items.toHaveProperty("author").toEqualTypeOf<{
+        name: string;
+        $$meta: Meta<"users">;
+      } | null>();
+    });
+
+    // Type-checked only: the invalid calls would also throw at runtime.
+    it("refuses what belongs in join, and what is not a field", () => {
+      const check = () => {
+        dsql.posts.findMany({
+          select: { author: true },
+          // @ts-expect-error `author` is already in select
+          join: { author: true },
+        });
+
+        dsql.users.findMany({
+          // @ts-expect-error query args are written in join, not in select
+          select: { posts: { where: { title: "x" } } },
+        });
+
+        dsql.users.findMany({
+          // @ts-expect-error `photoUrl` is not shared by every member of the union
+          select: { feed: { photoUrl: true } },
+        });
+
+        dsql.posts.findMany({
+          // @ts-expect-error `editor` is neither a column nor a relation of posts
+          select: { editor: true },
+        });
+
+        dsql.posts.create({
+          data: { authorId: "u", title: "t" },
+          // @ts-expect-error a write's return has no relations
+          return: { author: true },
+        });
+
+        // A falsy join entry beside the selected relation is not an overlap.
+        dsql.posts.findMany({ select: { author: true }, join: { author: false } });
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+  });
+});
+
+describe("JSON columns", () => {
+  type SettingsIn = { theme?: "light" | "dark"; since: string | Date };
+  type SettingsOut = { theme: "light" | "dark"; since: Date };
+
+  // Typed only: these tests never validate a value.
+  const settings = {} as StandardSchemaV1<SettingsIn, SettingsOut>;
+
+  const users = table("users", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    settings: jsonb("settings").schema(settings).notNull(),
+    profile: jsonb("profile").schema(settings),
+    tags: jsonb("tags").$type<string[]>(),
+    legacy: json("legacy"),
+  });
+
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema: { users }, session });
+
+  describe("a JSON column's types", () => {
+    it("reads the schema's output", async () => {
+      const user = await dsql.users.findOne({ where: { id: "u1" } });
+
+      expectTypeOf(user?.settings).toEqualTypeOf<SettingsOut | undefined>();
+      expectTypeOf(user?.profile).toEqualTypeOf<SettingsOut | null | undefined>();
+    });
+
+    it("writes the schema's input", () => {
+      const check = () => {
+        dsql.users.create({ data: { settings: { since: "2026-10-01" } } });
+        dsql.users.update({ where: { id: "u1" }, set: { profile: null } });
+
+        // @ts-expect-error `since` is required by the schema's input
+        dsql.users.create({ data: { settings: {} } });
+
+        // @ts-expect-error the column is not null
+        dsql.users.update({ where: { id: "u1" }, set: { settings: null } });
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
+
+    it("reads and writes one type with $type, and unknown with neither", async () => {
+      const user = await dsql.users.findOne({ where: { id: "u1" } });
+
+      expectTypeOf(user?.tags).toEqualTypeOf<string[] | null | undefined>();
+      expectTypeOf(user?.legacy).toEqualTypeOf<unknown>();
+    });
+
+    it("takes the schema's input as a default", () => {
+      expectTypeOf(jsonb("s").schema(settings).default).parameter(0).toEqualTypeOf<SettingsIn>();
+    });
+  });
+});
+
+describe("array and record columns", () => {
+  type Panel = { id: number; open: boolean };
+  type Limits = { cpu: number; memory?: number };
+
+  // Typed only: these tests never validate a value.
+  const labels = {} as StandardSchemaV1<string[], string[]>;
+  const quotas = {} as StandardSchemaV1<Record<string, number>>;
+  const text = {} as StandardSchemaV1<string>;
+
+  const boards = table("boards", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tags: array("tags").$type<string>().notNull(),
+    aliases: array("aliases").$type<string[]>(),
+    grid: array("grid").$type<number[][]>(),
+    panels: array("panels").$type<Panel>(),
+    labels: array("labels").schema(labels),
+    anything: array("anything"),
+    limits: record("limits").$type<Limits>(),
+    quotas: record("quotas").schema(quotas),
+    meta: record("meta"),
+  });
+
+  const schema = { boards };
+  const session = { execute: vi.fn(async () => []) } as unknown as Session;
+  const dsql = createClient({ schema, session });
+
+  describe("array() and record() types", () => {
+    it("reads $type as the item type or the array type, and an untyped array as unknown[]", async () => {
+      const board = await dsql.boards.findOne({ where: { id: "b1" } });
+
+      expectTypeOf(board?.tags).toEqualTypeOf<string[] | undefined>();
+      expectTypeOf(board?.aliases).toEqualTypeOf<string[] | null | undefined>();
+      expectTypeOf(board?.grid).toEqualTypeOf<number[][] | null | undefined>();
+      expectTypeOf(board?.panels).toEqualTypeOf<Panel[] | null | undefined>();
+      expectTypeOf(board?.labels).toEqualTypeOf<string[] | null | undefined>();
+      expectTypeOf(board?.anything).toEqualTypeOf<unknown[] | null | undefined>();
+    });
+
+    it("reads a record's $type exactly as given, and an untyped record as Record<string, unknown>", async () => {
+      const board = await dsql.boards.findOne({ where: { id: "b1" } });
+
+      expectTypeOf(board?.limits).toEqualTypeOf<Limits | null | undefined>();
+      expectTypeOf(board?.quotas).toEqualTypeOf<Record<string, number> | null | undefined>();
+      expectTypeOf(board?.meta).toEqualTypeOf<Record<string, unknown> | null | undefined>();
+    });
+
+    it("takes only a schema of the column's shape", () => {
+      const check = () => {
+        // @ts-expect-error an array column takes a schema whose output is an array
+        array("a").schema(text);
+
+        // @ts-expect-error a record column takes a schema whose output is an object
+        record("r").schema(text);
+
+        array("a").schema(labels);
+        record("r").schema(quotas);
+      };
+
+      expectTypeOf(check).toBeFunction();
+    });
   });
 });

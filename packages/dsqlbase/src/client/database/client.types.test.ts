@@ -1,9 +1,9 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema as CoreSchema, Session } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { guid, relations, hasMany, table, tenantScope, text, uuid } from "../../schema/index.js";
 import type { ClaimsOf } from "./index.js";
 import type { NodeAliasesOf } from "../model/base.js";
+import { guid, hasMany, relations, table, tenantScope, text, uuid } from "../../schema/index.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const ws = tenantScope({
@@ -275,5 +275,59 @@ describe("$transaction batching", () => {
     results.toHaveProperty(0).toHaveProperty("totalCount").toEqualTypeOf<number>();
     results.toHaveProperty(0).toHaveProperty("items").items.toHaveProperty("name").toBeString();
     results.toHaveProperty(1).toEqualTypeOf<number>();
+  });
+});
+
+describe("the widened on map on global-id lookups", () => {
+  const authors = table("authors", {
+    id: guid("id").primaryKey(),
+    name: text("name").notNull(),
+  });
+  const books = table("books", {
+    id: guid("id").primaryKey(),
+    authorId: guid("author_id", "authors").notNull(),
+    title: text("title").notNull(),
+  });
+  const authorRelations = relations(authors, {
+    books: hasMany(books, { from: [authors.columns.id], to: [books.columns.authorId] }),
+  });
+
+  const nodes = createClient({ schema: { authors, books, authorRelations }, session });
+
+  // Type-checked only: "guid:x" is not a real id.
+  it("takes where and join per member and types the joined field", () => {
+    const check = async () => {
+      const record = await nodes.$findByGlobalId({
+        id: "guid:x",
+        on: {
+          authors: { where: { name: { beginsWith: "A" } }, join: { books: true } },
+          books: false,
+        },
+      });
+
+      expectTypeOf(record?.$$key).toEqualTypeOf<"authors" | undefined>();
+
+      if (record?.$$key === "authors") {
+        expectTypeOf(record.books[0]?.title).toEqualTypeOf<string>();
+      }
+    };
+
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("keeps the joined field on a list lookup that forces the key into select", () => {
+    const check = async () => {
+      const [record] = await nodes.$listByGlobalId({
+        ids: ["guid:x"],
+        on: { authors: { select: { name: true }, join: { books: true } } },
+      });
+
+      if (record?.$$key === "authors") {
+        expectTypeOf(record.id).toEqualTypeOf<string>();
+        expectTypeOf(record.books[0]?.title).toEqualTypeOf<string>();
+      }
+    };
+
+    expectTypeOf(check).toBeFunction();
   });
 });
