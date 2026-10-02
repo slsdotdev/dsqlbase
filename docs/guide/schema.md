@@ -118,6 +118,50 @@ The built-in keys `key`, `table` and `schema` are set from the schema itself and
 redeclared. `$$meta` and `$$key` are reserved field names: a column or a relation of either
 name throws.
 
+## Embedded objects
+
+`embedded()` declares a reusable value object — `Money`, `Address` — and `.column(name)`
+places it in a table as a **column group**: one real column per member, named
+`<name>_<member>`.
+
+```ts
+export const money = embedded({
+  amount: bigint("amount").notNull(),
+  currency: currency.column("currency").notNull().default("EUR"),
+});
+
+export const geo = embedded({ lat: numeric("lat"), lng: numeric("lng") });
+export const address = embedded({ city: text("city"), geo: geo.column("geo") });
+
+export const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  netValue: money.column("net_value"), // net_value_amount, net_value_currency
+  billing: address.column("billing").default({ city: "-" }), // billing_city, billing_geo_lat, billing_geo_lng
+});
+
+invoices.columns.netValue.columns.amount; // the member's column definition
+invoices.index("invoices_net_value_idx").columns((c) => [c.netValue.amount]);
+invoices.check((c) => sql`${c.netValue.amount} >= 0`);
+```
+
+- **Members are ordinary columns.** Each keeps its own type, codec, validator, `.notNull()`,
+  `.unique()`, default and hooks, and can be indexed and constrained through nested refs
+  (`c.billing.geo.lat`). A member may be another group; the prefix chains.
+- **Each placement gets its own copies**, so one object placed twice — on one table or several —
+  never shares a column. A member's own `.check()` is rebuilt against its prefixed name, and an
+  explicit check name is prefixed with the group's (`net_fee_cap`).
+- **A group has no nullability of its own.** A member's `.notNull()` is its column's
+  `NOT NULL`; a group whose members are all nullable can be `null`, which it is when all of them
+  are.
+- **`.default(obj)`** on a group sets its members' defaults; members it does not name keep their
+  own.
+- **Not allowed:** a primary-key or tenant-claim member, a table primary key naming a member, or
+  a reserved field name (`$$meta`, `$$key`) as a member. Two members — or a member and a column
+  — with one database name throw like any duplicate column.
+- A union does not share a group field across its members.
+
+Reading and writing groups: [Embedded objects](./embeddable-objects.md).
+
 ## Unions
 
 `union()` groups tables that can stand in for one another — what GraphQL calls a union or an
@@ -291,5 +335,6 @@ Export every table, relation, union, domain, and sequence from one module and pa
 ## Related
 
 - [Relations](./relations.md)
+- [Embedded objects](./embeddable-objects.md)
 - [DSQL notes](./dsql-notes.md) — what you can and cannot change after a table exists
 - [Migrations](./migrations.md)

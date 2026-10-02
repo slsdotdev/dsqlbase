@@ -1,13 +1,14 @@
 import { TypedObject } from "../utils/index.js";
 import {
-  AnyColumnDefinition,
   AnyTableRelations,
   ColumnConfig,
   ColumnDefinition,
   AnyNamespaceDefinition,
   TableConfig,
   TableDefinition,
+  TableColumnDefinitions,
   NamespaceDefinition,
+  ColumnGroupDefinition,
   PrimaryKeyConstraintDefinition,
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
@@ -63,7 +64,7 @@ class TableRef implements SQLNode {
 }
 
 export type WithRelations<
-  TColumns extends Record<string, AnyColumnDefinition>,
+  TColumns extends TableColumnDefinitions,
   TNamespace extends AnyNamespaceDefinition,
   TRelations extends AnyTableRelations | undefined,
 > = TableConfig<TColumns, TNamespace> & {
@@ -77,7 +78,7 @@ export type TableSchemaName<T extends AnyTable> = T["__type"] extends { schema: 
   : undefined;
 
 export type TableColumnName<T extends AnyTable> = T["__type"] extends { columns: infer C }
-  ? C extends Record<string, AnyColumnDefinition>
+  ? C extends TableColumnDefinitions
     ? keyof C
     : never
   : never;
@@ -94,7 +95,7 @@ export type TableColumns<T extends AnyTable> = {
 
 export class Table<
   TName extends string,
-  TColumns extends Record<string, AnyColumnDefinition>,
+  TColumns extends TableColumnDefinitions,
   TNamespace extends AnyNamespaceDefinition,
   TRelations extends AnyTableRelations,
 >
@@ -170,6 +171,10 @@ export class Table<
     const columns = {} as Record<string, Column<string, ColumnConfig, this>>;
 
     for (const [name, def] of Object.entries(definition.columns)) {
+      if (def instanceof ColumnGroupDefinition) {
+        throw new Error(`Column group "${name}" on table "${this.name}" is not supported yet.`);
+      }
+
       columns[name] = new Column(this, def);
     }
 

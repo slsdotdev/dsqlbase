@@ -1,7 +1,13 @@
 import { WithMeta } from "../utils/types.js";
 import { SQLNode, SQLQuery } from "../sql/nodes.js";
 import { DefinitionNode, Kind, NodeRef, RESERVED_FIELD_NAMES } from "./base.js";
-import { AnyColumnDefinition } from "./column.js";
+import {
+  ColumnGroupDefinition,
+  ColumnRefOf,
+  ColumnRefs,
+  columnEntries,
+  TableColumnDefinitions,
+} from "./embedded.js";
 import {
   AnyConstraintDefinition,
   CheckConstraintDefinition,
@@ -12,7 +18,7 @@ import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 
 export type TableConfig<
-  TColumns extends Record<string, AnyColumnDefinition>,
+  TColumns extends TableColumnDefinitions,
   TSchema extends AnyNamespaceDefinition,
 > = {
   namespace?: NodeRef<TSchema>;
@@ -28,13 +34,11 @@ export type TableConfig<
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTableDefinition = TableDefinition<any, any, any>;
 
-export type ColumnRefs<TColumns extends Record<string, AnyColumnDefinition>> = {
-  readonly [K in keyof TColumns]: NodeRef<TColumns[K]>;
-};
+export type { ColumnRefOf, ColumnRefs };
 
 export class TableDefinition<
   TName extends string,
-  TColumns extends Record<string, AnyColumnDefinition>,
+  TColumns extends TableColumnDefinitions,
   TNamespace extends AnyNamespaceDefinition,
 > extends DefinitionNode<TName, TableConfig<TColumns, TNamespace>> {
   readonly kind = Kind.TABLE;
@@ -77,12 +81,15 @@ export class TableDefinition<
   /**
    * Two fields mapping to one database column is always a mistake, and a silent one: the
    * result resolver reads a row by column name (`packages/core/src/runtime/operation.ts`),
-   * so one field would shadow the other, and `toJSON` would emit the column twice.
+   * so one field would shadow the other, and `toJSON` would emit the column twice. A group's
+   * members count by their full path, so `netValue.amount` against a plain `net_value_amount`
+   * is caught too.
    */
   private _assertDistinctColumnNames(): void {
     const fieldsByColumn = new Map<string, string>();
 
-    for (const [field, column] of Object.entries(this.columns)) {
+    for (const [path, column] of columnEntries(this.columns)) {
+      const field = path.join(".");
       const existing = fieldsByColumn.get(column.name);
 
       if (existing !== undefined) {
@@ -103,7 +110,8 @@ export class TableDefinition<
    * and catches it here — where the error can name the definition the author wrote.
    */
   private _assertTenantKeys(): void {
-    for (const [field, column] of Object.entries(this.columns)) {
+    for (const [path, column] of columnEntries(this.columns)) {
+      const field = path.join(".");
       if (!column["_tenantKey"]) {
         continue;
       }
@@ -127,7 +135,10 @@ export class TableDefinition<
   /** @internal */
   _getColumnRefs(): ColumnRefs<this["columns"]> {
     return Object.fromEntries(
-      Object.entries(this.columns).map(([field, column]) => [field, new NodeRef(column)])
+      Object.entries(this.columns).map(([field, column]) => [
+        field,
+        column instanceof ColumnGroupDefinition ? column._getColumnRefs() : new NodeRef(column),
+      ])
     ) as ColumnRefs<this["columns"]>;
   }
 
@@ -151,9 +162,7 @@ export class TableDefinition<
   }
 
   public unique(
-    cb: (
-      columns: ColumnRefs<this["columns"]>
-    ) => ColumnRefs<this["columns"]>[keyof this["columns"]][]
+    cb: (columns: ColumnRefs<this["columns"]>) => ColumnRefOf<this["columns"]>[]
   ): UniqueConstraintDefinition<string, this> {
     const cols = cb(this._getColumnRefs());
 
@@ -167,11 +176,23 @@ export class TableDefinition<
   }
 
   public primaryKey(
-    cb: (
-      columns: ColumnRefs<this["columns"]>
-    ) => ColumnRefs<this["columns"]>[keyof this["columns"]][]
+    cb: (columns: ColumnRefs<this["columns"]>) => ColumnRefOf<this["columns"]>[]
   ): PrimaryKeyConstraintDefinition<string, this> {
     const cols = cb(this._getColumnRefs());
+    const members = new Set(
+      columnEntries(this.columns)
+        .filter(([path]) => path.length > 1)
+        .map(([, column]) => column.name)
+    );
+
+    for (const ref of cols) {
+      if (members.has(ref.name)) {
+        throw new Error(
+          `Table "${this.name}" declares a primary key on "${ref.name}", a member of an ` +
+            `embedded object. A primary key spans plain columns only.`
+        );
+      }
+    }
 
     const constraint = new PrimaryKeyConstraintDefinition(`${this.name}_primary_key`, {
       table: this,
@@ -209,7 +230,7 @@ export class TableDefinition<
       kind: this.kind,
       name: this.name,
       namespace: this._namespace?.name ?? "public",
-      columns: Object.values(this.columns).map((col) => col.toJSON()),
+      columns: columnEntries(this.columns).map(([, column]) => column.toJSON()),
       indexes: this._indexes.map((idx) => idx.toJSON()),
       constraints: this._constraints?.map((constraint) => constraint.toJSON()),
     } as const;

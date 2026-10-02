@@ -1,5 +1,6 @@
 import { Prettify, ReadOnly, TenantKey } from "../utils/index.js";
 import { DefinitionNode, Kind } from "./base.js";
+import { TableColumnDefinitions } from "./embedded.js";
 import { AnyColumnDefinition } from "./column.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
 import { TableDefinition } from "./table.js";
@@ -18,7 +19,7 @@ export type TenantClaimColumns<TClaims extends Record<string, AnyColumnDefinitio
 /** A table's own columns with the scope's claim columns merged in front of them. */
 export type WithClaims<
   TClaims extends Record<string, AnyColumnDefinition>,
-  TColumns extends Record<string, AnyColumnDefinition>,
+  TColumns extends TableColumnDefinitions,
 > = Prettify<TenantClaimColumns<TClaims> & TColumns>;
 
 export type TenantScopeConfig<TClaims extends Record<string, AnyColumnDefinition>> = {
@@ -97,7 +98,7 @@ export class TenantScopeDefinition<
    * Use the spread form directly when the table needs a different constructor — a namespaced
    * table is built by `namespace().table()`, which this cannot stand in for.
    */
-  public table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
+  public table<TName extends string, TColumns extends TableColumnDefinitions>(
     name: TName,
     columns: TColumns
   ): TableDefinition<TName, WithClaims<TClaims, TColumns>, AnyNamespaceDefinition> {

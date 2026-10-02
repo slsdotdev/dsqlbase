@@ -6,6 +6,7 @@ import {
   AnyUnionMembers,
   ColumnConfig,
   SharedFieldsOf,
+  TableColumnDefinitions,
   TableDefinition,
   UnionDefinition,
 } from "@dsqlbase/core/definition";
@@ -569,7 +570,7 @@ export type RelationJoinResultOf<
   TArgs extends QueryArgs<TTable, TSchema>,
   TRelationField extends RelationFieldNamesOf<TTable>,
   TTargetName extends string,
-  TTargetCols extends Record<string, AnyColumnDefinition>,
+  TTargetCols extends TableColumnDefinitions,
   TTargetSchema extends AnyNamespaceDefinition,
   TTargetMeta = object,
 > =

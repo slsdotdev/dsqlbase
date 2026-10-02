@@ -1,11 +1,17 @@
 import { DefinitionNode, Kind } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
+import { ColumnGroupDefinition } from "./embedded.js";
 import { AnyTableDefinition, TableDefinition } from "./table.js";
 
 export type AnyUnionMembers = Record<string, AnyTableDefinition>;
 
+/** A member's plain columns. A column group is not shared across a union (yet). */
+type PlainColumnsOf<TColumns> = {
+  [K in keyof TColumns as TColumns[K] extends AnyColumnDefinition ? K : never]: TColumns[K];
+};
+
 type MemberColumnsOf<TMembers extends AnyUnionMembers> = {
-  [A in keyof TMembers]: TMembers[A]["__type"]["columns"];
+  [A in keyof TMembers]: PlainColumnsOf<TMembers[A]["__type"]["columns"]>;
 }[keyof TMembers];
 
 type MemberValueOf<TColumn> = TColumn extends { __type: { valueType: infer V } } ? V : never;
@@ -121,13 +127,23 @@ export class UnionDefinition<
     const columns: Record<string, AnyUnionColumnDefinition> = {};
 
     for (const [field, column] of Object.entries<AnyColumnDefinition>(first[1].columns)) {
+      // A column group is not shared across a union: the union members are due a restructure,
+      // and a group's sharing rule waits for it.
+      if ((column as unknown) instanceof ColumnGroupDefinition) {
+        continue;
+      }
+
       const members: Record<string, AnyColumnDefinition> = { [first[0]]: column };
       let shared = true;
 
       for (const [alias, member] of rest) {
         const candidate = (member.columns as Record<string, AnyColumnDefinition>)[field];
 
-        if (!candidate || candidate["_dataType"] !== column["_dataType"]) {
+        if (
+          !candidate ||
+          (candidate as unknown) instanceof ColumnGroupDefinition ||
+          candidate["_dataType"] !== column["_dataType"]
+        ) {
           shared = false;
           break;
         }
