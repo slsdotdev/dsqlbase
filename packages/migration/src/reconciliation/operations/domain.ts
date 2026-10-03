@@ -1,6 +1,8 @@
 import { AnyDomainDefinition } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
+  attributeChanges,
+  change,
   DDLOperation,
   DDLOperationError,
   DDLOperationOptions,
@@ -8,11 +10,18 @@ import {
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
+  OperationSubject,
+  qualifiedName,
   refusal,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
 import { diffDomain } from "../diffs/domain.js";
 import { AnyDiff } from "../diffs/base.js";
+
+const subjectOf = (object: SerializedObject<AnyDomainDefinition>): OperationSubject => ({
+  kind: "DOMAIN",
+  name: qualifiedName(object),
+});
 
 export function createDomainOperation(
   object: SerializedObject<AnyDomainDefinition>,
@@ -30,12 +39,16 @@ export function createDomainOperation(
     ifNotExists,
   });
 
-  return {
-    type: "CREATE",
-    object,
-    statement,
-    references: maybeNamespaceReference(object),
-  };
+  const [operation] = change(qualifiedName(object), [
+    {
+      type: "CREATE",
+      object,
+      statement,
+      references: maybeNamespaceReference(object),
+      summary: { subject: subjectOf(object), action: "CREATE", risk: "safe" },
+    },
+  ]);
+  return operation;
 }
 
 export function dropDomainOperation(
@@ -48,12 +61,16 @@ export function dropDomainOperation(
     cascade: "RESTRICT",
   });
 
-  return {
-    type: "DROP",
-    object,
-    statement,
-    references: maybeNamespaceReference(object),
-  };
+  const [operation] = change(qualifiedName(object), [
+    {
+      type: "DROP",
+      object,
+      statement,
+      references: maybeNamespaceReference(object),
+      summary: { subject: subjectOf(object), action: "DROP", risk: "destructive" },
+    },
+  ]);
+  return operation;
 }
 
 export function diffDomainOperations(
@@ -84,21 +101,29 @@ export function diffDomainOperations(
 
   for (const diff of diffs) {
     if (diff.key === "defaultValue") {
-      const action =
-        diff.type === "remove"
-          ? ddl.dropDefault()
-          : ddl.setDefault({ expression: String(diff.value) });
+      const drop = diff.type === "remove";
 
-      operations.push({
-        type: "ALTER",
-        object: local,
-        statement: ddl.alterDomain({
-          name: local.name,
-          schema: local.namespace,
-          action,
-        }),
-        references: namespaceRef,
-      });
+      operations.push(
+        ...change(`${qualifiedName(local)}.default`, [
+          {
+            type: "ALTER",
+            object: local,
+            statement: ddl.alterDomain({
+              name: local.name,
+              schema: local.namespace,
+              action: drop ? ddl.dropDefault() : ddl.setDefault({ expression: String(diff.value) }),
+            }),
+            references: namespaceRef,
+            summary: {
+              subject: subjectOf(local),
+              action: drop ? "DROP" : "ALTER",
+              target: { kind: "DEFAULT", name: local.name },
+              changes: attributeChanges([diff as AnyDiff]),
+              risk: drop ? "lossy" : "safe",
+            },
+          },
+        ])
+      );
       continue;
     }
 
@@ -119,6 +144,11 @@ export function diffDomainOperations(
         object: local,
         subject: local.name,
         diffs: blocked,
+        summary: {
+          subject: subjectOf(local),
+          action: "ALTER",
+          changes: attributeChanges(blocked as AnyDiff[]),
+        },
       })
     );
   }

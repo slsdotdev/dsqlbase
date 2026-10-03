@@ -17,6 +17,16 @@ export const COMPARED_SEQUENCE_OPTIONS = [
 
 export type ComparedSequenceOption = (typeof COMPARED_SEQUENCE_OPTIONS)[number];
 
+export type EffectiveSequenceOptions = {
+  dataType: string;
+  increment: number;
+  minValue: number;
+  maxValue: number;
+  startValue: number;
+  cache: number;
+  cycle: boolean;
+};
+
 // Read back through `Number`, as introspection reads every bound: equal floats, not exact bigints.
 const BIGINT_MAX = Number("9223372036854775807");
 const BIGINT_MIN = Number("-9223372036854775808");
@@ -28,7 +38,7 @@ const BIGINT_MIN = Number("-9223372036854775808");
  */
 export function effectiveSequenceOptions(
   options: Partial<SequenceOptions> | null | undefined
-): Pick<Required<SequenceOptions>, ComparedSequenceOption> {
+): EffectiveSequenceOptions {
   const increment = options?.increment ?? 1;
   const ascending = increment > 0;
   const minValue = options?.minValue ?? (ascending ? 1 : BIGINT_MIN);

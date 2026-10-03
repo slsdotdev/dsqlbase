@@ -158,6 +158,42 @@ describe("MigrationRunner", () => {
       await expect(runner.plan([noPkTable.toJSON()])).rejects.toBeInstanceOf(MigrationError);
     });
 
+    // `users` as introspection reads it back: its key as a named constraint.
+    const introspectedUsers = () => {
+      const usersJson = usersTable.toJSON();
+      return {
+        ...usersJson,
+        constraints: [
+          ...usersJson.constraints,
+          { kind: "PRIMARY_KEY_CONSTRAINT", name: "users_pkey", columns: ["id"], include: null },
+        ],
+      } as typeof usersJson;
+    };
+
+    it("reports the plan as rows, with its highest risk", async () => {
+      session.introspection = [introspectedUsers(), orphanTable.toJSON()];
+
+      const result = await runner.plan([usersTable.toJSON()]);
+
+      expect(result.risk).toBe("destructive");
+      expect(result.rows).toEqual([
+        expect.objectContaining({
+          step: 1,
+          subject: orphanTable.name,
+          action: "DROP",
+          risk: "destructive",
+          destructive: true,
+          sql: expect.stringMatching(/^DROP TABLE/),
+        }),
+      ]);
+    });
+
+    it("rates an empty plan safe, with no rows", async () => {
+      session.introspection = [introspectedUsers()];
+
+      expect(await runner.plan([usersTable.toJSON()])).toMatchObject({ risk: "safe", rows: [] });
+    });
+
     it("collects refusals from reconciliation in errors[]", async () => {
       const remote = new TableDefinition("users", {
         columns: {
@@ -216,6 +252,20 @@ describe("MigrationRunner", () => {
   });
 
   describe("run", () => {
+    it("returns each row with how its statement went", async () => {
+      const result = await runner.run([usersTable.toJSON()]);
+
+      expect(result.rows).toEqual([
+        expect.objectContaining({
+          step: 1,
+          action: "CREATE",
+          status: "completed",
+          durationMs: expect.any(Number),
+          error: null,
+        }),
+      ]);
+    });
+
     it("executes operations in plan order against the session", async () => {
       const result = await runner.run([usersTable.toJSON()]);
 

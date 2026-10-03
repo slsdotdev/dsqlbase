@@ -96,6 +96,27 @@ describe("diffSequenceOperations", () => {
     );
   });
 
+  it("rates a change of increment safe, and narrower bounds lossy", () => {
+    const wider: Sequence = {
+      ...baseSequence,
+      options: { ...baseSequence.options, increment: 5 },
+    };
+    const narrower: Sequence = {
+      ...baseSequence,
+      options: { ...baseSequence.options, maxValue: 1000 },
+    };
+
+    expect(diffSequenceOperations(wider, baseSequence).operations[0]?.summary).toMatchObject({
+      action: "ALTER",
+      target: { kind: "OPTIONS", name: "task_number_seq" },
+      changes: [{ attribute: "increment", from: 1, to: 5 }],
+      risk: "safe",
+    });
+    expect(diffSequenceOperations(narrower, baseSequence).operations[0]?.summary.risk).toBe(
+      "lossy"
+    );
+  });
+
   it("emits no operations when local equals remote", () => {
     const result = diffSequenceOperations(baseSequence, baseSequence);
 

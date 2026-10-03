@@ -26,4 +26,24 @@ export {
   type ValidationResult,
   type ValidationRules,
 } from "./validation/index.js";
-export { MigrationRunner, createMigrationRunner, type MigrationRunnerOptions } from "./runner.js";
+export {
+  MigrationRunner,
+  createMigrationRunner,
+  type MigrationRunnerOptions,
+  type PlanResult,
+  type RunResult,
+} from "./runner.js";
+export {
+  formatPlan,
+  type ExecutedPlanRow,
+  type FormatPlanOptions,
+  type PlanRow,
+} from "./report.js";
+export type {
+  AttributeChange,
+  OperationAction,
+  OperationRisk,
+  OperationSubject,
+  OperationSummary,
+  OperationTarget,
+} from "./reconciliation/operations/index.js";

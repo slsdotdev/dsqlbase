@@ -89,6 +89,57 @@ describe("diffTableOperations — new table", () => {
   });
 });
 
+describe("diffTableOperations — risk and summaries", () => {
+  it("rates dropping an index lossy, with the table as its subject", () => {
+    const remote: Table = {
+      ...baseTable,
+      indexes: [
+        {
+          kind: "INDEX",
+          name: "users_email_idx",
+          unique: false,
+          distinctNulls: true,
+          columns: [
+            {
+              kind: "INDEX_COLUMN",
+              name: "users_email_idx_column_email",
+              nulls: "LAST",
+              column: "email",
+            },
+          ],
+          include: null,
+        },
+      ],
+    } as Table;
+
+    const [drop] = diffTableOperations(baseTable, remote).operations;
+
+    expect(drop?.summary).toMatchObject({
+      change: "users.users_email_idx",
+      subject: { kind: "TABLE", name: "users" },
+      action: "DROP",
+      target: { kind: "INDEX", name: "users_email_idx" },
+      risk: "lossy",
+    });
+  });
+
+  it("describes a refused change: subject, action, target and the attributes", () => {
+    const local: Table = {
+      ...baseTable,
+      columns: [idColumn, { ...emailColumn, dataType: "varchar(255)" }],
+    };
+
+    const [refused] = diffTableOperations(local, baseTable).errors;
+
+    expect(refused?.summary).toEqual({
+      subject: { kind: "TABLE", name: "users" },
+      action: "ALTER",
+      target: { kind: "COLUMN", name: "email" },
+      changes: [{ attribute: "dataType", from: "text", to: "varchar(255)" }],
+    });
+  });
+});
+
 describe("diffTableOperations — existing remote", () => {
   describe("columns", () => {
     it("emits a bare ADD COLUMN for a plain new column", () => {
@@ -153,7 +204,7 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("ADD COLUMN with identity emits bare ADD + ALTER COLUMN ADD IDENTITY", () => {
+    it("ADD COLUMN with identity emits bare ADD, then ADD IDENTITY, as two steps of one change", () => {
       const newCol: Column = {
         ...emailColumn,
         name: "counter",
@@ -178,11 +229,14 @@ describe("diffTableOperations — existing remote", () => {
       const result = diffTableOperations(local, baseTable);
 
       expect(result.errors).toEqual([]);
-      expect(result.operations).toHaveLength(1);
-      expect(result.operations[0].statement).toMatchObject({
+      expect(result.operations).toHaveLength(2);
+      expect(result.operations[0]?.statement).toMatchObject({
+        __kind: "ALTER_TABLE",
+        actions: [{ __kind: "ADD_COLUMN", column: expect.objectContaining({ name: "counter" }) }],
+      });
+      expect(result.operations[1]?.statement).toMatchObject({
         __kind: "ALTER_TABLE",
         actions: [
-          { __kind: "ADD_COLUMN", column: expect.objectContaining({ name: "counter" }) },
           {
             __kind: "ALTER_COLUMN",
             columnName: "counter",
@@ -190,6 +244,10 @@ describe("diffTableOperations — existing remote", () => {
           },
         ],
       });
+      expect(result.operations.map((op) => op.summary)).toEqual([
+        expect.objectContaining({ change: "users.counter", step: 1, steps: 2, action: "ADD" }),
+        expect.objectContaining({ change: "users.counter", step: 2, steps: 2, action: "ADD" }),
+      ]);
     });
 
     it("ADD COLUMN with a domain data type carries the domain in references", () => {
@@ -398,7 +456,7 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("emits SET GENERATED + RESTART when mode and startValue both change", () => {
+    it("emits SET GENERATED and RESTART as two statements when mode and startValue change", () => {
       const localIdentity = {
         ...idIdentity,
         type: "ALWAYS" as const,
@@ -416,18 +474,19 @@ describe("diffTableOperations — existing remote", () => {
       const result = diffTableOperations(local, remote);
 
       expect(result.errors).toEqual([]);
-      expect(result.operations[0].statement).toMatchObject({
-        __kind: "ALTER_TABLE",
-        actions: [
-          {
-            __kind: "ALTER_COLUMN",
-            actions: [
-              { __kind: "SET_GENERATED", mode: "ALWAYS" },
-              { __kind: "RESTART", with: 1000 },
-            ],
-          },
-        ],
-      });
+      expect(result.operations.map((op) => op.statement)).toMatchObject([
+        {
+          __kind: "ALTER_TABLE",
+          actions: [
+            { __kind: "ALTER_COLUMN", actions: [{ __kind: "SET_GENERATED", mode: "ALWAYS" }] },
+          ],
+        },
+        {
+          __kind: "ALTER_TABLE",
+          actions: [{ __kind: "ALTER_COLUMN", actions: [{ __kind: "RESTART", with: 1000 }] }],
+        },
+      ]);
+      expect(result.operations.map((op) => op.summary.risk)).toEqual(["safe", "lossy"]);
     });
   });
 

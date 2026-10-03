@@ -2,7 +2,13 @@ import { Session } from "@dsqlbase/core";
 import { MigrationError, SerializedSchema } from "./base.js";
 import { createPrinter } from "./ddl/printer.js";
 import { introspect as introspectSchema } from "./introspection/introspect.js";
-import { DDLOperationError, IndexedDDLOperation } from "./reconciliation/operations/index.js";
+import {
+  DDLOperationError,
+  IndexedDDLOperation,
+  maxRisk,
+  OperationRisk,
+} from "./reconciliation/operations/index.js";
+import { ExecutedPlanRow, PlanRow, planRows } from "./report.js";
 import { reconcileSchemas } from "./reconciliation/reconcile.js";
 import { ValidationResult } from "./validation/index.js";
 import { validateDefinition } from "./validation/validate.js";
@@ -23,7 +29,19 @@ export type MigrationRunnerOptions = {
 export type PlanResult = {
   operations: IndexedDDLOperation[];
   errors: DDLOperationError[];
+  /** True when the plan drops anything; what `destructive: true` is required for. */
   destructive: boolean;
+  /** The highest risk among the operations; `safe` for an empty plan. */
+  risk: OperationRisk;
+  /** One row per operation in execution order, then one per refusal. See `formatPlan`. */
+  rows: PlanRow[];
+};
+
+export type RunResult = {
+  count: number;
+  progress: OperationExecutionResult[];
+  /** The plan's operation rows, each with how its statement went. */
+  rows: ExecutedPlanRow[];
 };
 
 export class MigrationRunner {
@@ -69,6 +87,8 @@ export class MigrationRunner {
       operations,
       destructive: operations.some((op) => op.type === "DROP"),
       errors,
+      risk: operations.reduce<OperationRisk>((risk, op) => maxRisk(risk, op.summary.risk), "safe"),
+      rows: planRows(operations, errors, (op) => this._print(op.statement)),
     };
   }
 
@@ -88,8 +108,11 @@ export class MigrationRunner {
     return operations.map((op) => this._print(op.statement));
   }
 
-  public async run(definition: SerializedSchema, options: MigrationRunnerOptions = {}) {
-    const { operations, errors, destructive } = await this.plan(definition, options);
+  public async run(
+    definition: SerializedSchema,
+    options: MigrationRunnerOptions = {}
+  ): Promise<RunResult> {
+    const { operations, errors, destructive, rows } = await this.plan(definition, options);
 
     if (errors.length > 0) {
       throw new MigrationError("Schema reconciliation failed", errors);
@@ -103,7 +126,10 @@ export class MigrationRunner {
       );
     }
 
-    for (const op of operations) {
+    const executed: ExecutedPlanRow[] = [];
+
+    for (const [index, op] of operations.entries()) {
+      const started = Date.now();
       let result = await this._executor.execute(op);
 
       if (result.status === "processing" && result.asyncJob) {
@@ -111,10 +137,22 @@ export class MigrationRunner {
       }
 
       progress.push(result);
+      executed.push({
+        ...rows[index],
+        status: result.status,
+        durationMs: Date.now() - started,
+        error: result.status === "failed" ? describeFailure(result) : null,
+      });
     }
 
-    return { count: progress.length, progress };
+    return { count: progress.length, progress, rows: executed };
   }
+}
+
+function describeFailure(result: OperationExecutionResult): string {
+  if (result.asyncJob?.details) return result.asyncJob.details;
+  if (result.result instanceof Error) return result.result.message;
+  return "failed";
 }
 
 export function createMigrationRunner(session: Session): MigrationRunner {

@@ -17,7 +17,7 @@ The migration runner is **declarative**: it compares your schema definition with
 ## Runner
 
 ```ts
-import { createMigrationRunner, getSerializedSchemaObjects } from "@dsqlbase/migration";
+import { createMigrationRunner, formatPlan, getSerializedSchemaObjects } from "@dsqlbase/migration";
 import { createPgSession } from "dsqlbase/pg";
 import * as schema from "./schema";
 
@@ -25,8 +25,10 @@ const runner = createMigrationRunner(createPgSession(pool));
 const definitions = getSerializedSchemaObjects(Object.values(schema));
 
 const statements = await runner.dryRun(definitions);          // printed SQL, nothing executed
-const { operations, errors, destructive } = await runner.plan(definitions);
-await runner.run(definitions, { destructive: false });
+const plan = await runner.plan(definitions);                  // operations, refusals, rows, risk
+console.log(formatPlan(plan));                                // what would change, as a table
+const result = await runner.run(definitions, { destructive: false });
+console.log(formatPlan(result));                              // the same rows, with each status
 ```
 
 | Method | IO | Returns |
@@ -34,11 +36,42 @@ await runner.run(definitions, { destructive: false });
 | `validate(definition)` | none | validation errors and warnings |
 | `introspect()` | one query | `SerializedSchema` of the live database |
 | `reconcile(local, remote, options)` | none | ordered operations + refusals |
-| `plan(definition, options)` | introspect | `{ operations, errors, destructive }`; throws `MigrationError` on validation failure |
+| `plan(definition, options)` | introspect | `{ operations, errors, destructive, risk, rows }`; throws `MigrationError` on validation failure |
 | `dryRun(definition, options)` | introspect | `SQLStatement[]`; throws on refusals or ungated destructive ops |
-| `run(definition, options)` | full | executes sequentially; same gates as `dryRun` |
+| `run(definition, options)` | full | executes sequentially; same gates as `dryRun`; `{ count, progress, rows }` |
 
 `getSerializedSchemaObjects` accepts the module's exported values and keeps only tables, domains, sequences, and namespaces (relations are ignored — see [Relations](./relations.md)).
+
+### Reporting
+
+A **change** is one difference on one target: a column, an index, a constraint. It runs as one or more **steps**, each a single statement in its own transaction. Adding a unique column, for example, takes three steps: add the column, build the unique index, promote it to a constraint.
+
+`plan.rows` and `run().rows` hold one row per step, in execution order, then one per refused change:
+
+| Field | Meaning |
+|---|---|
+| `step` | execution order, from 1 (`null` for a refusal) |
+| `change`, `changeStep` | the change it belongs to, and its place in it (`"2/3"`) |
+| `subject`, `subjectKind` | the table, domain, sequence or schema |
+| `action` | `CREATE`, `ADD`, `ALTER`, `DROP`, `RENAME`, `VALIDATE` |
+| `target`, `targetKind` | the column, index, constraint, identity, default or options changed |
+| `changes` | `attribute: from → to`, `;`-separated |
+| `risk`, `destructive` | `safe`, `lossy` (removes what redeploying restores: an index, a default), `destructive` (loses rows, or can't be re-created), or `refused` |
+| `async` | runs as a DSQL async job (`CREATE INDEX ASYNC`) |
+| `sql` | the statement |
+| `refusal` | `{ code, message }` for a refused change |
+| `status`, `durationMs`, `error` | after `run` only |
+
+`formatPlan(planOrRows, { format: "text" | "markdown", sql?: boolean })` prints them:
+
+```
+#  Subject      Action        Target                      Changes         Risk   Async
+-  -----------  ------------  --------------------------  --------------  -----  -----
+1  table users  ADD (1/3)     column email                dataType: text  safe
+2  table users  CREATE (2/3)  index users_email_key_idx   columns: email  safe   async
+3  table users  ADD (3/3)     constraint users_email_key  unique: email   safe
+4  table users  DROP          index users_nickname_idx                    lossy
+```
 
 ### Options
 

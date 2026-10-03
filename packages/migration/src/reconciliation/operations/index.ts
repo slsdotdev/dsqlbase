@@ -50,6 +50,10 @@ export function dropObjectOperations(
 }
 
 export {
+  attributeChanges,
+  change,
+  maxRisk,
+  RISK_ORDER,
   kindMismatchError,
   maybeNamespaceReference,
   qualifiedName,
@@ -62,4 +66,12 @@ export {
   type OperationResult,
   type DDLOperationType,
   type RefusalCode,
+  type AttributeChange,
+  type DraftOperation,
+  type OperationAction,
+  type OperationRisk,
+  type OperationSubject,
+  type OperationSummary,
+  type OperationTarget,
+  type RefusalSummary,
 } from "./base.js";

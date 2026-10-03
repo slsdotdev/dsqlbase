@@ -44,6 +44,12 @@ describe("diffDomainOperations — existing remote", () => {
       __kind: "ALTER_DOMAIN",
       action: { __kind: "DROP_DEFAULT" },
     });
+    expect(result.operations[0]?.summary).toMatchObject({
+      subject: { kind: "DOMAIN", name: "email" },
+      action: "DROP",
+      target: { kind: "DEFAULT", name: "email" },
+      risk: "lossy",
+    });
   });
 
   it("emits ALTER DOMAIN SET DEFAULT when default is modified", () => {
@@ -55,6 +61,11 @@ describe("diffDomainOperations — existing remote", () => {
     expect(result.errors).toEqual([]);
     expect(result.operations[0].statement).toMatchObject({
       action: { __kind: "SET_DEFAULT", expression: "'unknown'" },
+    });
+    expect(result.operations[0]?.summary).toMatchObject({
+      action: "ALTER",
+      changes: [{ attribute: "defaultValue", from: "''", to: "'unknown'" }],
+      risk: "safe",
     });
   });
 

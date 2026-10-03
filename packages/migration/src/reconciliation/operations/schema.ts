@@ -4,8 +4,10 @@ import {
   DDLOperation,
   DDLOperationOptions,
   DEFAULT_DDL_OPERATION_OPTIONS,
+  change,
   kindMismatchError,
   OperationResult,
+  OperationSubject,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
 
@@ -18,12 +20,21 @@ export function createSchemaOperation(
     ifNotExists,
   });
 
-  return {
-    type: "CREATE",
-    object,
-    statement,
-  };
+  const [operation] = change(object.name, [
+    {
+      type: "CREATE",
+      object,
+      statement,
+      summary: { subject: subjectOf(object), action: "CREATE", risk: "safe" },
+    },
+  ]);
+  return operation;
 }
+
+const subjectOf = (object: SerializedObject<AnyNamespaceDefinition>): OperationSubject => ({
+  kind: "SCHEMA",
+  name: object.name,
+});
 
 export function dropSchemaOperation(
   object: SerializedObject<AnyNamespaceDefinition>,
@@ -35,11 +46,15 @@ export function dropSchemaOperation(
     cascade: "RESTRICT",
   });
 
-  return {
-    type: "DROP",
-    object,
-    statement,
-  };
+  const [operation] = change(object.name, [
+    {
+      type: "DROP",
+      object,
+      statement,
+      summary: { subject: subjectOf(object), action: "DROP", risk: "destructive" },
+    },
+  ]);
+  return operation;
 }
 
 export function diffSchemaOperations(

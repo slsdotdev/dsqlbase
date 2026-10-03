@@ -5,6 +5,7 @@ import { Session } from "@dsqlbase/core/runtime";
 import { domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
 import {
   createMigrationRunner,
+  formatPlan,
   introspect,
   MigrationRunner,
   getSerializedSchemaObjects,
@@ -95,6 +96,36 @@ describe("schema migrations (e2e via PGlite)", () => {
 
     const result = await runner.run([widgets.toJSON()], RUN_OPTS);
     expect(result.progress.every((p) => p.status === "completed")).toBe(true);
+  });
+
+  it("runs a multi-step change in order and reports every step", async () => {
+    const v1 = table("widgets", {
+      id: uuid("id").primaryKey(),
+      name: text("name"),
+    });
+    v1.index("widgets_name_idx").columns((c) => [c.name]);
+    await runner.run([v1.toJSON()], RUN_OPTS);
+
+    // Adds a unique column (add, unique index, promote) and drops the index on `name`.
+    const v2 = table("widgets", {
+      id: uuid("id").primaryKey(),
+      name: text("name"),
+      slug: text("slug").unique(),
+    });
+
+    const result = await runner.run([v2.toJSON()], RUN_OPTS);
+
+    expect(result.rows.map((row) => [row.action, row.changeStep, row.target, row.status])).toEqual([
+      ["ADD", "1/3", "slug", "completed"],
+      ["CREATE", "2/3", "widgets_slug_key_idx", "completed"],
+      ["ADD", "3/3", "widgets_slug_key", "completed"],
+      ["DROP", "1/1", "widgets_name_idx", "completed"],
+    ]);
+    expect(formatPlan(result)).toContain("Status");
+
+    const again = await runner.plan([v2.toJSON()], RUN_OPTS);
+    expect(again.rows).toEqual([]);
+    expect(formatPlan(again)).toBe("Nothing to do: the database matches the definition.");
   });
 
   it("refuses dropping a column from an existing table", async () => {

@@ -16,7 +16,7 @@ These hold across every layer. A change that breaks one needs a decision record.
 1. **`SerializedSchema` is the contract** between introspection and reconciliation (`base.ts`). Local (`TableDefinition.toJSON()`) and remote (introspection query) must produce the same shape. Adapter logic lives in `introspection/normalizer.ts`, never in reconciliation.
 2. **Diffs are dumb.** `reconciliation/diffs/*` has no knowledge of DSQL, refusals, or operation rules. It diffs every observable attribute (`hasDiff` is a recursive deep-equal) and emits raw `Diff` records. Some attributes need an equality that knows their spelling — defaults (`diffs/expression.ts`), sequence options — and those comparisons live here too; deciding what to _do_ about a difference does not.
 3. **Operations are the policy layer.** `reconciliation/operations/*` translate diffs into DDL operations or refusals. All DSQL capability rules live here, and only here.
-4. **Per-subject batching.** All diffs for one subject (a column, an index, a domain) collapse into one operation or one refusal carrying every blocked diff.
+4. **Changes and steps.** All diffs for one target (a column, an index, a constraint) collapse into one decision: a refusal carrying every blocked diff, or a **change** of one or more **steps**. Each step is one operation, one statement, one transaction: statements are never batched into a shared `ALTER TABLE`. Every operation carries a `summary` (`operations/base.ts`: change key, step i/n, subject, action, target, attribute changes, risk, async), built with `change(key, drafts)`.
 5. **Refusals are not errors.** A refusal is a structured record (`code`, `subject`, `diffs[]`, `message`) in `operations/base.ts`. The runner decides whether to fail on them; today `dryRun` / `run` throw `MigrationError`, `plan` returns them in `errors[]`.
 6. **Ordering comes from `references[]`, not from kind.** Every operation declares the subjects it depends on; the planner is type-agnostic.
 7. **`ORDERED_SCHEMA_OBJECTS = ["SCHEMA", "DOMAIN", "TABLE", "SEQUENCE"]`** drives create order; drops reverse it.
@@ -62,9 +62,15 @@ Refusal codes: `IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT`, `IM
 
 ### Planner (`reconciliation/planner.ts`)
 
-Stable topological sort (Kahn's, min-id tiebreaker) over `IndexedDDLOperation[]`, inspecting only `id`, `type`, `references[]`. For CREATE/ALTER X: edges `dep → X`; for DROP X: edges `X → dep`. Subjects key on the qualified object name, or `qualifiedConstraintName(parentTable, constraint)` for standalone constraint ops. Cycles throw — they indicate a bug in operation emission, not user input.
+Stable topological sort (Kahn's, min-id tiebreaker) over `IndexedDDLOperation[]`, inspecting only `id`, `type`, `references[]`, and the step order within a change (`summary.change` / `summary.step`: step k runs before step k + 1). For CREATE/ALTER X: edges `dep → X`; for DROP X: edges `X → dep`. Subjects key on the qualified object name, or `qualifiedConstraintName(parentTable, constraint)` for standalone constraint ops. Cycles throw — they indicate a bug in operation emission, not user input.
 
 Deferred: sequences before the tables that own them (`OWNED BY`). `SequenceDefinition.ownedBy()` is commented out in `packages/core/src/definition/sequence.ts` and the local/introspection serializations disagree; a one-line `references[]` change lands once that is fixed.
+
+### Reporting (`report.ts`)
+
+`planRows(operations, errors, print)` flattens a plan into `PlanRow`s, one per operation in execution order, then one per refusal. Each row is plain data: step, change and `i/n`, subject, action, target, changes, risk (`safe` / `lossy` / `destructive` / `refused`), async, SQL, refusal. `runner.plan` returns them as `rows`, with the plan's highest `risk`; `runner.run` returns them with `status` / `durationMs` / `error`. `formatPlan` prints rows as an aligned text table or a markdown table, with no dependencies, for scripts and CI logs.
+
+Risk is set by the operation factories, by one test: can redeploying the previous definition undo it? `safe` adds or relaxes; `lossy` removes something redeploying restores (a default, an index, an identity, narrower sequence bounds, a `RESTART`); `destructive` loses rows or removes what DSQL cannot re-create (dropped tables, sequences, domains, schemas).
 
 ### Validation (`validation/`)
 

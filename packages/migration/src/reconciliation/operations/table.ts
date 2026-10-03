@@ -8,7 +8,6 @@ import {
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
   AnyAlterTableAction,
-  AlterColumnSubAction,
   ColumnDefinitionExpression,
   IndexColumnExpression,
   TableConstraintExpression,
@@ -17,13 +16,17 @@ import { ddl } from "../../ddl/index.js";
 import { Diff, DiffType } from "../diffs/base.js";
 import { diffTable } from "../diffs/table.js";
 import {
+  attributeChanges,
+  change,
   DDLOperation,
   DDLOperationError,
   DDLOperationOptions,
   DEFAULT_DDL_OPERATION_OPTIONS,
+  DraftOperation,
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
+  OperationSubject,
   qualifiedName,
   refusal,
 } from "./base.js";
@@ -36,6 +39,8 @@ type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
 const uniqueIndexNameForColumn = (table: string, column: string) => `${table}_${column}_key_idx`;
 const uniqueConstraintNameForColumn = (table: string, column: string) => `${table}_${column}_key`;
 const uniqueIndexNameForConstraint = (constraint: string) => `${constraint}_idx`;
+
+const tableSubject = (tableName: string): OperationSubject => ({ kind: "TABLE", name: tableName });
 
 export function createTableOperation(
   object: SerializedObject<AnyTableDefinition>,
@@ -113,12 +118,16 @@ export function createTableOperation(
     constraints,
   });
 
-  return {
-    type: "CREATE",
-    object: object,
-    statement,
-    references,
-  };
+  const [operation] = change(qualifiedName(object), [
+    {
+      type: "CREATE",
+      object,
+      statement,
+      references,
+      summary: { subject: tableSubject(qualifiedName(object)), action: "CREATE", risk: "safe" },
+    },
+  ]);
+  return operation;
 }
 
 export function createIndexOperation(
@@ -127,36 +136,52 @@ export function createIndexOperation(
   ifNotExists = true,
   async = false
 ): DDLOperation {
+  return change(`${tableName}.${index.name}`, [
+    createIndexDraft(index, tableName, ifNotExists, async),
+  ])[0];
+}
+
+function createIndexDraft(
+  index: SerializedObject<AnyIndexDefinition>,
+  tableName: string,
+  ifNotExists: boolean,
+  async: boolean
+): DraftOperation {
   const references: string[] = maybeNamespaceReference(index) ?? [];
   references.push(tableName);
 
-  const columns: IndexColumnExpression[] = [];
-
-  for (const column of index.columns) {
-    columns.push(
-      ddl.indexColumn({
-        columnName: column.column,
-        nulls: column.nulls,
-      })
-    );
-  }
-
-  const statement = ddl.createIndex({
-    name: index.name,
-    tableName,
-    unique: index.unique,
-    columns,
-    include: index.include ?? undefined,
-    nullsDistinct: index.distinctNulls,
-    ifNotExists,
-    async: async ? true : undefined,
-  });
+  const columns: IndexColumnExpression[] = index.columns.map((column) =>
+    ddl.indexColumn({ columnName: column.column, nulls: column.nulls })
+  );
 
   return {
     type: "CREATE",
     object: index,
-    statement,
+    statement: ddl.createIndex({
+      name: index.name,
+      tableName,
+      unique: index.unique,
+      columns,
+      include: index.include ?? undefined,
+      nullsDistinct: index.distinctNulls,
+      ifNotExists,
+      async: async ? true : undefined,
+    }),
     references,
+    summary: {
+      subject: tableSubject(tableName),
+      action: "CREATE",
+      target: { kind: "INDEX", name: index.name },
+      changes: [
+        {
+          attribute: "columns",
+          from: null,
+          to: index.columns.map((column) => column.column).join(", "),
+        },
+      ],
+      risk: "safe",
+      async,
+    },
   };
 }
 
@@ -169,32 +194,48 @@ export function dropTableOperation(
     column.domain ? [column.domain] : []
   );
 
-  return {
-    type: "DROP",
-    object: object,
-    statement: ddl.dropTable({
-      name: object.name,
-      ifExists: options.safeOperations,
-      cascade: "RESTRICT",
-    }),
-    references: dedupe([...(maybeNamespaceReference(object) ?? []), ...domains]),
-  };
+  return change(qualifiedName(object), [
+    {
+      type: "DROP",
+      object,
+      statement: ddl.dropTable({
+        name: object.name,
+        ifExists: options.safeOperations,
+        cascade: "RESTRICT",
+      }),
+      references: dedupe([...(maybeNamespaceReference(object) ?? []), ...domains]),
+      summary: {
+        subject: tableSubject(qualifiedName(object)),
+        action: "DROP",
+        risk: "destructive",
+      },
+    },
+  ])[0];
 }
 
 export function dropIndexOperation(
   object: SerializedObject<AnyIndexDefinition>,
+  tableName: string,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
-  return {
-    type: "DROP",
-    object,
-    statement: ddl.dropIndex({
-      name: object.name,
-      ifExists: options.safeOperations,
-      cascade: "RESTRICT",
-    }),
-    references: maybeNamespaceReference(object),
-  };
+  return change(`${tableName}.${object.name}`, [
+    {
+      type: "DROP",
+      object,
+      statement: ddl.dropIndex({
+        name: object.name,
+        ifExists: options.safeOperations,
+        cascade: "RESTRICT",
+      }),
+      references: maybeNamespaceReference(object),
+      summary: {
+        subject: tableSubject(tableName),
+        action: "DROP",
+        target: { kind: "INDEX", name: object.name },
+        risk: "lossy",
+      },
+    },
+  ])[0];
 }
 
 export function diffTableOperations(
@@ -209,12 +250,10 @@ export function diffTableOperations(
     const tableName = qualifiedName(local);
     operations.push(createTableOperation(local, options.safeOperations));
 
-    if (local.indexes.length) {
-      for (const idx of local.indexes) {
-        operations.push(
-          createIndexOperation(idx, tableName, options.safeOperations, options.asyncIndexes)
-        );
-      }
+    for (const idx of local.indexes) {
+      operations.push(
+        createIndexOperation(idx, tableName, options.safeOperations, options.asyncIndexes)
+      );
     }
 
     return { operations, errors };
@@ -227,29 +266,22 @@ export function diffTableOperations(
   }
 
   const tableName = qualifiedName(local);
-  const tableNamespaceRef = maybeNamespaceReference(local) ?? [];
-  const ctx: TableProcessingContext = { local, tableName, tableNamespaceRef };
+  const ctx: TableProcessingContext = {
+    local,
+    tableName,
+    tableNamespaceRef: maybeNamespaceReference(local) ?? [],
+    options,
+  };
 
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
 
-  const columnResult = processColumnDiffs(buckets.columns, ctx);
-  const indexResult = processIndexDiffs(buckets.indexes, ctx, options);
-  const constraintResult = processConstraintDiffs(buckets.constraints, ctx);
-
-  errors.push(...columnResult.errors, ...indexResult.errors, ...constraintResult.errors);
-  operations.push(
-    ...columnResult.operations,
-    ...indexResult.operations,
-    ...constraintResult.operations
-  );
-
-  if (columnResult.tableActions.length > 0) {
-    operations.unshift({
-      type: "ALTER",
-      object: local,
-      statement: ddl.alterTable({ name: local.name, actions: columnResult.tableActions }),
-      references: dedupe([...tableNamespaceRef, ...columnResult.references]),
-    });
+  for (const result of [
+    processColumnDiffs(buckets.columns, ctx),
+    processIndexDiffs(buckets.indexes, ctx),
+    processConstraintDiffs(buckets.constraints, ctx),
+  ]) {
+    operations.push(...result.operations);
+    errors.push(...result.errors);
   }
 
   return { operations, errors };
@@ -259,13 +291,7 @@ type TableProcessingContext = {
   local: SerializedObject<AnyTableDefinition>;
   tableName: string;
   tableNamespaceRef: string[];
-};
-
-type ColumnProcessingResult = {
-  tableActions: AnyAlterTableAction[];
-  operations: DDLOperation[];
-  errors: DDLOperationError[];
-  references: string[];
+  options: DDLOperationOptions;
 };
 
 type SubjectProcessingResult = {
@@ -294,19 +320,34 @@ function dedupe(values: string[]): string[] | undefined {
   return Array.from(new Set(values));
 }
 
+/** One `ALTER TABLE` statement carrying exactly one action: a step of a column change. */
+function alterTableDraft(
+  ctx: TableProcessingContext,
+  action: AnyAlterTableAction,
+  summary: DraftOperation["summary"],
+  references: string[] = []
+): DraftOperation {
+  return {
+    type: "ALTER",
+    object: ctx.local,
+    statement: ddl.alterTable({ name: ctx.local.name, actions: [action] }),
+    references: dedupe([...ctx.tableNamespaceRef, ...references]),
+    summary,
+  };
+}
+
 function processColumnDiffs(
   columnDiffs: Map<string, AnyDiff[]>,
   ctx: TableProcessingContext
-): ColumnProcessingResult {
-  const tableActions: AnyAlterTableAction[] = [];
+): SubjectProcessingResult {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
-  const references: string[] = [];
 
   for (const [columnName, diffsForColumn] of columnDiffs) {
     const wholeAdd = diffsForColumn.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForColumn.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForColumn.filter((d) => d.key !== undefined);
+    const target = { kind: "COLUMN", name: columnName } as const;
 
     if (wholeRemove) {
       errors.push(
@@ -316,91 +357,103 @@ function processColumnDiffs(
           object: wholeRemove.object,
           subject: columnName,
           diffs: [wholeRemove],
+          summary: { subject: tableSubject(ctx.tableName), action: "DROP", target, changes: [] },
         })
       );
       continue;
     }
 
-    if (wholeAdd) {
-      const result = handleColumnAdd(wholeAdd, ctx);
-      tableActions.push(...result.tableActions);
-      operations.push(...result.operations);
-      errors.push(...result.errors);
-      references.push(...result.references);
-      continue;
-    }
+    const result = wholeAdd ? columnAdd(wholeAdd, ctx) : columnModify(columnName, attrDiffs, ctx);
 
-    const result = handleColumnModify(columnName, attrDiffs, ctx);
-    tableActions.push(...result.tableActions);
-    operations.push(...result.operations);
-    errors.push(...result.errors);
+    if ("error" in result) {
+      errors.push(result.error);
+    } else if (result.drafts.length > 0) {
+      operations.push(...change(`${ctx.tableName}.${columnName}`, result.drafts));
+    }
   }
 
-  return { tableActions, operations, errors, references };
+  return { operations, errors };
 }
 
-function handleColumnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnProcessingResult {
+type ColumnChange = { drafts: DraftOperation[] } | { error: DDLOperationError };
+
+function columnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnChange {
   const column = diff.object as ColumnSerialized;
   const blocked = nonPromotableInlineAttrs(column);
+  const target = { kind: "COLUMN", name: column.name } as const;
 
   if (blocked.length > 0) {
     return {
-      tableActions: [],
-      operations: [],
-      references: [],
-      errors: [
-        refusal({
-          code: "IMMUTABLE_COLUMN",
-          message:
-            `Column "${column.name}" cannot be added with inline ${blocked.join(", ")}: ` +
-            `DSQL only supports bare ADD COLUMN. Add the column without these attributes ` +
-            `or recreate the table.`,
-          object: column,
-          subject: column.name,
-          diffs: [diff],
-        }),
-      ],
+      error: refusal({
+        code: "IMMUTABLE_COLUMN",
+        message:
+          `Column "${column.name}" cannot be added with inline ${blocked.join(", ")}: ` +
+          `DSQL only supports bare ADD COLUMN. Add the column without these attributes ` +
+          `or recreate the table.`,
+        object: column,
+        subject: column.name,
+        diffs: [diff],
+        summary: {
+          subject: tableSubject(ctx.tableName),
+          action: "ADD",
+          target,
+          changes: [{ attribute: "dataType", from: null, to: column.dataType }],
+        },
+      }),
     };
   }
 
-  const tableActions: AnyAlterTableAction[] = [
-    ddl.addColumn({
-      column: ddl.column({
-        name: column.name,
-        dataType: column.dataType,
-        isPrimaryKey: false,
-        notNull: false,
-        unique: false,
-        defaultValue: null,
+  const drafts: DraftOperation[] = [
+    alterTableDraft(
+      ctx,
+      ddl.addColumn({
+        column: ddl.column({
+          name: column.name,
+          dataType: column.dataType,
+          isPrimaryKey: false,
+          notNull: false,
+          unique: false,
+          defaultValue: null,
+        }),
       }),
-    }),
+      {
+        subject: tableSubject(ctx.tableName),
+        action: "ADD",
+        target,
+        changes: [{ attribute: "dataType", from: null, to: column.dataType }],
+        risk: "safe",
+      },
+      column.domain ? [column.domain] : []
+    ),
   ];
-  const operations: DDLOperation[] = [];
-  const references: string[] = [];
-
-  if (column.domain) {
-    references.push(column.domain);
-  }
 
   if (column.identity) {
-    tableActions.push(
-      ddl.alterColumn({
-        columnName: column.name,
-        actions: [
-          ddl.addIdentity({
-            mode: column.identity.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-            options: identitySequenceOptions(column.identity),
-          }),
-        ],
-      })
+    drafts.push(
+      alterTableDraft(
+        ctx,
+        ddl.alterColumn({
+          columnName: column.name,
+          actions: [
+            ddl.addIdentity({
+              mode: column.identity.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
+              options: identitySequenceOptions(column.identity),
+            }),
+          ],
+        }),
+        {
+          subject: tableSubject(ctx.tableName),
+          action: "ADD",
+          target: { kind: "IDENTITY", name: column.name },
+          changes: [{ attribute: "identity", from: null, to: column.identity.type }],
+          risk: "safe",
+        }
+      )
     );
   }
 
   if (column.unique) {
-    operations.push(
-      ...uniquePromotionOps({
-        tableName: ctx.tableName,
-        tableNamespaceRef: ctx.tableNamespaceRef,
+    drafts.push(
+      ...uniquePromotionDrafts(ctx, {
         indexName: uniqueIndexNameForColumn(ctx.local.name, column.name),
         constraintName: uniqueConstraintNameForColumn(ctx.local.name, column.name),
         columns: [column.name],
@@ -408,17 +461,16 @@ function handleColumnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnProc
     );
   }
 
-  return { tableActions, operations, references, errors: [] };
+  return { drafts };
 }
 
-function handleColumnModify(
+function columnModify(
   columnName: string,
   attrDiffs: AnyDiff[],
   ctx: TableProcessingContext
-): ColumnProcessingResult {
+): ColumnChange {
   const blocked: AnyDiff[] = [];
-  const blockedAttrs: string[] = [];
-  const subActions: AlterColumnSubAction[] = [];
+  const drafts: DraftOperation[] = [];
   let promoteUnique = false;
 
   for (const diff of attrDiffs) {
@@ -432,7 +484,6 @@ function handleColumnModify(
       case "generated":
       case "check":
         blocked.push(diff);
-        blockedAttrs.push(key);
         break;
       case "unique":
         if (
@@ -443,57 +494,54 @@ function handleColumnModify(
           promoteUnique = true;
         } else {
           blocked.push(diff);
-          blockedAttrs.push("unique");
         }
         break;
       case "identity":
-        subActions.push(...identitySubActions(diff));
+        drafts.push(...identityDrafts(columnName, diff, ctx));
         break;
     }
   }
 
   if (blocked.length > 0) {
     return {
-      tableActions: [],
-      operations: [],
-      references: [],
-      errors: [
-        refusal({
-          code: "IMMUTABLE_COLUMN",
-          message:
-            `Column "${columnName}" is immutable on existing tables — ` +
-            `cannot change ${blockedAttrs.join(", ")}.`,
-          object: blocked[0].object,
-          subject: columnName,
-          diffs: blocked,
-        }),
-      ],
+      error: refusal({
+        code: "IMMUTABLE_COLUMN",
+        message:
+          `Column "${columnName}" is immutable on existing tables — ` +
+          `cannot change ${blocked.map((diff) => String(diff.key)).join(", ")}.`,
+        object: blocked[0].object,
+        subject: columnName,
+        diffs: blocked,
+        summary: {
+          subject: tableSubject(ctx.tableName),
+          action: "ALTER",
+          target: { kind: "COLUMN", name: columnName },
+          changes: attributeChanges(blocked),
+        },
+      }),
     };
   }
 
-  const tableActions: AnyAlterTableAction[] =
-    subActions.length > 0 ? [ddl.alterColumn({ columnName, actions: subActions })] : [];
-
-  const operations = promoteUnique
-    ? uniquePromotionOps({
-        tableName: ctx.tableName,
-        tableNamespaceRef: ctx.tableNamespaceRef,
+  if (promoteUnique) {
+    drafts.push(
+      ...uniquePromotionDrafts(ctx, {
         indexName: uniqueIndexNameForColumn(ctx.local.name, columnName),
         constraintName: uniqueConstraintNameForColumn(ctx.local.name, columnName),
         columns: [columnName],
       })
-    : [];
+    );
+  }
 
-  return { tableActions, operations, references: [], errors: [] };
+  return { drafts };
 }
 
 function processIndexDiffs(
   indexDiffs: Map<string, AnyDiff[]>,
-  ctx: TableProcessingContext,
-  options: DDLOperationOptions = { asyncIndexes: true, safeOperations: true }
+  ctx: TableProcessingContext
 ): SubjectProcessingResult {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
+  const { options } = ctx;
 
   for (const [indexName, diffsForIndex] of indexDiffs) {
     const wholeAdd = diffsForIndex.find((d) => d.type === "add" && !d.key);
@@ -513,7 +561,9 @@ function processIndexDiffs(
     }
 
     if (wholeRemove) {
-      operations.push(dropIndexOperation(wholeRemove.object as IndexSerialized, options));
+      operations.push(
+        dropIndexOperation(wholeRemove.object as IndexSerialized, ctx.tableName, options)
+      );
       continue;
     }
 
@@ -527,6 +577,12 @@ function processIndexDiffs(
           object: attrDiffs[0].object,
           subject: indexName,
           diffs: attrDiffs,
+          summary: {
+            subject: tableSubject(ctx.tableName),
+            action: "ALTER",
+            target: { kind: "INDEX", name: indexName },
+            changes: attributeChanges(attrDiffs),
+          },
         })
       );
     }
@@ -546,21 +602,24 @@ function processConstraintDiffs(
     const wholeAdd = diffsForConstraint.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForConstraint.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForConstraint.filter((d) => d.key !== undefined);
+    const target = { kind: "CONSTRAINT", name: constraintName } as const;
+    const subject = tableSubject(ctx.tableName);
 
     if (wholeAdd) {
       const constraint = wholeAdd.object as ConstraintSerialized;
       if (constraint.kind === "UNIQUE_CONSTRAINT") {
         operations.push(
-          ...uniquePromotionOps({
-            tableName: ctx.tableName,
-            tableNamespaceRef: ctx.tableNamespaceRef,
-            indexName: uniqueIndexNameForConstraint(constraint.name),
-            constraintName: constraint.name,
-            columns: constraint.columns,
-            include: constraint.include ?? undefined,
-            nullsDistinct: constraint.distinctNulls ?? undefined,
-            constraintObject: constraint,
-          })
+          ...change(
+            `${ctx.tableName}.${constraint.name}`,
+            uniquePromotionDrafts(ctx, {
+              indexName: uniqueIndexNameForConstraint(constraint.name),
+              constraintName: constraint.name,
+              columns: constraint.columns,
+              include: constraint.include ?? undefined,
+              nullsDistinct: constraint.distinctNulls ?? undefined,
+              constraintObject: constraint,
+            })
+          )
         );
         continue;
       }
@@ -575,6 +634,7 @@ function processConstraintDiffs(
           object: constraint,
           subject: constraintName,
           diffs: [wholeAdd],
+          summary: { subject, action: "ADD", target, changes: [] },
         })
       );
       continue;
@@ -591,6 +651,12 @@ function processConstraintDiffs(
           object: refusalDiffs[0].object,
           subject: constraintName,
           diffs: refusalDiffs,
+          summary: {
+            subject,
+            action: wholeRemove ? "DROP" : "ALTER",
+            target,
+            changes: attributeChanges(refusalDiffs),
+          },
         })
       );
     }
@@ -609,38 +675,82 @@ function nonPromotableInlineAttrs(column: ColumnSerialized): string[] {
   return blocked;
 }
 
-function identitySubActions(diff: AnyDiff): AlterColumnSubAction[] {
+/** The steps an identity difference takes: one `ALTER COLUMN` action each. */
+function identityDrafts(
+  columnName: string,
+  diff: AnyDiff,
+  ctx: TableProcessingContext
+): DraftOperation[] {
   const value = diff.value as ColumnSerialized["identity"] | undefined;
   const prev = diff.prevValue as ColumnSerialized["identity"] | undefined;
+  const target = { kind: "IDENTITY", name: columnName } as const;
+  const subject = tableSubject(ctx.tableName);
+
+  const draft = (
+    action: Parameters<typeof ddl.alterColumn>[0]["actions"][number],
+    summary: Omit<DraftOperation["summary"], "subject" | "target">
+  ) =>
+    alterTableDraft(ctx, ddl.alterColumn({ columnName, actions: [action] }), {
+      subject,
+      target,
+      ...summary,
+    });
 
   if (diff.type === "add" && value) {
     return [
-      ddl.addIdentity({
-        mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-        options: identitySequenceOptions(value),
-      }),
+      draft(
+        ddl.addIdentity({
+          mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
+          options: identitySequenceOptions(value),
+        }),
+        {
+          action: "ADD",
+          changes: [{ attribute: "identity", from: null, to: value.type }],
+          risk: "safe",
+        }
+      ),
     ];
   }
 
   if (diff.type === "remove") {
-    return [ddl.dropIdentity({ ifExists: true })];
+    return [
+      draft(ddl.dropIdentity({ ifExists: true }), {
+        action: "DROP",
+        changes: [{ attribute: "identity", from: prev?.type ?? null, to: null }],
+        risk: "lossy",
+      }),
+    ];
   }
 
   if (diff.type === "modify" && value && prev) {
-    const actions: AlterColumnSubAction[] = [];
+    const drafts: DraftOperation[] = [];
 
     if (value.type !== prev.type) {
-      actions.push(ddl.setGenerated({ mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT" }));
+      drafts.push(
+        draft(ddl.setGenerated({ mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT" }), {
+          action: "ALTER",
+          changes: [{ attribute: "identity", from: prev.type, to: value.type }],
+          risk: "safe",
+        })
+      );
     }
 
     const startValue = value.options?.startValue;
     const prevStart = prev.options?.startValue;
 
     if (startValue !== undefined && startValue !== prevStart) {
-      actions.push(ddl.restart({ with: startValue }));
+      // Restarting can hand out values already used: lossy until the definition's
+      // `startValue` maps to `SET START` instead (column policy story).
+      drafts.push(
+        draft(ddl.restart({ with: startValue }), {
+          action: "ALTER",
+          changes: [{ attribute: "startValue", from: prevStart ?? null, to: startValue }],
+          risk: "lossy",
+        })
+      );
     }
 
-    return actions;
+    return drafts;
   }
 
   return [];
@@ -665,16 +775,20 @@ function identitySequenceOptions(identity: NonNullable<ColumnSerialized["identit
   });
 }
 
-function uniquePromotionOps(args: {
-  tableName: string;
-  tableNamespaceRef: string[];
-  indexName: string;
-  constraintName: string;
-  columns: string[];
-  include?: string[];
-  nullsDistinct?: boolean;
-  constraintObject?: ConstraintSerialized;
-}): DDLOperation[] {
+function uniquePromotionDrafts(
+  ctx: TableProcessingContext,
+  args: {
+    indexName: string;
+    constraintName: string;
+    columns: string[];
+    include?: string[];
+    nullsDistinct?: boolean;
+    constraintObject?: ConstraintSerialized;
+  }
+): DraftOperation[] {
+  const { tableName, tableNamespaceRef, options } = ctx;
+  const subject = tableSubject(tableName);
+
   const indexObject: IndexSerialized = {
     kind: "INDEX",
     name: args.indexName,
@@ -692,20 +806,29 @@ function uniquePromotionOps(args: {
     include: args.include ?? null,
   } as IndexSerialized;
 
-  const indexOp: DDLOperation = {
+  const indexDraft: DraftOperation = {
     type: "CREATE",
     object: indexObject,
     statement: ddl.createIndex({
       name: args.indexName,
-      tableName: args.tableName,
+      tableName,
       unique: true,
-      async: true,
+      async: options.asyncIndexes ? true : undefined,
       columns: args.columns.map((col) => ddl.indexColumn({ columnName: col, nulls: "LAST" })),
       include: args.include,
       nullsDistinct: args.nullsDistinct,
       ifNotExists: true,
     }),
-    references: [args.tableName, ...args.tableNamespaceRef],
+    references: [tableName, ...tableNamespaceRef],
+    summary: {
+      subject,
+      action: "CREATE",
+      target: { kind: "INDEX", name: args.indexName },
+      changes: [{ attribute: "columns", from: null, to: args.columns.join(", ") }],
+      risk: "safe",
+      async: options.asyncIndexes,
+      note: "unique index for the constraint that follows",
+    },
   };
 
   const constraintObject: ConstraintSerialized =
@@ -718,11 +841,11 @@ function uniquePromotionOps(args: {
       distinctNulls: args.nullsDistinct ?? null,
     } as ConstraintSerialized);
 
-  const constraintOp: DDLOperation = {
+  const constraintDraft: DraftOperation = {
     type: "CREATE",
     object: constraintObject,
     statement: ddl.alterTable({
-      name: args.tableName,
+      name: tableName,
       actions: [
         ddl.addConstraintUsingIndex({
           name: args.constraintName,
@@ -731,8 +854,15 @@ function uniquePromotionOps(args: {
         }),
       ],
     }),
-    references: [args.tableName, args.indexName, ...args.tableNamespaceRef],
+    references: [tableName, args.indexName, ...tableNamespaceRef],
+    summary: {
+      subject,
+      action: "ADD",
+      target: { kind: "CONSTRAINT", name: args.constraintName },
+      changes: [{ attribute: "unique", from: null, to: args.columns.join(", ") }],
+      risk: "safe",
+    },
   };
 
-  return [indexOp, constraintOp];
+  return [indexDraft, constraintDraft];
 }

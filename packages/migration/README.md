@@ -13,7 +13,7 @@ npm install @dsqlbase/migration
 
 ## Documentation
 
-- [Migrations guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/migrations.md) — runner surface and options
+- [Migrations guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/migrations.md) — runner surface, options and plan reporting (`formatPlan`)
 - [Migration pipeline](https://github.com/slsdotdev/dsqlbase/blob/main/docs/internals/migration-pipeline.md) — internals
 - [DSQL capabilities](https://github.com/slsdotdev/dsqlbase/blob/main/docs/internals/dsql-capabilities.md) — verified DDL table
 
