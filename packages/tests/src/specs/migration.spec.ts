@@ -453,4 +453,47 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect((await runner.plan([users({ partial: true })], RUN_OPTS)).rows).toEqual([]);
     });
   });
+
+  describe("domains and sequences", () => {
+    const status = (v: { default?: string; notNull?: boolean; check?: string }) => {
+      let d = domain("ticket_status");
+      if (v.notNull) d = d.notNull() as typeof d;
+      if (v.default) d = d.default(v.default) as typeof d;
+      if (v.check) d = d.check((value) => sql`${value} <> ''`, v.check);
+      return d.toJSON();
+    };
+
+    it("changes a domain's default, drops its NOT NULL and CHECK; refuses adding them", async () => {
+      await runner.run(
+        [status({ default: "open", notNull: true, check: "ticket_status_check" })],
+        RUN_OPTS
+      );
+
+      const changed = await runner.run([status({ default: "new" })], RUN_OPTS);
+      expect(changed.rows.map((row) => [row.action, row.targetKind, row.risk])).toEqual([
+        ["ALTER", "DEFAULT", "safe"],
+        ["DROP", "CONSTRAINT", "destructive"],
+        ["DROP", "CONSTRAINT", "destructive"],
+      ]);
+      expect((await runner.plan([status({ default: "new" })], RUN_OPTS)).rows).toEqual([]);
+
+      const refused = await runner.plan(
+        [status({ default: "new", check: "ticket_status_check" })],
+        RUN_OPTS
+      );
+      expect(refused.errors.map((error) => error.code)).toEqual(["NO_ALTER_DOMAIN_CONSTRAINT"]);
+    });
+
+    it("alters only a sequence's changed options, and plans nothing after", async () => {
+      await runner.run([sequence("ticket_seq").toJSON()], RUN_OPTS);
+
+      const next = sequence("ticket_seq").incrementBy(5).cache(65536);
+      const result = await runner.run([next.toJSON()], RUN_OPTS);
+
+      expect(result.rows.map((row) => row.sql)).toEqual([
+        `ALTER SEQUENCE "public"."ticket_seq" INCREMENT BY 5 CACHE 65536`,
+      ]);
+      expect((await runner.plan([next.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+  });
 });

@@ -115,6 +115,11 @@ To change a type **and keep the data**, don't let the runner drop the column: ad
 
 Refused, with the reason in the plan: adding a generated or identity column, making an existing column generated or an identity (an identity needs a `NOT NULL` from `CREATE TABLE`), changing a generated expression, and dropping or retyping a primary-key column.
 
+## Domains and sequences
+
+- **Domains** — a default is set or dropped (`ALTER DOMAIN … SET` / `DROP DEFAULT`). Dropping a domain's `NOT NULL` or its `CHECK` works, but is **destructive**: DSQL can't add either back. Making a domain `NOT NULL`, adding a `CHECK`, or changing its type is refused — define a new domain and move the columns to it (a type change for each). A `CHECK`'s expression is compared by name only, as a table's is: to change one, rename it — which a domain can't take, so it means a new domain.
+- **Sequences** — only the options that changed are altered (`ALTER SEQUENCE … INCREMENT BY 5 CACHE 65536`); a changed start value sets `START WITH` and never restarts the sequence. Narrower bounds are lossy: the next value can fail.
+
 ## Constraints and indexes on existing tables
 
 - **CHECK** — added `NOT VALID`, then validated against the existing rows by an async job (`ALTER TABLE ASYNC … VALIDATE CONSTRAINT`). It is enforced on new writes from the first step. If an existing row violates it, validation fails, the run stops with the database's message, and the constraint **stays** — enforced, but not valid. Fix the data and run again: the next plan is just the `VALIDATE`. A removed CHECK is dropped (lossy).
@@ -138,7 +143,8 @@ Changes DSQL cannot express come back as refusals in `plan().errors` — and as 
 | `NO_ALTER_GENERATED` | making a column generated, or changing its expression |
 | `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN` | retyping or dropping a primary-key column |
 | `IMMUTABLE_CONSTRAINT` | adding, dropping or changing a primary key |
-| `IMMUTABLE_DOMAIN` | changing a domain's type, `NOT NULL` or `CHECK` |
+| `NO_ALTER_DOMAIN_TYPE` | changing a domain's type |
+| `NO_ALTER_DOMAIN_CONSTRAINT` | making a domain `NOT NULL`, or adding or renaming its `CHECK` |
 | `KIND_MISMATCH` | an object whose kind changed under the same name |
 
 A [column group](./embeddable-objects.md) is plain columns to the migration module: changing an

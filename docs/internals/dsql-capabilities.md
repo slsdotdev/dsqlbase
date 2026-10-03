@@ -80,9 +80,9 @@ The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0
 | Form | DSQL | Module |
 |---|---|---|
 | `CREATE DOMAIN … DEFAULT … NOT NULL CONSTRAINT … CHECK (…)` | supported (live; no grammar published) | emitted |
-| `ALTER DOMAIN` `SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `RENAME`, `RENAME CONSTRAINT` | supported (live; not listed in the docs) | `SET` / `DROP DEFAULT` emitted |
-| `ALTER DOMAIN SET NOT NULL`, `ADD CONSTRAINT` (with or without `NOT VALID`) | refused (live) | refused |
-| `ALTER DOMAIN DROP CONSTRAINT` / `VALIDATE CONSTRAINT` | **unverified** | — |
+| `ALTER DOMAIN` `SET DEFAULT`, `DROP DEFAULT`, `DROP NOT NULL`, `RENAME`, `RENAME CONSTRAINT` | supported (live; not listed in the docs) | `SET` / `DROP DEFAULT`, `DROP NOT NULL` emitted |
+| `ALTER DOMAIN SET NOT NULL`, `ADD CONSTRAINT` (with or without `NOT VALID`) | refused (live) | refused (`NO_ALTER_DOMAIN_CONSTRAINT`) |
+| `ALTER DOMAIN DROP CONSTRAINT [IF EXISTS]` | supported (live) | emitted (destructive) |
 | `DROP DOMAIN [RESTRICT]` (blocked while a column uses it) | supported (live) | emitted, after the tables that use it |
 | `DROP DOMAIN … CASCADE` | refused (live: `DROP DOMAIN with CASCADE unsupported`) | never emitted |
 | `CREATE SEQUENCE … CACHE 1 \| >= 65536` (`CACHE` required; options in any order; bigint only) | supported (docs, live) | emitted; `INVALID_SEQUENCE_CACHE` |
@@ -121,7 +121,6 @@ The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0
 
 | Item | How to verify | If different |
 |---|---|---|
-| `ALTER DOMAIN DROP CONSTRAINT` / `VALIDATE CONSTRAINT` on an existing domain constraint | create a domain with a `CHECK`, then drop it | removing a domain `CHECK` stays refused |
 | Row-value comparison `(a, b) < ($1, $2)` | `SELECT … WHERE (a, b) < (1, 2)` | nothing: `sql.keyset` expands key by key; if supported, it may become an optimisation |
 | Whether a session can change `DateStyle` | `SET DateStyle = 'SQL, DMY'`, then read a `date` as text | keyset cursors carry `::text` values; if it can change, cast order keys to a fixed format |
 

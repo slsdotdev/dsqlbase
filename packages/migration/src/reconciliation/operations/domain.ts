@@ -10,9 +10,12 @@ import {
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
+  DraftOperation,
   OperationSubject,
+  OperationTarget,
   qualifiedName,
   refusal,
+  RefusalCode,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
 import { diffDomain } from "../diffs/domain.js";
@@ -95,62 +98,124 @@ export function diffDomainOperations(
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
   const namespaceRef = maybeNamespaceReference(local);
-  const diffs = diffDomain(local, remote);
-  const blocked: AnyDiff<AnyDomainDefinition>[] = [];
-  const blockedAttrs: string[] = [];
+  const subject = subjectOf(local);
+  const domainName = qualifiedName(local);
 
-  for (const diff of diffs) {
-    if (diff.key === "defaultValue") {
-      const drop = diff.type === "remove";
+  const alter = (
+    key: string,
+    action: Parameters<typeof ddl.alterDomain>[0]["action"],
+    summary: Omit<DraftOperation["summary"], "subject">
+  ) =>
+    operations.push(
+      ...change(`${domainName}.${key}`, [
+        {
+          type: "ALTER",
+          object: local,
+          statement: ddl.alterDomain({ name: local.name, schema: local.namespace, action }),
+          references: namespaceRef,
+          summary: { subject, ...summary },
+        },
+      ])
+    );
 
-      operations.push(
-        ...change(`${qualifiedName(local)}.default`, [
-          {
-            type: "ALTER",
-            object: local,
-            statement: ddl.alterDomain({
-              name: local.name,
-              schema: local.namespace,
-              action: drop ? ddl.dropDefault() : ddl.setDefault({ expression: String(diff.value) }),
-            }),
-            references: namespaceRef,
-            summary: {
-              subject: subjectOf(local),
-              action: drop ? "DROP" : "ALTER",
-              target: { kind: "DEFAULT", name: local.name },
-              changes: attributeChanges([diff as AnyDiff]),
-              risk: drop ? "lossy" : "safe",
-            },
-          },
-        ])
-      );
-      continue;
-    }
-
-    blocked.push(diff);
-
-    if (diff.key) {
-      blockedAttrs.push(diff.key);
-    }
-  }
-
-  if (blocked.length > 0) {
+  const refuse = (code: RefusalCode, message: string, diffs: AnyDiff[], target?: OperationTarget) =>
     errors.push(
       refusal({
-        code: "IMMUTABLE_DOMAIN",
-        message:
-          `Domain "${local.name}" is immutable except for defaultValue — ` +
-          `cannot change ${blockedAttrs.join(", ")}.`,
+        code,
+        message,
         object: local,
         subject: local.name,
-        diffs: blocked,
+        diffs: diffs as AnyDiff<AnyDomainDefinition>[],
         summary: {
-          subject: subjectOf(local),
-          action: "ALTER",
-          changes: attributeChanges(blocked as AnyDiff[]),
+          subject,
+          action: target?.kind === "CONSTRAINT" ? "ADD" : "ALTER",
+          target,
+          changes: attributeChanges(diffs),
         },
       })
     );
+
+  const newDomain =
+    `Define a new domain instead and move the columns to it — a type change for each, which ` +
+    `drops and re-adds them unless their data is migrated first.`;
+
+  for (const diff of diffDomain(local, remote) as AnyDiff[]) {
+    switch (String(diff.key)) {
+      case "defaultValue": {
+        const drop = diff.type === "remove";
+        alter(
+          "default",
+          drop ? ddl.dropDefault() : ddl.setDefault({ expression: String(diff.value) }),
+          {
+            action: drop ? "DROP" : "ALTER",
+            target: { kind: "DEFAULT", name: local.name },
+            changes: attributeChanges([diff]),
+            risk: drop ? "lossy" : "safe",
+          }
+        );
+        break;
+      }
+
+      case "dataType":
+        refuse(
+          "NO_ALTER_DOMAIN_TYPE",
+          `Domain "${local.name}" can't change from ${String(diff.prevValue)} to ${String(diff.value)}: ` +
+            `PostgreSQL has no ALTER DOMAIN … TYPE. ${newDomain}`,
+          [diff]
+        );
+        break;
+
+      case "notNull":
+        if (local.notNull) {
+          refuse(
+            "NO_ALTER_DOMAIN_CONSTRAINT",
+            `Domain "${local.name}" can't become NOT NULL: DSQL has no ALTER DOMAIN … SET NOT NULL. ${newDomain}`,
+            [diff],
+            { kind: "CONSTRAINT", name: "NOT NULL" }
+          );
+        } else {
+          alter("notNull", ddl.dropNotNull(), {
+            action: "DROP",
+            target: { kind: "CONSTRAINT", name: "NOT NULL" },
+            changes: attributeChanges([diff]),
+            risk: "destructive",
+            note: "DSQL can't make a domain NOT NULL again",
+          });
+        }
+        break;
+
+      case "check": {
+        const value = diff.value as { name: string } | null | undefined;
+        const prev = diff.prevValue as { name: string } | null | undefined;
+
+        if (value) {
+          refuse(
+            "NO_ALTER_DOMAIN_CONSTRAINT",
+            `Domain "${local.name}" can't ${prev ? `replace CHECK "${prev.name}" with` : "add"} CHECK ` +
+              `"${value.name}": DSQL has no ALTER DOMAIN … ADD CONSTRAINT. ${newDomain}`,
+            [diff],
+            { kind: "CONSTRAINT", name: value.name }
+          );
+        } else if (prev) {
+          alter(
+            `check`,
+            ddl.dropConstraint({
+              name: prev.name,
+              ifExists: options.ifExists,
+              cascade: "RESTRICT",
+            }),
+            {
+              action: "DROP",
+              target: { kind: "CONSTRAINT", name: prev.name },
+              changes: attributeChanges([diff]),
+              risk: "destructive",
+              note: "DSQL can't add a CHECK to an existing domain again",
+            }
+          );
+        }
+        break;
+      }
+    }
   }
 
   return { operations, errors };

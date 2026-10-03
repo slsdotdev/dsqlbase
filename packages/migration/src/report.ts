@@ -60,6 +60,10 @@ const formatValue = (value: unknown): string => {
       )
       .join(", ");
   }
+  // A constraint or other definition object: by its name.
+  if (typeof value === "object" && "kind" in value && "name" in value) {
+    return String((value as { name: unknown }).name);
+  }
   return JSON.stringify(value);
 };
 

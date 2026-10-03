@@ -120,8 +120,9 @@ export type IndexedDDLOperation = {
 
 export type RefusalCode =
   | "IMMUTABLE_CONSTRAINT"
-  | "IMMUTABLE_DOMAIN"
   | "KIND_MISMATCH"
+  | "NO_ALTER_DOMAIN_CONSTRAINT"
+  | "NO_ALTER_DOMAIN_TYPE"
   | "NO_ADD_GENERATED_COLUMN"
   | "NO_ADD_IDENTITY"
   | "NO_ALTER_GENERATED"

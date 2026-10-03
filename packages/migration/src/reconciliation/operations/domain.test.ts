@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { diffDomainOperations } from "./domain.js";
+import { createPrinter } from "../../ddl/index.js";
+
+const print = createPrinter();
 import { SerializedObject } from "../../base.js";
 import { AnyDomainDefinition } from "@dsqlbase/core/definition";
 
@@ -69,47 +72,64 @@ describe("diffDomainOperations — existing remote", () => {
     });
   });
 
-  it("refuses dataType change with IMMUTABLE_DOMAIN", () => {
-    const local: Domain = { ...baseDomain, dataType: "varchar" };
+  const check = {
+    kind: "CHECK_CONSTRAINT",
+    name: "email_format",
+    expression: "VALUE ~ '@'",
+    validated: true,
+  } as const;
+  const sqlOf = (local: Domain, remote: Domain) =>
+    diffDomainOperations(local, remote).operations.map((op) => print(op.statement).text);
 
-    const result = diffDomainOperations(local, baseDomain);
+  it("refuses a type change: NO_ALTER_DOMAIN_TYPE", () => {
+    const result = diffDomainOperations({ ...baseDomain, dataType: "varchar" }, baseDomain);
 
     expect(result.operations).toEqual([]);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toMatchObject({
-      code: "IMMUTABLE_DOMAIN",
-      subject: "email",
-    });
-    expect(result.errors[0].message).toContain("dataType");
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "NO_ALTER_DOMAIN_TYPE", subject: "email" }),
+    ]);
+    expect(result.errors[0]?.message).toMatch(/new domain/);
   });
 
-  it("refuses notNull change with IMMUTABLE_DOMAIN", () => {
-    const local: Domain = { ...baseDomain, notNull: true };
+  it("refuses SET NOT NULL: NO_ALTER_DOMAIN_CONSTRAINT", () => {
+    const result = diffDomainOperations({ ...baseDomain, notNull: true }, baseDomain);
 
-    const result = diffDomainOperations(local, baseDomain);
-
-    expect(result.operations).toEqual([]);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toMatchObject({
-      code: "IMMUTABLE_DOMAIN",
-      subject: "email",
-    });
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "NO_ALTER_DOMAIN_CONSTRAINT", subject: "email" }),
+    ]);
   });
 
-  it("refuses check change with IMMUTABLE_DOMAIN", () => {
-    const local: Domain = {
-      ...baseDomain,
-      check: { kind: "CHECK_CONSTRAINT", name: "email_format", expression: "VALUE ~ '@'" },
-    };
+  it("drops NOT NULL (destructive: DSQL can't set it again)", () => {
+    const result = diffDomainOperations(baseDomain, { ...baseDomain, notNull: true });
 
-    const result = diffDomainOperations(local, baseDomain);
+    expect(sqlOf(baseDomain, { ...baseDomain, notNull: true })).toEqual([
+      `ALTER DOMAIN "public"."email" DROP NOT NULL`,
+    ]);
+    expect(result.operations[0]?.summary).toMatchObject({ action: "DROP", risk: "destructive" });
+  });
 
-    expect(result.operations).toEqual([]);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toMatchObject({
-      code: "IMMUTABLE_DOMAIN",
-      subject: "email",
-    });
+  it("refuses adding or renaming a CHECK: NO_ALTER_DOMAIN_CONSTRAINT", () => {
+    const added = diffDomainOperations({ ...baseDomain, check }, baseDomain);
+    const renamed = diffDomainOperations(
+      { ...baseDomain, check: { ...check, name: "email_has_at" } },
+      { ...baseDomain, check }
+    );
+
+    for (const result of [added, renamed]) {
+      expect(result.operations).toEqual([]);
+      expect(result.errors).toEqual([
+        expect.objectContaining({ code: "NO_ALTER_DOMAIN_CONSTRAINT" }),
+      ]);
+    }
+  });
+
+  it("drops a removed CHECK (destructive: DSQL can't add it back)", () => {
+    expect(sqlOf(baseDomain, { ...baseDomain, check })).toEqual([
+      `ALTER DOMAIN "public"."email" DROP CONSTRAINT IF EXISTS "email_format" RESTRICT`,
+    ]);
+    expect(
+      diffDomainOperations(baseDomain, { ...baseDomain, check }).operations[0]?.summary.risk
+    ).toBe("destructive");
   });
 
   it("returns kind mismatch error when remote is wrong kind", () => {

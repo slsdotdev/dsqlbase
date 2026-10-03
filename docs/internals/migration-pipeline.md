@@ -55,14 +55,14 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - CHECK add → `ADD CONSTRAINT … NOT VALID` (enforced on new writes at once), then `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` (an async job; `ASYNC` follows `asyncIndexes`). A CHECK left `NOT VALID` → `VALIDATE` alone. Drop → `DROP CONSTRAINT` (lossy).
 - UNIQUE add → the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`, modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic. Drop → `DROP CONSTRAINT` (drops its index too; lossy). Change → drop, then the promotion path.
 - Primary key add, drop or change → `IMMUTABLE_CONSTRAINT`: DSQL fixes it at `CREATE TABLE`.
-- Domain alters → only `defaultValue`; `dataType` / `notNull` / `check` → `IMMUTABLE_DOMAIN`.
+- Domain alters → `SET` / `DROP DEFAULT`; `DROP NOT NULL` and `DROP CONSTRAINT` of its CHECK (both destructive: DSQL can't add them back); type → `NO_ALTER_DOMAIN_TYPE`; `SET NOT NULL`, CHECK added or renamed → `NO_ALTER_DOMAIN_CONSTRAINT`.
 - Sequence option changes → `ALTER SEQUENCE`.
 - Drops are always `RESTRICT`; `ifExists` only adds `IF [NOT] EXISTS`. A table drop references the domains its columns use, so a domain dropped in the same plan comes after the table.
 - `CREATE TABLE` carries identity columns (with `SEQUENCE NAME` when the definition names one) and generated columns inline.
 - Sequence and identity options compare by their effective values: an option the definition leaves unset counts as the PostgreSQL default for a `bigint` sequence, and an identity's sequence name only counts when the definition names one. `ALTER SEQUENCE` lists only the options that changed. `ownedBy` isn't compared (deferred).
 - Key-column lists (index, primary key, unique) compare in order; `include` lists compare as sets. A constraint whose kind changes under the same name is removed and added.
 
-Refusal codes: `NOT_NULL_NEEDS_DEFAULT`, `NO_ADD_GENERATED_COLUMN`, `NO_ADD_IDENTITY`, `NO_ALTER_GENERATED`, `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `IMMUTABLE_DOMAIN`, `KIND_MISMATCH`.
+Refusal codes: `NOT_NULL_NEEDS_DEFAULT`, `NO_ADD_GENERATED_COLUMN`, `NO_ADD_IDENTITY`, `NO_ALTER_GENERATED`, `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `NO_ALTER_DOMAIN_TYPE`, `NO_ALTER_DOMAIN_CONSTRAINT`, `KIND_MISMATCH`.
 
 ### Planner (`reconciliation/planner.ts`)
 

@@ -118,7 +118,7 @@ describe("formatPlan", () => {
     expect(text).toContain("Failed step 1: duplicate column");
   });
 
-  it("renders lists as names, index columns by their column", () => {
+  it("renders lists as names, index columns by their column, objects by their name", () => {
     const [row] = planRows(
       [
         {
@@ -140,6 +140,11 @@ describe("formatPlan", () => {
                 to: [{ column: "qty" }, { column: "sku" }],
               },
               { attribute: "include", from: null, to: ["a", "b"] },
+              {
+                attribute: "check",
+                from: { kind: "CHECK_CONSTRAINT", name: "qty_positive", expression: "qty > 0" },
+                to: null,
+              },
             ],
             risk: "safe",
             async: true,
@@ -150,7 +155,7 @@ describe("formatPlan", () => {
       () => ({ text: "", params: [] })
     );
 
-    expect(row?.changes).toBe("columns: qty → qty, sku; include: a, b");
+    expect(row?.changes).toBe("columns: qty → qty, sku; include: a, b; check: qty_positive → none");
   });
 
   it("lists the notes of destructive and blocked steps under the table", () => {
