@@ -29,6 +29,17 @@ function makeOp(args: MakeOpArgs): IndexedDDLOperation {
     object,
     statement: stubStatement,
     references: args.references,
+    // Each op its own one-step change: ordering here comes from references only.
+    summary: {
+      change: `op-${args.id}`,
+      step: 1,
+      steps: 1,
+      subject: { kind: "TABLE", name: args.name },
+      action: "ALTER",
+      changes: [],
+      risk: "safe",
+      async: false,
+    },
   };
 }
 
@@ -186,5 +197,14 @@ describe("planOperations", () => {
     const b = makeOp({ id: 1, type: "CREATE", kind: "TABLE", name: "B", references: ["A"] });
 
     expect(() => planOperations([a, b])).toThrow(/Cycle detected/);
+  });
+
+  it("runs the steps of one change in step order, whatever their ids", () => {
+    const second = makeOp({ id: 0, type: "ALTER", name: "users" });
+    const first = makeOp({ id: 1, type: "ALTER", name: "users" });
+    second.summary = { ...second.summary, change: "users.email", step: 2, steps: 2 };
+    first.summary = { ...first.summary, change: "users.email", step: 1, steps: 2 };
+
+    expect(idsOf(planOperations([second, first]))).toEqual([1, 0]);
   });
 });

@@ -1,5 +1,7 @@
 // VIEW and FUNCTION kinds are reserved for future stories — no statement types, factories, or printer cases exist for them yet.
 export type DDLCommand =
+  | "BACKFILL"
+  | "COMMENT_ON_COLUMN"
   | "CREATE_TABLE"
   | "ALTER_TABLE"
   | "DROP_TABLE"
@@ -25,6 +27,7 @@ export type DDLAction =
   | "RENAME"
   | "OWNER"
   | "ADD_COLUMN"
+  | "DROP_COLUMN"
   | "ALTER_COLUMN"
   | "RENAME_COLUMN"
   | "RENAME_CONSTRAINT"
@@ -43,7 +46,9 @@ export type DDLSubAction =
   | "DROP_IDENTITY"
   | "ADD_CONSTRAINT"
   | "DROP_CONSTRAINT"
-  | "VALIDATE_CONSTRAINT";
+  | "VALIDATE_CONSTRAINT"
+  | "DROP_EXPRESSION"
+  | "SET_SEQUENCE_OPTIONS";
 
 export type DDLExpression =
   | "COLUMN_DEFINITION"
@@ -84,8 +89,10 @@ export type UniqueConstraintExpression = {
 
 export type IndexColumnExpression = {
   __kind: "INDEX_COLUMN";
+  /** Ignored when `expression` is set. */
   columnName: string;
-  sortDirection?: "ASC" | "DESC";
+  /** An expression key, printed in parentheses. */
+  expression?: string;
   nulls?: "FIRST" | "LAST";
 } & DDLStatement;
 
@@ -142,6 +149,36 @@ export type AddColumnAction = {
   ifNotExists?: boolean;
 } & DDLStatement;
 
+/** `COMMENT ON COLUMN`: `comment: null` removes it. */
+export type CommentOnColumnCommand = {
+  __kind: "COMMENT_ON_COLUMN";
+  tableName: string;
+  schema?: string;
+  columnName: string;
+  comment: string | null;
+} & DDLStatement;
+
+export type DropColumnAction = {
+  __kind: "DROP_COLUMN";
+  columnName: string;
+  ifExists?: boolean;
+} & DDLStatement;
+
+/**
+ * Fills a column's NULLs with its default, in batches: `UPDATE … SET c = DEFAULT` on up to
+ * `batchSize` rows at a time, picked by primary key. Not DDL: the executor repeats it, one
+ * transaction per batch, until a batch updates nothing.
+ */
+export type BackfillCommand = {
+  __kind: "BACKFILL";
+  tableName: string;
+  schema?: string;
+  columnName: string;
+  /** The primary-key columns batches are picked by. */
+  key: string[];
+  batchSize: number;
+} & DDLStatement;
+
 export type RenameTableAction = {
   __kind: "RENAME";
   newName: string;
@@ -178,7 +215,11 @@ export type AddConstraintUsingIndexAction = {
 
 export type AnyAlterTableAction =
   | AddColumnAction
+  | DropColumnAction
   | AlterColumnAction
+  | AddConstraintSubAction
+  | DropConstraintSubAction
+  | ValidateConstraintSubAction
   | RenameTableAction
   | RenameColumnAction
   | RenameConstraintAction
@@ -190,6 +231,8 @@ export type AlterTableCommand = {
   __kind: "ALTER_TABLE";
   name: string;
   schema?: string;
+  /** `ALTER TABLE ASYNC`: DSQL's form for `VALIDATE CONSTRAINT`, which runs as a job. */
+  async?: boolean;
   actions: AnyAlterTableAction[];
 } & DDLStatement;
 
@@ -204,6 +247,8 @@ export type CreateIndexCommand = {
   ifNotExists?: boolean;
   include?: string[];
   nullsDistinct?: boolean;
+  /** A partial index's predicate. */
+  where?: string;
 } & DDLStatement;
 
 export type DropIndexCommand = {
@@ -229,6 +274,8 @@ export type DropSchemaCommand = {
 
 export type SequenceOptionsExpression = {
   __kind: "SEQUENCE_OPTIONS";
+  /** `SEQUENCE NAME`: an identity column's sequence only. */
+  sequenceName?: string;
   dataType?: string;
   startValue?: number;
   incrementBy?: number;
@@ -330,6 +377,8 @@ export type DropIdentitySubAction = {
 export type AddConstraintSubAction = {
   __kind: "ADD_CONSTRAINT";
   constraint: CheckConstraintExpression;
+  /** Skips checking existing rows; DSQL requires it on an existing table. */
+  notValid?: boolean;
 } & DDLStatement;
 
 export type DropConstraintSubAction = {
@@ -350,8 +399,26 @@ type SharedModifySubAction =
   | SetDefaultSubAction
   | DropDefaultSubAction;
 
+/** `DROP EXPRESSION`: a generated column becomes a plain one, keeping its values. */
+export type DropExpressionSubAction = {
+  __kind: "DROP_EXPRESSION";
+} & DDLStatement;
+
+/** An identity's sequence options, as `SET INCREMENT BY 5 SET CACHE 1 …`. */
+export type SetSequenceOptionsSubAction = {
+  __kind: "SET_SEQUENCE_OPTIONS";
+  incrementBy?: number;
+  minValue?: number;
+  maxValue?: number;
+  startValue?: number;
+  cache?: number;
+  cycle?: boolean;
+} & DDLStatement;
+
 export type AlterColumnSubAction =
   | SharedModifySubAction
+  | DropExpressionSubAction
+  | SetSequenceOptionsSubAction
   | SetDataTypeSubAction
   | AddIdentitySubAction
   | SetGeneratedSubAction
@@ -389,6 +456,11 @@ export type AlterIndexCommand = {
 } & DDLStatement;
 
 export type AnyDDLStatement =
+  | BackfillCommand
+  | CommentOnColumnCommand
+  | DropColumnAction
+  | DropExpressionSubAction
+  | SetSequenceOptionsSubAction
   | CreateTableCommand
   | DropTableCommand
   | AlterTableCommand

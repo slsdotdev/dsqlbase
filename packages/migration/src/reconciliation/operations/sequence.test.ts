@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { diffSequenceOperations } from "./sequence.js";
+import { createPrinter } from "../../ddl/index.js";
+
+const print = createPrinter();
 import { SerializedObject } from "../../base.js";
 import { AnySequenceDefinition } from "@dsqlbase/core/definition";
 
@@ -51,6 +54,67 @@ describe("diffSequenceOperations", () => {
         options: expect.objectContaining({ incrementBy: 5 }),
       },
     });
+  });
+
+  it("emits no operations for options the definition leaves to the database", () => {
+    const local = {
+      ...baseSequence,
+      // As `SequenceDefinition.toJSON()` writes it: unset options are present, as undefined.
+      options: {
+        dataType: "bigint",
+        cache: 1,
+        cycle: false,
+        increment: 1,
+        minValue: undefined,
+        maxValue: undefined,
+        startValue: undefined,
+        ownedBy: undefined,
+      },
+    } as Sequence;
+    const remote = {
+      ...baseSequence,
+      options: {
+        ...baseSequence.options,
+        maxValue: Number("9223372036854775807"),
+        startValue: 1,
+      },
+    } as Sequence;
+
+    expect(diffSequenceOperations(local, remote).operations).toEqual([]);
+  });
+
+  it("alters only the options that changed", () => {
+    const local: Sequence = {
+      ...baseSequence,
+      options: { ...baseSequence.options, increment: 5 },
+    };
+
+    const [alter] = diffSequenceOperations(local, baseSequence).operations;
+
+    expect(alter && print(alter.statement).text).toBe(
+      `ALTER SEQUENCE "public"."task_number_seq" INCREMENT BY 5`
+    );
+  });
+
+  it("rates a change of increment safe, and narrower bounds lossy", () => {
+    const wider: Sequence = {
+      ...baseSequence,
+      options: { ...baseSequence.options, increment: 5 },
+    };
+    const narrower: Sequence = {
+      ...baseSequence,
+      options: { ...baseSequence.options, maxValue: 1000 },
+    };
+
+    expect(diffSequenceOperations(wider, baseSequence).operations[0]?.summary).toMatchObject({
+      action: "ALTER",
+      target: { kind: "OPTIONS", name: "task_number_seq" },
+      changes: [{ attribute: "increment", from: 1, to: 5 }],
+      risk: "safe",
+    });
+    expect(diffSequenceOperations(narrower, baseSequence).operations[0]?.summary.risk).toBe(
+      "lossy"
+    );
   });
 
   it("emits no operations when local equals remote", () => {

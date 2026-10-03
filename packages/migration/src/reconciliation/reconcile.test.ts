@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { reconcileSchemas } from "./reconcile.js";
 import { SerializedSchema } from "../base.js";
-import { ColumnDefinition, TableDefinition } from "@dsqlbase/core";
+import { ColumnDefinition, DomainDefinition, TableDefinition } from "@dsqlbase/core";
+import { createPrinter } from "../ddl/index.js";
 
 const usersTable = new TableDefinition("users", {
   columns: {
@@ -52,6 +53,40 @@ describe("Schema Reconciliation", () => {
 
       const result = reconcileSchemas(localSchema, remoteSchema);
       expect(result.operations).toHaveLength(0);
+    });
+  });
+
+  describe("when dropping a domain and the tables that use it", () => {
+    const status = new DomainDefinition("status", { dataType: "text" });
+    const tasks = new TableDefinition("tasks", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        status: status.column("status"),
+      },
+    });
+    const print = createPrinter();
+
+    it("drops the tables before the domain", () => {
+      const { operations } = reconcileSchemas([], [status.toJSON(), tasks.toJSON()]);
+
+      expect(operations.map((op) => `${op.type} ${op.object.kind}`)).toEqual([
+        "DROP TABLE",
+        "DROP DOMAIN",
+      ]);
+    });
+
+    // DSQL refuses `DROP DOMAIN … CASCADE`; a CASCADE elsewhere would drop what the plan
+    // never listed.
+    it("never cascades, with or without ifExists", () => {
+      for (const ifExists of [true, false]) {
+        const { operations } = reconcileSchemas([], [status.toJSON(), tasks.toJSON()], {
+          ifExists,
+        });
+
+        for (const op of operations) {
+          expect(print(op.statement).text).toMatch(/ RESTRICT$/);
+        }
+      }
     });
   });
 });

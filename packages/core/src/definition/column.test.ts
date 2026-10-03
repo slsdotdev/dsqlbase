@@ -86,6 +86,7 @@ describe("ColumnDefinition", () => {
       kind: "CHECK_CONSTRAINT",
       name: "chk_age_positive",
       expression: '"age" > 0',
+      validated: true,
     });
   });
 });

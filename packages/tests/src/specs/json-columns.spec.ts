@@ -328,7 +328,7 @@ describe("json columns", () => {
       // change left is about boards.
       const plan = await createMigrationRunner(getClient().session).plan([schema.boards.toJSON()], {
         asyncIndexes: false,
-        safeOperations: true,
+        ifExists: true,
       });
 
       expect(column?.data_type).toBe("jsonb");

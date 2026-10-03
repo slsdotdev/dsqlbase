@@ -41,6 +41,11 @@ import {
   SetSchemaAction,
   UniqueConstraintExpression,
   ValidateConstraintSubAction,
+  BackfillCommand,
+  DropColumnAction,
+  DropExpressionSubAction,
+  SetSequenceOptionsSubAction,
+  CommentOnColumnCommand,
 } from "./ast.js";
 
 export const createTable = (props: Omit<CreateTableCommand, "__kind">): CreateTableCommand => ({
@@ -58,6 +63,26 @@ export const alterTable = (props: Omit<AlterTableCommand, "__kind">): AlterTable
   ...props,
 });
 
+export const dropColumn = (props: Omit<DropColumnAction, "__kind">): DropColumnAction => ({
+  __kind: "DROP_COLUMN",
+  ...props,
+});
+
+export const backfill = (props: Omit<BackfillCommand, "__kind">): BackfillCommand => ({
+  __kind: "BACKFILL",
+  ...props,
+});
+
+export const dropExpression = (): DropExpressionSubAction => ({ __kind: "DROP_EXPRESSION" });
+
+export const commentOnColumn = (
+  props: Omit<CommentOnColumnCommand, "__kind">
+): CommentOnColumnCommand => ({ __kind: "COMMENT_ON_COLUMN", ...props });
+
+export const setSequenceOptions = (
+  props: Omit<SetSequenceOptionsSubAction, "__kind">
+): SetSequenceOptionsSubAction => ({ __kind: "SET_SEQUENCE_OPTIONS", ...props });
+
 export const addColumn = (props: Omit<AddColumnAction, "__kind">): AddColumnAction => ({
   __kind: "ADD_COLUMN",
   ...props,
@@ -68,9 +93,7 @@ export const rename = (props: Omit<RenameTableAction, "__kind">): RenameTableAct
   ...props,
 });
 
-export const renameColumn = (
-  props: Omit<RenameColumnAction, "__kind">
-): RenameColumnAction => ({
+export const renameColumn = (props: Omit<RenameColumnAction, "__kind">): RenameColumnAction => ({
   __kind: "RENAME_COLUMN",
   ...props,
 });
@@ -195,9 +218,10 @@ export const setDataType = (props: Omit<SetDataTypeSubAction, "__kind">): SetDat
   __kind: "SET_DATA_TYPE",
   ...props,
 });
-export const addIdentity = (
-  props: Omit<AddIdentitySubAction, "__kind">
-): AddIdentitySubAction => ({ __kind: "ADD_IDENTITY", ...props });
+export const addIdentity = (props: Omit<AddIdentitySubAction, "__kind">): AddIdentitySubAction => ({
+  __kind: "ADD_IDENTITY",
+  ...props,
+});
 export const setGenerated = (
   props: Omit<SetGeneratedSubAction, "__kind">
 ): SetGeneratedSubAction => ({ __kind: "SET_GENERATED", ...props });
@@ -254,6 +278,11 @@ export const indexColumn = (
 });
 
 export const ddl = {
+  backfill,
+  commentOnColumn,
+  dropColumn,
+  dropExpression,
+  setSequenceOptions,
   createTable,
   dropTable,
   alterTable,

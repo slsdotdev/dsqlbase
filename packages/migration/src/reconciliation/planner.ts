@@ -92,6 +92,19 @@ function buildDependencyGraph(
     }
   };
 
+  // The steps of one change run in their own order: step k before step k + 1.
+  const lastStepOf = new Map<string, IndexedDDLOperation>();
+
+  for (const op of [...ops].sort((a, b) => a.summary.step - b.summary.step)) {
+    const previous = lastStepOf.get(op.summary.change);
+
+    if (previous) {
+      addEdge(previous.id, op.id);
+    }
+
+    lastStepOf.set(op.summary.change, op);
+  }
+
   for (const op of ops) {
     const refs = op.references ?? [];
 

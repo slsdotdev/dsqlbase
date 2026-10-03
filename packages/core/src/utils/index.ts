@@ -8,6 +8,7 @@ export type {
   Prettify,
   PrimaryKey,
   ReadOnly,
+  Deprecated,
   TenantKey,
   TypedObject,
   Unique,

@@ -194,7 +194,9 @@ describe("normalizeObject", () => {
       expect(result.constraints).toEqual([]);
     });
 
-    it("collapses single-column UNIQUE onto column.unique", () => {
+    // Not collapsed: the name is needed to drop it, and the diff compares a column's `unique`
+    // flag with it by the name PostgreSQL gives it.
+    it("keeps a single-column UNIQUE at the table level, with its name", () => {
       const result = table([
         {
           kind: "UNIQUE_CONSTRAINT",
@@ -206,8 +208,16 @@ describe("normalizeObject", () => {
         },
       ]);
 
-      expect(result.columns.find((c) => c.name === "slug")?.unique).toBe(true);
-      expect(result.constraints).toEqual([]);
+      expect(result.columns.find((c) => c.name === "slug")?.unique).toBe(false);
+      expect(result.constraints).toEqual([
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "widgets_slug_key",
+          columns: ["slug"],
+          include: null,
+          distinctNulls: true,
+        },
+      ]);
     });
 
     it("collapses single-column CHECK onto column.check", () => {
@@ -269,6 +279,91 @@ describe("normalizeObject", () => {
     });
   });
 
+  // On DSQL a table is stored by its primary key, and the key's index lists every other column
+  // as INCLUDE — including columns added later. It isn't declared, so it isn't compared.
+  describe("DSQL primary-key INCLUDE", () => {
+    const table = (include: string[] | null) =>
+      normalizeObject({
+        kind: "TABLE",
+        name: "article_tags",
+        namespace: "public",
+        columns: [
+          { ...baseColumn, name: "article_id", dataType: "uuid", notNull: true },
+          { ...baseColumn, name: "tag_id", dataType: "uuid", notNull: true },
+          { ...baseColumn, name: "note", dataType: "text" },
+          { ...baseColumn, name: "rank", dataType: "int" },
+        ],
+        indexes: [],
+        constraints: [
+          {
+            kind: "PRIMARY_KEY_CONSTRAINT",
+            name: "article_tags_primary_key",
+            columns: ["article_id", "tag_id"],
+            expression: null,
+            distinctNulls: null,
+            include,
+          },
+        ],
+      }) as { constraints: { include: string[] | null }[] };
+
+    it("drops an INCLUDE that lists every non-key column", () => {
+      expect(table(["note", "rank"]).constraints[0]?.include).toBeNull();
+      expect(table(["rank", "note"]).constraints[0]?.include).toBeNull();
+    });
+
+    it("keeps an INCLUDE that lists only some of them", () => {
+      expect(table(["note"]).constraints[0]?.include).toEqual(["note"]);
+    });
+  });
+
+  describe("expression and partial indexes", () => {
+    it("reads an expression key, named by its position, and the predicate", () => {
+      const result = normalizeObject({
+        kind: "TABLE",
+        name: "users",
+        namespace: "public",
+        columns: [{ ...baseColumn, name: "email", dataType: "text" }],
+        indexes: [
+          {
+            kind: "INDEX",
+            name: "users_email_lower_idx",
+            unique: false,
+            valid: true,
+            distinctNulls: true,
+            include: null,
+            where: "deleted_at IS NULL",
+            columns: [
+              { kind: "INDEX_COLUMN", column: null, expression: "lower(email)", nulls: "LAST" },
+              { kind: "INDEX_COLUMN", column: "email", expression: null, nulls: "FIRST" },
+            ],
+          },
+        ],
+        constraints: [],
+      }) as { indexes: unknown[] };
+
+      expect(result.indexes).toEqual([
+        expect.objectContaining({
+          where: "deleted_at IS NULL",
+          columns: [
+            {
+              kind: "INDEX_COLUMN",
+              name: "users_email_lower_idx_expression_0",
+              nulls: "LAST",
+              column: null,
+              expression: "lower(email)",
+            },
+            {
+              kind: "INDEX_COLUMN",
+              name: "users_email_lower_idx_column_email",
+              nulls: "FIRST",
+              column: "email",
+            },
+          ],
+        }),
+      ]);
+    });
+  });
+
   describe("index column synthesis", () => {
     it("adds the synthetic IndexColumnDefinition.name", () => {
       const result = normalizeObject({
@@ -282,9 +377,7 @@ describe("normalizeObject", () => {
             name: "widgets_slug_idx",
             unique: false,
             distinctNulls: true,
-            columns: [
-              { kind: "INDEX_COLUMN", column: "slug", sortDirection: "ASC", nulls: "LAST" },
-            ],
+            columns: [{ kind: "INDEX_COLUMN", column: "slug", nulls: "LAST" }],
             include: null,
           },
         ],
@@ -294,7 +387,6 @@ describe("normalizeObject", () => {
       expect(result.indexes[0].columns[0]).toEqual({
         kind: "INDEX_COLUMN",
         name: "widgets_slug_idx_column_slug",
-        sortDirection: "ASC",
         nulls: "LAST",
         column: "slug",
       });

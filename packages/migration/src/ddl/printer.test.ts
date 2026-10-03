@@ -187,18 +187,120 @@ describe("printDDL", () => {
       expect(print(node).text).toBe(`"email"`);
     });
 
-    it("prints with sort direction", () => {
-      const node = ddl.indexColumn({ columnName: "email", sortDirection: "DESC" });
-      expect(print(node).text).toBe(`"email" DESC`);
+    it("prints with NULLS clause", () => {
+      const node = ddl.indexColumn({ columnName: "email", nulls: "LAST" });
+      expect(print(node).text).toBe(`"email" NULLS LAST`);
+    });
+  });
+
+  describe("expression and partial indexes", () => {
+    it("prints an expression key in parentheses, and a predicate", () => {
+      const node = ddl.createIndex({
+        name: "users_email_lower_idx",
+        tableName: "users",
+        async: true,
+        columns: [
+          ddl.indexColumn({ columnName: "", expression: `lower("email")`, nulls: "LAST" }),
+          ddl.indexColumn({ columnName: "id", nulls: "FIRST" }),
+        ],
+        where: `"deleted_at" IS NULL`,
+      });
+
+      expect(print(node).text).toBe(
+        `CREATE INDEX ASYNC "users_email_lower_idx" ON "users" ` +
+          `((lower("email")) NULLS LAST, "id" NULLS FIRST) WHERE "deleted_at" IS NULL`
+      );
+    });
+  });
+
+  describe("column policy statements", () => {
+    it("prints DROP COLUMN IF EXISTS", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [ddl.dropColumn({ columnName: "legacy", ifExists: true })],
+      });
+      expect(print(node).text).toBe(`ALTER TABLE "orders" DROP COLUMN IF EXISTS "legacy"`);
     });
 
-    it("prints with NULLS clause", () => {
-      const node = ddl.indexColumn({
-        columnName: "email",
-        sortDirection: "ASC",
-        nulls: "LAST",
+    it("prints DROP EXPRESSION", () => {
+      const node = ddl.alterColumn({ columnName: "total", actions: [ddl.dropExpression()] });
+      expect(print(node).text).toBe(`ALTER COLUMN "total" DROP EXPRESSION`);
+    });
+
+    it("prints an identity's options as SET clauses", () => {
+      const node = ddl.alterColumn({
+        columnName: "n",
+        actions: [ddl.setSequenceOptions({ incrementBy: 5, startValue: 100, cycle: false })],
       });
-      expect(print(node).text).toBe(`"email" ASC NULLS LAST`);
+      expect(print(node).text).toBe(
+        `ALTER COLUMN "n" SET INCREMENT BY 5 SET START WITH 100 SET NO CYCLE`
+      );
+    });
+
+    it("prints a backfill batch by a single-column key", () => {
+      const node = ddl.backfill({
+        tableName: "orders",
+        columnName: "status",
+        key: ["id"],
+        batchSize: 1000,
+      });
+      expect(print(node).text).toBe(
+        `UPDATE "orders" SET "status" = DEFAULT WHERE "id" IN ` +
+          `(SELECT "id" FROM "orders" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`
+      );
+    });
+
+    it("prints a backfill batch by a composite key", () => {
+      const node = ddl.backfill({
+        tableName: "tags",
+        columnName: "v",
+        key: ["a", "b"],
+        batchSize: 10,
+      });
+      expect(print(node).text).toBe(
+        `UPDATE "tags" SET "v" = DEFAULT WHERE ("a", "b") IN ` +
+          `(SELECT "a", "b" FROM "tags" WHERE "v" IS NULL LIMIT 10) RETURNING 1`
+      );
+    });
+  });
+
+  describe("table constraint actions", () => {
+    it("prints ADD CONSTRAINT … NOT VALID", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [
+          ddl.addConstraint({
+            constraint: ddl.check({ name: "qty_positive", expression: "qty > 0" }),
+            notValid: true,
+          }),
+        ],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE "orders" ADD CONSTRAINT "qty_positive" CHECK (qty > 0) NOT VALID`
+      );
+    });
+
+    it("prints ALTER TABLE ASYNC … VALIDATE CONSTRAINT", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        async: true,
+        actions: [ddl.validateConstraint({ name: "qty_positive" })],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE ASYNC "orders" VALIDATE CONSTRAINT "qty_positive"`
+      );
+    });
+
+    it("prints DROP CONSTRAINT IF EXISTS … RESTRICT", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [
+          ddl.dropConstraint({ name: "qty_positive", ifExists: true, cascade: "RESTRICT" }),
+        ],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE "orders" DROP CONSTRAINT IF EXISTS "qty_positive" RESTRICT`
+      );
     });
   });
 
@@ -430,21 +532,20 @@ describe("printDDL", () => {
       );
     });
 
-    it("prints index with DESC column and NULLS LAST", () => {
+    it("prints index with a NULLS FIRST column", () => {
       const node = ddl.createIndex({
         name: "tasks_date_idx",
         tableName: "tasks",
         columns: [
           ddl.indexColumn({
             columnName: "due_date",
-            sortDirection: "DESC",
-            nulls: "LAST",
+            nulls: "FIRST",
           }),
         ],
       });
 
       expect(print(node).text).toBe(
-        `CREATE INDEX "tasks_date_idx" ON "tasks" ("due_date" DESC NULLS LAST)`
+        `CREATE INDEX "tasks_date_idx" ON "tasks" ("due_date" NULLS FIRST)`
       );
     });
 

@@ -47,6 +47,7 @@ export class TableDefinition<
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
   protected _meta?: Record<string, unknown>;
+  protected _renamedFrom?: string;
 
   readonly columns: Readonly<TColumns>;
 
@@ -59,6 +60,7 @@ export class TableDefinition<
 
     this._assertReservedFieldNames();
     this._assertDistinctColumnNames();
+    this._assertDeprecations();
     this._assertTenantKeys();
   }
 
@@ -85,6 +87,30 @@ export class TableDefinition<
    * members count by their full path, so `netValue.amount` against a plain `net_value_amount`
    * is caught too.
    */
+  /**
+   * A deprecated column must be one the table can do without: not part of the primary key, and
+   * not a member of an embedded object (which the client reads as a whole).
+   */
+  private _assertDeprecations(): void {
+    for (const [path, column] of columnEntries(this.columns)) {
+      if (!column["_deprecated"]) continue;
+
+      if (path.length > 1) {
+        throw new Error(
+          `Table "${this.name}" deprecates "${path.join(".")}", a member of an embedded object. ` +
+            `Only a table's own columns can be deprecated.`
+        );
+      }
+
+      if (column["_primaryKey"]) {
+        throw new Error(
+          `Table "${this.name}" deprecates "${path.join(".")}", part of its primary key, which ` +
+            `can't be dropped.`
+        );
+      }
+    }
+  }
+
   private _assertDistinctColumnNames(): void {
     const fieldsByColumn = new Map<string, string>();
 
@@ -185,7 +211,19 @@ export class TableDefinition<
         .map(([, column]) => column.name)
     );
 
+    const deprecated = new Set(
+      columnEntries(this.columns)
+        .filter(([, column]) => column["_deprecated"])
+        .map(([, column]) => column.name)
+    );
+
     for (const ref of cols) {
+      if (deprecated.has(ref.name)) {
+        throw new Error(
+          `Table "${this.name}" declares a primary key on "${ref.name}", which is deprecated.`
+        );
+      }
+
       if (members.has(ref.name)) {
         throw new Error(
           `Table "${this.name}" declares a primary key on "${ref.name}", a member of an ` +
@@ -219,6 +257,16 @@ export class TableDefinition<
    * // row.$$meta.__typename === "User"
    * ```
    */
+  /**
+   * The table's previous name: the migration renames it (`ALTER TABLE … RENAME TO`) instead of
+   * dropping one table and creating another. Once the database has the new name the hint does
+   * nothing, so it can stay for a release before it is removed.
+   */
+  public renamedFrom(previous: string): this {
+    this._renamedFrom = previous;
+    return this;
+  }
+
   public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
     this._meta = meta;
 
@@ -226,13 +274,25 @@ export class TableDefinition<
   }
 
   public toJSON() {
+    const constraints = this._constraints?.map((constraint) => constraint.toJSON());
+    // PostgreSQL makes every primary-key column NOT NULL; a composite key's columns say so here.
+    const keyColumns = new Set<string>(
+      constraints.flatMap((constraint) =>
+        constraint.kind === Kind.PRIMARY_KEY_CONSTRAINT ? constraint.columns : []
+      )
+    );
+
     return {
       kind: this.kind,
       name: this.name,
       namespace: this._namespace?.name ?? "public",
-      columns: columnEntries(this.columns).map(([, column]) => column.toJSON()),
+      columns: columnEntries(this.columns).map(([, column]) => {
+        const json = column.toJSON();
+        return keyColumns.has(json.name) ? { ...json, notNull: true } : json;
+      }),
       indexes: this._indexes.map((idx) => idx.toJSON()),
-      constraints: this._constraints?.map((constraint) => constraint.toJSON()),
+      constraints,
+      renamedFrom: this._renamedFrom ?? null,
     } as const;
   }
 }

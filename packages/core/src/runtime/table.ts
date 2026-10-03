@@ -78,9 +78,12 @@ export type TableSchemaName<T extends AnyTable> = T["__type"] extends { schema: 
     : never
   : undefined;
 
+/** A table's fields, without its deprecated columns: the client never sees those. */
 export type TableColumnName<T extends AnyTable> = T["__type"] extends { columns: infer C }
   ? C extends TableColumnDefinitions
-    ? keyof C
+    ? {
+        [K in keyof C]: C[K] extends { __type: { deprecated: true } } ? never : K;
+      }[keyof C]
     : never
   : never;
 
@@ -176,6 +179,9 @@ export class Table<
     const columns = {} as Record<string, AnyField>;
 
     for (const [name, def] of Object.entries(definition.columns)) {
+      // Deprecated: still in the database until a later release drops it, but not the client's.
+      if (def instanceof ColumnDefinition && def["_deprecated"]) continue;
+
       columns[name] =
         def instanceof ColumnGroupDefinition ? new ColumnGroup(this, def) : new Column(this, def);
     }

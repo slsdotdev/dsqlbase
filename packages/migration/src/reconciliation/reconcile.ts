@@ -1,5 +1,5 @@
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
-import { DDLOperationOptions } from "./operations/base.js";
+import { DDLOperationOptions, DEFAULT_DDL_OPERATION_OPTIONS } from "./operations/base.js";
 import {
   DDLOperation,
   DDLOperationError,
@@ -9,6 +9,8 @@ import {
   qualifiedName,
 } from "./operations/index.js";
 import { planOperations } from "./planner.js";
+import { renameTable } from "./operations/rename.js";
+import { AnyTableDefinition } from "@dsqlbase/core/definition";
 
 export class SchemaReconciler {
   private readonly _localSchema: Map<string, SerializedObject<SchemaObjectType>>;
@@ -26,10 +28,7 @@ export class SchemaReconciler {
   ) {
     this._localSchema = new Map(localSchema.map((obj) => [qualifiedName(obj), obj]));
     this._remoteSchema = new Map(remoteSchema.map((obj) => [qualifiedName(obj), obj]));
-    this._options = {
-      asyncIndexes: options.asyncIndexes ?? true,
-      safeOperations: options.safeOperations ?? true,
-    };
+    this._options = { ...DEFAULT_DDL_OPERATION_OPTIONS, ...options };
   }
 
   private _pushOperation(operation: DDLOperation) {
@@ -38,7 +37,40 @@ export class SchemaReconciler {
     return id;
   }
 
+  /**
+   * Tables renamed with `renamedFrom`: the rename runs first, and the table is then diffed as it
+   * will be — under its new name.
+   */
+  private _renameTables() {
+    for (const [name, local] of this._localSchema.entries()) {
+      if (local.kind !== "TABLE" || !local.renamedFrom) {
+        continue;
+      }
+
+      const previous = qualifiedName({ ...local, name: local.renamedFrom });
+      const remote = this._remoteSchema.get(previous);
+      const result = renameTable(
+        local,
+        remote?.kind === "TABLE" ? remote : undefined,
+        this._remoteSchema.get(name) as SerializedObject<AnyTableDefinition> | undefined
+      );
+
+      if (!result) continue;
+
+      if ("error" in result) {
+        this._errors.push(result.error);
+        continue;
+      }
+
+      result.operations.forEach((operation) => this._pushOperation(operation));
+      this._remoteSchema.delete(previous);
+      this._remoteSchema.set(name, result.remote);
+    }
+  }
+
   public run() {
+    this._renameTables();
+
     for (const [name, local] of this._localSchema.entries()) {
       const remote = this._remoteSchema.get(name);
       const { operations, errors } = diffObjectOperations(local, remote, this._options);

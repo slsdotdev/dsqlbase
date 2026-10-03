@@ -30,6 +30,24 @@ types or at runtime. A field that arrives there anyway, through an untyped sprea
 rather than refused. Use it for a value the application must not set; it changes nothing about
 the generated DDL, so migrations are unaffected.
 
+### Renaming and retiring columns
+
+`.renamedFrom("previous")` on a column — or on a table, `table("people", …).renamedFrom("users")`
+— tells the migration to rename instead of dropping one and adding another, which would lose the
+data. Once the database has the new name the hint does nothing; remove it in a later release.
+
+`.deprecated()` retires a column in two releases:
+
+1. With `.deprecated()` in the definition, the column leaves the client — not in results,
+   filters, ordering or inputs, in the types or at runtime — and the migration marks it in the
+   database (a column comment). A `NOT NULL` column without a default becomes nullable, so
+   inserts can leave it out.
+2. In a later release, remove the column from the definition: the migration drops it as a
+   planned, **lossy** step, which runs without `allow.destructive`. Dropping a column that was
+   never deprecated stays destructive.
+
+A primary-key column, or a member of an embedded object, can't be deprecated.
+
 ### Global ids
 
 `guid(name, key?)` is a `uuid` column whose values leave the ORM as opaque strings naming both
@@ -91,7 +109,18 @@ Each of these returns the index or constraint it declares, not the table, so cal
 separate statements after `table(...)` — chained onto it, the variable would hold the
 constraint, and nothing would register the table.
 
-Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. Partial (`WHERE`) and expression indexes are not modelled yet.
+Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. A key can
+be an expression over the columns, and an index can be partial:
+
+```ts
+users
+  .index("users_email_lower_idx")
+  .columns((c) => [sql`lower(${c.email})`, c.createdAt.nullsFirst()])
+  .where((c) => sql`${c.deletedAt} IS NULL`);
+```
+
+Expressions and predicates must be immutable, and a query uses a partial index only when its own
+`WHERE` implies the predicate. Keys can't be `DESC`: DSQL refuses sort order on index keys.
 
 **A table has at most one primary key.** Use `.primaryKey()` on a single column, or `table.primaryKey((c) => [...])` for a composite key — never both, and never two of either. Declaring more than one is rejected when the client is created and by the migration validator (`MULTIPLE_PRIMARY_KEYS`); SQL allows only one `PRIMARY KEY` per table.
 
@@ -203,20 +232,20 @@ members is enough.
 
 ## Column types
 
-| Constructor(s)                                          | PG type                         | Notes                                                                                     |
-| ------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                           |
-| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                  |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                 |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                                           |
-| `boolean`/`bool`                                        | `boolean`                       |                                                                                           |
-| `bytea`                                                 | `bytea`                         |                                                                                           |
-| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                   |
-| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                |
-| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`     |
-| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type |
-| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type       |
-| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                   |
+| Constructor(s)                                          | PG type                         | Notes                                                                                                            |
+| ------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                                  |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                                         |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                                        |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        | `numeric(name, { precision, scale })`, default `(18,6)` (DSQL's own); refuses a write it would round or overflow |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                                                                  |
+| `bytea`                                                 | `bytea`                         |                                                                                                                  |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                          |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                                       |
+| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                            |
+| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type                        |
+| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type                              |
+| `identity(name, { type, sequenceName })`                | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation; `.cache()`, `.startValue()`, … set sequence options     |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
 

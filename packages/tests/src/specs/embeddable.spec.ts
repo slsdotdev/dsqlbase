@@ -246,12 +246,12 @@ describe("migrating column groups", () => {
     await pg.close();
   });
 
-  const RUN_OPTS = { asyncIndexes: false, safeOperations: true, destructive: true };
+  const RUN_OPTS = { asyncIndexes: false, ifExists: true, allow: { destructive: true } };
 
-  // No member defaults: a column default re-plans as changed whatever it is on — the planner
-  // compares `'-'` with the introspected `'-'::text` — which is the migrations work's to fix.
-
-  const money = embedded({ amount: numeric("amount").notNull(), label: text("label") });
+  const money = embedded({
+    amount: numeric("amount").notNull(),
+    label: text("label").default("-"),
+  });
   const ledger = table("ledger", {
     id: uuid("id").primaryKey(),
     total: money.column("total"),
@@ -272,7 +272,7 @@ describe("migrating column groups", () => {
 
     const wider = embedded({
       amount: numeric("amount").notNull(),
-      label: text("label"),
+      label: text("label").default("-"),
       note: text("note"),
     });
     const v2 = table("ledger", {
@@ -285,5 +285,98 @@ describe("migrating column groups", () => {
 
     expect(result.progress.every((step) => step.status === "completed")).toBe(true);
     expect((await runner.plan([v2.toJSON()], RUN_OPTS)).operations).toEqual([]);
+  });
+
+  // A shape evolves as its members' columns do, in every table that embeds it.
+  describe("evolving a shape", () => {
+    const shape = (members: Parameters<typeof embedded>[0]) => {
+      const t = table("ledger", {
+        id: uuid("id").primaryKey(),
+        total: embedded(members).column("total"),
+      });
+      return t.toJSON();
+    };
+    const rows = async (text: string) => (await pg.query(text)).rows;
+
+    beforeEach(async () => {
+      await runner.run(
+        [shape({ amount: numeric("amount").notNull(), label: text("label") })],
+        RUN_OPTS
+      );
+      await pg.query(`INSERT INTO ledger (id, total_amount) VALUES (gen_random_uuid(), 5)`);
+    });
+
+    it("adds a required member with a default: existing rows get the default", async () => {
+      const v2 = shape({
+        amount: numeric("amount").notNull(),
+        label: text("label"),
+        currency: text("currency").notNull().default("EUR"),
+      });
+
+      const result = await runner.run([v2], RUN_OPTS);
+
+      expect(result.rows.map((row) => row.action)).toEqual([
+        "ADD",
+        "ADD",
+        "BACKFILL",
+        "ADD",
+        "VALIDATE",
+      ]);
+      expect(await rows(`SELECT total_currency FROM ledger`)).toEqual([{ total_currency: "EUR" }]);
+      expect((await runner.plan([v2], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("refuses a required member without a default", async () => {
+      const plan = await runner.plan(
+        [
+          shape({
+            amount: numeric("amount").notNull(),
+            label: text("label"),
+            currency: text("currency").notNull(),
+          }),
+        ],
+        RUN_OPTS
+      );
+
+      expect(plan.errors.map((error) => error.code)).toEqual(["NOT_NULL_NEEDS_DEFAULT"]);
+    });
+
+    it("renames a member, keeping its data", async () => {
+      await pg.query(`UPDATE ledger SET total_label = 'kept'`);
+      const v2 = shape({
+        amount: numeric("amount").notNull(),
+        title: text("title").renamedFrom("label"),
+      });
+
+      const result = await runner.run([v2], { asyncIndexes: false, ifExists: true });
+
+      expect(result.rows.map((row) => row.sql)).toEqual([
+        `ALTER TABLE "ledger" RENAME COLUMN "total_label" TO "total_title"`,
+      ]);
+      expect(await rows(`SELECT total_title FROM ledger`)).toEqual([{ total_title: "kept" }]);
+    });
+
+    it("drops a member only when destructive steps are allowed", async () => {
+      const v2 = shape({ amount: numeric("amount").notNull() });
+
+      await expect(runner.run([v2], { asyncIndexes: false, ifExists: true })).rejects.toThrow(
+        /DESTRUCTIVE_NOT_ALLOWED.*total_label/
+      );
+      const result = await runner.run([v2], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.target])).toEqual([["DROP", "total_label"]]);
+    });
+
+    it("changes a member default, and makes a member nullable", async () => {
+      const v2 = shape({ amount: numeric("amount"), label: text("label").default("none") });
+
+      const result = await runner.run([v2], RUN_OPTS);
+
+      expect(result.rows.map((row) => row.sql)).toEqual([
+        `ALTER TABLE "ledger" ALTER COLUMN "total_amount" DROP NOT NULL`,
+        `ALTER TABLE "ledger" ALTER COLUMN "total_label" SET DEFAULT 'none'`,
+      ]);
+      expect((await runner.plan([v2], RUN_OPTS)).rows).toEqual([]);
+    });
   });
 });

@@ -212,7 +212,6 @@ describe("unknownColumnReference", () => {
             {
               kind: "INDEX_COLUMN",
               name: "idx_column_id",
-              sortDirection: "ASC",
               nulls: "LAST",
               column: "id",
             },
@@ -258,7 +257,6 @@ describe("unknownColumnReference", () => {
             {
               kind: "INDEX_COLUMN",
               name: "idx_column_missing",
-              sortDirection: "ASC",
               nulls: "LAST",
               column: "missing",
             },
@@ -344,7 +342,6 @@ describe("redundantUniqueOnPk", () => {
             {
               kind: "INDEX_COLUMN",
               name: "idx_column_id",
-              sortDirection: "ASC",
               nulls: "LAST",
               column: "id",
             },
@@ -387,7 +384,6 @@ describe("duplicateIndexCoverage", () => {
       ({
         kind: "INDEX_COLUMN",
         name: `${idx}_column_${col}`,
-        sortDirection: "ASC",
         nulls: "LAST",
         column: col,
       }) as const;
@@ -427,7 +423,6 @@ describe("duplicateIndexCoverage", () => {
       ({
         kind: "INDEX_COLUMN",
         name: `${idx}_column_${col}`,
-        sortDirection: "ASC",
         nulls: "LAST",
         column: col,
       }) as const;

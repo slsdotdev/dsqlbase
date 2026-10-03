@@ -30,13 +30,27 @@ describe("diffColumn", () => {
     expect(diffColumn(baseColumn, baseColumn)).toEqual([]);
   });
 
+  it("emits no diff for a default the database spells differently", () => {
+    const local: Column = { ...baseColumn, defaultValue: "current_timestamp" };
+    const remote: Column = { ...baseColumn, defaultValue: "CURRENT_TIMESTAMP" };
+
+    expect(diffColumn(local, remote)).toEqual([]);
+  });
+
+  it("emits a modify for a default that changed", () => {
+    const local: Column = { ...baseColumn, defaultValue: "'1'" };
+    const remote: Column = { ...baseColumn, defaultValue: "0" };
+
+    expect(diffColumn(local, remote)).toEqual([
+      expect.objectContaining({ type: "modify", key: "defaultValue" }),
+    ]);
+  });
+
   it.each([
     ["dataType", { dataType: "bigint" }],
     ["notNull", { notNull: true }],
     ["defaultValue", { defaultValue: "0" }],
     ["domain", { domain: "money" }],
-    ["primaryKey", { primaryKey: true }],
-    ["unique", { unique: true }],
   ])("emits one diff entry for %s", (key, override) => {
     const local: Column = { ...baseColumn, ...(override as Partial<Column>) };
     const diffs = diffColumn(local, baseColumn);
@@ -102,6 +116,50 @@ describe("diffColumn", () => {
       expect(diffs).toEqual([expect.objectContaining({ type: "modify", key: "identity" })]);
     });
 
+    // What introspection reads back for an identity created from a definition that left the
+    // sequence name and bounds to the database.
+    const introspected = (local: Column["identity"]) =>
+      ({
+        type: local?.type ?? "ALWAYS",
+        sequenceName: "qty_seq",
+        options: {
+          dataType: "bigint",
+          cache: 1,
+          cycle: false,
+          increment: 1,
+          minValue: 1,
+          maxValue: Number("9223372036854775807"),
+          startValue: 1,
+          ownedBy: undefined,
+        },
+      }) as NonNullable<Column["identity"]>;
+
+    it("emits no diff for a sequence name or options the definition leaves to the database", () => {
+      const local: Column = {
+        ...baseColumn,
+        identity: {
+          type: "ALWAYS",
+          sequenceName: undefined,
+          options: { dataType: "bigint", cache: 1, minValue: undefined, maxValue: undefined },
+        },
+      } as Column;
+      const remote: Column = { ...baseColumn, identity: introspected(local.identity) };
+
+      expect(diffColumn(local, remote)).toEqual([]);
+    });
+
+    it("emits a modify when a sequence name the definition sets differs", () => {
+      const local: Column = {
+        ...baseColumn,
+        identity: { type: "ALWAYS", sequenceName: "qty_counter", options: { cache: 1 } },
+      } as Column;
+      const remote: Column = { ...baseColumn, identity: introspected(local.identity) };
+
+      expect(diffColumn(local, remote)).toEqual([
+        expect.objectContaining({ type: "modify", key: "identity" }),
+      ]);
+    });
+
     it("emits no diff when identity is deeply equal", () => {
       const local: Column = { ...baseColumn, identity };
       const remote: Column = {
@@ -112,73 +170,9 @@ describe("diffColumn", () => {
     });
   });
 
-  describe("CHECK constraint (name-only equality)", () => {
-    it("emits no diff when names match but expressions differ", () => {
-      const local: Column = {
-        ...baseColumn,
-        check: { ...checkA, expression: "qty > 0" },
-      };
-      const remote: Column = {
-        ...baseColumn,
-        check: { ...checkA, expression: "(qty > (0)::integer)" },
-      };
-      expect(diffColumn(local, remote)).toEqual([]);
-    });
-
-    it("emits no diff when both name and expression are identical", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const remote: Column = { ...baseColumn, check: checkA };
-      expect(diffColumn(local, remote)).toEqual([]);
-    });
-
-    it("emits an add and a remove (no modify) when names differ", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const remote: Column = { ...baseColumn, check: checkB };
-      const diffs = diffColumn(local, remote);
-
-      expect(diffs).toEqual([
-        {
-          type: "modify",
-          kind: local.kind,
-          name: local.name,
-          object: local,
-          key: "check",
-          value: checkA,
-          prevValue: checkB,
-        },
-      ]);
-    });
-
-    it("emits an add when only local has a check", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const diffs = diffColumn(local, baseColumn);
-      expect(diffs).toEqual([
-        {
-          type: "add",
-          kind: local.kind,
-          name: local.name,
-          object: local,
-          key: "check",
-          value: checkA,
-          prevValue: null,
-        },
-      ]);
-    });
-
-    it("emits a remove when only remote has a check", () => {
-      const remote: Column = { ...baseColumn, check: checkA };
-      const diffs = diffColumn(baseColumn, remote);
-      expect(diffs).toEqual([
-        {
-          type: "remove",
-          kind: baseColumn.kind,
-          name: baseColumn.name,
-          object: baseColumn,
-          key: "check",
-          value: null,
-          prevValue: checkA,
-        },
-      ]);
-    });
+  it("leaves CHECKs to diffTable, which compares them by name wherever they are declared", () => {
+    const local: Column = { ...baseColumn, check: checkA };
+    expect(diffColumn(local, { ...baseColumn, check: checkB })).toEqual([]);
+    expect(diffColumn(local, baseColumn)).toEqual([]);
   });
 });

@@ -6,7 +6,6 @@ type Index = Parameters<typeof diffIndex>[0];
 const slugColumn = {
   kind: "INDEX_COLUMN",
   name: "widgets_slug_idx_column_slug",
-  sortDirection: "ASC",
   nulls: "LAST",
   column: "slug",
 } as const;
@@ -20,7 +19,40 @@ const baseIndex: Index = {
   include: null,
 };
 
+const nameColumn = {
+  kind: "INDEX_COLUMN",
+  name: "widgets_slug_idx_column_name",
+  nulls: "LAST",
+  column: "name",
+} as const;
+
 describe("diffIndex", () => {
+  it("emits a modify on `columns` when the key order changes", () => {
+    const local: Index = { ...baseIndex, columns: [slugColumn, nameColumn] };
+    const remote: Index = { ...baseIndex, columns: [nameColumn, slugColumn] };
+
+    expect(diffIndex(local, remote)).toEqual([
+      expect.objectContaining({ type: "modify", key: "columns" }),
+    ]);
+  });
+
+  it("does not reorder the arrays it compares", () => {
+    const local: Index = { ...baseIndex, columns: [slugColumn, nameColumn] };
+    const remote: Index = { ...baseIndex, columns: [nameColumn, slugColumn] };
+
+    diffIndex(local, remote);
+
+    expect(local.columns.map((c) => c.column)).toEqual(["slug", "name"]);
+    expect(remote.columns.map((c) => c.column)).toEqual(["name", "slug"]);
+  });
+
+  it("ignores the order of `include` columns, which carries no meaning", () => {
+    const local: Index = { ...baseIndex, include: ["a", "b"] };
+    const remote: Index = { ...baseIndex, include: ["b", "a"] };
+
+    expect(diffIndex(local, remote)).toEqual([]);
+  });
+
   it("emits no diffs when local and remote are identical", () => {
     expect(diffIndex(baseIndex, baseIndex)).toEqual([]);
   });
@@ -37,10 +69,10 @@ describe("diffIndex", () => {
     expect(diffs).toEqual([expect.objectContaining({ type: "modify", key: "distinctNulls" })]);
   });
 
-  it("emits a modify on `columns` when sort direction changes", () => {
+  it("emits a modify on `columns` when a key's NULLS order changes", () => {
     const local: Index = {
       ...baseIndex,
-      columns: [{ ...slugColumn, sortDirection: "DESC" }],
+      columns: [{ ...slugColumn, nulls: "FIRST" }],
     };
     const diffs = diffIndex(local, baseIndex);
     expect(diffs).toEqual([expect.objectContaining({ type: "modify", key: "columns" })]);
@@ -63,10 +95,45 @@ describe("diffIndex", () => {
       ...baseIndex,
       unique: true,
       distinctNulls: false,
-      columns: [{ ...slugColumn, sortDirection: "DESC" }],
+      columns: [{ ...slugColumn, nulls: "FIRST" }],
       include: ["status"],
     };
     const diffs = diffIndex(local, baseIndex);
     expect(diffs.map((d) => d.key)).toEqual(["unique", "distinctNulls", "columns", "include"]);
+  });
+
+  describe("expression keys and predicates", () => {
+    const expressionKey = (expression: string) =>
+      ({
+        kind: "INDEX_COLUMN",
+        name: "widgets_slug_idx_expression_0",
+        nulls: "LAST",
+        column: null,
+        expression,
+      }) as unknown as Index["columns"][number];
+
+    it("matches expression keys by position, not by how PostgreSQL prints them", () => {
+      const local: Index = { ...baseIndex, columns: [expressionKey('lower("slug")')] };
+      const remote: Index = { ...baseIndex, columns: [expressionKey("lower(slug)")] };
+
+      expect(diffIndex(local, remote)).toEqual([]);
+    });
+
+    it("tells an expression key from a column key", () => {
+      const local: Index = { ...baseIndex, columns: [expressionKey('lower("slug")')] };
+
+      expect(diffIndex(local, baseIndex)).toEqual([
+        expect.objectContaining({ type: "modify", key: "columns" }),
+      ]);
+    });
+
+    it("compares a predicate by presence", () => {
+      const partial: Index = { ...baseIndex, where: `"slug" <> ''` } as Index;
+
+      expect(diffIndex(partial, { ...partial, where: "(slug <> ''::text)" } as Index)).toEqual([]);
+      expect(diffIndex(partial, baseIndex)).toEqual([
+        expect.objectContaining({ type: "modify", key: "where" }),
+      ]);
+    });
   });
 });

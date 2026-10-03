@@ -29,6 +29,22 @@ describe("diffDomain", () => {
     expect(diffDomain(baseDomain, baseDomain)).toEqual([]);
   });
 
+  it("emits no diff for a default the database spells differently", () => {
+    const local: Domain = { ...baseDomain, defaultValue: "'a'" };
+    const remote: Domain = { ...baseDomain, defaultValue: "'a'::text" };
+
+    expect(diffDomain(local, remote)).toEqual([]);
+  });
+
+  it("emits a modify for a default that changed", () => {
+    const local: Domain = { ...baseDomain, defaultValue: "'b'" };
+    const remote: Domain = { ...baseDomain, defaultValue: "'a'::text" };
+
+    expect(diffDomain(local, remote)).toEqual([
+      expect.objectContaining({ type: "modify", key: "defaultValue" }),
+    ]);
+  });
+
   it.each([
     ["dataType", { dataType: "varchar(255)" }],
     ["notNull", { notNull: true }],

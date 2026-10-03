@@ -19,6 +19,8 @@ const columns = sql`
     'name', a.attname,
     'dataType', pg_catalog.format_type(a.atttypid, a.atttypmod),
     'notNull', a.attnotnull,
+    -- The marker deprecated() leaves on a column, as its comment.
+    'deprecated', COALESCE(col_description(c.oid, a.attnum) = 'dsqlbase:deprecated', false),
     'defaultValue', CASE WHEN a.attgenerated = '' THEN (
       SELECT pg_get_expr(d.adbin, d.adrelid)
       FROM pg_attrdef d
@@ -80,29 +82,30 @@ const indexes = sql`
     'kind', 'INDEX',
     'name', ic.relname,
     'unique', ix.indisunique,
+    'valid', ix.indisvalid,
     'distinctNulls', NOT ix.indnullsnotdistinct,
     'columns', (
       SELECT json_agg(
         json_build_object(
           'kind', 'INDEX_COLUMN',
           'column', pa.attname,
-          'sortDirection', CASE
-            WHEN (ix.indoption[col_pos] & 1) = 1 THEN 'DESC'
-            ELSE 'ASC'
-          END,
+          -- An expression key has no column (attnum 0): its text, as PostgreSQL prints it.
+          'expression', CASE WHEN u.attnum = 0
+            THEN pg_get_indexdef(ix.indexrelid, col_pos::int, true) ELSE NULL END,
           'nulls', CASE
-            WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
+            WHEN (ix.indoption[col_pos - 1] & 2) = 2 THEN 'FIRST'
             ELSE 'LAST'
           END
         )
         ORDER BY col_pos
       )
       FROM LATERAL unnest(ix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
-      JOIN pg_attribute pa
+      LEFT JOIN pg_attribute pa
         ON pa.attrelid = c.oid
        AND pa.attnum = u.attnum
       WHERE col_pos <= ix.indnkeyatts
     ),
+    'where', pg_get_expr(ix.indpred, ix.indrelid, true),
     'include', (
       SELECT json_agg(
         pa.attname
@@ -142,6 +145,7 @@ const constraints = sql`
     ),
     'expression', CASE WHEN con.contype = 'c'
       THEN pg_get_constraintdef(con.oid, true) ELSE NULL END,
+    'validated', con.convalidated,
     'distinctNulls', CASE WHEN con.contype = 'u'
       THEN NOT cix.indnullsnotdistinct ELSE NULL END,
     'include', CASE WHEN con.contype IN ('u', 'p') THEN (

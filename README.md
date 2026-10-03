@@ -130,9 +130,9 @@ const user = await dsql.users.findOne({
 
 ## Migrations
 
-The migration runner (`@dsqlbase/migration`) is declarative: validate the definition, introspect the live database, reconcile the two into ordered DDL operations, and execute them one statement per transaction while awaiting DSQL's async jobs. Changes DSQL cannot express come back as structured refusals rather than broken SQL.
+The migration runner (`@dsqlbase/migration`) is declarative: validate the definition, introspect the live database, reconcile the two into ordered DDL operations, and execute them one statement per transaction while awaiting DSQL's async jobs. Each change is built from what DSQL actually allows — `NOT VALID` constraints validated asynchronously, `NOT NULL` by backfill and `CHECK`, type changes as drop and re-add — and rated `safe`, `lossy` or `destructive`; a run only does what `allow` permits. `plan()` reports every step as a row, and `formatPlan()` prints them as a table. Columns and tables are renamed with `.renamedFrom()` and retired with `.deprecated()` without losing data. Changes DSQL cannot express come back as structured refusals rather than broken SQL.
 
-See the [migrations guide](./docs/guide/migrations.md) for the runner surface and options. A CDK construct for applying migrations from CloudFormation deployments and a CLI are planned.
+See the [migrations guide](./docs/guide/migrations.md) for the runner surface, options and reporting. A CDK construct for applying migrations from CloudFormation deployments and a CLI are planned.
 
 ## Inspiration & attribution
 

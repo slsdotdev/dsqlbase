@@ -4,6 +4,7 @@ import {
   NotNull,
   PrimaryKey,
   ReadOnly,
+  Deprecated,
   TypedObject,
   Unique,
   ValueType,
@@ -120,6 +121,8 @@ export class ColumnDefinition<
   protected _checkSource?: { build: (self: SQLIdentifier) => SQLNode; name?: string };
   protected _generated?: ColumnGeneratedConfig;
   protected _identity?: ColumnIdentityConfig;
+  protected _deprecated = false;
+  protected _renamedFrom?: string;
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
@@ -174,6 +177,28 @@ export class ColumnDefinition<
   }
 
   /**
+   * Marks the column for removal. It stays in the database, but leaves the client: it can't be
+   * selected, filtered, ordered by or written — inserts give it its default, or `NULL`. A later
+   * release removes it from the definition, and the migration then drops it as a planned,
+   * lossy step instead of a destructive one: the database records the deprecation (as a column
+   * comment), and a `NOT NULL` without a default is dropped so the column can be left unset.
+   */
+  public deprecated(): Deprecated<this> {
+    this._deprecated = true;
+    return this as Deprecated<this>;
+  }
+
+  /**
+   * The column's previous name: the migration renames it (`RENAME COLUMN`) instead of dropping
+   * one column and adding another, which would lose the data. Once the database has the new
+   * name the hint does nothing, so it can stay for a release before it is removed.
+   */
+  public renamedFrom(previous: string): this {
+    this._renamedFrom = previous;
+    return this;
+  }
+
+  /**
    * A copy of this definition, of the same class, carrying the same configuration.
    *
    * A `ColumnDefinition` belongs to the table it is declared on: the builders mutate it in
@@ -210,6 +235,10 @@ export class ColumnDefinition<
     if (this._checkSource) {
       const { build, name: checkName } = this._checkSource;
       copy.check(build, checkName === undefined ? undefined : `${prefix}_${checkName}`);
+    }
+
+    if (this._renamedFrom !== undefined) {
+      copy._renamedFrom = `${prefix}_${this._renamedFrom}`;
     }
 
     return copy;
@@ -276,7 +305,8 @@ export class ColumnDefinition<
       kind: this.kind,
       name: this.name,
       dataType: this._dataType,
-      notNull: this._notNull,
+      // A deprecated column the client no longer writes can't stay NOT NULL without a default.
+      notNull: this._notNull && !(this._deprecated && !this._defaultValue && !this._identity),
       primaryKey: this._primaryKey,
       unique: this._unique,
       defaultValue: this._defaultValue
@@ -312,6 +342,8 @@ export class ColumnDefinition<
               : null,
           }
         : null,
+      deprecated: this._deprecated,
+      renamedFrom: this._renamedFrom ?? null,
     } as const;
   }
 }

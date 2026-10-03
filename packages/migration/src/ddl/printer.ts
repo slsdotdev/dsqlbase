@@ -64,7 +64,8 @@ const printReducer = {
   },
   ALTER_TABLE: (node) => {
     const actions = sql.join(node.actions ?? [], sql.raw(", "));
-    return sql`ALTER TABLE ${qualifiedName(node.schema, node.name)} ${actions}`;
+    const keyword = node.async ? sql.raw("ALTER TABLE ASYNC") : sql.raw("ALTER TABLE");
+    return sql`${keyword} ${qualifiedName(node.schema, node.name)} ${actions}`;
   },
   ADD_COLUMN: (node) => {
     const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
@@ -99,6 +100,10 @@ const printReducer = {
       out.append(sql.raw(" NULLS DISTINCT"));
     }
 
+    if (node.where !== undefined) {
+      out.append(sql` WHERE ${sql.raw(node.where)}`);
+    }
+
     return out;
   },
   DROP_INDEX: (node) => {
@@ -123,6 +128,9 @@ const printReducer = {
   },
   SEQUENCE_OPTIONS: (node) => {
     const parts: SQLNode[] = [];
+    if (node.sequenceName !== undefined) {
+      parts.push(sql`SEQUENCE NAME ${sql.identifier(node.sequenceName)}`);
+    }
     if (node.dataType !== undefined) parts.push(sql`AS ${sql.raw(node.dataType)}`);
     if (node.incrementBy !== undefined) parts.push(sql.raw(`INCREMENT BY ${node.incrementBy}`));
     if (node.minValue !== undefined) parts.push(sql.raw(`MINVALUE ${node.minValue}`));
@@ -181,8 +189,11 @@ const printReducer = {
     return sql`GENERATED ALWAYS AS (${sql.raw(node.expression)}) STORED`;
   },
   INDEX_COLUMN: (node) => {
-    const out = new SQLQuery(sql.identifier(node.columnName));
-    if (node.sortDirection) out.append(sql.raw(` ${node.sortDirection}`));
+    const out = new SQLQuery(
+      node.expression !== undefined
+        ? sql`(${sql.raw(node.expression)})`
+        : sql.identifier(node.columnName)
+    );
     if (node.nulls) out.append(sql.raw(` NULLS ${node.nulls}`));
     return out;
   },
@@ -252,9 +263,41 @@ const printReducer = {
   },
   RESTART: (node) =>
     node.with !== undefined ? sql.raw(`RESTART WITH ${node.with}`) : sql.raw("RESTART"),
+  DROP_EXPRESSION: () => sql.raw("DROP EXPRESSION"),
+  SET_SEQUENCE_OPTIONS: (node) => {
+    const o = node;
+    const parts: string[] = [];
+    if (o.incrementBy !== undefined) parts.push(`SET INCREMENT BY ${o.incrementBy}`);
+    if (o.minValue !== undefined) parts.push(`SET MINVALUE ${o.minValue}`);
+    if (o.maxValue !== undefined) parts.push(`SET MAXVALUE ${o.maxValue}`);
+    if (o.startValue !== undefined) parts.push(`SET START WITH ${o.startValue}`);
+    if (o.cache !== undefined) parts.push(`SET CACHE ${o.cache}`);
+    if (o.cycle === true) parts.push("SET CYCLE");
+    else if (o.cycle === false) parts.push("SET NO CYCLE");
+    return sql.raw(parts.join(" "));
+  },
+  DROP_COLUMN: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    return sql`DROP COLUMN ${ifExists}${sql.identifier(node.columnName)}`;
+  },
+  COMMENT_ON_COLUMN: (node) => {
+    const column = sql`${qualifiedName(node.schema, node.tableName)}.${sql.identifier(node.columnName)}`;
+    // A literal, quoted as SQL quotes strings: COMMENT takes no parameter.
+    const comment =
+      node.comment === null ? sql.raw("NULL") : sql.raw(`'${node.comment.replace(/'/g, "''")}'`);
+    return sql`COMMENT ON COLUMN ${column} IS ${comment}`;
+  },
+  BACKFILL: (node) => {
+    const table = qualifiedName(node.schema, node.tableName);
+    const column = sql.identifier(node.columnName);
+    const key = identifierList(node.key);
+    const keyExpr = node.key.length === 1 ? key : sql`(${key})`;
+    return sql`UPDATE ${table} SET ${column} = DEFAULT WHERE ${keyExpr} IN (SELECT ${key} FROM ${table} WHERE ${column} IS NULL LIMIT ${sql.raw(String(node.batchSize))}) RETURNING 1`;
+  },
   DROP_IDENTITY: (node) =>
     node.ifExists ? sql.raw("DROP IDENTITY IF EXISTS") : sql.raw("DROP IDENTITY"),
-  ADD_CONSTRAINT: (node) => sql`ADD ${node.constraint}`,
+  ADD_CONSTRAINT: (node) =>
+    node.notValid ? sql`ADD ${node.constraint} NOT VALID` : sql`ADD ${node.constraint}`,
   DROP_CONSTRAINT: (node) => {
     const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
     const out = sql`DROP CONSTRAINT ${ifExists}${sql.identifier(node.name)}`;

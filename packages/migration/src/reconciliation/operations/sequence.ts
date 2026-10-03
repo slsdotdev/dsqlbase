@@ -1,6 +1,7 @@
 import { AnySequenceDefinition } from "@dsqlbase/core/definition";
 import { SchemaObjectType, SerializedObject } from "../../base.js";
 import {
+  change,
   DDLOperation,
   DDLOperationError,
   DDLOperationOptions,
@@ -8,9 +9,17 @@ import {
   kindMismatchError,
   maybeNamespaceReference,
   OperationResult,
+  OperationRisk,
+  OperationSubject,
+  qualifiedName,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
-import { diffSequence } from "../diffs/sequence.js";
+import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
+
+const subjectOf = (object: SerializedObject<AnySequenceDefinition>): OperationSubject => ({
+  kind: "SEQUENCE",
+  name: qualifiedName(object),
+});
 
 export function createSequenceOperation(
   object: SerializedObject<AnySequenceDefinition>,
@@ -32,12 +41,16 @@ export function createSequenceOperation(
     }),
   });
 
-  return {
-    type: "CREATE",
-    object: object,
-    statement: statement,
-    references: maybeNamespaceReference(object),
-  };
+  const [operation] = change(qualifiedName(object), [
+    {
+      type: "CREATE",
+      object,
+      statement,
+      references: maybeNamespaceReference(object),
+      summary: { subject: subjectOf(object), action: "CREATE", risk: "safe" },
+    },
+  ]);
+  return operation;
 }
 
 export function dropSequenceOperation(
@@ -46,16 +59,20 @@ export function dropSequenceOperation(
 ): DDLOperation {
   const statement = ddl.dropSequence({
     name: object.name,
-    ifExists: options.safeOperations,
-    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+    ifExists: options.ifExists,
+    cascade: "RESTRICT",
   });
 
-  return {
-    type: "DROP",
-    object: object,
-    statement: statement,
-    references: maybeNamespaceReference(object),
-  };
+  const [operation] = change(qualifiedName(object), [
+    {
+      type: "DROP",
+      object,
+      statement,
+      references: maybeNamespaceReference(object),
+      summary: { subject: subjectOf(object), action: "DROP", risk: "destructive" },
+    },
+  ]);
+  return operation;
 }
 
 export function diffSequenceOperations(
@@ -67,7 +84,7 @@ export function diffSequenceOperations(
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
-    operations.push(createSequenceOperation(local, options.safeOperations));
+    operations.push(createSequenceOperation(local, options.ifExists));
     return { operations, errors };
   }
 
@@ -76,29 +93,57 @@ export function diffSequenceOperations(
     return { operations, errors };
   }
 
-  if (diffSequence(local, remote).length === 0) {
+  const changed = changedSequenceOptions(local.options, remote.options);
+
+  if (changed.length === 0) {
     return { operations, errors };
   }
 
-  operations.push({
-    type: "ALTER",
-    object: local,
-    statement: ddl.alterSequence({
-      name: local.name,
-      schema: local.namespace,
-      options: ddl.sequenceOptions({
-        dataType: local.options.dataType,
-        incrementBy: local.options.increment,
-        cache: local.options.cache,
-        cycle: local.options.cycle,
-        startValue: local.options.startValue,
-        minValue: local.options.minValue,
-        maxValue: local.options.maxValue,
-        ownedBy: local.options.ownedBy,
-      }),
-    }),
-    references: maybeNamespaceReference(local),
-  });
+  // Only what changed: an unchanged option restated is noise in the plan, and an unset one
+  // would print its default.
+  const effective = effectiveSequenceOptions(local.options);
+  const previous = effectiveSequenceOptions(remote.options);
+  // Narrower bounds can make `nextval` fail: lossy. Any other option change is safe.
+  const risk: OperationRisk =
+    effective.maxValue < previous.maxValue || effective.minValue > previous.minValue
+      ? "lossy"
+      : "safe";
+  const pick = <K extends (typeof changed)[number]>(key: K) =>
+    changed.includes(key) ? effective[key] : undefined;
+
+  operations.push(
+    ...change(qualifiedName(local), [
+      {
+        type: "ALTER",
+        object: local,
+        statement: ddl.alterSequence({
+          name: local.name,
+          schema: local.namespace,
+          options: ddl.sequenceOptions({
+            dataType: pick("dataType"),
+            incrementBy: pick("increment"),
+            minValue: pick("minValue"),
+            maxValue: pick("maxValue"),
+            startValue: pick("startValue"),
+            cache: pick("cache"),
+            cycle: pick("cycle"),
+          }),
+        }),
+        references: maybeNamespaceReference(local),
+        summary: {
+          subject: subjectOf(local),
+          action: "ALTER",
+          target: { kind: "OPTIONS", name: local.name },
+          changes: changed.map((key) => ({
+            attribute: key,
+            from: previous[key],
+            to: effective[key],
+          })),
+          risk,
+        },
+      },
+    ])
+  );
 
   return { operations, errors };
 }
