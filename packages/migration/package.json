@@ -1,6 +1,6 @@
 {
   "name": "@dsqlbase/migration",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Migration tools for DSQLBase",
   "sideEffects": false,
   "type": "module",
@@ -47,6 +47,6 @@
     "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.1.6"
+    "@dsqlbase/core": "^0.2.0"
   }
 }

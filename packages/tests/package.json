@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@dsqlbase/core": "^0.1.6",
-    "@dsqlbase/migration": "^0.1.6",
+    "@dsqlbase/core": "^0.2.0",
+    "@dsqlbase/migration": "^0.2.0",
     "@electric-sql/pglite": "^0.4.4",
     "zod": "^4.6.5"
   }

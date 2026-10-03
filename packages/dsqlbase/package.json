@@ -1,6 +1,6 @@
 {
   "name": "dsqlbase",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Query client and schema definition for distributed SQL databases",
   "sideEffects": false,
   "type": "module",
@@ -68,7 +68,7 @@
     "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   },
   "dependencies": {
-    "@dsqlbase/core": "^0.1.6"
+    "@dsqlbase/core": "^0.2.0"
   },
   "peerDependencies": {
     "@electric-sql/pglite": "^0.4.5",
