@@ -37,6 +37,7 @@ import {
   maybeNamespaceReference,
   OperationResult,
   OperationSubject,
+  deriveIdentifier,
   qualifiedName,
   schemaOf,
   refusal,
@@ -48,7 +49,11 @@ type IndexSerialized = SerializedObject<AnyIndexDefinition>;
 type ConstraintSerialized = SerializedObject<AnyConstraintDefinition>;
 type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
 
-const uniqueIndexNameForConstraint = (constraint: string) => `${constraint}_idx`;
+/** The index a UNIQUE is built on before it is promoted to the constraint. */
+const uniqueIndexNameForConstraint = (constraint: string) => deriveIdentifier(constraint, "idx");
+
+/** The index a changed index is rebuilt under, beside the current one, before the swap. */
+const rebuildIndexName = (index: string) => deriveIdentifier(index, "rebuild");
 
 const tableSubject = (tableName: string): OperationSubject => ({ kind: "TABLE", name: tableName });
 
@@ -327,6 +332,7 @@ export function diffTableOperations(
     remoteNotNull: notNullChecksOf(remote),
     remoteKey: primaryKeyOf(remote)?.columns ?? [],
     keyColumns: primaryKeyOf(local)?.columns ?? [],
+    leftoverIndexes: leftoverIndexesOf(local, remote),
   };
 
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
@@ -352,7 +358,57 @@ export function diffTableOperations(
 
   operations.push(...columnResult.drops);
 
+  // Leftovers no rebuild or promotion needed: their names are free, and they cost writes.
+  for (const leftover of ctx.leftoverIndexes.values()) {
+    const draft = dropIndexDraft(leftover, local, options);
+
+    operations.push(
+      ...change(`${tableName}.${leftover.name}`, [
+        {
+          ...draft,
+          summary: { ...draft.summary, note: "left by an earlier run that stopped part-way" },
+        },
+      ])
+    );
+  }
+
   return { operations, errors };
+}
+
+/** See {@link TableProcessingContext.leftoverIndexes}. */
+function leftoverIndexesOf(
+  local: SerializedObject<AnyTableDefinition>,
+  remote: SerializedObject<AnyTableDefinition>
+): Map<string, IndexSerialized> {
+  const declared = new Set(local.indexes.map((index) => index.name));
+  const derived = new Set([
+    ...local.indexes.map((index) => rebuildIndexName(index.name)),
+    ...namedConstraintsOf(local)
+      .filter((constraint) => constraint.kind === "UNIQUE_CONSTRAINT")
+      .map((constraint) => uniqueIndexNameForConstraint(constraint.name)),
+  ]);
+
+  return new Map(
+    (remote.indexes as IndexSerialized[])
+      .filter((index) => derived.has(index.name) && !declared.has(index.name))
+      .map((index) => [index.name, index])
+  );
+}
+
+/** The step dropping a leftover under `name`, if there is one; it is no longer swept after. */
+function takeLeftover(ctx: TableProcessingContext, name: string): DraftOperation[] {
+  const leftover = ctx.leftoverIndexes.get(name);
+  if (!leftover) return [];
+
+  ctx.leftoverIndexes.delete(name);
+  const draft = dropIndexDraft(leftover, ctx.local, ctx.options);
+
+  return [
+    {
+      ...draft,
+      summary: { ...draft.summary, note: "left by an earlier run that stopped part-way" },
+    },
+  ];
 }
 
 type TableProcessingContext = {
@@ -370,6 +426,13 @@ type TableProcessingContext = {
   remoteKey: readonly string[];
   /** The definition's primary-key columns, which backfill batches are picked by. */
   keyColumns: readonly string[];
+  /**
+   * Indexes in the database under a name the planner builds with (a rebuild, a UNIQUE's index)
+   * that an earlier run left behind when it stopped part-way. Each is dropped before its name is
+   * built again; {@link takeLeftover} hands it to the step that does, and whatever is left is
+   * dropped on its own.
+   */
+  leftoverIndexes: Map<string, IndexSerialized>;
 };
 
 type SubjectProcessingResult = {
@@ -1007,23 +1070,32 @@ function processIndexDiffs(
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
   const { options } = ctx;
+  // Taken before the loop: a step may claim a leftover before its own diff comes up.
+  const leftovers = new Set(ctx.leftoverIndexes.keys());
 
   for (const [indexName, diffsForIndex] of indexDiffs) {
     const wholeAdd = diffsForIndex.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForIndex.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForIndex.filter((d) => d.key !== undefined);
+    const key = `${ctx.tableName}.${indexName}`;
 
     if (wholeAdd) {
-      operations.push(
-        createIndexOperation(
-          wholeAdd.object as IndexSerialized,
-          ctx.local,
-          options.ifExists,
-          options.asyncIndexes
-        )
+      // A rebuild that stopped after dropping the old index: build it, then drop the leftover,
+      // which enforces any uniqueness until then.
+      const create = createIndexOperation(
+        wholeAdd.object as IndexSerialized,
+        ctx.local,
+        options.ifExists,
+        options.asyncIndexes
       );
+      const leftover = takeLeftover(ctx, rebuildIndexName(indexName));
+
+      operations.push(...(leftover.length > 0 ? change(key, [create, ...leftover]) : [create]));
       continue;
     }
+
+    // A leftover is dropped by the step that builds its name again, or swept after.
+    if (wholeRemove && leftovers.has(indexName)) continue;
 
     if (wholeRemove) {
       operations.push(
@@ -1033,23 +1105,36 @@ function processIndexDiffs(
     }
 
     if (attrDiffs.length > 0) {
-      // An index can't be altered: it is rebuilt. Also how an index whose async build failed
-      // (`valid: false`) is repaired.
+      // An index can't be altered: it is rebuilt — also how an index whose async build failed
+      // (`valid: false`) is repaired. The new one is built beside it under another name, and
+      // swapped in only once built, so the old one serves reads and enforces uniqueness until
+      // then.
       const local = attrDiffs[0].object as IndexSerialized;
+      const temporary = rebuildIndexName(indexName);
+      const build = createIndexDraft(
+        { ...local, name: temporary },
+        ctx.local,
+        options.ifExists,
+        options.asyncIndexes
+      );
+      const drop = dropIndexDraft(local, ctx.local, options);
 
       operations.push(
-        ...change(`${ctx.tableName}.${indexName}`, [
-          dropIndexDraft(local, ctx.local, options),
+        ...change(key, [
+          ...takeLeftover(ctx, temporary),
           {
-            ...createIndexDraft(local, ctx.local, options.ifExists, options.asyncIndexes),
+            ...build,
             summary: {
-              ...createIndexDraft(local, ctx.local, options.ifExists, options.asyncIndexes).summary,
+              ...build.summary,
               changes: attributeChanges(attrDiffs),
-              note: local.unique
-                ? "rebuild: uniqueness isn't enforced until this step completes, and a duplicate written meanwhile fails it"
-                : "rebuild: the index is unavailable until this step completes",
+              note: `rebuild of ${indexName}: built beside it, which stays in use until the swap`,
             },
           },
+          {
+            ...drop,
+            summary: { ...drop.summary, note: "replaced by the index built in the step before" },
+          },
+          renameIndexDraft(ctx, temporary, indexName),
         ])
       );
     }
@@ -1100,15 +1185,17 @@ function processConstraintDiffs(
       continue;
     }
 
-    const promotion = (unique: AnyUniqueConstraint) =>
-      uniquePromotionDrafts(ctx, {
+    const promotion = (unique: AnyUniqueConstraint) => [
+      ...takeLeftover(ctx, uniqueIndexNameForConstraint(unique.name)),
+      ...uniquePromotionDrafts(ctx, {
         indexName: uniqueIndexNameForConstraint(unique.name),
         constraintName: unique.name,
         columns: unique.columns,
         include: unique.include ?? undefined,
         nullsDistinct: unique.distinctNulls ?? undefined,
         constraintObject: unique,
-      });
+      }),
+    ];
 
     if (wholeAdd) {
       operations.push(
@@ -1127,20 +1214,25 @@ function processConstraintDiffs(
       continue;
     }
 
-    // A changed UNIQUE: dropped (its index with it), then built and promoted again.
+    // A changed UNIQUE: its new index is built first, while the old constraint still enforces
+    // uniqueness; then the old one is dropped (its index with it) and the new index promoted.
+    // Only those two statements run without the constraint.
     if (constraint.kind === "UNIQUE_CONSTRAINT") {
       const drop = dropConstraintDraft(ctx, constraintName);
+      const steps = promotion(constraint);
+      const promote = steps.pop();
 
       operations.push(
         ...change(key, [
+          ...steps,
           {
             ...drop,
             summary: {
               ...drop.summary,
-              note: "uniqueness isn't enforced until the constraint is added again; a duplicate written meanwhile fails that step",
+              note: "replaced by the constraint the next step adds; uniqueness isn't enforced in between",
             },
           },
-          ...promotion(constraint),
+          ...(promote ? [promote] : []),
         ])
       );
     }
@@ -1290,6 +1382,27 @@ function identitySequenceOptions(identity: NonNullable<ColumnSerialized["identit
     maxValue: options?.maxValue,
     ownedBy: options?.ownedBy,
   });
+}
+
+/** `ALTER INDEX … RENAME`: the last step of a rebuild, swapping the new index in. */
+function renameIndexDraft(ctx: TableProcessingContext, from: string, to: string): DraftOperation {
+  return {
+    type: "ALTER",
+    object: ctx.local,
+    statement: ddl.alterIndex({
+      name: from,
+      schema: ctx.schema,
+      action: ddl.rename({ newName: to }),
+    }),
+    references: dedupe(ctx.tableNamespaceRef),
+    summary: {
+      subject: tableSubject(ctx.tableName),
+      action: "RENAME",
+      target: { kind: "INDEX", name: to },
+      changes: [{ attribute: "name", from, to }],
+      risk: "safe",
+    },
+  };
 }
 
 function uniquePromotionDrafts(

@@ -233,9 +233,10 @@ describe("schema migrations (e2e via PGlite)", () => {
 
       const result = await runner.run([orders("unique-qty-sku")], RUN_OPTS);
 
+      // The new index is built while the old constraint still enforces uniqueness.
       expect(result.rows.map((row) => [row.action, row.changeStep, row.status])).toEqual([
-        ["DROP", "1/3", "completed"],
-        ["CREATE", "2/3", "completed"],
+        ["CREATE", "1/3", "completed"],
+        ["DROP", "2/3", "completed"],
         ["ADD", "3/3", "completed"],
       ]);
       expect((await runner.plan([orders("unique-qty-sku")], RUN_OPTS)).rows).toEqual([]);
@@ -258,9 +259,31 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([v1.toJSON()], RUN_OPTS);
       const result = await runner.run([v2.toJSON()], RUN_OPTS);
 
+      // Built beside the old index, which stays in use until the swap.
       expect(result.rows.map((row) => [row.action, row.risk, row.status])).toEqual([
-        ["DROP", "lossy", "completed"],
         ["CREATE", "safe", "completed"],
+        ["DROP", "lossy", "completed"],
+        ["RENAME", "safe", "completed"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("starts a rebuild over when an earlier run left its index behind", async () => {
+      const v1 = table("orders", { id: uuid("id").primaryKey(), qty: int("qty") });
+      v1.index("orders_qty_idx").columns((c) => [c.qty]);
+      const v2 = table("orders", { id: uuid("id").primaryKey(), qty: int("qty") });
+      v2.index("orders_qty_idx", { unique: true }).columns((c) => [c.qty]);
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`CREATE INDEX orders_qty_idx_rebuild ON orders (id)`);
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.target])).toEqual([
+        ["DROP", "orders_qty_idx_rebuild"],
+        ["CREATE", "orders_qty_idx_rebuild"],
+        ["DROP", "orders_qty_idx"],
+        ["RENAME", "orders_qty_idx"],
       ]);
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });
@@ -269,6 +292,26 @@ describe("schema migrations (e2e via PGlite)", () => {
   describe("columns on an existing table", () => {
     const rows = async (text: string) => (await pg.query(text)).rows;
     const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
+
+    // Its index and CHECK are re-created after the column: steps of one change, all on the
+    // table, which once closed a cycle in the planner.
+    it("changes the type of a column with an index and a CHECK", async () => {
+      const orders = (qty: typeof int | typeof bigint) => {
+        const t = table("orders", { id: uuid("id").primaryKey(), qty: qty("qty") });
+        t.index("orders_qty_idx").columns((c) => [c.qty]);
+        t.check((c) => sql`${c.qty} > 0`, "orders_qty_positive");
+        return t.toJSON();
+      };
+
+      await runner.run([orders(int)], RUN_OPTS);
+      const result = await runner.run([orders(bigint)], RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(result.rows.map((row) => row.targetKind)).toEqual(
+        expect.arrayContaining(["INDEX", "CONSTRAINT"])
+      );
+      expect((await runner.plan([orders(bigint)], RUN_OPTS)).rows).toEqual([]);
+    });
 
     it("adds a column with a default: new rows get it, existing rows stay NULL", async () => {
       const v1 = table("items", {
@@ -464,8 +507,9 @@ describe("schema migrations (e2e via PGlite)", () => {
       const result = await runner.run([users({ partial: true })], RUN_OPTS);
 
       expect(result.rows.map((row) => [row.action, row.status])).toEqual([
-        ["DROP", "completed"],
         ["CREATE", "completed"],
+        ["DROP", "completed"],
+        ["RENAME", "completed"],
       ]);
       expect((await runner.plan([users({ partial: true })], RUN_OPTS)).rows).toEqual([]);
     });

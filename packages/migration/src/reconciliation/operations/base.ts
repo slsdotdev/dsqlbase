@@ -189,6 +189,43 @@ export function schemaOf(obj: SerializedObject<DefinitionNode>): string | undefi
   return hasCustomNamespace(obj) ? obj.namespace : undefined;
 }
 
+/** PostgreSQL's identifier limit, in bytes; a longer name is silently truncated to it. */
+const MAX_IDENTIFIER_BYTES = 63;
+const utf8 = new TextEncoder();
+
+/** FNV-1a, 32-bit: a stable, dependency-free fingerprint for a name too long to keep whole. */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (const byte of utf8.encode(text)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * A name the planner derives from another (`<base>_<suffix>`), kept within 63 bytes. The server
+ * would truncate a longer one silently, and the next plan would no longer recognise what it
+ * built. Past the limit, `base` is cut on a character boundary and a fingerprint of the full name
+ * keeps the result unique: `<base prefix>_<fingerprint>_<suffix>`. The same input always derives
+ * the same name, so the planner finds it again.
+ */
+export function deriveIdentifier(base: string, suffix: string): string {
+  const full = `${base}_${suffix}`;
+  if (utf8.encode(full).length <= MAX_IDENTIFIER_BYTES) return full;
+
+  const tail = `_${fingerprint(full)}_${suffix}`;
+  const budget = MAX_IDENTIFIER_BYTES - utf8.encode(tail).length;
+  let prefix = "";
+
+  for (const char of base) {
+    if (utf8.encode(prefix + char).length > budget) break;
+    prefix += char;
+  }
+
+  return prefix + tail;
+}
+
 export function qualifiedName(obj: SerializedObject<DefinitionNode>): string {
   return hasCustomNamespace(obj) ? `${obj.namespace}.${obj.name}` : obj.name;
 }

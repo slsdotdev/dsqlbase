@@ -207,4 +207,15 @@ describe("planOperations", () => {
 
     expect(idsOf(planOperations([second, first]))).toEqual([1, 0]);
   });
+
+  // A rebuild: CREATE INDEX (references the table), then DROP INDEX, both subject "users".
+  // Reference edges would order the DROP before the CREATE, against step order: a cycle.
+  it("orders steps of one change by step alone, ignoring references between them", () => {
+    const build = makeOp({ id: 0, type: "CREATE", name: "users", references: ["users"] });
+    const drop = makeOp({ id: 1, type: "DROP", name: "users", references: ["users"] });
+    build.summary = { ...build.summary, change: "users.idx", step: 1, steps: 2 };
+    drop.summary = { ...drop.summary, change: "users.idx", step: 2, steps: 2 };
+
+    expect(idsOf(planOperations([build, drop]))).toEqual([0, 1]);
+  });
 });

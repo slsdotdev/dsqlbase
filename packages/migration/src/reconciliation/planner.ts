@@ -105,6 +105,11 @@ function buildDependencyGraph(
     lastStepOf.set(op.summary.change, op);
   }
 
+  // Reference edges never join two steps of one change: its step order already orders them,
+  // and a reference against it (a rebuild's CREATE INDEX before its DROP, both on the table)
+  // would close a cycle.
+  const changeOf = new Map(ops.map((op) => [op.id, op.summary.change] as const));
+
   for (const op of ops) {
     const refs = op.references ?? [];
 
@@ -113,6 +118,8 @@ function buildDependencyGraph(
       if (!refIds) continue;
 
       for (const refId of refIds) {
+        if (changeOf.get(refId) === op.summary.change) continue;
+
         if (op.type === "DROP") {
           // DROP X must come before ops that touch X's referenced subjects.
           addEdge(op.id, refId);
