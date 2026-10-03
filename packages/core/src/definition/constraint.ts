@@ -93,6 +93,9 @@ export class CheckConstraintDefinition<TName extends string> extends DefinitionN
       kind: this.kind,
       name: this.name,
       expression: text,
+      // A definition describes a constraint every row satisfies. Introspection reads a
+      // constraint added `NOT VALID` and never validated as `false`.
+      validated: true as boolean,
     } as const;
   }
 }

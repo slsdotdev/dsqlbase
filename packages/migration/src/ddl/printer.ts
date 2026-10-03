@@ -64,7 +64,8 @@ const printReducer = {
   },
   ALTER_TABLE: (node) => {
     const actions = sql.join(node.actions ?? [], sql.raw(", "));
-    return sql`ALTER TABLE ${qualifiedName(node.schema, node.name)} ${actions}`;
+    const keyword = node.async ? sql.raw("ALTER TABLE ASYNC") : sql.raw("ALTER TABLE");
+    return sql`${keyword} ${qualifiedName(node.schema, node.name)} ${actions}`;
   },
   ADD_COLUMN: (node) => {
     const ifNotExists = node.ifNotExists ? sql.raw("IF NOT EXISTS ") : sql.raw("");
@@ -256,7 +257,8 @@ const printReducer = {
     node.with !== undefined ? sql.raw(`RESTART WITH ${node.with}`) : sql.raw("RESTART"),
   DROP_IDENTITY: (node) =>
     node.ifExists ? sql.raw("DROP IDENTITY IF EXISTS") : sql.raw("DROP IDENTITY"),
-  ADD_CONSTRAINT: (node) => sql`ADD ${node.constraint}`,
+  ADD_CONSTRAINT: (node) =>
+    node.notValid ? sql`ADD ${node.constraint} NOT VALID` : sql`ADD ${node.constraint}`,
   DROP_CONSTRAINT: (node) => {
     const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
     const out = sql`DROP CONSTRAINT ${ifExists}${sql.identifier(node.name)}`;

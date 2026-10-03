@@ -47,8 +47,6 @@ export function diffColumn(
     "dataType",
     "notNull",
     "domain",
-    "primaryKey",
-    "unique",
     "generated",
   ] as const) {
     if (hasDiff(local, remote, key)) {
@@ -88,17 +86,8 @@ export function diffColumn(
     });
   }
 
-  if (hasDiff(local.check, remote.check, "name")) {
-    diffs.push({
-      type: diffType(local, remote, "check"),
-      kind: local.kind,
-      name: local.name,
-      object: local,
-      key: "check",
-      value: local.check,
-      prevValue: remote.check,
-    });
-  }
+  // `check`, `unique` and `primaryKey` are compared with the table's constraints in `diffTable`:
+  // the catalog doesn't record whether a constraint was declared on a column or on the table.
 
   return diffs;
 }

@@ -11,8 +11,8 @@ const users = (columns: Record<string, ColumnDefinition<string, never>>) =>
     columns: { id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(), ...columns },
   });
 
-// The remote has `nickname` and an index on it; the local drops the index, adds `email` with an
-// identity-free unique flag (two-step promotion), and drops nothing else.
+// The remote has `nickname` and an index on it; the local drops the index, adds `email` and its
+// UNIQUE (a two-step promotion), and adds `legacy` NOT NULL, which is refused.
 const remote = users({ nickname: new ColumnDefinition("nickname") as never });
 remote.index("users_nickname_idx").columns((c) => [c.nickname]);
 
@@ -43,10 +43,10 @@ describe("planRows", () => {
         row.risk,
       ])
     ).toEqual([
-      [1, "1/3", "ADD", "COLUMN", "email", "safe"],
-      [2, "2/3", "CREATE", "INDEX", "users_email_key_idx", "safe"],
-      [3, "3/3", "ADD", "CONSTRAINT", "users_email_key", "safe"],
-      [4, "1/1", "DROP", "INDEX", "users_nickname_idx", "lossy"],
+      [1, "1/1", "ADD", "COLUMN", "email", "safe"],
+      [2, "1/1", "DROP", "INDEX", "users_nickname_idx", "lossy"],
+      [3, "1/2", "CREATE", "INDEX", "users_email_key_idx", "safe"],
+      [4, "2/2", "ADD", "CONSTRAINT", "users_email_key", "safe"],
       [null, "", "ADD", "COLUMN", "legacy", "refused"],
     ]);
   });
@@ -64,7 +64,7 @@ describe("planRows", () => {
       sql: 'ALTER TABLE "users" ADD COLUMN "email" text',
       refusal: null,
     });
-    expect(rows[1]).toMatchObject({ async: true, changes: "columns: email" });
+    expect(rows[2]).toMatchObject({ async: true, changes: "columns: email" });
     expect(rows[4]?.refusal).toEqual({
       code: "IMMUTABLE_COLUMN",
       message: expect.stringContaining('Column "legacy" cannot be added with inline NOT NULL'),
@@ -79,10 +79,10 @@ describe("formatPlan", () => {
     expect(text.split("\n").slice(0, 8)).toEqual([
       "#  Subject      Action        Target                      Changes                           Risk     Async",
       "-  -----------  ------------  --------------------------  --------------------------------  -------  -----",
-      "1  table users  ADD (1/3)     column email                dataType: text                    safe",
-      "2  table users  CREATE (2/3)  index users_email_key_idx   columns: email                    safe     async",
-      "3  table users  ADD (3/3)     constraint users_email_key  unique: email                     safe",
-      "4  table users  DROP          index users_nickname_idx                                      lossy",
+      "1  table users  ADD           column email                dataType: text                    safe",
+      "2  table users  DROP          index users_nickname_idx                                      lossy",
+      "3  table users  CREATE (1/2)  index users_email_key_idx   columns: email                    safe     async",
+      "4  table users  ADD (2/2)     constraint users_email_key  unique: email                     safe",
       "–  table users  ADD           column legacy               IMMUTABLE_COLUMN: dataType: text  REFUSED",
       "",
     ]);
@@ -116,5 +116,40 @@ describe("formatPlan", () => {
 
     expect(text.split("\n")[0]).toContain("Status");
     expect(text).toContain("Failed step 1: duplicate column");
+  });
+
+  it("renders lists as names, index columns by their column", () => {
+    const [row] = planRows(
+      [
+        {
+          id: 0,
+          type: "CREATE",
+          object: { kind: "INDEX", name: "idx" } as never,
+          statement: { __kind: "CREATE_INDEX" } as never,
+          summary: {
+            change: "t.idx",
+            step: 1,
+            steps: 1,
+            subject: { kind: "TABLE", name: "t" },
+            action: "CREATE",
+            target: { kind: "INDEX", name: "idx" },
+            changes: [
+              {
+                attribute: "columns",
+                from: [{ column: "qty" }],
+                to: [{ column: "qty" }, { column: "sku" }],
+              },
+              { attribute: "include", from: null, to: ["a", "b"] },
+            ],
+            risk: "safe",
+            async: true,
+          },
+        },
+      ],
+      [],
+      () => ({ text: "", params: [] })
+    );
+
+    expect(row?.changes).toBe("columns: qty → qty, sku; include: a, b");
   });
 });

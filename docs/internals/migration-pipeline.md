@@ -25,7 +25,7 @@ These hold across every layer. A change that breaks one needs a decision record.
 
 ### Introspection (`introspection/`)
 
-One `pg_catalog` round trip (`query.ts`), unified `constraints[]` per table (PK / UNIQUE / CHECK), identity and generated columns via `pg_attribute.attidentity` / `attgenerated` + `pg_get_expr`. `normalizer.ts` does per-kind dispatch, column-level vs table-level constraint split, null → undefined coercion.
+One `pg_catalog` round trip (`query.ts`), unified `constraints[]` per table (PK / UNIQUE / CHECK), identity and generated columns via `pg_attribute.attidentity` / `attgenerated` + `pg_get_expr`. `normalizer.ts` does per-kind dispatch, column-level vs table-level constraint split (a one-column PRIMARY KEY or CHECK collapses onto its column; a UNIQUE stays at the table level so its name survives), null → undefined coercion. It reads `pg_constraint.convalidated` as a CHECK's `validated` and `pg_index.indisvalid` as an index's `valid`: a definition always says `true`, so a constraint left `NOT VALID` or an index whose async build failed shows up as a difference.
 
 The normalizer also clears a primary key's `include` when it lists every non-key column: on DSQL the key's index covers the whole row, columns added later included, without anything declaring it.
 
@@ -40,17 +40,19 @@ A default whose spelling these rules don't cover (a timestamp literal, printed i
 
 ### Diffs (`reconciliation/diffs/`)
 
-Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`, `check`) are diffed as whole-config keys; `identity` by its effective state; `defaultValue` through `sameDefault`.
+Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`) are diffed as whole-config keys; `identity` by its effective state; `defaultValue` through `sameDefault`. **Constraints compare wherever they were declared**, since the catalog doesn't record whether a one-column constraint was written on the column or on the table: CHECK and UNIQUE by name (a column's `unique` flag is the constraint PostgreSQL creates for it, `<table>_<column>_key`), the primary key by its columns.
 
 ### Operations (`reconciliation/operations/`)
 
-What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities.md) for what DSQL actually allows — several of these refusals are now stricter than necessary):
+What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities.md) for what DSQL actually allows — the column refusals are still stricter than necessary):
 
-- Column add → bare `ADD COLUMN`; `unique: true` triggers the promotion path; `identity` adds `ALTER COLUMN … ADD IDENTITY` in the same statement; `notNull` / `defaultValue` / `check` / `primaryKey` / `generated` on an added column → `IMMUTABLE_COLUMN`.
-- Column modify → refused (`IMMUTABLE_COLUMN`) except identity changes and `unique: false → true`.
+- Column add → bare `ADD COLUMN`, then `ALTER COLUMN … ADD IDENTITY` as a second step for an identity; `notNull` / `defaultValue` / `generated` on an added column → `IMMUTABLE_COLUMN`. Its CHECK and UNIQUE come from the constraint diff (below), and are dropped from the plan when the column is refused.
+- Column modify → refused (`IMMUTABLE_COLUMN`) except identity changes.
 - Column drop → `NO_DROP_COLUMN`.
-- Index add → `CREATE INDEX [ASYNC]`; drop → `DROP INDEX RESTRICT`; modify → `IMMUTABLE_INDEX`.
-- Constraints → refused (`IMMUTABLE_CONSTRAINT`) except UNIQUE adds, which use the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`. The promotion is modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic.
+- Index add → `CREATE INDEX [ASYNC]`; drop → `DROP INDEX RESTRICT` (lossy); any change, or `valid: false`, → rebuild: drop, then create.
+- CHECK add → `ADD CONSTRAINT … NOT VALID` (enforced on new writes at once), then `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` (an async job; `ASYNC` follows `asyncIndexes`). A CHECK left `NOT VALID` → `VALIDATE` alone. Drop → `DROP CONSTRAINT` (lossy).
+- UNIQUE add → the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`, modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic. Drop → `DROP CONSTRAINT` (drops its index too; lossy). Change → drop, then the promotion path.
+- Primary key add, drop or change → `IMMUTABLE_CONSTRAINT`: DSQL fixes it at `CREATE TABLE`.
 - Domain alters → only `defaultValue`; `dataType` / `notNull` / `check` → `IMMUTABLE_DOMAIN`.
 - Sequence option changes → `ALTER SEQUENCE`.
 - Drops are always `RESTRICT`; `ifExists` only adds `IF [NOT] EXISTS`. A table drop references the domains its columns use, so a domain dropped in the same plan comes after the table.
@@ -58,7 +60,7 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - Sequence and identity options compare by their effective values: an option the definition leaves unset counts as the PostgreSQL default for a `bigint` sequence, and an identity's sequence name only counts when the definition names one. `ALTER SEQUENCE` lists only the options that changed. `ownedBy` isn't compared (deferred).
 - Key-column lists (index, primary key, unique) compare in order; `include` lists compare as sets. A constraint whose kind changes under the same name is removed and added.
 
-Refusal codes: `IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT`, `IMMUTABLE_DOMAIN`, `IMMUTABLE_INDEX`, `NO_FOREIGN_KEY`, `KIND_MISMATCH`.
+Refusal codes: `IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `IMMUTABLE_DOMAIN`, `KIND_MISMATCH`.
 
 ### Planner (`reconciliation/planner.ts`)
 

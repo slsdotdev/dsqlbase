@@ -51,8 +51,6 @@ describe("diffColumn", () => {
     ["notNull", { notNull: true }],
     ["defaultValue", { defaultValue: "0" }],
     ["domain", { domain: "money" }],
-    ["primaryKey", { primaryKey: true }],
-    ["unique", { unique: true }],
   ])("emits one diff entry for %s", (key, override) => {
     const local: Column = { ...baseColumn, ...(override as Partial<Column>) };
     const diffs = diffColumn(local, baseColumn);
@@ -172,73 +170,9 @@ describe("diffColumn", () => {
     });
   });
 
-  describe("CHECK constraint (name-only equality)", () => {
-    it("emits no diff when names match but expressions differ", () => {
-      const local: Column = {
-        ...baseColumn,
-        check: { ...checkA, expression: "qty > 0" },
-      };
-      const remote: Column = {
-        ...baseColumn,
-        check: { ...checkA, expression: "(qty > (0)::integer)" },
-      };
-      expect(diffColumn(local, remote)).toEqual([]);
-    });
-
-    it("emits no diff when both name and expression are identical", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const remote: Column = { ...baseColumn, check: checkA };
-      expect(diffColumn(local, remote)).toEqual([]);
-    });
-
-    it("emits an add and a remove (no modify) when names differ", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const remote: Column = { ...baseColumn, check: checkB };
-      const diffs = diffColumn(local, remote);
-
-      expect(diffs).toEqual([
-        {
-          type: "modify",
-          kind: local.kind,
-          name: local.name,
-          object: local,
-          key: "check",
-          value: checkA,
-          prevValue: checkB,
-        },
-      ]);
-    });
-
-    it("emits an add when only local has a check", () => {
-      const local: Column = { ...baseColumn, check: checkA };
-      const diffs = diffColumn(local, baseColumn);
-      expect(diffs).toEqual([
-        {
-          type: "add",
-          kind: local.kind,
-          name: local.name,
-          object: local,
-          key: "check",
-          value: checkA,
-          prevValue: null,
-        },
-      ]);
-    });
-
-    it("emits a remove when only remote has a check", () => {
-      const remote: Column = { ...baseColumn, check: checkA };
-      const diffs = diffColumn(baseColumn, remote);
-      expect(diffs).toEqual([
-        {
-          type: "remove",
-          kind: baseColumn.kind,
-          name: baseColumn.name,
-          object: baseColumn,
-          key: "check",
-          value: null,
-          prevValue: checkA,
-        },
-      ]);
-    });
+  it("leaves CHECKs to diffTable, which compares them by name wherever they are declared", () => {
+    const local: Column = { ...baseColumn, check: checkA };
+    expect(diffColumn(local, { ...baseColumn, check: checkB })).toEqual([]);
+    expect(diffColumn(local, baseColumn)).toEqual([]);
   });
 });

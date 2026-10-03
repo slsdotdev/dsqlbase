@@ -42,6 +42,19 @@ export function diffCheckConstraint(
     });
   }
 
+  // Added `NOT VALID` and never validated — a failed or skipped validation.
+  if (hasDiff(local, remote, "validated")) {
+    diffs.push({
+      type: "modify",
+      kind: local.kind,
+      name: local.name,
+      key: "validated",
+      object: local,
+      value: local.validated,
+      prevValue: remote.validated,
+    });
+  }
+
   return diffs;
 }
 
@@ -130,7 +143,8 @@ export function diffUniqueConstraint(
     });
   }
 
-  if (hasDiff(local, remote, "distinctNulls")) {
+  // Unset means the default, NULLS DISTINCT.
+  if ((local.distinctNulls ?? true) !== (remote.distinctNulls ?? true)) {
     diffs.push({
       type: "modify",
       kind: local.kind,

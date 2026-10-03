@@ -80,6 +80,7 @@ const indexes = sql`
     'kind', 'INDEX',
     'name', ic.relname,
     'unique', ix.indisunique,
+    'valid', ix.indisvalid,
     'distinctNulls', NOT ix.indnullsnotdistinct,
     'columns', (
       SELECT json_agg(
@@ -138,6 +139,7 @@ const constraints = sql`
     ),
     'expression', CASE WHEN con.contype = 'c'
       THEN pg_get_constraintdef(con.oid, true) ELSE NULL END,
+    'validated', con.convalidated,
     'distinctNulls', CASE WHEN con.contype = 'u'
       THEN NOT cix.indnullsnotdistinct ELSE NULL END,
     'include', CASE WHEN con.contype IN ('u', 'p') THEN (

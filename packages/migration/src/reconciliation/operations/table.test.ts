@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { diffTableOperations } from "./table.js";
 import { createPrinter } from "../../ddl/index.js";
+import { OperationResult } from "./base.js";
+
+const sqlOf = (result: OperationResult) =>
+  result.operations.map((op) => createPrinter()(op.statement).text);
 import { SerializedObject } from "../../base.js";
 import { AnyColumnDefinition, AnyTableDefinition } from "@dsqlbase/core/definition";
 
@@ -297,7 +301,7 @@ describe("diffTableOperations — existing remote", () => {
       });
       expect(result.errors[0].message).toContain("NOT NULL");
       expect(result.errors[0].message).toContain("DEFAULT");
-      expect(result.errors[0].message).toContain("CHECK");
+      // Its CHECK isn't planned on a column that won't be added.
     });
 
     it("refuses dropping a column with NO_DROP_COLUMN", () => {
@@ -317,7 +321,6 @@ describe("diffTableOperations — existing remote", () => {
       ["dataType", { dataType: "varchar" }],
       ["notNull", { notNull: true }],
       ["defaultValue", { defaultValue: "'x'" }],
-      ["primaryKey", { primaryKey: true }],
       ["domain", { domain: "email_addr" }],
     ])("refuses column modify on %s", (_attr, override) => {
       const modified: Column = { ...emailColumn, ...(override as Partial<Column>) };
@@ -347,21 +350,6 @@ describe("diffTableOperations — existing remote", () => {
       const error = result.errors[0];
       expect(error.code).toBe("IMMUTABLE_COLUMN");
       expect(error.diffs?.map((d) => d.key).sort()).toEqual(["defaultValue", "notNull"]);
-    });
-
-    it("refuses unique:true → false transition", () => {
-      const remoteUnique: Column = { ...emailColumn, unique: true };
-      const remote: Table = { ...baseTable, columns: [idColumn, remoteUnique] };
-      const local: Table = baseTable;
-
-      const result = diffTableOperations(local, remote);
-
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_COLUMN",
-        subject: "email",
-      });
     });
 
     it("emits UNIQUE promotion path on unique:false → true transition", () => {
@@ -535,18 +523,33 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("refuses index modifications with IMMUTABLE_INDEX", () => {
+    it("rebuilds a changed index: drop, then create, as one change", () => {
       const local: Table = { ...baseTable, indexes: [{ ...idx, unique: true }] };
       const remote: Table = { ...baseTable, indexes: [idx] };
 
       const result = diffTableOperations(local, remote);
 
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_INDEX",
-        subject: "users_email_idx",
-      });
+      expect(result.errors).toEqual([]);
+      expect(sqlOf(result)).toEqual([
+        `DROP INDEX IF EXISTS "users_email_idx" RESTRICT`,
+        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+      ]);
+      expect(
+        result.operations.map((op) => [`${op.summary.step}/${op.summary.steps}`, op.summary.risk])
+      ).toEqual([
+        ["1/2", "lossy"],
+        ["2/2", "safe"],
+      ]);
+    });
+
+    it("rebuilds an index whose async build failed", () => {
+      const remote: Table = { ...baseTable, indexes: [{ ...idx, valid: false }] };
+      const local: Table = { ...baseTable, indexes: [{ ...idx, valid: true }] };
+
+      expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `DROP INDEX IF EXISTS "users_email_idx" RESTRICT`,
+        `CREATE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+      ]);
     });
   });
 
@@ -598,46 +601,68 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("refuses adding a PRIMARY KEY constraint to existing table", () => {
-      const local: Table = { ...baseTable, constraints: [pkConstraint] };
-
-      const result = diffTableOperations(local, baseTable);
-
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_CONSTRAINT",
-        subject: "users_pk",
-      });
-    });
-
-    it("refuses adding a CHECK constraint to existing table", () => {
+    it("adds a CHECK constraint NOT VALID, then validates it", () => {
       const local: Table = { ...baseTable, constraints: [checkConstraint] };
 
       const result = diffTableOperations(local, baseTable);
 
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_CONSTRAINT",
-        subject: "users_email_chk",
-      });
+      expect(result.errors).toEqual([]);
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" ADD CONSTRAINT "users_email_chk" CHECK (email <> '') NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_chk"`,
+      ]);
+      expect(result.operations.map((op) => op.summary)).toEqual([
+        expect.objectContaining({ action: "ADD", step: 1, steps: 2, risk: "safe", async: false }),
+        expect.objectContaining({
+          action: "VALIDATE",
+          step: 2,
+          steps: 2,
+          risk: "safe",
+          async: true,
+        }),
+      ]);
     });
 
-    it("refuses dropping a UNIQUE constraint", () => {
-      const remote: Table = { ...baseTable, constraints: [uniqueConstraint] };
+    it("validates without ASYNC when asyncIndexes is off (PGlite, Postgres)", () => {
+      const local: Table = { ...baseTable, constraints: [checkConstraint] };
+
+      const result = diffTableOperations(local, baseTable, { asyncIndexes: false, ifExists: true });
+
+      expect(sqlOf(result)[1]).toBe(`ALTER TABLE "users" VALIDATE CONSTRAINT "users_email_chk"`);
+    });
+
+    it("validates a CHECK left NOT VALID, and does nothing else", () => {
+      const local: Table = { ...baseTable, constraints: [{ ...checkConstraint, validated: true }] };
+      const remote: Table = {
+        ...baseTable,
+        constraints: [{ ...checkConstraint, validated: false }],
+      };
+
+      expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_chk"`,
+      ]);
+    });
+
+    it("drops a removed CHECK constraint (lossy)", () => {
+      const remote: Table = { ...baseTable, constraints: [checkConstraint] };
 
       const result = diffTableOperations(baseTable, remote);
 
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_CONSTRAINT",
-        subject: "users_email_unique",
-      });
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_chk" RESTRICT`,
+      ]);
+      expect(result.operations[0]?.summary.risk).toBe("lossy");
     });
 
-    it("refuses modifying a UNIQUE constraint's columns", () => {
+    it("drops a removed UNIQUE constraint, and its index with it", () => {
+      const remote: Table = { ...baseTable, constraints: [uniqueConstraint] };
+
+      expect(sqlOf(diffTableOperations(baseTable, remote))).toEqual([
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_unique" RESTRICT`,
+      ]);
+    });
+
+    it("rebuilds a UNIQUE constraint whose columns changed: drop, index, promote", () => {
       const remote: Table = { ...baseTable, constraints: [uniqueConstraint] };
       const local: Table = {
         ...baseTable,
@@ -646,12 +671,111 @@ describe("diffTableOperations — existing remote", () => {
 
       const result = diffTableOperations(local, remote);
 
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_CONSTRAINT",
-        subject: "users_email_unique",
-      });
+      expect(result.errors).toEqual([]);
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_unique" RESTRICT`,
+        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_unique_idx" ON "users" ("email" NULLS LAST, "id" NULLS LAST) NULLS DISTINCT`,
+        `ALTER TABLE "users" ADD CONSTRAINT "users_email_unique" UNIQUE USING INDEX "users_email_unique_idx"`,
+      ]);
+      expect(result.operations.map((op) => op.summary.risk)).toEqual(["lossy", "safe", "safe"]);
+    });
+
+    // The key compares by its columns, wherever it was declared: on `id`, or as a constraint.
+    it("matches a column's primaryKey flag with a key constraint on the same columns", () => {
+      const local: Table = { ...baseTable, constraints: [pkConstraint] };
+
+      expect(diffTableOperations(local, baseTable)).toEqual({ operations: [], errors: [] });
+    });
+
+    it("refuses adding, dropping or changing the primary key", () => {
+      const keyless: Table = {
+        ...baseTable,
+        columns: [{ ...idColumn, primaryKey: false }, emailColumn],
+      };
+      const widened: Table = {
+        ...baseTable,
+        constraints: [{ ...pkConstraint, columns: ["id", "email"] }],
+      };
+
+      for (const [local, remote, action] of [
+        [baseTable, keyless, "ADD"],
+        [keyless, baseTable, "DROP"],
+        [widened, baseTable, "ALTER"],
+      ] as const) {
+        const { operations, errors } = diffTableOperations(local, remote);
+
+        expect(operations).toEqual([]);
+        expect(errors).toEqual([
+          expect.objectContaining({
+            code: "IMMUTABLE_CONSTRAINT",
+            summary: expect.objectContaining({ action }),
+          }),
+        ]);
+      }
+    });
+  });
+
+  describe("column constraints", () => {
+    const check = {
+      kind: "CHECK_CONSTRAINT" as const,
+      name: "email_check",
+      expression: "email <> ''",
+    };
+
+    it("adds a column CHECK NOT VALID, then validates it", () => {
+      const local: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, check }] };
+
+      expect(sqlOf(diffTableOperations(local, baseTable))).toEqual([
+        `ALTER TABLE "users" ADD CONSTRAINT "email_check" CHECK (email <> '') NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "email_check"`,
+      ]);
+    });
+
+    it("replaces a renamed column CHECK: drop the old, add and validate the new", () => {
+      const remote: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, check }] };
+      const local: Table = {
+        ...baseTable,
+        columns: [idColumn, { ...emailColumn, check: { ...check, name: "email_not_blank" } }],
+      };
+
+      expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `ALTER TABLE "users" ADD CONSTRAINT "email_not_blank" CHECK (email <> '') NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "email_not_blank"`,
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "email_check" RESTRICT`,
+      ]);
+    });
+
+    it("treats a one-column CHECK declared on the table as the column's, by name", () => {
+      const local: Table = { ...baseTable, constraints: [check] };
+      const remote: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, check }] };
+
+      expect(diffTableOperations(local, remote)).toEqual({ operations: [], errors: [] });
+    });
+
+    it("validates a column CHECK left NOT VALID", () => {
+      const remote: Table = {
+        ...baseTable,
+        columns: [idColumn, { ...emailColumn, check: { ...check, validated: false } }],
+      };
+      const local: Table = {
+        ...baseTable,
+        columns: [idColumn, { ...emailColumn, check: { ...check, validated: true } }],
+      };
+
+      expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "email_check"`,
+      ]);
+    });
+
+    it("drops a column's UNIQUE constraint by its conventional name", () => {
+      const remote: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, unique: true }] };
+
+      const result = diffTableOperations(baseTable, remote);
+
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_key" RESTRICT`,
+      ]);
+      expect(result.operations[0]?.summary.risk).toBe("lossy");
     });
   });
 });

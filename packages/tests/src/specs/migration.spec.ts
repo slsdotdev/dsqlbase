@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
-import { SQLStatement } from "@dsqlbase/core";
+import { sql, SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
 import { domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
 import {
@@ -105,7 +105,8 @@ describe("schema migrations (e2e via PGlite)", () => {
     v1.index("widgets_name_idx").columns((c) => [c.name]);
     await runner.run([v1.toJSON()], RUN_OPTS);
 
-    // Adds a unique column (add, unique index, promote) and drops the index on `name`.
+    // Adds a unique column — the column, then its UNIQUE as an index and its promotion — and
+    // drops the index on `name`.
     const v2 = table("widgets", {
       id: uuid("id").primaryKey(),
       name: text("name"),
@@ -115,10 +116,10 @@ describe("schema migrations (e2e via PGlite)", () => {
     const result = await runner.run([v2.toJSON()], RUN_OPTS);
 
     expect(result.rows.map((row) => [row.action, row.changeStep, row.target, row.status])).toEqual([
-      ["ADD", "1/3", "slug", "completed"],
-      ["CREATE", "2/3", "widgets_slug_key_idx", "completed"],
-      ["ADD", "3/3", "widgets_slug_key", "completed"],
+      ["ADD", "1/1", "slug", "completed"],
       ["DROP", "1/1", "widgets_name_idx", "completed"],
+      ["CREATE", "1/2", "widgets_slug_key_idx", "completed"],
+      ["ADD", "2/2", "widgets_slug_key", "completed"],
     ]);
     expect(formatPlan(result)).toContain("Status");
 
@@ -180,5 +181,110 @@ describe("schema migrations (e2e via PGlite)", () => {
 
     expect(result.progress.every((p) => p.status === "completed")).toBe(true);
     expect(order.indexOf("CREATE DOMAIN")).toBeLessThan(order.indexOf("CREATE TABLE"));
+  });
+
+  describe("constraints on an existing table", () => {
+    const orders = (constraints: "none" | "check" | "unique-qty" | "unique-qty-sku") => {
+      const t = table("orders", {
+        id: uuid("id").primaryKey(),
+        qty: int("qty"),
+        sku: text("sku"),
+      });
+      if (constraints === "check") t.check((c) => sql`${c.qty} > 0`, "orders_qty_positive");
+      if (constraints === "unique-qty") t.unique((c) => [c.qty]);
+      if (constraints === "unique-qty-sku") {
+        t.unique((c) => [c.qty, c.sku]);
+      }
+      return t.toJSON();
+    };
+
+    const insert = (qty: number) =>
+      pg.query(`INSERT INTO orders (id, qty) VALUES (gen_random_uuid(), $1)`, [qty]);
+
+    it("adds a CHECK NOT VALID and validates it", async () => {
+      await runner.run([orders("none")], RUN_OPTS);
+      await insert(3);
+
+      const result = await runner.run([orders("check")], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.status])).toEqual([
+        ["ADD", "completed"],
+        ["VALIDATE", "completed"],
+      ]);
+      await expect(insert(0)).rejects.toThrow(/orders_qty_positive/);
+      expect((await runner.plan([orders("check")], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("keeps a CHECK that existing rows violate, NOT VALID, and validates it once fixed", async () => {
+      await runner.run([orders("none")], RUN_OPTS);
+      await insert(-1);
+
+      const failed = await runner.run([orders("check")], RUN_OPTS);
+
+      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+        ["ADD", "completed"],
+        ["VALIDATE", "failed"],
+      ]);
+      expect(failed.rows[1]?.error).toMatch(/orders_qty_positive/);
+      // Enforced on new writes even though not valid.
+      await expect(insert(0)).rejects.toThrow(/orders_qty_positive/);
+
+      const pending = await runner.plan([orders("check")], RUN_OPTS);
+      expect(pending.rows.map((row) => row.action)).toEqual(["VALIDATE"]);
+
+      await pg.query(`UPDATE orders SET qty = 1 WHERE qty < 1`);
+      const fixed = await runner.run([orders("check")], RUN_OPTS);
+
+      expect(fixed.rows.map((row) => row.status)).toEqual(["completed"]);
+      expect((await runner.plan([orders("check")], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("drops a removed CHECK", async () => {
+      await runner.run([orders("check")], RUN_OPTS);
+
+      const result = await runner.run([orders("none")], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.targetKind, row.risk])).toEqual([
+        ["DROP", "CONSTRAINT", "lossy"],
+      ]);
+      await insert(0);
+    });
+
+    it("rebuilds a UNIQUE constraint whose columns changed", async () => {
+      await runner.run([orders("unique-qty")], RUN_OPTS);
+
+      const result = await runner.run([orders("unique-qty-sku")], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.changeStep, row.status])).toEqual([
+        ["DROP", "1/3", "completed"],
+        ["CREATE", "2/3", "completed"],
+        ["ADD", "3/3", "completed"],
+      ]);
+      expect((await runner.plan([orders("unique-qty-sku")], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("rebuilds a changed index", async () => {
+      const v1 = table("orders", {
+        id: uuid("id").primaryKey(),
+        qty: int("qty"),
+        sku: text("sku"),
+      });
+      v1.index("orders_lookup_idx").columns((c) => [c.qty]);
+      const v2 = table("orders", {
+        id: uuid("id").primaryKey(),
+        qty: int("qty"),
+        sku: text("sku"),
+      });
+      v2.index("orders_lookup_idx").columns((c) => [c.qty, c.sku]);
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.risk, row.status])).toEqual([
+        ["DROP", "lossy", "completed"],
+        ["CREATE", "safe", "completed"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
   });
 });

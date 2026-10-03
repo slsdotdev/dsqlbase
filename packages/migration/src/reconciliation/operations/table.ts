@@ -14,7 +14,7 @@ import {
 } from "../../ddl/ast.js";
 import { ddl } from "../../ddl/index.js";
 import { Diff, DiffType } from "../diffs/base.js";
-import { diffTable } from "../diffs/table.js";
+import { columnUniqueName, diffTable } from "../diffs/table.js";
 import {
   attributeChanges,
   change,
@@ -36,8 +36,6 @@ type IndexSerialized = SerializedObject<AnyIndexDefinition>;
 type ConstraintSerialized = SerializedObject<AnyConstraintDefinition>;
 type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
 
-const uniqueIndexNameForColumn = (table: string, column: string) => `${table}_${column}_key_idx`;
-const uniqueConstraintNameForColumn = (table: string, column: string) => `${table}_${column}_key`;
 const uniqueIndexNameForConstraint = (constraint: string) => `${constraint}_idx`;
 
 const tableSubject = (tableName: string): OperationSubject => ({ kind: "TABLE", name: tableName });
@@ -218,24 +216,30 @@ export function dropIndexOperation(
   tableName: string,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
-  return change(`${tableName}.${object.name}`, [
-    {
-      type: "DROP",
-      object,
-      statement: ddl.dropIndex({
-        name: object.name,
-        ifExists: options.ifExists,
-        cascade: "RESTRICT",
-      }),
-      references: maybeNamespaceReference(object),
-      summary: {
-        subject: tableSubject(tableName),
-        action: "DROP",
-        target: { kind: "INDEX", name: object.name },
-        risk: "lossy",
-      },
+  return change(`${tableName}.${object.name}`, [dropIndexDraft(object, tableName, options)])[0];
+}
+
+function dropIndexDraft(
+  object: SerializedObject<AnyIndexDefinition>,
+  tableName: string,
+  options: DDLOperationOptions
+): DraftOperation {
+  return {
+    type: "DROP",
+    object,
+    statement: ddl.dropIndex({
+      name: object.name,
+      ifExists: options.ifExists,
+      cascade: "RESTRICT",
+    }),
+    references: maybeNamespaceReference(object),
+    summary: {
+      subject: tableSubject(tableName),
+      action: "DROP",
+      target: { kind: "INDEX", name: object.name },
+      risk: "lossy",
     },
-  ])[0];
+  };
 }
 
 export function diffTableOperations(
@@ -273,8 +277,18 @@ export function diffTableOperations(
 
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
 
+  const columnResult = processColumnDiffs(buckets.columns, ctx);
+
+  // A refused column's CHECK or UNIQUE would land on a column that never gets added.
+  for (const column of local.columns as ColumnSerialized[]) {
+    if (columnResult.refused.has(column.name)) {
+      if (column.check) buckets.constraints.delete(column.check.name);
+      if (column.unique) buckets.constraints.delete(columnUniqueName(local.name, column.name));
+    }
+  }
+
   for (const result of [
-    processColumnDiffs(buckets.columns, ctx),
+    columnResult,
     processIndexDiffs(buckets.indexes, ctx),
     processConstraintDiffs(buckets.constraints, ctx),
   ]) {
@@ -337,9 +351,10 @@ function alterTableDraft(
 function processColumnDiffs(
   columnDiffs: Map<string, AnyDiff[]>,
   ctx: TableProcessingContext
-): SubjectProcessingResult {
+): SubjectProcessingResult & { refused: Set<string> } {
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
+  const refused = new Set<string>();
 
   for (const [columnName, diffsForColumn] of columnDiffs) {
     const wholeAdd = diffsForColumn.find((d) => d.type === "add" && !d.key);
@@ -365,12 +380,13 @@ function processColumnDiffs(
 
     if ("error" in result) {
       errors.push(result.error);
+      refused.add(columnName);
     } else if (result.drafts.length > 0) {
       operations.push(...change(`${ctx.tableName}.${columnName}`, result.drafts));
     }
   }
 
-  return { operations, errors };
+  return { operations, errors, refused };
 }
 
 type ColumnChange = { drafts: DraftOperation[] } | { error: DDLOperationError };
@@ -449,16 +465,6 @@ function columnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnChange {
     );
   }
 
-  if (column.unique) {
-    drafts.push(
-      ...uniquePromotionDrafts(ctx, {
-        indexName: uniqueIndexNameForColumn(ctx.local.name, column.name),
-        constraintName: uniqueConstraintNameForColumn(ctx.local.name, column.name),
-        columns: [column.name],
-      })
-    );
-  }
-
   return { drafts };
 }
 
@@ -469,7 +475,6 @@ function columnModify(
 ): ColumnChange {
   const blocked: AnyDiff[] = [];
   const drafts: DraftOperation[] = [];
-  let promoteUnique = false;
 
   for (const diff of attrDiffs) {
     const key = diff.key as string;
@@ -478,21 +483,8 @@ function columnModify(
       case "domain":
       case "notNull":
       case "defaultValue":
-      case "primaryKey":
       case "generated":
-      case "check":
         blocked.push(diff);
-        break;
-      case "unique":
-        if (
-          diff.type === "modify" &&
-          (diff.value as unknown) === true &&
-          (diff.prevValue as unknown) === false
-        ) {
-          promoteUnique = true;
-        } else {
-          blocked.push(diff);
-        }
         break;
       case "identity":
         drafts.push(...identityDrafts(columnName, diff, ctx));
@@ -520,17 +512,69 @@ function columnModify(
     };
   }
 
-  if (promoteUnique) {
-    drafts.push(
-      ...uniquePromotionDrafts(ctx, {
-        indexName: uniqueIndexNameForColumn(ctx.local.name, columnName),
-        constraintName: uniqueConstraintNameForColumn(ctx.local.name, columnName),
-        columns: [columnName],
-      })
-    );
-  }
-
   return { drafts };
+}
+
+type CheckSerialized = { name: string; expression: string; validated?: boolean };
+
+/**
+ * A CHECK on an existing table: added `NOT VALID` — DSQL accepts no other form, and it is
+ * enforced on new writes at once — then validated against the existing rows as an async job.
+ */
+function addCheckDrafts(ctx: TableProcessingContext, check: CheckSerialized): DraftOperation[] {
+  return [
+    alterTableDraft(
+      ctx,
+      ddl.addConstraint({
+        constraint: ddl.check({ name: check.name, expression: check.expression }),
+        notValid: true,
+      }),
+      {
+        subject: tableSubject(ctx.tableName),
+        action: "ADD",
+        target: { kind: "CONSTRAINT", name: check.name },
+        changes: [{ attribute: "check", from: null, to: check.expression }],
+        risk: "safe",
+        note: "enforced on new writes at once; existing rows are checked by the next step",
+      }
+    ),
+    validateConstraintDraft(ctx, check.name),
+  ];
+}
+
+function validateConstraintDraft(ctx: TableProcessingContext, name: string): DraftOperation {
+  return {
+    type: "ALTER",
+    object: ctx.local,
+    statement: ddl.alterTable({
+      name: ctx.local.name,
+      async: ctx.options.asyncIndexes ? true : undefined,
+      actions: [ddl.validateConstraint({ name })],
+    }),
+    references: dedupe(ctx.tableNamespaceRef),
+    summary: {
+      subject: tableSubject(ctx.tableName),
+      action: "VALIDATE",
+      target: { kind: "CONSTRAINT", name },
+      risk: "safe",
+      async: ctx.options.asyncIndexes,
+      note: "fails if an existing row violates it; the constraint stays, not valid",
+    },
+  };
+}
+
+/** `DROP CONSTRAINT`: a CHECK, or a UNIQUE together with its index. Lossy. */
+function dropConstraintDraft(ctx: TableProcessingContext, name: string): DraftOperation {
+  return alterTableDraft(
+    ctx,
+    ddl.dropConstraint({ name, ifExists: ctx.options.ifExists, cascade: "RESTRICT" }),
+    {
+      subject: tableSubject(ctx.tableName),
+      action: "DROP",
+      target: { kind: "CONSTRAINT", name },
+      risk: "lossy",
+    }
+  );
 }
 
 function processIndexDiffs(
@@ -566,22 +610,23 @@ function processIndexDiffs(
     }
 
     if (attrDiffs.length > 0) {
-      errors.push(
-        refusal({
-          code: "IMMUTABLE_INDEX",
-          message:
-            `Index "${indexName}" cannot be altered (${attrDiffs.map((d) => String(d.key)).join(", ")}). ` +
-            `Drop and recreate the index explicitly.`,
-          object: attrDiffs[0].object,
-          subject: indexName,
-          diffs: attrDiffs,
-          summary: {
-            subject: tableSubject(ctx.tableName),
-            action: "ALTER",
-            target: { kind: "INDEX", name: indexName },
-            changes: attributeChanges(attrDiffs),
+      // An index can't be altered: it is rebuilt. Also how an index whose async build failed
+      // (`valid: false`) is repaired.
+      const local = attrDiffs[0].object as IndexSerialized;
+
+      operations.push(
+        ...change(`${ctx.tableName}.${indexName}`, [
+          dropIndexDraft(local, ctx.tableName, options),
+          {
+            ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes),
+            summary: {
+              ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes)
+                .summary,
+              changes: attributeChanges(attrDiffs),
+              note: "rebuild: the index is unavailable until this step completes",
+            },
           },
-        })
+        ])
       );
     }
   }
@@ -600,62 +645,68 @@ function processConstraintDiffs(
     const wholeAdd = diffsForConstraint.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForConstraint.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForConstraint.filter((d) => d.key !== undefined);
-    const target = { kind: "CONSTRAINT", name: constraintName } as const;
-    const subject = tableSubject(ctx.tableName);
+    const constraint = (wholeAdd ?? wholeRemove ?? attrDiffs[0])?.object as ConstraintSerialized;
+    const key = `${ctx.tableName}.${constraintName}`;
 
-    if (wholeAdd) {
-      const constraint = wholeAdd.object as ConstraintSerialized;
-      if (constraint.kind === "UNIQUE_CONSTRAINT") {
-        operations.push(
-          ...change(
-            `${ctx.tableName}.${constraint.name}`,
-            uniquePromotionDrafts(ctx, {
-              indexName: uniqueIndexNameForConstraint(constraint.name),
-              constraintName: constraint.name,
-              columns: constraint.columns,
-              include: constraint.include ?? undefined,
-              nullsDistinct: constraint.distinctNulls ?? undefined,
-              constraintObject: constraint,
-            })
-          )
-        );
-        continue;
-      }
+    if (constraint.kind === "PRIMARY_KEY_CONSTRAINT") {
+      const diffs = wholeAdd ? [wholeAdd] : wholeRemove ? [wholeRemove] : attrDiffs;
 
       errors.push(
         refusal({
           code: "IMMUTABLE_CONSTRAINT",
           message:
-            constraint.kind === "PRIMARY_KEY_CONSTRAINT"
-              ? `Cannot add PRIMARY KEY "${constraintName}" to existing table — DSQL only allows PRIMARY KEY at CREATE TABLE.`
-              : `Cannot add CHECK constraint "${constraintName}" to existing table — DSQL only allows CHECK at CREATE TABLE.`,
+            `Primary key "${constraintName}" can't be ${wholeAdd ? "added" : wholeRemove ? "dropped" : "changed"}: ` +
+            `DSQL sets a table's primary key when the table is created, and it can't change after.`,
           object: constraint,
           subject: constraintName,
-          diffs: [wholeAdd],
-          summary: { subject, action: "ADD", target, changes: [] },
+          diffs,
+          summary: {
+            subject: tableSubject(ctx.tableName),
+            action: wholeAdd ? "ADD" : wholeRemove ? "DROP" : "ALTER",
+            target: { kind: "CONSTRAINT", name: constraintName },
+            changes: attributeChanges(diffs),
+          },
         })
       );
       continue;
     }
 
-    if (wholeRemove || attrDiffs.length > 0) {
-      const refusalDiffs = wholeRemove ? [wholeRemove] : attrDiffs;
-      errors.push(
-        refusal({
-          code: "IMMUTABLE_CONSTRAINT",
-          message: wholeRemove
-            ? `Constraint "${constraintName}" cannot be dropped — constraints are immutable in DSQL.`
-            : `Constraint "${constraintName}" cannot be modified — constraints are immutable in DSQL.`,
-          object: refusalDiffs[0].object,
-          subject: constraintName,
-          diffs: refusalDiffs,
-          summary: {
-            subject,
-            action: wholeRemove ? "DROP" : "ALTER",
-            target,
-            changes: attributeChanges(refusalDiffs),
-          },
-        })
+    if (wholeRemove) {
+      operations.push(...change(key, [dropConstraintDraft(ctx, constraintName)]));
+      continue;
+    }
+
+    const promotion = (unique: AnyUniqueConstraint) =>
+      uniquePromotionDrafts(ctx, {
+        indexName: uniqueIndexNameForConstraint(unique.name),
+        constraintName: unique.name,
+        columns: unique.columns,
+        include: unique.include ?? undefined,
+        nullsDistinct: unique.distinctNulls ?? undefined,
+        constraintObject: unique,
+      });
+
+    if (wholeAdd) {
+      operations.push(
+        ...change(
+          key,
+          constraint.kind === "UNIQUE_CONSTRAINT"
+            ? promotion(constraint)
+            : addCheckDrafts(ctx, constraint as CheckSerialized)
+        )
+      );
+      continue;
+    }
+
+    if (attrDiffs.every((diff) => String(diff.key) === "validated")) {
+      operations.push(...change(key, [validateConstraintDraft(ctx, constraintName)]));
+      continue;
+    }
+
+    // A changed UNIQUE: dropped (its index with it), then built and promoted again.
+    if (constraint.kind === "UNIQUE_CONSTRAINT") {
+      operations.push(
+        ...change(key, [dropConstraintDraft(ctx, constraintName), ...promotion(constraint)])
       );
     }
   }
@@ -663,12 +714,12 @@ function processConstraintDiffs(
   return { operations, errors };
 }
 
+type AnyUniqueConstraint = Extract<ConstraintSerialized, { kind: "UNIQUE_CONSTRAINT" }>;
+
 function nonPromotableInlineAttrs(column: ColumnSerialized): string[] {
   const blocked: string[] = [];
   if (column.notNull) blocked.push("NOT NULL");
   if (column.defaultValue !== null && column.defaultValue !== undefined) blocked.push("DEFAULT");
-  if (column.check) blocked.push("CHECK");
-  if (column.primaryKey) blocked.push("PRIMARY KEY");
   if (column.generated) blocked.push("GENERATED");
   return blocked;
 }

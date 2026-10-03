@@ -193,6 +193,46 @@ describe("printDDL", () => {
     });
   });
 
+  describe("table constraint actions", () => {
+    it("prints ADD CONSTRAINT … NOT VALID", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [
+          ddl.addConstraint({
+            constraint: ddl.check({ name: "qty_positive", expression: "qty > 0" }),
+            notValid: true,
+          }),
+        ],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE "orders" ADD CONSTRAINT "qty_positive" CHECK (qty > 0) NOT VALID`
+      );
+    });
+
+    it("prints ALTER TABLE ASYNC … VALIDATE CONSTRAINT", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        async: true,
+        actions: [ddl.validateConstraint({ name: "qty_positive" })],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE ASYNC "orders" VALIDATE CONSTRAINT "qty_positive"`
+      );
+    });
+
+    it("prints DROP CONSTRAINT IF EXISTS … RESTRICT", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [
+          ddl.dropConstraint({ name: "qty_positive", ifExists: true, cascade: "RESTRICT" }),
+        ],
+      });
+      expect(print(node).text).toBe(
+        `ALTER TABLE "orders" DROP CONSTRAINT IF EXISTS "qty_positive" RESTRICT`
+      );
+    });
+  });
+
   describe("CREATE_TABLE", () => {
     it("prints a simple table", () => {
       const node = ddl.createTable({

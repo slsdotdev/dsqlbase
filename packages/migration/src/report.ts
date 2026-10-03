@@ -50,6 +50,16 @@ const formatValue = (value: unknown): string => {
   if (value === null || value === undefined) return "none";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+  // A list of names, or of index columns: `qty, sku`.
+  if (Array.isArray(value)) {
+    return value
+      .map((item: unknown) =>
+        item !== null && typeof item === "object" && "column" in item
+          ? String((item as { column: unknown }).column)
+          : formatValue(item)
+      )
+      .join(", ");
+  }
   return JSON.stringify(value);
 };
 

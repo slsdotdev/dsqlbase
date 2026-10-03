@@ -50,14 +50,14 @@ Sources:
 | Form | DSQL | Module |
 |---|---|---|
 | `ADD CONSTRAINT … CHECK` without `NOT VALID` | refused (live) | — |
-| `ADD CONSTRAINT … CHECK … NOT VALID` (enforced at once on new writes, `convalidated = false`) | supported (live) | refused `IMMUTABLE_CONSTRAINT` **(stale)** |
-| `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` → `job_id`, `job_type = VALIDATE_CONSTRAINT` | supported (live) | not modelled |
+| `ADD CONSTRAINT … CHECK … NOT VALID` (enforced at once on new writes, `convalidated = false`) | supported (live) | emitted |
+| `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` → `job_id`, `job_type = VALIDATE_CONSTRAINT` | supported (live) | emitted after every CHECK add, and alone for a CHECK left `NOT VALID` |
 | `ALTER TABLE … VALIDATE CONSTRAINT` (synchronous) | refused (live) | — |
 | A failed validation | the job fails (`check constraint "…" is violated by some row`); the constraint stays, `NOT VALID` (live) | — |
 | `ADD CONSTRAINT FOREIGN KEY … NOT VALID`, validate, `ALTER CONSTRAINT … [NOT] DEFERRABLE` | supported (live) | not modelled |
 | `ADD CONSTRAINT … UNIQUE USING INDEX` (the index must be valid; renames it to the constraint) | supported (live) | emitted (promotion path) |
 | `ADD CONSTRAINT UNIQUE (cols)`, `ADD PRIMARY KEY` | refused (live) | refused |
-| `DROP CONSTRAINT [IF EXISTS]` on CHECK, UNIQUE (also drops its index) or FK | supported (live) | refused **(stale)** |
+| `DROP CONSTRAINT [IF EXISTS]` on CHECK, UNIQUE (also drops its index) or FK | supported (live) | emitted (CHECK, UNIQUE) |
 | `DROP CONSTRAINT` on the primary key | refused (live) | — |
 
 ## Indexes
@@ -69,7 +69,7 @@ Sources:
 | Expression keys `((expr))`, partial `WHERE predicate` (immutable only) | supported (live) | not modelled |
 | `ASC` / `DESC` on a key | refused (live: `specifying sort order not supported for index keys`) | not offered |
 | Schema-qualified index name | refused (docs); the index lives in its table's schema | — |
-| A failed build (e.g. duplicates for `UNIQUE`) | the job fails; the index stays, `indisvalid = false`; a unique one still enforces uniqueness on writes until dropped (docs, live) | not read by introspection |
+| A failed build (e.g. duplicates for `UNIQUE`) | the job fails; the index stays, `indisvalid = false`; a unique one still enforces uniqueness on writes until dropped (docs, live) | read as `valid: false`; rebuilt |
 | `DROP INDEX [IF EXISTS] … [RESTRICT \| CASCADE]` | supported (live; no grammar published) | emitted |
 | `ALTER INDEX … RENAME TO` | supported (live; not listed in the docs) | not modelled |
 

@@ -108,6 +108,9 @@ export class IndexDefinition<
       distinctNulls: this._distinctNulls,
       columns: this._columns.map((col) => col.toJSON()),
       include: this._include ? this._include.map((col) => col.toJSON()) : null,
+      // A definition describes a usable index. Introspection reads one whose async build
+      // failed as `false`.
+      valid: true as boolean,
     } as const;
   }
 }

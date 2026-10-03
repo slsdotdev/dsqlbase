@@ -101,6 +101,7 @@ type RawIndex = {
   kind: "INDEX";
   name: string;
   unique: boolean;
+  valid: boolean;
   distinctNulls: boolean;
   columns: RawIndexColumn[];
   include: string[] | null;
@@ -111,6 +112,7 @@ type RawConstraint = {
   name: string;
   columns: string[];
   expression: string | null;
+  validated: boolean;
   distinctNulls: boolean | null;
   include: string[] | null;
 };
@@ -225,6 +227,7 @@ function normalizeIndex(raw: RawIndex): SerializedIndex {
     kind: "INDEX",
     name: raw.name,
     unique: raw.unique,
+    valid: raw.valid,
     distinctNulls: raw.distinctNulls,
     include: raw.include,
     columns: raw.columns.map((col) => ({
@@ -236,9 +239,9 @@ function normalizeIndex(raw: RawIndex): SerializedIndex {
   };
 }
 
-// Splits the unified pg_constraint array. A constraint collapses onto a
-// column flag only when it targets exactly one known column; everything else
-// stays at the table level.
+// Splits the unified pg_constraint array. A one-column PRIMARY KEY or CHECK collapses onto its
+// column; everything else stays at the table level — a UNIQUE always, so its name survives.
+// The diff compares constraints wherever they were declared (`diffTable`).
 function partitionConstraints(
   raw: RawConstraint[],
   columnsByName: Map<string, SerializedColumn>
@@ -255,16 +258,12 @@ function partitionConstraints(
       continue;
     }
 
-    if (singleColumn && constraint.kind === "UNIQUE_CONSTRAINT") {
-      target.unique = true;
-      continue;
-    }
-
     if (singleColumn && constraint.kind === "CHECK_CONSTRAINT" && constraint.expression !== null) {
       target.check = {
         kind: "CHECK_CONSTRAINT",
         name: constraint.name,
         expression: constraint.expression,
+        validated: constraint.validated,
       };
       continue;
     }
@@ -275,6 +274,7 @@ function partitionConstraints(
         kind: "CHECK_CONSTRAINT",
         name: constraint.name,
         expression: constraint.expression,
+        validated: constraint.validated,
       });
     } else if (constraint.kind === "UNIQUE_CONSTRAINT") {
       tableLevel.push({
@@ -333,7 +333,8 @@ function normalizeDomain(raw: RawDomain): SerializedObject<AnyDomainDefinition> 
     dataType: normalizeDataType(raw.dataType),
     notNull: raw.notNull,
     defaultValue: raw.defaultValue ?? undefined,
-    check: raw.check ?? undefined,
+    // Domain constraints can't be added `NOT VALID` on DSQL: read as validated.
+    check: raw.check ? { ...raw.check, validated: true } : undefined,
   };
 }
 

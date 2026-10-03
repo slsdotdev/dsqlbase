@@ -178,6 +178,9 @@ export type AddConstraintUsingIndexAction = {
 export type AnyAlterTableAction =
   | AddColumnAction
   | AlterColumnAction
+  | AddConstraintSubAction
+  | DropConstraintSubAction
+  | ValidateConstraintSubAction
   | RenameTableAction
   | RenameColumnAction
   | RenameConstraintAction
@@ -189,6 +192,8 @@ export type AlterTableCommand = {
   __kind: "ALTER_TABLE";
   name: string;
   schema?: string;
+  /** `ALTER TABLE ASYNC`: DSQL's form for `VALIDATE CONSTRAINT`, which runs as a job. */
+  async?: boolean;
   actions: AnyAlterTableAction[];
 } & DDLStatement;
 
@@ -331,6 +336,8 @@ export type DropIdentitySubAction = {
 export type AddConstraintSubAction = {
   __kind: "ADD_CONSTRAINT";
   constraint: CheckConstraintExpression;
+  /** Skips checking existing rows; DSQL requires it on an existing table. */
+  notValid?: boolean;
 } & DDLStatement;
 
 export type DropConstraintSubAction = {

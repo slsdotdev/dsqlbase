@@ -194,7 +194,9 @@ describe("normalizeObject", () => {
       expect(result.constraints).toEqual([]);
     });
 
-    it("collapses single-column UNIQUE onto column.unique", () => {
+    // Not collapsed: the name is needed to drop it, and the diff compares a column's `unique`
+    // flag with it by the name PostgreSQL gives it.
+    it("keeps a single-column UNIQUE at the table level, with its name", () => {
       const result = table([
         {
           kind: "UNIQUE_CONSTRAINT",
@@ -206,8 +208,16 @@ describe("normalizeObject", () => {
         },
       ]);
 
-      expect(result.columns.find((c) => c.name === "slug")?.unique).toBe(true);
-      expect(result.constraints).toEqual([]);
+      expect(result.columns.find((c) => c.name === "slug")?.unique).toBe(false);
+      expect(result.constraints).toEqual([
+        {
+          kind: "UNIQUE_CONSTRAINT",
+          name: "widgets_slug_key",
+          columns: ["slug"],
+          include: null,
+          distinctNulls: true,
+        },
+      ]);
     });
 
     it("collapses single-column CHECK onto column.check", () => {

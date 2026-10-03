@@ -55,6 +55,19 @@ export function diffIndex(
     });
   }
 
+  // An async build that failed leaves the index in place, invalid.
+  if (hasDiff(local, remote, "valid")) {
+    diffs.push({
+      type: "modify",
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "valid",
+      value: local.valid,
+      prevValue: remote.valid,
+    });
+  }
+
   if (hasUnorderedDiff(local, remote, "include")) {
     diffs.push({
       type: "modify",
