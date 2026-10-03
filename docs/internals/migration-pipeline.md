@@ -91,7 +91,15 @@ Gates: invalid definitions throw from `plan` / `dryRun` / `run`. Refusals, and s
 
 ## Out of scope today (tracked, not forgotten)
 
-Rename detection (a rename is add + refused drop), FK emission, view/function migration (AST kinds reserved), triggers, grants, online type changes via shadow column + backfill. The migrations proposal revisits these against the current DSQL grammar.
+FK emission, view/function migration (AST kinds reserved), triggers, grants, online type changes via shadow column + backfill, automatic rename detection (renames are declared with `renamedFrom`). From the 0.2.0 release review (2026-10-03):
+
+- **No deploy lock.** Two overlapping runs, or a re-run after a `wait_for_job` timeout, read an index still building as `valid: false` and plan drop + create. Advisory locks on DSQL are unverified; a lock row under OCC is the likely design, and could share a table with an applied-definition snapshot.
+- **Every non-system schema is treated as managed,** so a table another tool owns is planned as a drop. Needs an ownership marker or an include / exclude list.
+- **DDL isn't retried on `40001` / `OC001`** (a stale catalog after another session's DDL); only the backfill retries. Re-running recovers.
+- **A type change finds the CHECKs and expression indexes to recreate by searching their text for `"col"`,** so one written with the column unquoted is dropped with the column and only recreated on the next run. An applied-definition snapshot would solve this and the by-name comparison of expressions together.
+- **A `renamedFrom` left in place** blocks a later deploy that reuses the old name (`RENAME_CONFLICT`). **Indexes have no `renamedFrom`**: renaming one in the definition drops and rebuilds it.
+- **A backfill on a wide table can pass DSQL's 10 MiB per-transaction limit** at 1,000 rows, and fail again on a re-run. Halving the batch on that error needs a probe of the error DSQL returns.
+- **Report rows carry job error text,** which for a failed unique build includes the duplicated key values — row data, in CI logs. Decide whether to redact it.
 
 ## Related
 
