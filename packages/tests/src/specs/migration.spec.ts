@@ -293,6 +293,26 @@ describe("schema migrations (e2e via PGlite)", () => {
     const rows = async (text: string) => (await pg.query(text)).rows;
     const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
 
+    // `<table>_<column>_not_null` would be 66 bytes: the server cut it, and every later plan
+    // failed to find it and tried again. The planner now names it within 63, as PostgreSQL would.
+    it("converges when a derived constraint name would pass 63 bytes", async () => {
+      const addresses = (notNull: boolean) =>
+        table("customer_billing_addresses_v2", {
+          id: uuid("id").primaryKey().defaultRandom(),
+          secondaryPostalCodeValue: notNull
+            ? text("secondary_postal_code_value").notNull().default("none")
+            : text("secondary_postal_code_value"),
+        }).toJSON();
+
+      await runner.run([addresses(false)], RUN_OPTS);
+      await pg.query(`INSERT INTO customer_billing_addresses_v2 DEFAULT VALUES`);
+
+      const result = await runner.run([addresses(true)], RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect((await runner.plan([addresses(true)], RUN_OPTS)).rows).toEqual([]);
+    });
+
     // A default that is NULL at runtime fills nothing; the backfill stops instead of looping.
     it("stops a backfill whose default is NULL for the rows it fills", async () => {
       const v1 = table("items", {

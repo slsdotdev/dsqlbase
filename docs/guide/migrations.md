@@ -120,7 +120,7 @@ DSQL's `ADD COLUMN` takes no attributes at all — not even a `DEFAULT` — and 
 
 A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables. A default that is `NULL` can't fill anything: a literal `NULL` counts as no default (adding a `NOT NULL` column with it is refused), and one that turns out `NULL` at runtime — `nullif(…)`, a lookup that finds nothing — stops the backfill at the first batch that fills no row, failing the step with the column named, instead of looping.
 
-A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`.
+A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`. When that name would pass PostgreSQL's 63-byte limit, the table and column parts are shortened the way PostgreSQL shortens its own constraint names, so the runner still finds it.
 
 To change a type **and keep the data**, don't let the runner drop the column: add a new column with the new type, copy the values, switch the code over, then `.deprecated()` the old one and remove it in a later release. A destructive step's note in the plan, and the error when it isn't allowed, say so.
 

@@ -24,6 +24,7 @@ import {
 } from "../diffs/table.js";
 import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
 import { renameColumns } from "./rename.js";
+import { deriveIdentifier } from "../names.js";
 import {
   attributeChanges,
   AttributeChange,
@@ -37,7 +38,6 @@ import {
   maybeNamespaceReference,
   OperationResult,
   OperationSubject,
-  deriveIdentifier,
   qualifiedName,
   schemaOf,
   refusal,

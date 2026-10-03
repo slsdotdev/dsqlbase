@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveIdentifier } from "./base.js";
+import { deriveIdentifier, postgresObjectName } from "./names.js";
 
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 
@@ -30,5 +30,34 @@ describe("deriveIdentifier", () => {
     expect(bytes(name)).toBeLessThanOrEqual(63);
     expect(name).not.toContain("�");
     expect(name.startsWith("é")).toBe(true);
+  });
+});
+
+// Expected names are what PostgreSQL chose for an inline UNIQUE on PGlite (2026-10-03).
+describe("postgresObjectName", () => {
+  it.each([
+    ["users", "email", "users_email_key"],
+    [
+      "customer_billing_addresses_v2",
+      "secondary_postal_code_value",
+      "customer_billing_addresses_v2_secondary_postal_code_value_key",
+    ],
+    ["t".repeat(50), "c".repeat(20), `${"t".repeat(38)}_${"c".repeat(20)}_key`],
+    ["a".repeat(20), "b".repeat(60), `${"a".repeat(20)}_${"b".repeat(38)}_key`],
+    ["tébléé".repeat(8), "cölümn".repeat(6), "tébléétébléétébléét_cölümncölümncölümncöl_key"],
+  ])("names %s / %s as PostgreSQL does", (table, column, expected) => {
+    expect(postgresObjectName(table, column, "key")).toBe(expected);
+  });
+
+  // The review's repro: 66 bytes untrimmed, which the server cut to `…_not_n`.
+  it("keeps a NOT NULL CHECK name within 63 bytes, ending in its label", () => {
+    const name = postgresObjectName(
+      "customer_billing_addresses_v2",
+      "secondary_postal_code_value",
+      "not_null"
+    );
+
+    expect(bytes(name)).toBeLessThanOrEqual(63);
+    expect(name.endsWith("_not_null")).toBe(true);
   });
 });
