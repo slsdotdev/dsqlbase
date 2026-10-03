@@ -98,3 +98,4 @@ Rename detection (a rename is add + refused drop), FK emission, view/function mi
 - [Architecture](./architecture.md)
 - [Migrations (guide)](../guide/migrations.md)
 - [Decision 0002 — migration consolidation](../decisions/0002-migration-consolidation.md)
+- [Decision 0014 — DSQL catch-up, changes and steps, risk gates](../decisions/0014-migration-dsql-catchup.md)

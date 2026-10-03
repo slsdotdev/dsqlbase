@@ -4,7 +4,7 @@ _Audience: application developers._
 
 The migration runner is **declarative**: it compares your schema definition with the live database and applies the DDL needed to make them match. There is no migration history table and no migration files. Source: `packages/migration/src/`, published as `@dsqlbase/migration`.
 
-> **Status: partially stub.** The runner surface below is current. DSQL-specific behaviour (which changes are applied, refused, or need a workaround) is being revised against the current DSQL grammar; see [DSQL capabilities](../internals/dsql-capabilities.md) for the verified table.
+What DSQL allows, and how each change is built from it, was verified against a live cluster on 2026-10-03; see [DSQL capabilities](../internals/dsql-capabilities.md) and [decision 0014](../decisions/0014-migration-dsql-catchup.md).
 
 ## Pipeline
 

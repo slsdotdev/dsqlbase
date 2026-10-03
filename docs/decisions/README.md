@@ -21,6 +21,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0011](./0011-json-columns.md) | JSON columns and operators by runtime type | 2026-10-01 | accepted |
 | [0012](./0012-json-array-record.md) | Column validators, `jsonb` operators, `array()` / `record()` on `jsonb` | 2026-10-02 | accepted |
 | [0013](./0013-embeddable-objects.md) | Embedded objects as column groups | 2026-10-02 | accepted |
+| [0014](./0014-migration-dsql-catchup.md) | Migrations: DSQL catch-up, changes and steps, risk gates | 2026-10-03 | accepted |
 
 ## Template
 
