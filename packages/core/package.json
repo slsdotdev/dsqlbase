@@ -13,7 +13,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://www.sls.dev",
+  "engines": {
+    "node": ">=22"
+  },
+  "homepage": "https://github.com/slsdotdev/dsqlbase#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slsdotdev/dsqlbase.git",
@@ -26,52 +29,54 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "../../LICENSE"
+    "LICENSE"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "default": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./definition": {
-      "default": "./dist/definition/index.js",
-      "types": "./dist/definition/index.d.ts"
+      "types": "./dist/definition/index.d.ts",
+      "default": "./dist/definition/index.js"
     },
     "./definition/*": {
-      "default": "./dist/definition/*.js",
-      "types": "./dist/definition/*.d.ts"
+      "types": "./dist/definition/*.d.ts",
+      "default": "./dist/definition/*.js"
     },
     "./runtime": {
-      "default": "./dist/runtime/index.js",
-      "types": "./dist/runtime/index.d.ts"
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
     },
     "./runtime/*": {
-      "default": "./dist/runtime/*.js",
-      "types": "./dist/runtime/*.d.ts"
+      "types": "./dist/runtime/*.d.ts",
+      "default": "./dist/runtime/*.js"
     },
     "./sql": {
-      "default": "./dist/sql/index.js",
-      "types": "./dist/sql/index.d.ts"
+      "types": "./dist/sql/index.d.ts",
+      "default": "./dist/sql/index.js"
     },
     "./sql/*": {
-      "default": "./dist/sql/*.js",
-      "types": "./dist/sql/*.d.ts"
+      "types": "./dist/sql/*.d.ts",
+      "default": "./dist/sql/*.js"
     },
     "./utils": {
-      "default": "./dist/utils/index.js",
-      "types": "./dist/utils/index.d.ts"
+      "types": "./dist/utils/index.d.ts",
+      "default": "./dist/utils/index.js"
     },
     "./utils/*": {
-      "default": "./dist/utils/*.js",
-      "types": "./dist/utils/*.d.ts"
+      "types": "./dist/utils/*.d.ts",
+      "default": "./dist/utils/*.js"
     }
   },
   "scripts": {
+    "prebuild": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   }
 }

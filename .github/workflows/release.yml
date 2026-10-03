@@ -41,10 +41,23 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: npm run check:packages
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run e2e
+
+      # The published packages declare `engines.node >=22`; the repo itself runs on 24. Installed
+      # and built on 24 above, the suites run again on 22 to keep that floor honest.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Test on Node 22
+        run: |
+          for package in core dsqlbase migration tests; do
+            (cd "packages/$package" && node ../../node_modules/vitest/vitest.mjs run) || exit 1
+          done
 
   publish:
     name: Version or publish

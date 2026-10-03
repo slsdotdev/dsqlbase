@@ -2,7 +2,7 @@
 
 _Audience: contributors and agents._
 
-`dsqlbase` is an npm-workspaces + Turborepo monorepo with four workspaces under `packages/`. Use `npm` / `npx` only (`yarn` and `pnpm` are blocked via `engines`). Node `>=24.14.1`, npm `>=11.11.0`, ESM only (`"type": "module"`, `module: "nodenext"`).
+`dsqlbase` is an npm-workspaces + Turborepo monorepo with four workspaces under `packages/`. Use `npm` / `npx` only (`yarn` and `pnpm` are blocked via `engines`). Developing in the repo needs Node `>=24.14.1` and npm `>=11.11.0`; the published packages need Node `>=22` (their `engines`). ESM only (`"type": "module"`, `module: "nodenext"`).
 
 ## Workspaces and dependency direction
 
