@@ -229,3 +229,44 @@ describe("TableDefinition tenant claims", () => {
     ).not.toThrow();
   });
 });
+
+describe("TableDefinition — deprecated() and renamedFrom()", () => {
+  it("serializes a deprecated column, NOT NULL dropped when it has no default", () => {
+    const people = new TableDefinition("people", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        nickname: new ColumnDefinition("nickname").notNull().deprecated(),
+        status: new ColumnDefinition("status").notNull().default("new").deprecated(),
+      },
+    });
+
+    expect(people.toJSON().columns.map((c) => [c.name, c.deprecated, c.notNull])).toEqual([
+      ["id", false, true],
+      ["nickname", true, false],
+      ["status", true, true],
+    ]);
+  });
+
+  it("serializes renames of a table and its columns", () => {
+    const people = new TableDefinition("people", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        fullName: new ColumnDefinition("full_name").renamedFrom("name"),
+      },
+    }).renamedFrom("users");
+
+    const json = people.toJSON();
+
+    expect(json.renamedFrom).toBe("users");
+    expect(json.columns.map((c) => c.renamedFrom)).toEqual([null, "name"]);
+  });
+
+  it("refuses deprecating a primary-key column", () => {
+    expect(
+      () =>
+        new TableDefinition("people", {
+          columns: { id: new ColumnDefinition("id").primaryKey().deprecated() },
+        })
+    ).toThrow(/deprecates "id", part of its primary key/);
+  });
+});

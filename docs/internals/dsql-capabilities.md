@@ -43,7 +43,7 @@ Sources:
 | `ALTER COLUMN DROP EXPRESSION [IF EXISTS]` (generated → plain) | supported (live) | emitted (destructive) |
 | `ALTER COLUMN SET STORAGE` | supported (live) | not modelled |
 | Identity: `ADD GENERATED … AS IDENTITY (CACHE …)`, `SET GENERATED`, `SET <sequence option>`, `RESTART`, `DROP IDENTITY` | supported (live); `ADD GENERATED` needs a `NOT NULL` column (PostgreSQL), which only `CREATE TABLE` can give on DSQL | `SET GENERATED`, `SET` options (incl. `START WITH`), `DROP IDENTITY` emitted; `ADD GENERATED` only on a `NOT NULL` column; never `RESTART` |
-| `RENAME` table / column / constraint, `SET SCHEMA`, `OWNER TO` | supported (live for renames) | AST and printer only |
+| `RENAME` table / column / constraint, `SET SCHEMA`, `OWNER TO` | supported (live for renames) | renames emitted from `renamedFrom` (with `ALTER INDEX … RENAME` for derived index names) |
 
 ## Constraints
 
@@ -98,7 +98,8 @@ The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0
   table says otherwise and is out of date. `pg_get_indexdef`, `pg_get_expr` (including
   `indpred`), `pg_get_constraintdef` and `pg_get_viewdef` all work.
 - **`COMMENT ON TABLE` / `COLUMN`:** works, and reads back from `pg_description` (live). The
-  docs only list `COMMENT ON ROUTINE`.
+  docs only list `COMMENT ON ROUTINE`. `deprecated()` marks a column with the comment
+  `dsqlbase:deprecated`.
 - **Async DDL:** `CREATE INDEX ASYNC` and `ALTER TABLE ASYNC … VALIDATE` return a `job_id`.
   - `CALL sys.wait_for_job(id)` blocks until the job ends and returns `{ succeeded: boolean }`.
     It's a procedure, so `SELECT sys.wait_for_job(id)` fails (live).

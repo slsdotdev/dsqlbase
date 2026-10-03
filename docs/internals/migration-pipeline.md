@@ -48,7 +48,9 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 
 - Column add → bare `ADD COLUMN`, then `SET DEFAULT`, and for `NOT NULL` a backfill and a `<table>_<column>_not_null` CHECK (`NOT VALID` + validate). `NOT NULL` without a default → `NOT_NULL_NEEDS_DEFAULT`; generated → `NO_ADD_GENERATED_COLUMN`; identity → `NO_ADD_IDENTITY` (PostgreSQL makes an identity of a `NOT NULL` column only). Its CHECK and UNIQUE come from the constraint diff, and are dropped from the plan when the column is refused.
 - Column modify → `SET` / `DROP DEFAULT`; `NOT NULL` → backfill (with a default) + CHECK; nullable → `DROP NOT NULL`, or `DROP CONSTRAINT` of the CHECK; identity → `SET GENERATED`, `SET` options (`START WITH`, never `RESTART`), `ADD` only on a `NOT NULL` column, `DROP IDENTITY`; generated → plain via `DROP EXPRESSION`, other generated changes → `NO_ALTER_GENERATED`; type or domain change → drop + add + the column's default, `NOT NULL`, indexes and constraints (destructive), refused on a primary-key column.
-- Column drop → `DROP COLUMN` (destructive), after the table's index and constraint steps; refused on a primary-key column. With a column added in the same plan, its note says "possible rename".
+- Column drop → `DROP COLUMN` (destructive, or lossy when introspection reads the column's `dsqlbase:deprecated` comment), after the table's index and constraint steps; refused on a primary-key column. With a column added in the same plan, its note says "possible rename".
+- Deprecation → `COMMENT ON COLUMN … IS 'dsqlbase:deprecated'` (or `IS NULL` to undo); the definition serializes a deprecated `NOT NULL` column without a default as nullable, so the `DROP NOT NULL` follows from the ordinary diff.
+- Renames (`operations/rename.ts`) → resolved before diffing: `renamedFrom` on a table (in `reconcile.ts`) or a column (in `diffTableOperations`) becomes `RENAME`, plus `RENAME CONSTRAINT` / `ALTER INDEX … RENAME` for the names derived from the old one; the rest is diffed against the database as it will be after them. Both names present → `RENAME_CONFLICT`.
 - `diffTable` reads a `<table>_<column>_not_null` CHECK as that column's `NOT NULL` and doesn't compare it as a constraint, except for whether it was validated.
 - The backfill (`BACKFILL` statement) is DML: the executor runs it batch after batch, one transaction each, retrying `40001`, until a batch updates nothing.
 - Index add → `CREATE INDEX [ASYNC]`, with expression keys (`((expr))`) and a partial `WHERE`; drop → `DROP INDEX RESTRICT` (lossy); any change, or `valid: false`, → rebuild: drop, then create.
@@ -62,7 +64,7 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - Sequence and identity options compare by their effective values: an option the definition leaves unset counts as the PostgreSQL default for a `bigint` sequence, and an identity's sequence name only counts when the definition names one. `ALTER SEQUENCE` lists only the options that changed. `ownedBy` isn't compared (deferred).
 - Key-column lists (index, primary key, unique) compare in order; `include` lists compare as sets. A constraint whose kind changes under the same name is removed and added.
 
-Refusal codes: `NOT_NULL_NEEDS_DEFAULT`, `NO_ADD_GENERATED_COLUMN`, `NO_ADD_IDENTITY`, `NO_ALTER_GENERATED`, `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `NO_ALTER_DOMAIN_TYPE`, `NO_ALTER_DOMAIN_CONSTRAINT`, `KIND_MISMATCH`.
+Refusal codes: `NOT_NULL_NEEDS_DEFAULT`, `NO_ADD_GENERATED_COLUMN`, `NO_ADD_IDENTITY`, `NO_ALTER_GENERATED`, `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN`, `RENAME_CONFLICT`, `IMMUTABLE_CONSTRAINT` (primary keys), `NO_ALTER_DOMAIN_TYPE`, `NO_ALTER_DOMAIN_CONSTRAINT`, `KIND_MISMATCH`.
 
 ### Planner (`reconciliation/planner.ts`)
 

@@ -102,7 +102,7 @@ DSQL's `ADD COLUMN` takes no attributes at all — not even a `DEFAULT` — and 
 | Make a column `NOT NULL` | backfill if it has a default, then the `CHECK`; without a default, validation fails while a `NULL` is left | safe |
 | Drop a `NOT NULL` | `DROP NOT NULL`, or `DROP CONSTRAINT` for one made by a `CHECK` | lossy |
 | Set, change or drop a default | `SET DEFAULT` / `DROP DEFAULT` | safe / lossy |
-| Drop a column | `DROP COLUMN` (its indexes and constraints go with it) | **destructive** |
+| Drop a column | `DROP COLUMN` (its indexes and constraints go with it) | **destructive**; lossy when it was `.deprecated()` in an earlier release |
 | Change a column's type | `DROP COLUMN`, `ADD COLUMN`, then its default, `NOT NULL` and the indexes and constraints that involved it — **its data is lost** | **destructive** |
 | Generated column → plain | `DROP EXPRESSION` (values kept; it can't be made generated again) | **destructive** |
 | Identity options, mode | `SET INCREMENT BY …`, `SET START WITH …`, `SET GENERATED …` — never `RESTART` | safe (narrower bounds: lossy) |
@@ -114,6 +114,13 @@ A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<tab
 To change a type **and keep the data**, don't let the runner drop the column: add a new column with the new type, copy the values, switch the code over, then `.deprecated()` the old one and remove it in a later release. A destructive step's note in the plan, and the error when it isn't allowed, say so.
 
 Refused, with the reason in the plan: adding a generated or identity column, making an existing column generated or an identity (an identity needs a `NOT NULL` from `CREATE TABLE`), changing a generated expression, and dropping or retyping a primary-key column.
+
+## Renames and deprecation
+
+- **`renamedFrom`** — a column or table renamed in the definition is renamed in the database (`RENAME COLUMN`, `ALTER TABLE … RENAME TO`), with the constraints and indexes named after it (`<table>_<column>_key`, `<column>_check`, `<table>_<column>_not_null`, and for a table its `<table>_…` names). Safe, but not zero-downtime: code still using the old name fails until it is deployed. When both names exist, it's refused (`RENAME_CONFLICT`). Without the hint, a dropped and an added column in the same plan get a note: *possible rename*.
+- **`deprecated()`** — the column gets the comment `dsqlbase:deprecated` (safe) and, if it's `NOT NULL` without a default, `DROP NOT NULL` (lossy). The marker is how a later run knows the drop was planned — the runner keeps no history of its own — so a deprecated column removed from the definition is dropped as a **lossy** step. Removing `.deprecated()` removes the marker. The comment replaces any other comment on the column.
+
+For a rename with no downtime, add the new column, backfill it, switch the code over, and `.deprecated()` the old one — then remove it a release later.
 
 ## Domains and sequences
 
@@ -143,6 +150,7 @@ Changes DSQL cannot express come back as refusals in `plan().errors` — and as 
 | `NO_ALTER_GENERATED` | making a column generated, or changing its expression |
 | `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN` | retyping or dropping a primary-key column |
 | `IMMUTABLE_CONSTRAINT` | adding, dropping or changing a primary key |
+| `RENAME_CONFLICT` | `renamedFrom` a column or table when both names exist |
 | `NO_ALTER_DOMAIN_TYPE` | changing a domain's type |
 | `NO_ALTER_DOMAIN_CONSTRAINT` | making a domain `NOT NULL`, or adding or renaming its `CHECK` |
 | `KIND_MISMATCH` | an object whose kind changed under the same name |

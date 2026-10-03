@@ -280,6 +280,13 @@ const printReducer = {
     const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
     return sql`DROP COLUMN ${ifExists}${sql.identifier(node.columnName)}`;
   },
+  COMMENT_ON_COLUMN: (node) => {
+    const column = sql`${qualifiedName(node.schema, node.tableName)}.${sql.identifier(node.columnName)}`;
+    // A literal, quoted as SQL quotes strings: COMMENT takes no parameter.
+    const comment =
+      node.comment === null ? sql.raw("NULL") : sql.raw(`'${node.comment.replace(/'/g, "''")}'`);
+    return sql`COMMENT ON COLUMN ${column} IS ${comment}`;
+  },
   BACKFILL: (node) => {
     const table = qualifiedName(node.schema, node.tableName);
     const column = sql.identifier(node.columnName);

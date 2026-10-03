@@ -22,7 +22,7 @@ Verified: 2026-10-03, against the [DSQL SQL feature reference](https://docs.aws.
 
 ## What this means for `dsqlbase`
 
-- Design columns to be additive. A type change drops and re-adds the column, losing its data; to keep it, add a new column, copy, and retire the old one. Renames are add + drop until rename support lands — the plan notes a possible rename.
+- Design columns to be additive. A type change drops and re-adds the column, losing its data; to keep it, add a new column, copy, and retire the old one. Rename with `.renamedFrom()`, or — with no downtime — add the new column, copy, and `.deprecated()` the old one.
 - Give a `NOT NULL` column you may add later a default: it's what fills the existing rows.
 - Expect the migration runner to *refuse* some changes rather than emit SQL DSQL would reject. Refusals name the reason and what to do instead.
 

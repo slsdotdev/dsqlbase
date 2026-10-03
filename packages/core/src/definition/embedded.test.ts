@@ -231,3 +231,35 @@ describe("a table with column groups", () => {
     expect(Object.keys(union.columns)).toEqual(["id"]);
   });
 });
+
+describe("EmbeddedObjectDefinition — renames and deprecation", () => {
+  const table = (
+    columns: Record<
+      string,
+      ColumnDefinition<string, never> | ColumnGroupDefinition<string, never, boolean>
+    >
+  ) =>
+    new TableDefinition("products", {
+      columns: { id: new ColumnDefinition("id").primaryKey(), ...columns } as never,
+    });
+
+  it("prefixes a member's previous name with the group, as its column name is", () => {
+    const money = new EmbeddedObjectDefinition({
+      amount: new ColumnDefinition("amount").renamedFrom("value"),
+    });
+
+    const json = table({ price: money.column("price") }).toJSON();
+
+    expect(json.columns.find((c) => c.name === "price_amount")?.renamedFrom).toBe("price_value");
+  });
+
+  it("refuses deprecating a member: the client reads a group as a whole", () => {
+    const money = new EmbeddedObjectDefinition({
+      amount: new ColumnDefinition("amount").deprecated(),
+    });
+
+    expect(() => table({ price: money.column("price") })).toThrow(
+      /deprecates "price.amount", a member of an embedded object/
+    );
+  });
+});

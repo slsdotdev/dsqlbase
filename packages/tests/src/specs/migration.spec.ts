@@ -496,4 +496,64 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect((await runner.plan([next.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });
   });
+
+  describe("renames and deprecation", () => {
+    const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
+    const rows = async (text: string) => (await pg.query(text)).rows;
+
+    it("renames a column and a table, keeping their data", async () => {
+      const v1 = table("users", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name").unique(),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO users (name) VALUES ('ada')`);
+
+      const v2 = table("people", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        fullName: text("full_name").unique().renamedFrom("name"),
+      }).renamedFrom("users");
+
+      // Nothing destructive: no drop, no create.
+      const result = await runner.run([v2.toJSON()], NO_DESTRUCTIVE);
+
+      expect(result.rows.map((row) => row.sql)).toEqual([
+        `ALTER TABLE "users" RENAME TO "people"`,
+        `ALTER TABLE "people" RENAME CONSTRAINT "users_name_key" TO "people_full_name_key"`,
+        `ALTER TABLE "people" RENAME COLUMN "name" TO "full_name"`,
+      ]);
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await rows(`SELECT full_name FROM people`)).toEqual([{ full_name: "ada" }]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("deprecates a column, then drops it later without allowing destructive steps", async () => {
+      const v1 = table("users", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        nickname: text("nickname").notNull(),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+
+      const v2 = table("users", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        nickname: text("nickname").notNull().deprecated(),
+      });
+      const deprecated = await runner.run([v2.toJSON()], NO_DESTRUCTIVE);
+
+      expect(deprecated.rows.map((row) => [row.action, row.risk])).toEqual([
+        ["DROP", "lossy"],
+        ["ALTER", "safe"],
+      ]);
+      // The client no longer writes it: the NOT NULL is gone.
+      await pg.query(`INSERT INTO users DEFAULT VALUES`);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+
+      const v3 = table("users", { id: uuid("id").primaryKey().defaultRandom() });
+      const dropped = await runner.run([v3.toJSON()], NO_DESTRUCTIVE);
+
+      expect(dropped.rows.map((row) => [row.action, row.target, row.risk])).toEqual([
+        ["DROP", "nickname", "lossy"],
+      ]);
+    });
+  });
 });

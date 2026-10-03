@@ -45,6 +45,7 @@ import {
   DropColumnAction,
   DropExpressionSubAction,
   SetSequenceOptionsSubAction,
+  CommentOnColumnCommand,
 } from "./ast.js";
 
 export const createTable = (props: Omit<CreateTableCommand, "__kind">): CreateTableCommand => ({
@@ -73,6 +74,10 @@ export const backfill = (props: Omit<BackfillCommand, "__kind">): BackfillComman
 });
 
 export const dropExpression = (): DropExpressionSubAction => ({ __kind: "DROP_EXPRESSION" });
+
+export const commentOnColumn = (
+  props: Omit<CommentOnColumnCommand, "__kind">
+): CommentOnColumnCommand => ({ __kind: "COMMENT_ON_COLUMN", ...props });
 
 export const setSequenceOptions = (
   props: Omit<SetSequenceOptionsSubAction, "__kind">
@@ -274,6 +279,7 @@ export const indexColumn = (
 
 export const ddl = {
   backfill,
+  commentOnColumn,
   dropColumn,
   dropExpression,
   setSequenceOptions,

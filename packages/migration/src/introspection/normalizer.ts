@@ -81,6 +81,7 @@ type RawColumn = {
   name: string;
   dataType: string;
   notNull: boolean;
+  deprecated: boolean;
   defaultValue: string | null;
   domain: string | null;
   generated: { type: "ALWAYS"; expression: string; mode: "STORED" } | null;
@@ -222,6 +223,8 @@ function normalizeColumn(raw: RawColumn): SerializedColumn {
           options: normalizeSequenceOptions(raw.identity.options),
         }
       : null,
+    deprecated: raw.deprecated ?? false,
+    renamedFrom: null,
   };
 }
 
@@ -337,6 +340,7 @@ function normalizeTable(raw: RawTable): SerializedObject<AnyTableDefinition> {
     columns,
     indexes,
     constraints,
+    renamedFrom: null,
   };
 }
 

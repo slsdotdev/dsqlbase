@@ -1,6 +1,7 @@
 // VIEW and FUNCTION kinds are reserved for future stories — no statement types, factories, or printer cases exist for them yet.
 export type DDLCommand =
   | "BACKFILL"
+  | "COMMENT_ON_COLUMN"
   | "CREATE_TABLE"
   | "ALTER_TABLE"
   | "DROP_TABLE"
@@ -146,6 +147,15 @@ export type AddColumnAction = {
   __kind: "ADD_COLUMN";
   column: ColumnDefinitionExpression;
   ifNotExists?: boolean;
+} & DDLStatement;
+
+/** `COMMENT ON COLUMN`: `comment: null` removes it. */
+export type CommentOnColumnCommand = {
+  __kind: "COMMENT_ON_COLUMN";
+  tableName: string;
+  schema?: string;
+  columnName: string;
+  comment: string | null;
 } & DDLStatement;
 
 export type DropColumnAction = {
@@ -447,6 +457,7 @@ export type AlterIndexCommand = {
 
 export type AnyDDLStatement =
   | BackfillCommand
+  | CommentOnColumnCommand
   | DropColumnAction
   | DropExpressionSubAction
   | SetSequenceOptionsSubAction

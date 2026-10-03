@@ -23,6 +23,7 @@ import {
   primaryKeyOf,
 } from "../diffs/table.js";
 import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
+import { renameColumns } from "./rename.js";
 import {
   attributeChanges,
   AttributeChange,
@@ -288,6 +289,14 @@ export function diffTableOperations(
   }
 
   const tableName = qualifiedName(local);
+
+  // Columns renamed with `renamedFrom` are renamed first; the rest is diffed against the table
+  // as it will be then.
+  const renamed = renameColumns(local, remote);
+  remote = renamed.remote;
+  operations.push(...renamed.operations);
+  errors.push(...renamed.errors);
+
   const ctx: TableProcessingContext = {
     local,
     tableName,
@@ -381,6 +390,9 @@ function alterTableDraft(
     summary,
   };
 }
+
+/** The comment `deprecated()` leaves on a column: introspection reads it back. */
+const DEPRECATED_MARKER = "dsqlbase:deprecated";
 
 /** Rows per backfill batch: well inside DSQL's 3,000 rows written per transaction. */
 const BACKFILL_BATCH_SIZE = 1000;
@@ -719,6 +731,34 @@ function columnModify(
     );
   }
 
+  const deprecated = diffOf("deprecated");
+
+  if (deprecated) {
+    // The marker is how a later release knows the drop was planned: the runner keeps no
+    // history of its own.
+    drafts.push({
+      type: "ALTER",
+      object: ctx.local,
+      statement: ddl.commentOnColumn({
+        tableName: ctx.local.name,
+        schema: ctx.local.namespace !== "public" ? ctx.local.namespace : undefined,
+        columnName,
+        comment: local.deprecated ? DEPRECATED_MARKER : null,
+      }),
+      references: dedupe(ctx.tableNamespaceRef),
+      summary: {
+        subject: tableSubject(ctx.tableName),
+        action: "ALTER",
+        target: { kind: "COLUMN", name: columnName },
+        changes: [{ attribute: "deprecated", from: !local.deprecated, to: local.deprecated }],
+        risk: "safe",
+        note: local.deprecated
+          ? "hidden from the client; remove it from the definition in a later release to drop it"
+          : undefined,
+      },
+    });
+  }
+
   const identity = diffOf("identity");
 
   if (identity) {
@@ -852,6 +892,8 @@ function columnDrop(
   }
 
   const renamed = added.length > 0;
+  // Deprecated in an earlier release: the drop was announced, and the client stopped using it.
+  const planned = ctx.remoteColumns.get(columnName)?.deprecated === true;
 
   return {
     drafts: [
@@ -859,11 +901,13 @@ function columnDrop(
         subject: tableSubject(ctx.tableName),
         action: "DROP",
         target: { kind: "COLUMN", name: columnName },
-        risk: "destructive",
-        note: renamed
-          ? `its data is lost — possible rename: ${added.map((name) => `"${name}"`).join(", ")} ` +
-            `is added in the same plan; .renamedFrom("${columnName}") would keep the data`
-          : "its data is lost",
+        risk: planned ? "lossy" : "destructive",
+        note: planned
+          ? "deprecated in an earlier release; its data is lost"
+          : renamed
+            ? `its data is lost — possible rename: ${added.map((name) => `"${name}"`).join(", ")} ` +
+              `is added in the same plan; .renamedFrom("${columnName}") would keep the data`
+            : "its data is lost",
       }),
     ],
   };

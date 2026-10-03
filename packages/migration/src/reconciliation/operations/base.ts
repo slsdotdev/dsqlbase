@@ -128,7 +128,8 @@ export type RefusalCode =
   | "NO_ALTER_GENERATED"
   | "NO_ALTER_PRIMARY_KEY_COLUMN"
   | "NO_DROP_PRIMARY_KEY_COLUMN"
-  | "NOT_NULL_NEEDS_DEFAULT";
+  | "NOT_NULL_NEEDS_DEFAULT"
+  | "RENAME_CONFLICT";
 
 /** What a refused change would have done, for reporting. */
 export type RefusalSummary = {

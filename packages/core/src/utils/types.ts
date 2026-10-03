@@ -47,6 +47,14 @@ export type ReadOnly<T extends TypedObject> = T & {
 };
 
 /**
+ * Marks a column as deprecated: kept in the database until a later release removes it, but gone
+ * from the client — not selectable, filterable, orderable or writable.
+ */
+export type Deprecated<T extends TypedObject> = T & {
+  __type: { deprecated: true };
+};
+
+/**
  * Marks a column as a tenant claim key: the runtime fills it on insert and filters every read
  * by it, from the identity on the execution context. Always set together with {@link ReadOnly},
  * and only by `tenantScope()` — there is no public builder for it.

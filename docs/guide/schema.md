@@ -30,6 +30,24 @@ types or at runtime. A field that arrives there anyway, through an untyped sprea
 rather than refused. Use it for a value the application must not set; it changes nothing about
 the generated DDL, so migrations are unaffected.
 
+### Renaming and retiring columns
+
+`.renamedFrom("previous")` on a column — or on a table, `table("people", …).renamedFrom("users")`
+— tells the migration to rename instead of dropping one and adding another, which would lose the
+data. Once the database has the new name the hint does nothing; remove it in a later release.
+
+`.deprecated()` retires a column in two releases:
+
+1. With `.deprecated()` in the definition, the column leaves the client — not in results,
+   filters, ordering or inputs, in the types or at runtime — and the migration marks it in the
+   database (a column comment). A `NOT NULL` column without a default becomes nullable, so
+   inserts can leave it out.
+2. In a later release, remove the column from the definition: the migration drops it as a
+   planned, **lossy** step, which runs without `allow.destructive`. Dropping a column that was
+   never deprecated stays destructive.
+
+A primary-key column, or a member of an embedded object, can't be deprecated.
+
 ### Global ids
 
 `guid(name, key?)` is a `uuid` column whose values leave the ORM as opaque strings naming both

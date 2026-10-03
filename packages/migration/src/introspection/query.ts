@@ -19,6 +19,8 @@ const columns = sql`
     'name', a.attname,
     'dataType', pg_catalog.format_type(a.atttypid, a.atttypmod),
     'notNull', a.attnotnull,
+    -- The marker deprecated() leaves on a column, as its comment.
+    'deprecated', COALESCE(col_description(c.oid, a.attnum) = 'dsqlbase:deprecated', false),
     'defaultValue', CASE WHEN a.attgenerated = '' THEN (
       SELECT pg_get_expr(d.adbin, d.adrelid)
       FROM pg_attrdef d

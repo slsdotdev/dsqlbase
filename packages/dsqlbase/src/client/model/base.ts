@@ -21,10 +21,13 @@ import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { FilterOf, OrderableRuntimeType, WhereExpressionOf } from "./filters.js";
 
 /** A table's plain columns, by field. A column group is not one: {@link GroupFieldNamesOf}. */
+/** A table's column fields — not its groups, and not its deprecated columns. */
 export type ColumnFieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
     ? T["__type"]["columns"][K] extends AnyColumnDefinition
-      ? K
+      ? T["__type"]["columns"][K] extends { __type: { deprecated: true } }
+        ? never
+        : K
       : never
     : never
   : never;
