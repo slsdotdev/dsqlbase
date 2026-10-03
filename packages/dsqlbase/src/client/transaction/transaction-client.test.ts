@@ -238,6 +238,45 @@ describe("createTransactionRunner via $transaction", () => {
       expect(session.beginTransaction).toHaveBeenCalledTimes(2);
       expect(session.txSessions).toHaveLength(2);
     });
+
+    // A rollback that fails too (the connection broke) must not hide the error that caused it.
+    it("throws the callback's error, not a rollback's", async () => {
+      const err = new Error("boom");
+      const failingRollback = createMockSession();
+      failingRollback.beginTransaction.mockImplementationOnce(async () => {
+        const tx = {
+          execute: vi.fn().mockResolvedValue([]),
+          commit: vi.fn().mockResolvedValue(null),
+          rollback: vi.fn().mockRejectedValue(new Error("connection terminated")),
+        };
+        failingRollback.txSessions.push(tx);
+        return tx;
+      });
+      const client = createClient({ schema, session: failingRollback });
+
+      await expect(
+        client.$transaction(async () => {
+          throw err;
+        })
+      ).rejects.toBe(err);
+    });
+
+    it("still retries a 40001 whose rollback fails", async () => {
+      const flaky = createMockSession();
+      flaky.beginTransaction.mockImplementationOnce(async () => {
+        const tx = {
+          execute: vi.fn().mockResolvedValue([]),
+          commit: vi.fn().mockRejectedValue({ code: "40001", message: "serialization_failure" }),
+          rollback: vi.fn().mockRejectedValue(new Error("connection terminated")),
+        };
+        flaky.txSessions.push(tx);
+        return tx;
+      });
+      const client = createClient({ schema, session: flaky });
+
+      await expect(client.$transaction(async () => "second-try")).resolves.toBe("second-try");
+      expect(flaky.beginTransaction).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

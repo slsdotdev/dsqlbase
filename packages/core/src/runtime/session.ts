@@ -18,6 +18,12 @@ export type Session = {
  *
  * This interface is used when a transaction is active, allowing the caller to
  * manage the transaction lifecycle explicitly.
+ *
+ * `commit` and `rollback` each end the transaction and free whatever it holds (a pooled
+ * connection) whether they succeed or not; after either, the other is a no-op. `commit` throws
+ * what the database answered, a `40001` included. `rollback` should not throw: it runs after
+ * another error, which is the one the caller needs, and `$transaction` ignores a rollback
+ * failure.
  */
 
 export type TransactionSession = {
