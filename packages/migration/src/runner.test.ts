@@ -203,11 +203,28 @@ describe("MigrationRunner", () => {
           legacy: new ColumnDefinition("legacy", { dataType: "text" }),
         },
       });
+      const local = new TableDefinition("users", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+          email: new ColumnDefinition("email", { dataType: "varchar(200)" }).notNull(),
+          legacy: new ColumnDefinition("legacy", { dataType: "text" }),
+          added: new ColumnDefinition("added", { dataType: "text" }).notNull(),
+        },
+      });
 
-      session.introspection = [remote.toJSON()];
-      const result = await runner.plan([usersTable.toJSON()]);
+      const remoteJson = remote.toJSON();
+      session.introspection = [
+        {
+          ...remoteJson,
+          constraints: [
+            { kind: "PRIMARY_KEY_CONSTRAINT", name: "users_pkey", columns: ["id"], include: null },
+          ],
+        } as typeof remoteJson,
+      ];
+      const result = await runner.plan([local.toJSON()]);
 
-      expect(result.errors.some((e) => e.code === "NO_DROP_COLUMN")).toBe(true);
+      expect(result.errors.map((e) => e.code)).toEqual(["NOT_NULL_NEEDS_DEFAULT"]);
     });
   });
 

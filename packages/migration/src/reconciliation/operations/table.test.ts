@@ -128,10 +128,8 @@ describe("diffTableOperations — risk and summaries", () => {
   });
 
   it("describes a refused change: subject, action, target and the attributes", () => {
-    const local: Table = {
-      ...baseTable,
-      columns: [idColumn, { ...emailColumn, dataType: "varchar(255)" }],
-    };
+    const generated = { type: "ALWAYS", expression: "upper(name)", mode: "STORED" } as const;
+    const local: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, generated }] };
 
     const [refused] = diffTableOperations(local, baseTable).errors;
 
@@ -139,7 +137,7 @@ describe("diffTableOperations — risk and summaries", () => {
       subject: { kind: "TABLE", name: "users" },
       action: "ALTER",
       target: { kind: "COLUMN", name: "email" },
-      changes: [{ attribute: "dataType", from: "text", to: "varchar(255)" }],
+      changes: [{ attribute: "generated", from: null, to: generated }],
     });
   });
 });
@@ -208,49 +206,23 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("ADD COLUMN with identity emits bare ADD, then ADD IDENTITY, as two steps of one change", () => {
-      const newCol: Column = {
+    it("refuses adding an identity column: it needs a NOT NULL DSQL can't add", () => {
+      const counter = {
         ...emailColumn,
         name: "counter",
         dataType: "bigint",
-        identity: {
-          type: "BY DEFAULT",
-          sequenceName: "users_counter_seq",
-          options: {
-            dataType: "bigint",
-            cache: 1,
-            cycle: false,
-            increment: 1,
-            minValue: 1,
-            maxValue: 1_000_000,
-            startValue: 1,
-            ownedBy: undefined,
-          },
-        },
-      };
-      const local: Table = { ...baseTable, columns: [...baseTable.columns, newCol] };
+        notNull: true,
+        identity: { type: "ALWAYS", options: { cache: 1 } },
+      } as unknown as Column;
 
-      const result = diffTableOperations(local, baseTable);
+      const result = diffTableOperations(
+        { ...baseTable, columns: [...baseTable.columns, counter] },
+        baseTable
+      );
 
-      expect(result.errors).toEqual([]);
-      expect(result.operations).toHaveLength(2);
-      expect(result.operations[0]?.statement).toMatchObject({
-        __kind: "ALTER_TABLE",
-        actions: [{ __kind: "ADD_COLUMN", column: expect.objectContaining({ name: "counter" }) }],
-      });
-      expect(result.operations[1]?.statement).toMatchObject({
-        __kind: "ALTER_TABLE",
-        actions: [
-          {
-            __kind: "ALTER_COLUMN",
-            columnName: "counter",
-            actions: [{ __kind: "ADD_IDENTITY", mode: "BY_DEFAULT" }],
-          },
-        ],
-      });
-      expect(result.operations.map((op) => op.summary)).toEqual([
-        expect.objectContaining({ change: "users.counter", step: 1, steps: 2, action: "ADD" }),
-        expect.objectContaining({ change: "users.counter", step: 2, steps: 2, action: "ADD" }),
+      expect(result.operations).toEqual([]);
+      expect(result.errors).toEqual([
+        expect.objectContaining({ code: "NO_ADD_IDENTITY", subject: "counter" }),
       ]);
     });
 
@@ -281,75 +253,277 @@ describe("diffTableOperations — existing remote", () => {
       expect(result.operations[0].references).toEqual(expect.arrayContaining(["email_addr"]));
     });
 
-    it("refuses ADD COLUMN with notNull/default/check", () => {
-      const newCol: Column = {
-        ...emailColumn,
-        name: "status",
-        notNull: true,
-        defaultValue: "'active'",
-        check: { kind: "CHECK_CONSTRAINT", name: "status_chk", expression: "status <> ''" },
+    const withColumn = (column: Partial<Column>) =>
+      ({ ...baseTable, columns: [idColumn, { ...emailColumn, ...column }] }) as Table;
+
+    it("adds a column with a default in two steps; existing rows stay NULL", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          { ...emailColumn, name: "status", defaultValue: "'active'" },
+        ],
       };
-      const local: Table = { ...baseTable, columns: [...baseTable.columns, newCol] };
 
       const result = diffTableOperations(local, baseTable);
 
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_COLUMN",
-        subject: "status",
-      });
-      expect(result.errors[0].message).toContain("NOT NULL");
-      expect(result.errors[0].message).toContain("DEFAULT");
-      // Its CHECK isn't planned on a column that won't be added.
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "status" text`,
+        `ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`,
+      ]);
+      expect(result.operations[1]?.summary.note).toMatch(/existing rows stay NULL/);
     });
 
-    it("refuses dropping a column with NO_DROP_COLUMN", () => {
-      const local: Table = { ...baseTable, columns: [idColumn] };
-
-      const result = diffTableOperations(local, baseTable);
-
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "NO_DROP_COLUMN",
-        subject: "email",
-      });
-    });
-
-    it.each([
-      ["dataType", { dataType: "varchar" }],
-      ["notNull", { notNull: true }],
-      ["defaultValue", { defaultValue: "'x'" }],
-      ["domain", { domain: "email_addr" }],
-    ])("refuses column modify on %s", (_attr, override) => {
-      const modified: Column = { ...emailColumn, ...(override as Partial<Column>) };
-      const local: Table = { ...baseTable, columns: [idColumn, modified] };
-
-      const result = diffTableOperations(local, baseTable);
-
-      expect(result.operations).toEqual([]);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toMatchObject({
-        code: "IMMUTABLE_COLUMN",
-        subject: "email",
-      });
-    });
-
-    it("collapses multiple blocked attrs into one IMMUTABLE_COLUMN refusal", () => {
-      const modified: Column = {
-        ...emailColumn,
-        notNull: true,
-        defaultValue: "'x'",
+    it("adds a NOT NULL column with a default: add, default, backfill, NOT NULL as a CHECK", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          { ...emailColumn, name: "status", notNull: true, defaultValue: "'active'" },
+        ],
       };
-      const local: Table = { ...baseTable, columns: [idColumn, modified] };
 
       const result = diffTableOperations(local, baseTable);
 
-      expect(result.errors).toHaveLength(1);
-      const error = result.errors[0];
-      expect(error.code).toBe("IMMUTABLE_COLUMN");
-      expect(error.diffs?.map((d) => d.key).sort()).toEqual(["defaultValue", "notNull"]);
+      expect(result.errors).toEqual([]);
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "status" text`,
+        `ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`,
+        `UPDATE "users" SET "status" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`,
+        `ALTER TABLE "users" ADD CONSTRAINT "users_status_not_null" CHECK ("status" IS NOT NULL) NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_status_not_null"`,
+      ]);
+      expect(result.operations.map((op) => [op.summary.action, op.summary.risk])).toEqual([
+        ["ADD", "safe"],
+        ["ADD", "safe"],
+        ["BACKFILL", "safe"],
+        ["ADD", "safe"],
+        ["VALIDATE", "safe"],
+      ]);
+      expect(new Set(result.operations.map((op) => op.summary.change))).toEqual(
+        new Set(["users.status"])
+      );
+    });
+
+    it("refuses adding a NOT NULL column without a default", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [...baseTable.columns, { ...emailColumn, name: "status", notNull: true }],
+      };
+
+      expect(diffTableOperations(local, baseTable)).toEqual({
+        operations: [],
+        errors: [expect.objectContaining({ code: "NOT_NULL_NEEDS_DEFAULT", subject: "status" })],
+      });
+    });
+
+    it("refuses adding a generated column", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          {
+            ...emailColumn,
+            name: "upper",
+            generated: { type: "ALWAYS", expression: "upper(email)", mode: "STORED" },
+          },
+        ],
+      };
+
+      expect(diffTableOperations(local, baseTable).errors).toEqual([
+        expect.objectContaining({ code: "NO_ADD_GENERATED_COLUMN" }),
+      ]);
+    });
+
+    it("drops a removed column (destructive), after the table's other changes", () => {
+      const remote: Table = {
+        ...baseTable,
+        columns: [...baseTable.columns, { ...emailColumn, name: "legacy" }],
+        indexes: [
+          {
+            kind: "INDEX",
+            name: "users_legacy_idx",
+            unique: false,
+            distinctNulls: true,
+            columns: [
+              {
+                kind: "INDEX_COLUMN",
+                name: "users_legacy_idx_column_legacy",
+                nulls: "LAST",
+                column: "legacy",
+              },
+            ],
+            include: null,
+            valid: true,
+          },
+        ],
+      } as Table;
+
+      const result = diffTableOperations(baseTable, remote);
+
+      expect(sqlOf(result)).toEqual([
+        `DROP INDEX IF EXISTS "users_legacy_idx" RESTRICT`,
+        `ALTER TABLE "users" DROP COLUMN IF EXISTS "legacy"`,
+      ]);
+      expect(result.operations[1]?.summary).toMatchObject({
+        risk: "destructive",
+        note: "its data is lost",
+      });
+    });
+
+    it("notes a possible rename when a column is dropped and another added", () => {
+      const remote: Table = { ...baseTable, columns: [idColumn, { ...emailColumn, name: "mail" }] };
+
+      const drop = diffTableOperations(baseTable, remote).operations.find(
+        (op) => op.summary.action === "DROP"
+      );
+
+      expect(drop?.summary.note).toMatch(
+        /possible rename: "email" is added.*renamedFrom\("mail"\)/
+      );
+    });
+
+    it("refuses dropping a primary-key column", () => {
+      const local: Table = { ...baseTable, columns: [emailColumn] };
+
+      expect(diffTableOperations(local, baseTable).errors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: "NO_DROP_PRIMARY_KEY_COLUMN" })])
+      );
+    });
+
+    it("changes a type by dropping and adding the column again (destructive)", () => {
+      const index = {
+        kind: "INDEX",
+        name: "users_email_idx",
+        unique: false,
+        distinctNulls: true,
+        columns: [
+          {
+            kind: "INDEX_COLUMN",
+            name: "users_email_idx_column_email",
+            nulls: "LAST",
+            column: "email",
+          },
+        ],
+        include: null,
+        valid: true,
+      } as Table["indexes"][number];
+      const remote: Table = { ...withColumn({}), indexes: [index] };
+      const local: Table = {
+        ...withColumn({ dataType: "varchar(320)", defaultValue: "''" }),
+        indexes: [index],
+      };
+
+      const result = diffTableOperations(local, remote);
+
+      expect(result.errors).toEqual([]);
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" DROP COLUMN IF EXISTS "email"`,
+        `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" varchar(320)`,
+        `ALTER TABLE "users" ALTER COLUMN "email" SET DEFAULT ''`,
+        `CREATE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+      ]);
+      expect(result.operations[0]?.summary).toMatchObject({
+        risk: "destructive",
+        changes: [{ attribute: "dataType", from: "text", to: "varchar(320)" }],
+        note: expect.stringMatching(/email_v2.*deprecated/),
+      });
+    });
+
+    it("refuses changing the type of a primary-key column", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [{ ...idColumn, dataType: "text" }, emailColumn],
+      };
+
+      expect(diffTableOperations(local, baseTable).errors).toEqual([
+        expect.objectContaining({ code: "NO_ALTER_PRIMARY_KEY_COLUMN" }),
+      ]);
+    });
+
+    it("sets, changes and drops a default", () => {
+      expect(sqlOf(diffTableOperations(withColumn({ defaultValue: "'a'" }), baseTable))).toEqual([
+        `ALTER TABLE "users" ALTER COLUMN "email" SET DEFAULT 'a'`,
+      ]);
+      const dropped = diffTableOperations(baseTable, withColumn({ defaultValue: "'a'" }));
+      expect(sqlOf(dropped)).toEqual([`ALTER TABLE "users" ALTER COLUMN "email" DROP DEFAULT`]);
+      expect(dropped.operations[0]?.summary.risk).toBe("lossy");
+    });
+
+    it("makes a column NOT NULL: backfill with its default, then a CHECK", () => {
+      const result = diffTableOperations(
+        withColumn({ notNull: true, defaultValue: "''" }),
+        withColumn({ defaultValue: "''" })
+      );
+
+      expect(sqlOf(result)).toEqual([
+        `UPDATE "users" SET "email" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "email" IS NULL LIMIT 1000) RETURNING 1`,
+        `ALTER TABLE "users" ADD CONSTRAINT "users_email_not_null" CHECK ("email" IS NOT NULL) NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
+      ]);
+    });
+
+    it("makes a column NOT NULL without a default: validation fails if a NULL is left", () => {
+      const result = diffTableOperations(withColumn({ notNull: true }), baseTable);
+
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" ADD CONSTRAINT "users_email_not_null" CHECK ("email" IS NOT NULL) NOT VALID`,
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
+      ]);
+      expect(result.operations[1]?.summary.note).toMatch(/fails if a row is NULL/);
+    });
+
+    it("reads a NOT NULL CHECK as the column's NOT NULL, and drops it to make the column nullable", () => {
+      const viaCheck = withColumn({
+        check: {
+          kind: "CHECK_CONSTRAINT",
+          name: "users_email_not_null",
+          expression: "CHECK (email IS NOT NULL)",
+          validated: true,
+        },
+      });
+
+      expect(diffTableOperations(withColumn({ notNull: true }), viaCheck)).toEqual({
+        operations: [],
+        errors: [],
+      });
+      expect(sqlOf(diffTableOperations(baseTable, viaCheck))).toEqual([
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_not_null" RESTRICT`,
+      ]);
+    });
+
+    it("validates a NOT NULL CHECK left NOT VALID", () => {
+      const pending = withColumn({
+        check: {
+          kind: "CHECK_CONSTRAINT",
+          name: "users_email_not_null",
+          expression: "CHECK (email IS NOT NULL)",
+          validated: false,
+        },
+      });
+
+      expect(sqlOf(diffTableOperations(withColumn({ notNull: true }), pending))).toEqual([
+        `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
+      ]);
+    });
+
+    it("drops a column's NOT NULL (lossy)", () => {
+      const result = diffTableOperations(baseTable, withColumn({ notNull: true }));
+
+      expect(sqlOf(result)).toEqual([`ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL`]);
+      expect(result.operations[0]?.summary.risk).toBe("lossy");
+    });
+
+    it("turns a generated column into a plain one (destructive); refuses other generated changes", () => {
+      const generated = { type: "ALWAYS", expression: "upper(name)", mode: "STORED" } as const;
+
+      const plain = diffTableOperations(baseTable, withColumn({ generated }));
+      expect(sqlOf(plain)).toEqual([`ALTER TABLE "users" ALTER COLUMN "email" DROP EXPRESSION`]);
+      expect(plain.operations[0]?.summary.risk).toBe("destructive");
+
+      expect(diffTableOperations(withColumn({ generated }), baseTable).errors).toEqual([
+        expect.objectContaining({ code: "NO_ALTER_GENERATED" }),
+      ]);
     });
 
     it("emits UNIQUE promotion path on unique:false → true transition", () => {
@@ -444,11 +618,11 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("emits SET GENERATED and RESTART as two statements when mode and startValue change", () => {
+    it("sets the mode and the options in place; startValue with SET START, never RESTART", () => {
       const localIdentity = {
         ...idIdentity,
         type: "ALWAYS" as const,
-        options: { ...idIdentity.options, startValue: 1000 },
+        options: { ...idIdentity.options, startValue: 1000, increment: 5 },
       };
       const local: Table = {
         ...baseTable,
@@ -462,19 +636,26 @@ describe("diffTableOperations — existing remote", () => {
       const result = diffTableOperations(local, remote);
 
       expect(result.errors).toEqual([]);
-      expect(result.operations.map((op) => op.statement)).toMatchObject([
-        {
-          __kind: "ALTER_TABLE",
-          actions: [
-            { __kind: "ALTER_COLUMN", actions: [{ __kind: "SET_GENERATED", mode: "ALWAYS" }] },
-          ],
-        },
-        {
-          __kind: "ALTER_TABLE",
-          actions: [{ __kind: "ALTER_COLUMN", actions: [{ __kind: "RESTART", with: 1000 }] }],
-        },
+      expect(sqlOf(result)).toEqual([
+        `ALTER TABLE "users" ALTER COLUMN "id" SET GENERATED ALWAYS`,
+        `ALTER TABLE "users" ALTER COLUMN "id" SET INCREMENT BY 5 SET START WITH 1000`,
       ]);
-      expect(result.operations.map((op) => op.summary.risk)).toEqual(["safe", "lossy"]);
+      expect(result.operations.map((op) => op.summary.risk)).toEqual(["safe", "safe"]);
+    });
+
+    it("refuses making a nullable column an identity", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [idColumn, { ...emailColumn, dataType: "bigint", identity: idIdentity }],
+      };
+      const remote: Table = {
+        ...baseTable,
+        columns: [idColumn, { ...emailColumn, dataType: "bigint" }],
+      };
+
+      expect(diffTableOperations(local, remote).errors).toEqual([
+        expect.objectContaining({ code: "NO_ADD_IDENTITY" }),
+      ]);
     });
   });
 

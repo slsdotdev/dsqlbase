@@ -14,9 +14,18 @@ import {
 } from "../../ddl/ast.js";
 import { ddl } from "../../ddl/index.js";
 import { Diff, DiffType } from "../diffs/base.js";
-import { columnUniqueName, diffTable } from "../diffs/table.js";
+import {
+  columnUniqueName,
+  diffTable,
+  namedConstraintsOf,
+  notNullCheckName,
+  notNullChecksOf,
+  primaryKeyOf,
+} from "../diffs/table.js";
+import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
 import {
   attributeChanges,
+  AttributeChange,
   change,
   DDLOperation,
   DDLOperationError,
@@ -29,6 +38,7 @@ import {
   OperationSubject,
   qualifiedName,
   refusal,
+  RefusalCode,
 } from "./base.js";
 
 type ColumnSerialized = SerializedObject<AnyColumnDefinition>;
@@ -273,6 +283,10 @@ export function diffTableOperations(
     tableName,
     tableNamespaceRef: maybeNamespaceReference(local) ?? [],
     options,
+    remoteColumns: new Map((remote.columns as ColumnSerialized[]).map((c) => [c.name, c])),
+    remoteNotNull: notNullChecksOf(remote),
+    remoteKey: primaryKeyOf(remote)?.columns ?? [],
+    keyColumns: primaryKeyOf(local)?.columns ?? [],
   };
 
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
@@ -296,6 +310,8 @@ export function diffTableOperations(
     errors.push(...result.errors);
   }
 
+  operations.push(...columnResult.drops);
+
   return { operations, errors };
 }
 
@@ -304,6 +320,14 @@ type TableProcessingContext = {
   tableName: string;
   tableNamespaceRef: string[];
   options: DDLOperationOptions;
+  /** The database's columns, as introspected. */
+  remoteColumns: Map<string, ColumnSerialized>;
+  /** The database's NOT NULLs enforced by a CHECK, by column. */
+  remoteNotNull: Map<string, { name: string }>;
+  /** The database's primary-key columns. */
+  remoteKey: readonly string[];
+  /** The definition's primary-key columns, which backfill batches are picked by. */
+  keyColumns: readonly string[];
 };
 
 type SubjectProcessingResult = {
@@ -348,79 +372,144 @@ function alterTableDraft(
   };
 }
 
+/** Rows per backfill batch: well inside DSQL's 3,000 rows written per transaction. */
+const BACKFILL_BATCH_SIZE = 1000;
+
+const quoteIdentifier = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
 function processColumnDiffs(
   columnDiffs: Map<string, AnyDiff[]>,
   ctx: TableProcessingContext
-): SubjectProcessingResult & { refused: Set<string> } {
+): SubjectProcessingResult & { refused: Set<string>; drops: DDLOperation[] } {
   const operations: DDLOperation[] = [];
+  const drops: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
   const refused = new Set<string>();
+
+  const added = [...columnDiffs.values()].flatMap((diffs) =>
+    diffs.filter((d) => d.type === "add" && !d.key).map((d) => d.name)
+  );
 
   for (const [columnName, diffsForColumn] of columnDiffs) {
     const wholeAdd = diffsForColumn.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForColumn.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForColumn.filter((d) => d.key !== undefined);
-    const target = { kind: "COLUMN", name: columnName } as const;
 
-    if (wholeRemove) {
-      errors.push(
-        refusal({
-          code: "NO_DROP_COLUMN",
-          message: `Column "${columnName}" cannot be dropped: DSQL does not support DROP COLUMN.`,
-          object: wholeRemove.object,
-          subject: columnName,
-          diffs: [wholeRemove],
-          summary: { subject: tableSubject(ctx.tableName), action: "DROP", target, changes: [] },
-        })
-      );
-      continue;
-    }
-
-    const result = wholeAdd ? columnAdd(wholeAdd, ctx) : columnModify(columnName, attrDiffs, ctx);
+    const result = wholeRemove
+      ? columnDrop(columnName, wholeRemove, ctx, added)
+      : wholeAdd
+        ? columnAdd(wholeAdd.object as ColumnSerialized, ctx, [wholeAdd])
+        : columnModify(columnName, attrDiffs, ctx);
 
     if ("error" in result) {
       errors.push(result.error);
       refused.add(columnName);
     } else if (result.drafts.length > 0) {
-      operations.push(...change(`${ctx.tableName}.${columnName}`, result.drafts));
+      // Drops run after the table's index and constraint changes, which may involve the column.
+      (wholeRemove ? drops : operations).push(
+        ...change(`${ctx.tableName}.${columnName}`, result.drafts)
+      );
     }
   }
 
-  return { operations, errors, refused };
+  return { operations, errors, refused, drops };
 }
 
 type ColumnChange = { drafts: DraftOperation[] } | { error: DDLOperationError };
 
-function columnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnChange {
-  const column = diff.object as ColumnSerialized;
-  const blocked = nonPromotableInlineAttrs(column);
-  const target = { kind: "COLUMN", name: column.name } as const;
+/** A refused column change, described for the report. */
+function refuseColumn(
+  ctx: TableProcessingContext,
+  args: {
+    code: RefusalCode;
+    message: string;
+    column: string;
+    action: DraftOperation["summary"]["action"];
+    diffs: AnyDiff[];
+    changes?: AttributeChange[];
+  }
+): ColumnChange {
+  return {
+    error: refusal({
+      code: args.code,
+      message: args.message,
+      object: args.diffs[0]?.object ?? ctx.local,
+      subject: args.column,
+      diffs: args.diffs,
+      summary: {
+        subject: tableSubject(ctx.tableName),
+        action: args.action,
+        target: { kind: "COLUMN", name: args.column },
+        changes: args.changes ?? attributeChanges(args.diffs),
+      },
+    }),
+  };
+}
 
-  if (blocked.length > 0) {
-    return {
-      error: refusal({
-        code: "IMMUTABLE_COLUMN",
-        message:
-          `Column "${column.name}" cannot be added with inline ${blocked.join(", ")}: ` +
-          `DSQL only supports bare ADD COLUMN. Add the column without these attributes ` +
-          `or recreate the table.`,
-        object: column,
-        subject: column.name,
-        diffs: [diff],
-        summary: {
-          subject: tableSubject(ctx.tableName),
-          action: "ADD",
-          target,
-          changes: [{ attribute: "dataType", from: null, to: column.dataType }],
-        },
-      }),
-    };
+/** One `ALTER COLUMN` action as its own statement. */
+function alterColumnDraft(
+  ctx: TableProcessingContext,
+  columnName: string,
+  action: Parameters<typeof ddl.alterColumn>[0]["actions"][number],
+  summary: Omit<DraftOperation["summary"], "subject">
+): DraftOperation {
+  return alterTableDraft(ctx, ddl.alterColumn({ columnName, actions: [action] }), {
+    subject: tableSubject(ctx.tableName),
+    ...summary,
+  });
+}
+
+/**
+ * A column added to an existing table. DSQL's `ADD COLUMN` takes no attributes at all, so each
+ * becomes a step of its own: the default, and for NOT NULL a backfill and a CHECK. The column's
+ * other CHECKs and its UNIQUE come from the table's constraint diff.
+ */
+function columnAdd(
+  column: ColumnSerialized,
+  ctx: TableProcessingContext,
+  diffs: AnyDiff[]
+): ColumnChange {
+  const refuse = (code: RefusalCode, message: string) =>
+    refuseColumn(ctx, {
+      code,
+      message,
+      column: column.name,
+      action: "ADD",
+      diffs,
+      changes: [{ attribute: "dataType", from: null, to: column.dataType }],
+    });
+
+  if (column.generated) {
+    return refuse(
+      "NO_ADD_GENERATED_COLUMN",
+      `Column "${column.name}" can't be added as a generated column: DSQL can't add one to an ` +
+        `existing table. Add it as a plain column the application fills, or create the table ` +
+        `with it.`
+    );
+  }
+
+  if (column.identity) {
+    return refuse(
+      "NO_ADD_IDENTITY",
+      `Column "${column.name}" can't be added as an identity: an identity column must be NOT ` +
+        `NULL before it is made one, and DSQL can't make an existing column NOT NULL. Use a ` +
+        `sequence default (\`nextval\`) instead, or create the table with it.`
+    );
+  }
+
+  if (column.notNull && column.defaultValue == null) {
+    return refuse(
+      "NOT_NULL_NEEDS_DEFAULT",
+      `Column "${column.name}" can't be added NOT NULL without a default: its existing rows ` +
+        `would be NULL. Give it a default — existing rows are filled with it — or add it nullable.`
+    );
   }
 
   const drafts: DraftOperation[] = [
     alterTableDraft(
       ctx,
       ddl.addColumn({
+        ifNotExists: ctx.options.ifExists,
         column: ddl.column({
           name: column.name,
           dataType: column.dataType,
@@ -433,7 +522,7 @@ function columnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnChange {
       {
         subject: tableSubject(ctx.tableName),
         action: "ADD",
-        target,
+        target: { kind: "COLUMN", name: column.name },
         changes: [{ attribute: "dataType", from: null, to: column.dataType }],
         risk: "safe",
       },
@@ -441,31 +530,98 @@ function columnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnChange {
     ),
   ];
 
-  if (column.identity) {
+  if (column.defaultValue != null) {
     drafts.push(
-      alterTableDraft(
-        ctx,
-        ddl.alterColumn({
-          columnName: column.name,
-          actions: [
-            ddl.addIdentity({
-              mode: column.identity.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-              options: identitySequenceOptions(column.identity),
-            }),
-          ],
-        }),
-        {
-          subject: tableSubject(ctx.tableName),
-          action: "ADD",
-          target: { kind: "IDENTITY", name: column.name },
-          changes: [{ attribute: "identity", from: null, to: column.identity.type }],
-          risk: "safe",
-        }
-      )
+      setDefaultDraft(ctx, column.name, column.defaultValue, null, {
+        note: column.notNull
+          ? undefined
+          : "applies to new rows; existing rows stay NULL (DSQL's ADD COLUMN takes no DEFAULT)",
+      })
     );
   }
 
+  if (column.notNull) {
+    drafts.push(...notNullDrafts(ctx, column.name, true));
+  }
+
   return { drafts };
+}
+
+function setDefaultDraft(
+  ctx: TableProcessingContext,
+  columnName: string,
+  value: string,
+  previous: string | null,
+  extra: { note?: string } = {}
+): DraftOperation {
+  return alterColumnDraft(ctx, columnName, ddl.setDefault({ expression: value }), {
+    action: previous == null ? "ADD" : "ALTER",
+    target: { kind: "DEFAULT", name: columnName },
+    changes: [{ attribute: "defaultValue", from: previous, to: value }],
+    risk: "safe",
+    note: extra.note,
+  });
+}
+
+/**
+ * NOT NULL on an existing column, as DSQL allows it: with a default, a backfill fills the NULLs
+ * with it; then `CHECK (c IS NOT NULL)` is added `NOT VALID` and validated. Without a default,
+ * validation fails if a NULL is left — as `SET NOT NULL` would.
+ */
+function notNullDrafts(
+  ctx: TableProcessingContext,
+  columnName: string,
+  hasDefault: boolean
+): DraftOperation[] {
+  const drafts: DraftOperation[] = [];
+
+  if (hasDefault) {
+    drafts.push({
+      type: "ALTER",
+      object: ctx.local,
+      statement: ddl.backfill({
+        tableName: ctx.local.name,
+        columnName,
+        key: [...ctx.keyColumns],
+        batchSize: BACKFILL_BATCH_SIZE,
+      }),
+      references: dedupe(ctx.tableNamespaceRef),
+      summary: {
+        subject: tableSubject(ctx.tableName),
+        action: "BACKFILL",
+        target: { kind: "COLUMN", name: columnName },
+        changes: [{ attribute: "NULLs", from: null, to: "default" }],
+        risk: "safe",
+        note: `fills NULLs with the default, ${BACKFILL_BATCH_SIZE} rows per transaction; long on large tables`,
+      },
+    });
+  }
+
+  const [add, validate] = addCheckDrafts(ctx, {
+    name: notNullCheckName(ctx.local.name, columnName),
+    expression: `${quoteIdentifier(columnName)} IS NOT NULL`,
+  });
+
+  return [
+    ...drafts,
+    {
+      ...add,
+      summary: {
+        ...add.summary,
+        changes: [{ attribute: "notNull", from: false, to: true }],
+        note: "NOT NULL as a CHECK: DSQL has no SET NOT NULL",
+      },
+    },
+    hasDefault
+      ? validate
+      : {
+          ...validate,
+          summary: {
+            ...validate.summary,
+            note: "fails if a row is NULL: give the column a default to fill them",
+          },
+        },
+  ];
 }
 
 function columnModify(
@@ -473,46 +629,224 @@ function columnModify(
   attrDiffs: AnyDiff[],
   ctx: TableProcessingContext
 ): ColumnChange {
-  const blocked: AnyDiff[] = [];
-  const drafts: DraftOperation[] = [];
+  const local = (ctx.local.columns as ColumnSerialized[]).find((c) => c.name === columnName);
+  const remote = ctx.remoteColumns.get(columnName);
+  const diffOf = (key: string) => attrDiffs.find((diff) => diff.key === key);
 
-  for (const diff of attrDiffs) {
-    const key = diff.key as string;
-    switch (key) {
-      case "dataType":
-      case "domain":
-      case "notNull":
-      case "defaultValue":
-      case "generated":
-        blocked.push(diff);
-        break;
-      case "identity":
-        drafts.push(...identityDrafts(columnName, diff, ctx));
-        break;
-    }
+  if (!local || !remote) {
+    return { drafts: [] };
   }
 
-  if (blocked.length > 0) {
-    return {
-      error: refusal({
-        code: "IMMUTABLE_COLUMN",
+  if (diffOf("dataType") || diffOf("domain")) {
+    return typeChange(local, remote, attrDiffs, ctx);
+  }
+
+  const drafts: DraftOperation[] = [];
+  const generated = diffOf("generated");
+
+  if (generated) {
+    if (!remote.generated || local.generated) {
+      return refuseColumn(ctx, {
+        code: "NO_ALTER_GENERATED",
         message:
-          `Column "${columnName}" is immutable on existing tables — ` +
-          `cannot change ${blocked.map((diff) => String(diff.key)).join(", ")}.`,
-        object: blocked[0].object,
-        subject: columnName,
-        diffs: blocked,
-        summary: {
-          subject: tableSubject(ctx.tableName),
-          action: "ALTER",
-          target: { kind: "COLUMN", name: columnName },
-          changes: attributeChanges(blocked),
-        },
-      }),
-    };
+          `Column "${columnName}" can't ${remote.generated ? "change its expression" : "become generated"}: ` +
+          `DSQL can't add or change a generated column on an existing table. Add a new column, ` +
+          `or create the table with it.`,
+        column: columnName,
+        action: "ALTER",
+        diffs: [generated],
+      });
+    }
+
+    drafts.push(
+      alterColumnDraft(ctx, columnName, ddl.dropExpression(), {
+        action: "DROP",
+        target: { kind: "COLUMN", name: columnName },
+        changes: [{ attribute: "generated", from: remote.generated.expression, to: null }],
+        risk: "destructive",
+        note: "keeps the values but stops computing them; DSQL can't make the column generated again",
+      })
+    );
+  }
+
+  const defaultValue = diffOf("defaultValue");
+
+  if (defaultValue) {
+    drafts.push(
+      local.defaultValue == null
+        ? alterColumnDraft(ctx, columnName, ddl.dropDefault(), {
+            action: "DROP",
+            target: { kind: "DEFAULT", name: columnName },
+            changes: [{ attribute: "defaultValue", from: remote.defaultValue, to: null }],
+            risk: "lossy",
+          })
+        : setDefaultDraft(ctx, columnName, local.defaultValue, remote.defaultValue ?? null)
+    );
+  }
+
+  const notNull = diffOf("notNull");
+
+  if (notNull && local.notNull) {
+    drafts.push(...notNullDrafts(ctx, columnName, local.defaultValue != null));
+  } else if (notNull) {
+    const check = ctx.remoteNotNull.get(columnName);
+
+    drafts.push(
+      check
+        ? {
+            ...dropConstraintDraft(ctx, check.name),
+            summary: {
+              ...dropConstraintDraft(ctx, check.name).summary,
+              changes: [{ attribute: "notNull", from: true, to: false }],
+            },
+          }
+        : alterColumnDraft(ctx, columnName, ddl.dropNotNull(), {
+            action: "DROP",
+            target: { kind: "COLUMN", name: columnName },
+            changes: [{ attribute: "notNull", from: true, to: false }],
+            risk: "lossy",
+          })
+    );
+  }
+
+  const identity = diffOf("identity");
+
+  if (identity) {
+    const result = identityDrafts(columnName, identity, remote, ctx);
+    if ("error" in result) return result;
+    drafts.push(...result.drafts);
   }
 
   return { drafts };
+}
+
+/**
+ * A type change. DSQL has no `SET DATA TYPE`, so the column is dropped and added again — its
+ * data is lost, which makes the change destructive. DSQL drops the column's indexes and
+ * constraints with it; they're created again after.
+ */
+function typeChange(
+  local: ColumnSerialized,
+  remote: ColumnSerialized,
+  diffs: AnyDiff[],
+  ctx: TableProcessingContext
+): ColumnChange {
+  const from = remote.domain ?? remote.dataType;
+  const to = local.domain ?? local.dataType;
+
+  if (ctx.remoteKey.includes(local.name)) {
+    return refuseColumn(ctx, {
+      code: "NO_ALTER_PRIMARY_KEY_COLUMN",
+      message:
+        `Column "${local.name}" can't change from ${from} to ${to}: it's part of the primary key, ` +
+        `which DSQL can't drop or change.`,
+      column: local.name,
+      action: "ALTER",
+      diffs,
+    });
+  }
+
+  const add = columnAdd(local, ctx, diffs);
+
+  if ("error" in add) {
+    return {
+      error: {
+        ...add.error,
+        message: `Changing "${local.name}" from ${from} to ${to} drops and adds it again; ${add.error.message}`,
+      },
+    };
+  }
+
+  const drop = alterTableDraft(
+    ctx,
+    ddl.dropColumn({ columnName: local.name, ifExists: ctx.options.ifExists }),
+    {
+      subject: tableSubject(ctx.tableName),
+      action: "DROP",
+      target: { kind: "COLUMN", name: local.name },
+      changes: [{ attribute: "dataType", from, to }],
+      risk: "destructive",
+      note:
+        `type change: DSQL has no SET DATA TYPE, so the column is dropped and added again and ` +
+        `its data is lost. To keep it, add "${local.name}_v2" as ${to}, copy the values, switch ` +
+        `the code, then .deprecated() "${local.name}" and remove it in a later release.`,
+    }
+  );
+
+  return { drafts: [drop, ...add.drafts, ...recreateDrafts(local.name, ctx)] };
+}
+
+/** The indexes and constraints involving a column, created again after it was dropped and added. */
+function recreateDrafts(columnName: string, ctx: TableProcessingContext): DraftOperation[] {
+  const involves = (columns: readonly string[] | null | undefined) =>
+    columns?.includes(columnName) ?? false;
+  const note = `dropped with "${columnName}"; created again`;
+
+  const indexes = ctx.local.indexes
+    .filter((index) => involves(index.columns.map((c) => c.column)) || involves(index.include))
+    .map((index) => {
+      const draft = createIndexDraft(index, ctx.tableName, true, ctx.options.asyncIndexes);
+      return { ...draft, summary: { ...draft.summary, note } };
+    });
+
+  const constraints = namedConstraintsOf(ctx.local).flatMap((constraint) => {
+    if (constraint.kind === "UNIQUE_CONSTRAINT" && involves(constraint.columns)) {
+      return uniquePromotionDrafts(ctx, {
+        indexName: uniqueIndexNameForConstraint(constraint.name),
+        constraintName: constraint.name,
+        columns: constraint.columns,
+        include: constraint.include ?? undefined,
+        nullsDistinct: constraint.distinctNulls ?? undefined,
+        constraintObject: constraint,
+      });
+    }
+
+    // A CHECK names its columns quoted, as the definition prints them.
+    if (
+      constraint.kind === "CHECK_CONSTRAINT" &&
+      constraint.expression.includes(quoteIdentifier(columnName))
+    ) {
+      return addCheckDrafts(ctx, constraint);
+    }
+
+    return [];
+  });
+
+  return [...indexes, ...constraints];
+}
+
+function columnDrop(
+  columnName: string,
+  diff: AnyDiff,
+  ctx: TableProcessingContext,
+  added: string[]
+): ColumnChange {
+  if (ctx.remoteKey.includes(columnName)) {
+    return refuseColumn(ctx, {
+      code: "NO_DROP_PRIMARY_KEY_COLUMN",
+      message: `Column "${columnName}" can't be dropped: it's part of the primary key, which DSQL can't change.`,
+      column: columnName,
+      action: "DROP",
+      diffs: [diff],
+    });
+  }
+
+  const renamed = added.length > 0;
+
+  return {
+    drafts: [
+      alterTableDraft(ctx, ddl.dropColumn({ columnName, ifExists: ctx.options.ifExists }), {
+        subject: tableSubject(ctx.tableName),
+        action: "DROP",
+        target: { kind: "COLUMN", name: columnName },
+        risk: "destructive",
+        note: renamed
+          ? `its data is lost — possible rename: ${added.map((name) => `"${name}"`).join(", ")} ` +
+            `is added in the same plan; .renamedFrom("${columnName}") would keep the data`
+          : "its data is lost",
+      }),
+    ],
+  };
 }
 
 type CheckSerialized = { name: string; expression: string; validated?: boolean };
@@ -716,93 +1050,126 @@ function processConstraintDiffs(
 
 type AnyUniqueConstraint = Extract<ConstraintSerialized, { kind: "UNIQUE_CONSTRAINT" }>;
 
-function nonPromotableInlineAttrs(column: ColumnSerialized): string[] {
-  const blocked: string[] = [];
-  if (column.notNull) blocked.push("NOT NULL");
-  if (column.defaultValue !== null && column.defaultValue !== undefined) blocked.push("DEFAULT");
-  if (column.generated) blocked.push("GENERATED");
-  return blocked;
-}
-
 /** The steps an identity difference takes: one `ALTER COLUMN` action each. */
 function identityDrafts(
   columnName: string,
   diff: AnyDiff,
+  remote: ColumnSerialized,
   ctx: TableProcessingContext
-): DraftOperation[] {
+): ColumnChange {
   const value = diff.value as ColumnSerialized["identity"] | undefined;
   const prev = diff.prevValue as ColumnSerialized["identity"] | undefined;
   const target = { kind: "IDENTITY", name: columnName } as const;
-  const subject = tableSubject(ctx.tableName);
-
-  const draft = (
-    action: Parameters<typeof ddl.alterColumn>[0]["actions"][number],
-    summary: Omit<DraftOperation["summary"], "subject" | "target">
-  ) =>
-    alterTableDraft(ctx, ddl.alterColumn({ columnName, actions: [action] }), {
-      subject,
-      target,
-      ...summary,
-    });
 
   if (diff.type === "add" && value) {
-    return [
-      draft(
-        ddl.addIdentity({
-          mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-          options: identitySequenceOptions(value),
-        }),
-        {
-          action: "ADD",
-          changes: [{ attribute: "identity", from: null, to: value.type }],
-          risk: "safe",
-        }
-      ),
-    ];
+    // PostgreSQL makes an identity of a NOT NULL column only, and only a NOT NULL from
+    // `CREATE TABLE` counts: DSQL can't add one later, and a CHECK doesn't do.
+    if (!remote.notNull || ctx.remoteNotNull.has(columnName)) {
+      return refuseColumn(ctx, {
+        code: "NO_ADD_IDENTITY",
+        message:
+          `Column "${columnName}" can't become an identity: an identity column must be NOT NULL ` +
+          `first, and DSQL can't make an existing column NOT NULL. Use a sequence default ` +
+          `(\`nextval\`) instead.`,
+        column: columnName,
+        action: "ADD",
+        diffs: [diff],
+      });
+    }
+
+    return {
+      drafts: [
+        alterColumnDraft(
+          ctx,
+          columnName,
+          ddl.addIdentity({
+            mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
+            options: identitySequenceOptions(value),
+          }),
+          {
+            action: "ADD",
+            target,
+            changes: [{ attribute: "identity", from: null, to: value.type }],
+            risk: "safe",
+          }
+        ),
+      ],
+    };
   }
 
   if (diff.type === "remove") {
-    return [
-      draft(ddl.dropIdentity({ ifExists: true }), {
-        action: "DROP",
-        changes: [{ attribute: "identity", from: prev?.type ?? null, to: null }],
-        risk: "lossy",
-      }),
-    ];
+    return {
+      drafts: [
+        alterColumnDraft(ctx, columnName, ddl.dropIdentity({ ifExists: true }), {
+          action: "DROP",
+          target,
+          changes: [{ attribute: "identity", from: prev?.type ?? null, to: null }],
+          risk: "lossy",
+        }),
+      ],
+    };
   }
 
-  if (diff.type === "modify" && value && prev) {
-    const drafts: DraftOperation[] = [];
+  if (diff.type !== "modify" || !value || !prev) {
+    return { drafts: [] };
+  }
 
-    if (value.type !== prev.type) {
-      drafts.push(
-        draft(ddl.setGenerated({ mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT" }), {
+  const drafts: DraftOperation[] = [];
+
+  if (value.type !== prev.type) {
+    drafts.push(
+      alterColumnDraft(
+        ctx,
+        columnName,
+        ddl.setGenerated({ mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT" }),
+        {
           action: "ALTER",
+          target,
           changes: [{ attribute: "identity", from: prev.type, to: value.type }],
           risk: "safe",
-        })
-      );
-    }
-
-    const startValue = value.options?.startValue;
-    const prevStart = prev.options?.startValue;
-
-    if (startValue !== undefined && startValue !== prevStart) {
-      // Restarting can hand out values already used: lossy until the definition's
-      // `startValue` maps to `SET START` instead (column policy story).
-      drafts.push(
-        draft(ddl.restart({ with: startValue }), {
-          action: "ALTER",
-          changes: [{ attribute: "startValue", from: prevStart ?? null, to: startValue }],
-          risk: "lossy",
-        })
-      );
-    }
-
-    return drafts;
+        }
+      )
+    );
   }
 
-  return [];
+  // `dataType` is bigint on both sides on DSQL; any other option is set in place. `startValue`
+  // is set with `SET START WITH`, which affects only a later `RESTART`: no value handed out is
+  // reused.
+  const changed = changedSequenceOptions(value.options, prev.options).filter(
+    (key) => key !== "dataType"
+  );
+
+  if (changed.length > 0) {
+    const next = effectiveSequenceOptions(value.options);
+    const before = effectiveSequenceOptions(prev.options);
+    const pick = <K extends (typeof changed)[number]>(key: K) =>
+      changed.includes(key) ? next[key] : undefined;
+
+    drafts.push(
+      alterColumnDraft(
+        ctx,
+        columnName,
+        ddl.setSequenceOptions({
+          incrementBy: pick("increment"),
+          minValue: pick("minValue"),
+          maxValue: pick("maxValue"),
+          startValue: pick("startValue"),
+          cache: pick("cache"),
+          cycle: pick("cycle"),
+        }),
+        {
+          action: "ALTER",
+          target,
+          changes: changed.map((key) => ({ attribute: key, from: before[key], to: next[key] })),
+          // Narrower bounds can make the next value fail.
+          risk:
+            next.maxValue < before.maxValue || next.minValue > before.minValue ? "lossy" : "safe",
+        }
+      )
+    );
+  }
+
+  return { drafts };
 }
 
 /** An identity's sequence options, named `SEQUENCE NAME` when the definition names it. */

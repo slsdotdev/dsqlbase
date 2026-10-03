@@ -33,7 +33,9 @@ export const columnUniqueName = (table: string, column: string) => `${table}_${c
  * whether a one-column constraint was written on the column or on the table, and introspection
  * can't tell; by name, the two compare the same.
  */
-function namedConstraintsOf(table: SerializedObject<AnyTableDefinition>): ConstraintSerialized[] {
+export function namedConstraintsOf(
+  table: SerializedObject<AnyTableDefinition>
+): ConstraintSerialized[] {
   const columns = table.columns as ColumnSerialized[];
 
   return [
@@ -57,8 +59,32 @@ function namedConstraintsOf(table: SerializedObject<AnyTableDefinition>): Constr
   ];
 }
 
+/**
+ * The name of the CHECK that enforces a column's NOT NULL on a table that already exists: DSQL
+ * has no `SET NOT NULL`, and `CHECK (c IS NOT NULL)` enforces the same.
+ */
+export const notNullCheckName = (table: string, column: string) => `${table}_${column}_not_null`;
+
+/** The NOT NULL CHECKs on a table, by column. */
+export function notNullChecksOf(
+  table: SerializedObject<AnyTableDefinition>
+): Map<string, SerializedObject<AnyCheckConstraintDefinition>> {
+  const byName = new Map(
+    namedConstraintsOf(table).flatMap((constraint) =>
+      constraint.kind === "CHECK_CONSTRAINT" ? [[constraint.name, constraint] as const] : []
+    )
+  );
+
+  return new Map(
+    (table.columns as ColumnSerialized[]).flatMap((column) => {
+      const check = byName.get(notNullCheckName(table.name, column.name));
+      return check ? [[column.name, check] as const] : [];
+    })
+  );
+}
+
 /** The table's primary key, declared on the table or as its columns' `primaryKey` flags. */
-function primaryKeyOf(
+export function primaryKeyOf(
   table: SerializedObject<AnyTableDefinition>
 ): SerializedObject<AnyPrimaryKeyConstraintDefinition> | undefined {
   const declared = (table.constraints as ConstraintSerialized[]).find(
@@ -89,8 +115,16 @@ export function diffTable(
 ) {
   const diffs: TableDiffType[] = [];
 
+  // A NOT NULL enforced by its CHECK is the column's NOT NULL: the column reads as NOT NULL, and
+  // the CHECK itself isn't compared — only whether it was validated.
+  const notNullChecks = notNullChecksOf(remote);
+  const notNullCheckNames = new Set([...notNullChecks.values()].map((check) => check.name));
+
   const remoteColumns = new Map(
-    remote.columns.map((col: SerializedObject<AnyColumnDefinition>) => [col.name, col])
+    remote.columns.map((col: SerializedObject<AnyColumnDefinition>) => [
+      col.name,
+      notNullChecks.has(col.name) ? { ...col, notNull: true } : col,
+    ])
   );
   const remoteIndexes = new Map(
     remote.indexes.map((idx: SerializedObject<AnyIndexDefinition>) => [idx.name, idx])
@@ -130,7 +164,25 @@ export function diffTable(
 
   // Constraints compare wherever they were declared (see `namedConstraintsOf`): CHECK and
   // UNIQUE by name, the primary key by its columns.
-  const remoteNamed = new Map(namedConstraintsOf(remote).map((c) => [c.name, c]));
+  const remoteNamed = new Map(
+    namedConstraintsOf(remote)
+      .filter((c) => !notNullCheckNames.has(c.name))
+      .map((c) => [c.name, c])
+  );
+
+  for (const check of notNullChecks.values()) {
+    if (check.validated === false) {
+      diffs.push({
+        type: "modify",
+        kind: check.kind,
+        name: check.name,
+        object: check,
+        key: "validated",
+        value: true,
+        prevValue: false,
+      });
+    }
+  }
 
   for (const localConstraint of namedConstraintsOf(local)) {
     const remoteConstraint = remoteNamed.get(localConstraint.name);

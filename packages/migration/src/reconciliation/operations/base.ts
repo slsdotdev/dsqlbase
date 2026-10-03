@@ -40,7 +40,14 @@ export const RISK_ORDER: readonly OperationRisk[] = ["safe", "lossy", "destructi
 export const maxRisk = (a: OperationRisk, b: OperationRisk): OperationRisk =>
   RISK_ORDER.indexOf(a) >= RISK_ORDER.indexOf(b) ? a : b;
 
-export type OperationAction = "CREATE" | "ADD" | "ALTER" | "DROP" | "RENAME" | "VALIDATE";
+export type OperationAction =
+  | "CREATE"
+  | "ADD"
+  | "ALTER"
+  | "DROP"
+  | "RENAME"
+  | "VALIDATE"
+  | "BACKFILL";
 
 /** A schema object a plan row is about: the table a column belongs to, or the object itself. */
 export type OperationSubject = {
@@ -112,13 +119,15 @@ export type IndexedDDLOperation = {
 } & DDLOperation;
 
 export type RefusalCode =
-  | "IMMUTABLE_COLUMN"
-  | "NO_DROP_COLUMN"
   | "IMMUTABLE_CONSTRAINT"
   | "IMMUTABLE_DOMAIN"
-  | "IMMUTABLE_INDEX"
-  | "NO_FOREIGN_KEY"
-  | "KIND_MISMATCH";
+  | "KIND_MISMATCH"
+  | "NO_ADD_GENERATED_COLUMN"
+  | "NO_ADD_IDENTITY"
+  | "NO_ALTER_GENERATED"
+  | "NO_ALTER_PRIMARY_KEY_COLUMN"
+  | "NO_DROP_PRIMARY_KEY_COLUMN"
+  | "NOT_NULL_NEEDS_DEFAULT";
 
 /** What a refused change would have done, for reporting. */
 export type RefusalSummary = {

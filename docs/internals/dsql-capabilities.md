@@ -32,17 +32,17 @@ Sources:
 | `CREATE TABLE`: columns, PK, UNIQUE, CHECK, DEFAULT, identity (`(sequence_options)` required, bigint only), generated `STORED` | supported | emitted |
 | `CREATE TABLE`: `REFERENCES` / `FOREIGN KEY` (all referential actions, `MATCH`, `DEFERRABLE`) | supported (live) | not modelled; `relations()` is runtime-only |
 | `ADD COLUMN [IF NOT EXISTS] name type` | supported (live) | emitted |
-| `ADD COLUMN` with `DEFAULT`, `NOT NULL`, `CHECK`, `UNIQUE`, identity or generated | **refused** (live: `0A000 ALTER TABLE ADD COLUMN with constraint not supported`), even though the docs say "same syntax as CREATE TABLE" | refused, unless the attribute can follow as its own statement |
+| `ADD COLUMN` with `DEFAULT`, `NOT NULL`, `CHECK`, `UNIQUE`, identity or generated | **refused** (live: `0A000 ALTER TABLE ADD COLUMN with constraint not supported`), even though the docs say "same syntax as CREATE TABLE" | bare `ADD COLUMN`, then each attribute as its own step; identity and generated refused |
 | Several actions in one `ALTER TABLE` | supported (live) | — |
-| `DROP COLUMN [IF EXISTS]` (drops the column's indexes too; 255 active / 1,600 lifetime columns) | supported (live) | refused `NO_DROP_COLUMN` **(stale)** |
+| `DROP COLUMN [IF EXISTS]` (drops the column's indexes too; 255 active / 1,600 lifetime columns) | supported (live) | emitted (destructive) |
 | `DROP COLUMN` on a primary-key column | refused (live: `cannot drop primary key column`) | — |
-| `ALTER COLUMN SET DEFAULT` / `DROP DEFAULT` | supported (live) | refused `IMMUTABLE_COLUMN` **(stale)** |
-| `ALTER COLUMN DROP NOT NULL` | supported (live) | refused **(stale)** |
-| `ALTER COLUMN SET NOT NULL` | refused (live) | refused |
-| `ALTER COLUMN SET DATA TYPE` | refused (live) | refused |
-| `ALTER COLUMN DROP EXPRESSION [IF EXISTS]` (generated → plain) | supported (live) | not modelled |
+| `ALTER COLUMN SET DEFAULT` / `DROP DEFAULT` | supported (live) | emitted |
+| `ALTER COLUMN DROP NOT NULL` | supported (live) | emitted (lossy) |
+| `ALTER COLUMN SET NOT NULL` | refused (live) | `CHECK (c IS NOT NULL)` `NOT VALID` + validate instead, after a backfill when there's a default (live) |
+| `ALTER COLUMN SET DATA TYPE` | refused (live) | drop + add (destructive) |
+| `ALTER COLUMN DROP EXPRESSION [IF EXISTS]` (generated → plain) | supported (live) | emitted (destructive) |
 | `ALTER COLUMN SET STORAGE` | supported (live) | not modelled |
-| Identity: `ADD GENERATED … AS IDENTITY (CACHE …)`, `SET GENERATED`, `SET <sequence option>`, `RESTART`, `DROP IDENTITY` | supported (live) | add / type / restart / drop emitted; other options not yet |
+| Identity: `ADD GENERATED … AS IDENTITY (CACHE …)`, `SET GENERATED`, `SET <sequence option>`, `RESTART`, `DROP IDENTITY` | supported (live); `ADD GENERATED` needs a `NOT NULL` column (PostgreSQL), which only `CREATE TABLE` can give on DSQL | `SET GENERATED`, `SET` options (incl. `START WITH`), `DROP IDENTITY` emitted; `ADD GENERATED` only on a `NOT NULL` column; never `RESTART` |
 | `RENAME` table / column / constraint, `SET SCHEMA`, `OWNER TO` | supported (live for renames) | AST and printer only |
 
 ## Constraints
@@ -107,6 +107,7 @@ The catalog reports the index method as `btree_index`. A primary key's index lis
   - `job_type` is one of `INDEX_BUILD`, `VALIDATE_CONSTRAINT`, `DROP` or `ANALYZE`.
   - Finished jobs are kept for 30 minutes.
   - Index builds took 5–24 s each on empty tables (live).
+- **Backfill:** `UPDATE t SET c = DEFAULT WHERE <key> IN (SELECT <key> FROM t WHERE c IS NULL LIMIT n) RETURNING 1` works, with a row-value key `(a, b) IN (…)` too (live; 2,500 rows in batches of 1,000).
 - **Transactions:** one DDL statement per transaction; DDL and DML in separate transactions; 3,000 rows and 10 MiB written per transaction; 5-minute transaction age. A stale catalog after another session's DDL surfaces as `40001` (`OC001`); retrying refreshes it.
 - **Limits:** 24 indexes per table; 8 columns per primary key or index (1 KiB key); 255 active columns; 1,000 tables; 5,000 views and 5,000 sequences; 5 extended statistics per table.
 - **Identifiers:** a 64-byte name is **silently truncated to 63** (live), as in Postgres. The AWS docs don't state the limit (validated: `IDENTIFIER_TOO_LONG`).

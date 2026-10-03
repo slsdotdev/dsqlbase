@@ -131,7 +131,8 @@ export class MigrationRunner {
           message:
             `step ${row.step}: ${row.action} ${row.targetKind?.toLowerCase() ?? row.subjectKind.toLowerCase()} ` +
             `${row.target ?? row.subject} on ${row.subject} is ${row.risk}; ` +
-            `pass allow: { ${row.risk}: true } to run it`,
+            `pass allow: { ${row.risk}: true } to run it` +
+            (row.note ? ` (${row.note})` : ""),
         }))
       );
     }

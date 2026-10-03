@@ -61,13 +61,13 @@ describe("planRows", () => {
       changes: "dataType: text",
       destructive: false,
       async: false,
-      sql: 'ALTER TABLE "users" ADD COLUMN "email" text',
+      sql: 'ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" text',
       refusal: null,
     });
     expect(rows[2]).toMatchObject({ async: true, changes: "columns: email" });
     expect(rows[4]?.refusal).toEqual({
-      code: "IMMUTABLE_COLUMN",
-      message: expect.stringContaining('Column "legacy" cannot be added with inline NOT NULL'),
+      code: "NOT_NULL_NEEDS_DEFAULT",
+      message: expect.stringContaining(`Column "legacy" can't be added NOT NULL without a default`),
     });
   });
 });
@@ -77,16 +77,16 @@ describe("formatPlan", () => {
     const text = formatPlan(plan());
 
     expect(text.split("\n").slice(0, 8)).toEqual([
-      "#  Subject      Action        Target                      Changes                           Risk     Async",
-      "-  -----------  ------------  --------------------------  --------------------------------  -------  -----",
-      "1  table users  ADD           column email                dataType: text                    safe",
-      "2  table users  DROP          index users_nickname_idx                                      lossy",
-      "3  table users  CREATE (1/2)  index users_email_key_idx   columns: email                    safe     async",
-      "4  table users  ADD (2/2)     constraint users_email_key  unique: email                     safe",
-      "–  table users  ADD           column legacy               IMMUTABLE_COLUMN: dataType: text  REFUSED",
+      "#  Subject      Action        Target                      Changes                                 Risk     Async",
+      "-  -----------  ------------  --------------------------  --------------------------------------  -------  -----",
+      "1  table users  ADD           column email                dataType: text                          safe",
+      "2  table users  DROP          index users_nickname_idx                                            lossy",
+      "3  table users  CREATE (1/2)  index users_email_key_idx   columns: email                          safe     async",
+      "4  table users  ADD (2/2)     constraint users_email_key  unique: email                           safe",
+      "–  table users  ADD           column legacy               NOT_NULL_NEEDS_DEFAULT: dataType: text  REFUSED",
       "",
     ]);
-    expect(text).toContain('Refused users.legacy: Column "legacy" cannot be added');
+    expect(text).toContain(`Refused users.legacy: Column "legacy" can't be added NOT NULL`);
   });
 
   it("prints a markdown table with the statements on request", () => {
@@ -95,7 +95,7 @@ describe("formatPlan", () => {
     expect(text.split("\n")[0]).toBe(
       "| # | Subject | Action | Target | Changes | Risk | Async | SQL |"
     );
-    expect(text).toContain('| ALTER TABLE "users" ADD COLUMN "email" text |');
+    expect(text).toContain('| ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" text |');
   });
 
   it("says when there is nothing to do", () => {
@@ -151,5 +151,21 @@ describe("formatPlan", () => {
     );
 
     expect(row?.changes).toBe("columns: qty → qty, sku; include: a, b");
+  });
+
+  it("lists the notes of destructive and blocked steps under the table", () => {
+    const text = formatPlan(
+      plan()
+        .rows.slice(0, 1)
+        .map((row) => ({
+          ...row,
+          risk: "destructive" as const,
+          destructive: true,
+          blocked: true,
+          note: "its data is lost",
+        }))
+    );
+
+    expect(text.split("\n").at(-1)).toBe("Step 1: its data is lost");
   });
 });

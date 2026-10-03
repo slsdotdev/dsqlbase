@@ -176,6 +176,9 @@ export function formatPlan(
     return cells.map((cell) => cell.replace(/\s+/g, " ").trim());
   });
 
+  const notes = rows.flatMap((row) =>
+    row.note && (row.risk === "destructive" || row.blocked) ? [`Step ${row.step}: ${row.note}`] : []
+  );
   const refusals = rows.filter((row) => row.refusal !== null);
   const footer = refusals.map(
     (row) => `Refused ${row.subject}${row.target ? `.${row.target}` : ""}: ${row.refusal?.message}`
@@ -185,9 +188,8 @@ export function formatPlan(
   );
 
   const table = markdown ? markdownTable(header, body) : textTable(header, body);
-  return [table, ...(footer.length || failures.length ? ["", ...failures, ...footer] : [])].join(
-    "\n"
-  );
+  const after = [...failures, ...notes, ...footer];
+  return [table, ...(after.length > 0 ? ["", ...after] : [])].join("\n");
 }
 
 function riskCell(row: PlanRow): string {

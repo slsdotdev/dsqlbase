@@ -255,6 +255,30 @@ const printReducer = {
   },
   RESTART: (node) =>
     node.with !== undefined ? sql.raw(`RESTART WITH ${node.with}`) : sql.raw("RESTART"),
+  DROP_EXPRESSION: () => sql.raw("DROP EXPRESSION"),
+  SET_SEQUENCE_OPTIONS: (node) => {
+    const o = node;
+    const parts: string[] = [];
+    if (o.incrementBy !== undefined) parts.push(`SET INCREMENT BY ${o.incrementBy}`);
+    if (o.minValue !== undefined) parts.push(`SET MINVALUE ${o.minValue}`);
+    if (o.maxValue !== undefined) parts.push(`SET MAXVALUE ${o.maxValue}`);
+    if (o.startValue !== undefined) parts.push(`SET START WITH ${o.startValue}`);
+    if (o.cache !== undefined) parts.push(`SET CACHE ${o.cache}`);
+    if (o.cycle === true) parts.push("SET CYCLE");
+    else if (o.cycle === false) parts.push("SET NO CYCLE");
+    return sql.raw(parts.join(" "));
+  },
+  DROP_COLUMN: (node) => {
+    const ifExists = node.ifExists ? sql.raw("IF EXISTS ") : sql.raw("");
+    return sql`DROP COLUMN ${ifExists}${sql.identifier(node.columnName)}`;
+  },
+  BACKFILL: (node) => {
+    const table = qualifiedName(node.schema, node.tableName);
+    const column = sql.identifier(node.columnName);
+    const key = identifierList(node.key);
+    const keyExpr = node.key.length === 1 ? key : sql`(${key})`;
+    return sql`UPDATE ${table} SET ${column} = DEFAULT WHERE ${keyExpr} IN (SELECT ${key} FROM ${table} WHERE ${column} IS NULL LIMIT ${sql.raw(String(node.batchSize))}) RETURNING 1`;
+  },
   DROP_IDENTITY: (node) =>
     node.ifExists ? sql.raw("DROP IDENTITY IF EXISTS") : sql.raw("DROP IDENTITY"),
   ADD_CONSTRAINT: (node) =>

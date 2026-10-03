@@ -53,7 +53,7 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 | `step` | execution order, from 1 (`null` for a refusal) |
 | `change`, `changeStep` | the change it belongs to, and its place in it (`"2/3"`) |
 | `subject`, `subjectKind` | the table, domain, sequence or schema |
-| `action` | `CREATE`, `ADD`, `ALTER`, `DROP`, `RENAME`, `VALIDATE` |
+| `action` | `CREATE`, `ADD`, `ALTER`, `DROP`, `RENAME`, `VALIDATE`, `BACKFILL` |
 | `target`, `targetKind` | the column, index, constraint, identity, default or options changed |
 | `changes` | `attribute: from → to`, `;`-separated |
 | `risk`, `destructive` | `safe`, `lossy` (removes what redeploying restores: an index, a default), `destructive` (loses rows, or can't be re-created), or `refused` |
@@ -89,6 +89,32 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 
 The repo's e2e suite runs `{ asyncIndexes: false, ifExists: true, allow: { destructive: true } }` against PGlite: `packages/tests/src/db/migrate.ts`.
 
+## Columns on existing tables
+
+DSQL's `ADD COLUMN` takes no attributes at all — not even a `DEFAULT` — and there is no `SET NOT NULL` or `SET DATA TYPE`. The runner builds each change from what DSQL does allow:
+
+| Change | Steps | Risk |
+|---|---|---|
+| Add a column | `ADD COLUMN` | safe |
+| …with a default | then `SET DEFAULT` — **existing rows stay `NULL`**; only new rows get it | safe |
+| …`NOT NULL`, with a default | then a **backfill** (existing rows get the default), then `CHECK (c IS NOT NULL)` added `NOT VALID` and validated | safe |
+| …`NOT NULL`, no default | refused (`NOT_NULL_NEEDS_DEFAULT`): its existing rows would be `NULL` | — |
+| Make a column `NOT NULL` | backfill if it has a default, then the `CHECK`; without a default, validation fails while a `NULL` is left | safe |
+| Drop a `NOT NULL` | `DROP NOT NULL`, or `DROP CONSTRAINT` for one made by a `CHECK` | lossy |
+| Set, change or drop a default | `SET DEFAULT` / `DROP DEFAULT` | safe / lossy |
+| Drop a column | `DROP COLUMN` (its indexes and constraints go with it) | **destructive** |
+| Change a column's type | `DROP COLUMN`, `ADD COLUMN`, then its default, `NOT NULL` and the indexes and constraints that involved it — **its data is lost** | **destructive** |
+| Generated column → plain | `DROP EXPRESSION` (values kept; it can't be made generated again) | **destructive** |
+| Identity options, mode | `SET INCREMENT BY …`, `SET START WITH …`, `SET GENERATED …` — never `RESTART` | safe (narrower bounds: lossy) |
+
+A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables.
+
+A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`.
+
+To change a type **and keep the data**, don't let the runner drop the column: add a new column with the new type, copy the values, switch the code over, then `.deprecated()` the old one and remove it in a later release. A destructive step's note in the plan, and the error when it isn't allowed, say so.
+
+Refused, with the reason in the plan: adding a generated or identity column, making an existing column generated or an identity (an identity needs a `NOT NULL` from `CREATE TABLE`), changing a generated expression, and dropping or retyping a primary-key column.
+
 ## Constraints and indexes on existing tables
 
 - **CHECK** — added `NOT VALID`, then validated against the existing rows by an async job (`ALTER TABLE ASYNC … VALIDATE CONSTRAINT`). It is enforced on new writes from the first step. If an existing row violates it, validation fails, the run stops with the database's message, and the constraint **stays** — enforced, but not valid. Fix the data and run again: the next plan is just the `VALIDATE`. A removed CHECK is dropped (lossy).
@@ -102,11 +128,23 @@ Async jobs take time on DSQL even for small tables: 10–30 s per index build or
 
 ## Refusals
 
-Changes DSQL cannot express (or that the module does not model yet) come back as refusals in `plan().errors` rather than being silently skipped: a structured record with a `code` (`IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT`, …), the subject, and the blocked diffs. `run` and `dryRun` throw when any refusal is present. Several column refusals are stricter than DSQL requires; the capability table tracks which.
+Changes DSQL cannot express come back as refusals in `plan().errors` — and as `REFUSED` rows — rather than being silently skipped: a structured record with a `code`, the subject, the blocked diffs, and a message saying what to do instead. `run` and `dryRun` throw when any refusal is present.
+
+| Code | Refused |
+|---|---|
+| `NOT_NULL_NEEDS_DEFAULT` | adding a `NOT NULL` column without a default |
+| `NO_ADD_GENERATED_COLUMN` | adding a generated column |
+| `NO_ADD_IDENTITY` | adding an identity column, or making an existing column one |
+| `NO_ALTER_GENERATED` | making a column generated, or changing its expression |
+| `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN` | retyping or dropping a primary-key column |
+| `IMMUTABLE_CONSTRAINT` | adding, dropping or changing a primary key |
+| `IMMUTABLE_DOMAIN` | changing a domain's type, `NOT NULL` or `CHECK` |
+| `KIND_MISMATCH` | an object whose kind changed under the same name |
 
 A [column group](./embeddable-objects.md) is plain columns to the migration module: changing an
 embedded object adds or drops its members' columns in every table that embeds it, and is planned
-— or refused — exactly as those column changes would be.
+— or refused — exactly as those column changes would be. A required member added to an existing
+shape needs a default, which fills the existing rows.
 
 ## Deployment
 

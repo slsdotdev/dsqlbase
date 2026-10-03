@@ -36,6 +36,11 @@ const toAsyncJob = (row: AsyncJobRow): AsyncJob => ({
   details: row.details ?? undefined,
 });
 
+const BACKFILL_ATTEMPTS = 5;
+
+const isSerializationFailure = (error: unknown) =>
+  typeof error === "object" && error !== null && "code" in error && error.code === "40001";
+
 export class OperationExecutor {
   private _session: Session;
   private _print = createPrinter();
@@ -121,7 +126,48 @@ export class OperationExecutor {
     });
   }
 
+  /**
+   * Runs a backfill batch after batch — each its own transaction, within DSQL's 3,000-row limit —
+   * until one updates nothing. A batch that conflicts with a concurrent write (`40001`) is
+   * retried; it only fills NULLs, so running it again is safe.
+   */
+  private async _backfill(operation: IndexedDDLOperation): Promise<OperationExecutionResult> {
+    const statement = this._print(operation.statement);
+    let rows = 0;
+
+    for (;;) {
+      let updated: number | undefined;
+
+      for (let attempt = 1; updated === undefined; attempt++) {
+        try {
+          updated = (await this._session.execute(statement)).length;
+        } catch (error) {
+          if (!isSerializationFailure(error) || attempt >= BACKFILL_ATTEMPTS) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+        }
+      }
+
+      rows += updated;
+      if (updated === 0) break;
+    }
+
+    return { opId: operation.id, sql: statement.text, status: "completed", result: { rows } };
+  }
+
   public async execute(operation: IndexedDDLOperation): Promise<OperationExecutionResult> {
+    if (operation.statement.__kind === "BACKFILL") {
+      try {
+        return await this._backfill(operation);
+      } catch (error) {
+        return {
+          opId: operation.id,
+          sql: this._print(operation.statement).text,
+          status: "failed",
+          result: error,
+        };
+      }
+    }
+
     try {
       const statement = this._print(operation.statement);
       const [result] = await this._session.execute<DDLQueryResult>(statement);

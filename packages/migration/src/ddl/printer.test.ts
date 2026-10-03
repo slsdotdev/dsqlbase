@@ -193,6 +193,57 @@ describe("printDDL", () => {
     });
   });
 
+  describe("column policy statements", () => {
+    it("prints DROP COLUMN IF EXISTS", () => {
+      const node = ddl.alterTable({
+        name: "orders",
+        actions: [ddl.dropColumn({ columnName: "legacy", ifExists: true })],
+      });
+      expect(print(node).text).toBe(`ALTER TABLE "orders" DROP COLUMN IF EXISTS "legacy"`);
+    });
+
+    it("prints DROP EXPRESSION", () => {
+      const node = ddl.alterColumn({ columnName: "total", actions: [ddl.dropExpression()] });
+      expect(print(node).text).toBe(`ALTER COLUMN "total" DROP EXPRESSION`);
+    });
+
+    it("prints an identity's options as SET clauses", () => {
+      const node = ddl.alterColumn({
+        columnName: "n",
+        actions: [ddl.setSequenceOptions({ incrementBy: 5, startValue: 100, cycle: false })],
+      });
+      expect(print(node).text).toBe(
+        `ALTER COLUMN "n" SET INCREMENT BY 5 SET START WITH 100 SET NO CYCLE`
+      );
+    });
+
+    it("prints a backfill batch by a single-column key", () => {
+      const node = ddl.backfill({
+        tableName: "orders",
+        columnName: "status",
+        key: ["id"],
+        batchSize: 1000,
+      });
+      expect(print(node).text).toBe(
+        `UPDATE "orders" SET "status" = DEFAULT WHERE "id" IN ` +
+          `(SELECT "id" FROM "orders" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`
+      );
+    });
+
+    it("prints a backfill batch by a composite key", () => {
+      const node = ddl.backfill({
+        tableName: "tags",
+        columnName: "v",
+        key: ["a", "b"],
+        batchSize: 10,
+      });
+      expect(print(node).text).toBe(
+        `UPDATE "tags" SET "v" = DEFAULT WHERE ("a", "b") IN ` +
+          `(SELECT "a", "b" FROM "tags" WHERE "v" IS NULL LIMIT 10) RETURNING 1`
+      );
+    });
+  });
+
   describe("table constraint actions", () => {
     it("prints ADD CONSTRAINT … NOT VALID", () => {
       const node = ddl.alterTable({

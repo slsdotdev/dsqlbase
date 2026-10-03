@@ -22,9 +22,9 @@ Verified: 2026-10-03, against the [DSQL SQL feature reference](https://docs.aws.
 
 ## What this means for `dsqlbase`
 
-- Design columns to be additive. Renames are add-new + backfill + drop-old; the runner has no rename detection yet.
-- Put invariants you might change later in the application, not in a `CHECK` you cannot alter in place.
-- Expect the migration runner to *refuse* some changes rather than emit SQL DSQL would reject. Refusals name the reason.
+- Design columns to be additive. A type change drops and re-adds the column, losing its data; to keep it, add a new column, copy, and retire the old one. Renames are add + drop until rename support lands — the plan notes a possible rename.
+- Give a `NOT NULL` column you may add later a default: it's what fills the existing rows.
+- Expect the migration runner to *refuse* some changes rather than emit SQL DSQL would reject. Refusals name the reason and what to do instead.
 
 ## Related
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { sql, SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import { domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
+import { bigint, domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
 import {
   createMigrationRunner,
   formatPlan,
@@ -128,42 +128,6 @@ describe("schema migrations (e2e via PGlite)", () => {
     expect(formatPlan(again)).toBe("Nothing to do: the database matches the definition.");
   });
 
-  it("refuses dropping a column from an existing table", async () => {
-    const v1 = table("widgets", {
-      id: uuid("id").primaryKey(),
-      name: text("name").notNull(),
-      legacy: text("legacy"),
-    });
-
-    const v2 = table("widgets", {
-      id: uuid("id").primaryKey(),
-      name: text("name").notNull(),
-    });
-
-    await runner.run([v1.toJSON()], RUN_OPTS);
-    const plan = await runner.plan([v2.toJSON()], RUN_OPTS);
-
-    expect(plan.errors.some((e) => e.code === "NO_DROP_COLUMN")).toBe(true);
-    await expect(runner.run([v2.toJSON()], RUN_OPTS)).rejects.toThrow();
-  });
-
-  it("refuses changing a column data type on an existing table", async () => {
-    const v1 = table("widgets", {
-      id: uuid("id").primaryKey(),
-      name: text("name").notNull(),
-    });
-
-    const v2 = table("widgets", {
-      id: uuid("id").primaryKey(),
-      name: varchar("name", 200).notNull(),
-    });
-
-    await runner.run([v1.toJSON()], RUN_OPTS);
-    const plan = await runner.plan([v2.toJSON()], RUN_OPTS);
-
-    expect(plan.errors.some((e) => e.code === "IMMUTABLE_COLUMN")).toBe(true);
-  });
-
   it("creates a domain and a sequence alongside a table in dependency order", async () => {
     const status = domain("status").$type<"open" | "closed">();
     const counter = sequence("counter").startWith(1);
@@ -283,6 +247,160 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect(result.rows.map((row) => [row.action, row.risk, row.status])).toEqual([
         ["DROP", "lossy", "completed"],
         ["CREATE", "safe", "completed"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+  });
+
+  describe("columns on an existing table", () => {
+    const rows = async (text: string) => (await pg.query(text)).rows;
+    const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
+
+    it("adds a column with a default: new rows get it, existing rows stay NULL", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+        status: text("status").default("new"),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO items (name) VALUES ('old')`);
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO items (name) VALUES ('fresh')`);
+
+      expect(result.rows.map((row) => row.action)).toEqual(["ADD", "ADD"]);
+      expect(await rows(`SELECT name, status FROM items ORDER BY name`)).toEqual([
+        { name: "fresh", status: "new" },
+        { name: "old", status: null },
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("adds a NOT NULL column with a default: backfills existing rows, enforces NOT NULL", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+        status: text("status").notNull().default("new"),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      for (let i = 0; i < 3; i++) await pg.query(`INSERT INTO items (name) VALUES ('old')`);
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.status])).toEqual([
+        ["ADD", "completed"],
+        ["ADD", "completed"],
+        ["BACKFILL", "completed"],
+        ["ADD", "completed"],
+        ["VALIDATE", "completed"],
+      ]);
+      expect(await rows(`SELECT DISTINCT status FROM items`)).toEqual([{ status: "new" }]);
+      await expect(pg.query(`INSERT INTO items (name, status) VALUES ('x', NULL)`)).rejects.toThrow(
+        /items_status_not_null/
+      );
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("makes a column NOT NULL: validation fails while a NULL is left, passes once fixed", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name").notNull(),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO items (name) VALUES (NULL)`);
+
+      const failed = await runner.run([v2.toJSON()], RUN_OPTS);
+      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+        ["ADD", "completed"],
+        ["VALIDATE", "failed"],
+      ]);
+
+      await pg.query(`UPDATE items SET name = 'named'`);
+      const fixed = await runner.run([v2.toJSON()], RUN_OPTS);
+
+      expect(fixed.rows.map((row) => [row.action, row.status])).toEqual([
+        ["VALIDATE", "completed"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("drops a NOT NULL, whether CREATE TABLE or a CHECK made it", async () => {
+      const strict = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name").notNull(),
+      });
+      const loose = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+
+      await runner.run([strict.toJSON()], RUN_OPTS);
+      const dropped = await runner.run([loose.toJSON()], RUN_OPTS);
+      expect(dropped.rows.map((row) => row.sql)).toEqual([
+        `ALTER TABLE "items" ALTER COLUMN "name" DROP NOT NULL`,
+      ]);
+
+      await runner.run([strict.toJSON()], RUN_OPTS); // NOT NULL again, now as a CHECK
+      const viaCheck = await runner.run([loose.toJSON()], RUN_OPTS);
+      expect(viaCheck.rows.map((row) => row.sql)).toEqual([
+        `ALTER TABLE "items" DROP CONSTRAINT IF EXISTS "items_name_not_null" RESTRICT`,
+      ]);
+      await pg.query(`INSERT INTO items (name) VALUES (NULL)`);
+    });
+
+    it("drops a column only when destructive steps are allowed", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+        legacy: text("legacy"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      await runner.run([v1.toJSON()], RUN_OPTS);
+
+      await expect(runner.run([v2.toJSON()], NO_DESTRUCTIVE)).rejects.toThrow(
+        /DESTRUCTIVE_NOT_ALLOWED.*DROP column legacy/
+      );
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+      expect(result.rows.map((row) => [row.action, row.target, row.risk])).toEqual([
+        ["DROP", "legacy", "destructive"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("changes a type by dropping and adding the column, and rebuilds its index", async () => {
+      const v1 = table("items", { id: uuid("id").primaryKey().defaultRandom(), qty: int("qty") });
+      v1.index("items_qty_idx").columns((c) => [c.qty]);
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        qty: bigint("qty"),
+      });
+      v2.index("items_qty_idx").columns((c) => [c.qty]);
+      await runner.run([v1.toJSON()], RUN_OPTS);
+
+      const blocked = await runner.run([v2.toJSON()], NO_DESTRUCTIVE).catch((e: Error) => e);
+      expect(String(blocked)).toMatch(/type change.*qty_v2/);
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+      expect(result.rows.map((row) => [row.action, row.target, row.status])).toEqual([
+        ["DROP", "qty", "completed"],
+        ["ADD", "qty", "completed"],
+        ["CREATE", "items_qty_idx", "completed"],
       ]);
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });

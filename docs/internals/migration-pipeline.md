@@ -46,9 +46,11 @@ Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.t
 
 What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities.md) for what DSQL actually allows — the column refusals are still stricter than necessary):
 
-- Column add → bare `ADD COLUMN`, then `ALTER COLUMN … ADD IDENTITY` as a second step for an identity; `notNull` / `defaultValue` / `generated` on an added column → `IMMUTABLE_COLUMN`. Its CHECK and UNIQUE come from the constraint diff (below), and are dropped from the plan when the column is refused.
-- Column modify → refused (`IMMUTABLE_COLUMN`) except identity changes.
-- Column drop → `NO_DROP_COLUMN`.
+- Column add → bare `ADD COLUMN`, then `SET DEFAULT`, and for `NOT NULL` a backfill and a `<table>_<column>_not_null` CHECK (`NOT VALID` + validate). `NOT NULL` without a default → `NOT_NULL_NEEDS_DEFAULT`; generated → `NO_ADD_GENERATED_COLUMN`; identity → `NO_ADD_IDENTITY` (PostgreSQL makes an identity of a `NOT NULL` column only). Its CHECK and UNIQUE come from the constraint diff, and are dropped from the plan when the column is refused.
+- Column modify → `SET` / `DROP DEFAULT`; `NOT NULL` → backfill (with a default) + CHECK; nullable → `DROP NOT NULL`, or `DROP CONSTRAINT` of the CHECK; identity → `SET GENERATED`, `SET` options (`START WITH`, never `RESTART`), `ADD` only on a `NOT NULL` column, `DROP IDENTITY`; generated → plain via `DROP EXPRESSION`, other generated changes → `NO_ALTER_GENERATED`; type or domain change → drop + add + the column's default, `NOT NULL`, indexes and constraints (destructive), refused on a primary-key column.
+- Column drop → `DROP COLUMN` (destructive), after the table's index and constraint steps; refused on a primary-key column. With a column added in the same plan, its note says "possible rename".
+- `diffTable` reads a `<table>_<column>_not_null` CHECK as that column's `NOT NULL` and doesn't compare it as a constraint, except for whether it was validated.
+- The backfill (`BACKFILL` statement) is DML: the executor runs it batch after batch, one transaction each, retrying `40001`, until a batch updates nothing.
 - Index add → `CREATE INDEX [ASYNC]`; drop → `DROP INDEX RESTRICT` (lossy); any change, or `valid: false`, → rebuild: drop, then create.
 - CHECK add → `ADD CONSTRAINT … NOT VALID` (enforced on new writes at once), then `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` (an async job; `ASYNC` follows `asyncIndexes`). A CHECK left `NOT VALID` → `VALIDATE` alone. Drop → `DROP CONSTRAINT` (lossy).
 - UNIQUE add → the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`, modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic. Drop → `DROP CONSTRAINT` (drops its index too; lossy). Change → drop, then the promotion path.
@@ -60,7 +62,7 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - Sequence and identity options compare by their effective values: an option the definition leaves unset counts as the PostgreSQL default for a `bigint` sequence, and an identity's sequence name only counts when the definition names one. `ALTER SEQUENCE` lists only the options that changed. `ownedBy` isn't compared (deferred).
 - Key-column lists (index, primary key, unique) compare in order; `include` lists compare as sets. A constraint whose kind changes under the same name is removed and added.
 
-Refusal codes: `IMMUTABLE_COLUMN`, `NO_DROP_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `IMMUTABLE_DOMAIN`, `KIND_MISMATCH`.
+Refusal codes: `NOT_NULL_NEEDS_DEFAULT`, `NO_ADD_GENERATED_COLUMN`, `NO_ADD_IDENTITY`, `NO_ALTER_GENERATED`, `NO_ALTER_PRIMARY_KEY_COLUMN`, `NO_DROP_PRIMARY_KEY_COLUMN`, `IMMUTABLE_CONSTRAINT` (primary keys), `IMMUTABLE_DOMAIN`, `KIND_MISMATCH`.
 
 ### Planner (`reconciliation/planner.ts`)
 
@@ -72,7 +74,7 @@ Deferred: sequences before the tables that own them (`OWNED BY`). `SequenceDefin
 
 `planRows(operations, errors, print)` flattens a plan into `PlanRow`s, one per operation in execution order, then one per refusal. Each row is plain data: step, change and `i/n`, subject, action, target, changes, risk (`safe` / `lossy` / `destructive` / `refused`), async, SQL, refusal. `runner.plan` returns them as `rows`, with the plan's highest `risk`; `runner.run` returns them with `status` / `durationMs` / `error`. `formatPlan` prints rows as an aligned text table or a markdown table, with no dependencies, for scripts and CI logs.
 
-Risk is set by the operation factories, by one test: can redeploying the previous definition undo it? `safe` adds or relaxes; `lossy` removes something redeploying restores (a default, an index, an identity, narrower sequence bounds, a `RESTART`); `destructive` loses rows or removes what DSQL cannot re-create (dropped tables, sequences, domains, schemas).
+Risk is set by the operation factories, by one test: can redeploying the previous definition undo it? `safe` adds or relaxes; `lossy` removes something redeploying restores (a default, a `NOT NULL`, an index, a constraint, an identity, narrower sequence bounds); `destructive` loses data or removes what DSQL cannot re-create (dropped tables, columns, sequences, domains, schemas; type changes; `DROP EXPRESSION`).
 
 ### Validation (`validation/`)
 
