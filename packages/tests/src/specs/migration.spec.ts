@@ -707,6 +707,24 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });
 
+    // A fresh environment built from a definition that still carries a deprecated column.
+    it("creates a table with a deprecated column in one run, and drops it as lossy", async () => {
+      const v1 = table("users", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        nickname: text("nickname").deprecated(),
+      });
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      expect((await runner.plan([v1.toJSON()], RUN_OPTS)).rows).toEqual([]);
+
+      const v2 = table("users", { id: uuid("id").primaryKey().defaultRandom() });
+      const dropped = await runner.run([v2.toJSON()], NO_DESTRUCTIVE);
+
+      expect(dropped.rows.map((row) => [row.action, row.target, row.risk])).toEqual([
+        ["DROP", "nickname", "lossy"],
+      ]);
+    });
+
     it("deprecates a column, then drops it later without allowing destructive steps", async () => {
       const v1 = table("users", {
         id: uuid("id").primaryKey().defaultRandom(),

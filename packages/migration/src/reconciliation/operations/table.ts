@@ -146,6 +146,36 @@ export function createTableOperation(
   return operation;
 }
 
+/** `COMMENT ON COLUMN … IS 'dsqlbase:deprecated'` for a column of a table this plan creates. */
+function deprecationMarkerOperation(
+  table: SerializedObject<AnyTableDefinition>,
+  columnName: string
+): DDLOperation {
+  const tableName = qualifiedName(table);
+
+  return change(`${tableName}.${columnName}`, [
+    {
+      type: "ALTER",
+      object: table,
+      statement: ddl.commentOnColumn({
+        tableName: table.name,
+        schema: schemaOf(table),
+        columnName,
+        comment: DEPRECATED_MARKER,
+      }),
+      references: [tableName, ...(maybeNamespaceReference(table) ?? [])],
+      summary: {
+        subject: tableSubject(tableName),
+        action: "ALTER",
+        target: { kind: "COLUMN", name: columnName },
+        changes: [{ attribute: "deprecated", from: false, to: true }],
+        risk: "safe",
+        note: "created deprecated: hidden from the client",
+      },
+    },
+  ])[0];
+}
+
 export function createIndexOperation(
   index: SerializedObject<AnyIndexDefinition>,
   table: SerializedObject<AnyTableDefinition>,
@@ -299,6 +329,13 @@ export function diffTableOperations(
 
   if (!remote) {
     operations.push(createTableOperation(local, options.ifExists));
+
+    // CREATE TABLE can't carry a comment: a column created already deprecated gets its marker
+    // in the same plan, or the next one would add it, and a drop before then would read as
+    // destructive.
+    for (const column of local.columns as ColumnSerialized[]) {
+      if (column.deprecated) operations.push(deprecationMarkerOperation(local, column.name));
+    }
 
     for (const idx of local.indexes) {
       operations.push(createIndexOperation(idx, local, options.ifExists, options.asyncIndexes));

@@ -55,6 +55,15 @@ const baseTable: Table = {
 describe("diffTableOperations — new table", () => {
   const print = createPrinter();
 
+  it("marks a column created deprecated in the same plan", () => {
+    const local = { ...baseTable, columns: [idColumn, { ...emailColumn, deprecated: true }] };
+
+    expect(sqlOf(diffTableOperations(local))).toEqual([
+      expect.stringMatching(/^CREATE TABLE IF NOT EXISTS "users"/),
+      `COMMENT ON COLUMN "users"."email" IS 'dsqlbase:deprecated'`,
+    ]);
+  });
+
   it("creates an identity column with its sequence options and name", () => {
     const counter = {
       ...emailColumn,
