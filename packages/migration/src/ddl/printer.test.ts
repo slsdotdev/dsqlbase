@@ -187,18 +187,9 @@ describe("printDDL", () => {
       expect(print(node).text).toBe(`"email"`);
     });
 
-    it("prints with sort direction", () => {
-      const node = ddl.indexColumn({ columnName: "email", sortDirection: "DESC" });
-      expect(print(node).text).toBe(`"email" DESC`);
-    });
-
     it("prints with NULLS clause", () => {
-      const node = ddl.indexColumn({
-        columnName: "email",
-        sortDirection: "ASC",
-        nulls: "LAST",
-      });
-      expect(print(node).text).toBe(`"email" ASC NULLS LAST`);
+      const node = ddl.indexColumn({ columnName: "email", nulls: "LAST" });
+      expect(print(node).text).toBe(`"email" NULLS LAST`);
     });
   });
 
@@ -430,21 +421,20 @@ describe("printDDL", () => {
       );
     });
 
-    it("prints index with DESC column and NULLS LAST", () => {
+    it("prints index with a NULLS FIRST column", () => {
       const node = ddl.createIndex({
         name: "tasks_date_idx",
         tableName: "tasks",
         columns: [
           ddl.indexColumn({
             columnName: "due_date",
-            sortDirection: "DESC",
-            nulls: "LAST",
+            nulls: "FIRST",
           }),
         ],
       });
 
       expect(print(node).text).toBe(
-        `CREATE INDEX "tasks_date_idx" ON "tasks" ("due_date" DESC NULLS LAST)`
+        `CREATE INDEX "tasks_date_idx" ON "tasks" ("due_date" NULLS FIRST)`
       );
     });
 

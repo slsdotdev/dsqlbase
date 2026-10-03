@@ -10,7 +10,7 @@ import {
   OperationResult,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
-import { diffSequence } from "../diffs/sequence.js";
+import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
 
 export function createSequenceOperation(
   object: SerializedObject<AnySequenceDefinition>,
@@ -47,7 +47,7 @@ export function dropSequenceOperation(
   const statement = ddl.dropSequence({
     name: object.name,
     ifExists: options.safeOperations,
-    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+    cascade: "RESTRICT",
   });
 
   return {
@@ -76,9 +76,17 @@ export function diffSequenceOperations(
     return { operations, errors };
   }
 
-  if (diffSequence(local, remote).length === 0) {
+  const changed = changedSequenceOptions(local.options, remote.options);
+
+  if (changed.length === 0) {
     return { operations, errors };
   }
+
+  // Only what changed: an unchanged option restated is noise in the plan, and an unset one
+  // would print its default.
+  const effective = effectiveSequenceOptions(local.options);
+  const pick = <K extends (typeof changed)[number]>(key: K) =>
+    changed.includes(key) ? effective[key] : undefined;
 
   operations.push({
     type: "ALTER",
@@ -87,14 +95,13 @@ export function diffSequenceOperations(
       name: local.name,
       schema: local.namespace,
       options: ddl.sequenceOptions({
-        dataType: local.options.dataType,
-        incrementBy: local.options.increment,
-        cache: local.options.cache,
-        cycle: local.options.cycle,
-        startValue: local.options.startValue,
-        minValue: local.options.minValue,
-        maxValue: local.options.maxValue,
-        ownedBy: local.options.ownedBy,
+        dataType: pick("dataType"),
+        incrementBy: pick("increment"),
+        minValue: pick("minValue"),
+        maxValue: pick("maxValue"),
+        startValue: pick("startValue"),
+        cache: pick("cache"),
+        cycle: pick("cycle"),
       }),
     }),
     references: maybeNamespaceReference(local),

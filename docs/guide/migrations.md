@@ -46,7 +46,7 @@ await runner.run(definitions, { destructive: false });
 |---|---|---|
 | `destructive` | `false` | Required to run any `DROP`. Without it `run`/`dryRun` throw when the plan contains drops. |
 | `asyncIndexes` | `true` | Emit `CREATE INDEX ASYNC` (required on DSQL). Set `false` for PGlite / plain Postgres. |
-| `safeOperations` | `false` | Adds `IF [NOT] EXISTS` where applicable. Also switches drops to `CASCADE`; the name is misleading and this flag is under review. |
+| `safeOperations` | `false` | Adds `IF [NOT] EXISTS` where applicable. Drops are always `RESTRICT`: a `CASCADE` would remove objects the plan never listed, and DSQL refuses it for domains. |
 
 The repo's e2e suite runs `{ asyncIndexes: false, destructive: true, safeOperations: true }` against PGlite: `packages/tests/src/db/migrate.ts`.
 

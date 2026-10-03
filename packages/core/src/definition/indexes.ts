@@ -120,18 +120,12 @@ export class IndexColumnDefinition<
   public readonly kind = Kind.INDEX_COLUMN;
 
   protected _column: NodeRef<TColumn>;
-  protected _sortDirection: "ASC" | "DESC" = "ASC";
   protected _nulls: "FIRST" | "LAST" = "LAST";
 
   constructor(index: TIdxName, column: TColumn) {
     super(`${index}_column_${column.name}`);
 
     this._column = new NodeRef(column);
-  }
-
-  sort(direction: "ASC" | "DESC" = "ASC"): this {
-    this._sortDirection = direction;
-    return this;
   }
 
   nullsFirst(): this {
@@ -148,7 +142,6 @@ export class IndexColumnDefinition<
     return {
       kind: this.kind,
       name: this.name,
-      sortDirection: this._sortDirection,
       nulls: this._nulls,
       column: this._column.toJSON(),
     } as const;

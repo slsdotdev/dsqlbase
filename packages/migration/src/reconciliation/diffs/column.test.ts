@@ -102,6 +102,50 @@ describe("diffColumn", () => {
       expect(diffs).toEqual([expect.objectContaining({ type: "modify", key: "identity" })]);
     });
 
+    // What introspection reads back for an identity created from a definition that left the
+    // sequence name and bounds to the database.
+    const introspected = (local: Column["identity"]) =>
+      ({
+        type: local?.type ?? "ALWAYS",
+        sequenceName: "qty_seq",
+        options: {
+          dataType: "bigint",
+          cache: 1,
+          cycle: false,
+          increment: 1,
+          minValue: 1,
+          maxValue: Number("9223372036854775807"),
+          startValue: 1,
+          ownedBy: undefined,
+        },
+      }) as NonNullable<Column["identity"]>;
+
+    it("emits no diff for a sequence name or options the definition leaves to the database", () => {
+      const local: Column = {
+        ...baseColumn,
+        identity: {
+          type: "ALWAYS",
+          sequenceName: undefined,
+          options: { dataType: "bigint", cache: 1, minValue: undefined, maxValue: undefined },
+        },
+      } as Column;
+      const remote: Column = { ...baseColumn, identity: introspected(local.identity) };
+
+      expect(diffColumn(local, remote)).toEqual([]);
+    });
+
+    it("emits a modify when a sequence name the definition sets differs", () => {
+      const local: Column = {
+        ...baseColumn,
+        identity: { type: "ALWAYS", sequenceName: "qty_counter", options: { cache: 1 } },
+      } as Column;
+      const remote: Column = { ...baseColumn, identity: introspected(local.identity) };
+
+      expect(diffColumn(local, remote)).toEqual([
+        expect.objectContaining({ type: "modify", key: "identity" }),
+      ]);
+    });
+
     it("emits no diff when identity is deeply equal", () => {
       const local: Column = { ...baseColumn, identity };
       const remote: Column = {

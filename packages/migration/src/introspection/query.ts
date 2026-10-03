@@ -86,10 +86,6 @@ const indexes = sql`
         json_build_object(
           'kind', 'INDEX_COLUMN',
           'column', pa.attname,
-          'sortDirection', CASE
-            WHEN (ix.indoption[col_pos] & 1) = 1 THEN 'DESC'
-            ELSE 'ASC'
-          END,
           'nulls', CASE
             WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
             ELSE 'LAST'

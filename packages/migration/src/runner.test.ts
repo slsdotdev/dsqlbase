@@ -29,10 +29,16 @@ class TestSession implements Session {
       return [{ definitions: this.introspection }] as T[];
     }
 
+    // Rows shaped as DSQL returns them: `sys.jobs` columns are snake_case, and
+    // `CALL sys.wait_for_job` answers `{ succeeded }`.
     if (this._isJobLookupQuery(query.text)) {
       const jobId = query.params[0] as string;
       const job = this.asyncJobs.get(jobId);
-      return job ? ([job] as T[]) : ([] as T[]);
+      return job
+        ? ([
+            { job_id: job.jobId, status: job.status, job_type: job.type, details: job.details },
+          ] as T[])
+        : ([] as T[]);
     }
 
     if (this._isWaitForJobQuery(query.text)) {
@@ -41,7 +47,7 @@ class TestSession implements Session {
       if (job && job.status !== "failed") {
         this.asyncJobs.set(jobId, { ...job, status: "completed" });
       }
-      return [] as T[];
+      return [{ succeeded: job !== undefined && job.status !== "failed" }] as T[];
     }
 
     const ddlResponse = this.ddlResponses.get(query.text.trim());
@@ -294,6 +300,10 @@ describe("MigrationRunner", () => {
         asyncJob: { jobId: "job-1" },
       });
       expect(session.count((q) => q.text.includes("sys.wait_for_job"))).toBe(1);
+      // An undefined id here is `sys.wait_for_job(NULL)`, which blocks forever on DSQL.
+      expect(session.executed.find((q) => q.text.includes("sys.wait_for_job"))?.params).toEqual([
+        "job-1",
+      ]);
     });
 
     it("marks operation as failed when the async job ends in failed state", async () => {

@@ -112,6 +112,7 @@ export function identity<const TName extends string, const TOptions extends Iden
 ) {
   const identity = {
     type: options?.type ?? "ALWAYS",
+    sequenceName: options?.sequenceName,
     options: {
       dataType: "bigint",
       cache: 1,

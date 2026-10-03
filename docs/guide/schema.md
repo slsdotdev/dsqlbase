@@ -203,20 +203,20 @@ members is enough.
 
 ## Column types
 
-| Constructor(s)                                          | PG type                         | Notes                                                                                     |
-| ------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                           |
-| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                  |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                 |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        |                                                                                           |
-| `boolean`/`bool`                                        | `boolean`                       |                                                                                           |
-| `bytea`                                                 | `bytea`                         |                                                                                           |
-| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                   |
-| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                |
-| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`     |
-| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type |
-| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type       |
-| `identity(name, options)`                               | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation                                   |
+| Constructor(s)                                          | PG type                         | Notes                                                                                                            |
+| ------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                                  |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                                         |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                                        |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        | `numeric(name, { precision, scale })`, default `(18,6)` (DSQL's own); refuses a write it would round or overflow |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                                                                  |
+| `bytea`                                                 | `bytea`                         |                                                                                                                  |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                          |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                                       |
+| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                            |
+| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type                        |
+| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type                              |
+| `identity(name, { type, sequenceName })`                | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation; `.cache()`, `.startValue()`, … set sequence options     |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
 

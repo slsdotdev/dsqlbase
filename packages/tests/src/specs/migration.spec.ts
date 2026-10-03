@@ -7,8 +7,10 @@ import {
   createMigrationRunner,
   introspect,
   MigrationRunner,
+  getSerializedSchemaObjects,
   type SerializedSchema,
 } from "@dsqlbase/migration";
+import { schema } from "../db/schema";
 
 class PGliteSession implements Session {
   constructor(private readonly pg: PGlite) {}
@@ -61,6 +63,22 @@ describe("schema migrations (e2e via PGlite)", () => {
     const plan = await runner.plan([widgets.toJSON()], RUN_OPTS);
     expect(plan.errors).toEqual([]);
     expect(plan.operations).toEqual([]);
+  });
+
+  // The whole e2e fixture: every column kind, default, domain, sequence, index and constraint the
+  // builders produce. A second plan must be empty, or every deploy re-plans (and refuses) work
+  // that is already done. Fails until expressions are normalized (defaults, composite-key NOT
+  // NULL): the migrations catch-up, story 1.
+  it("plans nothing on a second run of the full fixture schema", async () => {
+    const definitions = getSerializedSchemaObjects(Object.values(schema));
+
+    await runner.run(definitions, RUN_OPTS);
+    const plan = await runner.plan(definitions, RUN_OPTS);
+
+    expect(plan.errors.map((e) => `${e.code} ${e.subject ?? e.object.name}`)).toEqual([]);
+    expect(plan.operations.map((op) => `${op.type} ${op.object.kind} ${op.object.name}`)).toEqual(
+      []
+    );
   });
 
   it("emits CREATE INDEX for a new unique index", async () => {

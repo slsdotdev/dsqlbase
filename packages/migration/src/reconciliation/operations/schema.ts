@@ -32,7 +32,7 @@ export function dropSchemaOperation(
   const statement = ddl.dropSchema({
     name: object.name,
     ifExists: options.safeOperations,
-    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+    cascade: "RESTRICT",
   });
 
   return {

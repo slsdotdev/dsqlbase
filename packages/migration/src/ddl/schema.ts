@@ -80,7 +80,6 @@ export function createIndexDDL(
   const indexColumns = index.columns.map((col) =>
     ddl.indexColumn({
       columnName: col.column,
-      sortDirection: col.sortDirection,
       nulls: col.nulls,
     })
   );

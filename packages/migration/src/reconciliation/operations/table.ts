@@ -61,6 +61,15 @@ export function createTableOperation(
         check: column.check
           ? ddl.check({ name: column.check.name, expression: column.check.expression })
           : undefined,
+        identity: column.identity
+          ? ddl.identity({
+              mode: column.identity.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
+              options: identitySequenceOptions(column.identity),
+            })
+          : undefined,
+        generated: column.generated
+          ? ddl.generated({ expression: column.generated.expression, stored: true })
+          : undefined,
       })
     );
   }
@@ -155,15 +164,20 @@ export function dropTableOperation(
   object: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
+  // The domains its columns use: a domain dropped in the same plan must wait for the table.
+  const domains = (object.columns as ColumnSerialized[]).flatMap((column) =>
+    column.domain ? [column.domain] : []
+  );
+
   return {
     type: "DROP",
     object: object,
     statement: ddl.dropTable({
       name: object.name,
       ifExists: options.safeOperations,
-      cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+      cascade: "RESTRICT",
     }),
-    references: maybeNamespaceReference(object),
+    references: dedupe([...(maybeNamespaceReference(object) ?? []), ...domains]),
   };
 }
 
@@ -177,7 +191,7 @@ export function dropIndexOperation(
     statement: ddl.dropIndex({
       name: object.name,
       ifExists: options.safeOperations,
-      cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+      cascade: "RESTRICT",
     }),
     references: maybeNamespaceReference(object),
   };
@@ -375,9 +389,7 @@ function handleColumnAdd(diff: AnyDiff, ctx: TableProcessingContext): ColumnProc
         actions: [
           ddl.addIdentity({
             mode: column.identity.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-            options: column.identity.options
-              ? sequenceOptionsFromIdentity(column.identity.options)
-              : undefined,
+            options: identitySequenceOptions(column.identity),
           }),
         ],
       })
@@ -605,7 +617,7 @@ function identitySubActions(diff: AnyDiff): AlterColumnSubAction[] {
     return [
       ddl.addIdentity({
         mode: value.type === "ALWAYS" ? "ALWAYS" : "BY_DEFAULT",
-        options: value.options ? sequenceOptionsFromIdentity(value.options) : undefined,
+        options: identitySequenceOptions(value),
       }),
     ];
   }
@@ -634,19 +646,22 @@ function identitySubActions(diff: AnyDiff): AlterColumnSubAction[] {
   return [];
 }
 
-function sequenceOptionsFromIdentity(
-  options: NonNullable<ColumnSerialized["identity"]>["options"]
-) {
-  if (!options) return undefined;
+/** An identity's sequence options, named `SEQUENCE NAME` when the definition names it. */
+function identitySequenceOptions(identity: NonNullable<ColumnSerialized["identity"]>) {
+  const { options, sequenceName } = identity;
+
+  if (!options && !sequenceName) return undefined;
+
   return ddl.sequenceOptions({
-    dataType: options.dataType,
-    incrementBy: options.increment,
-    cache: options.cache,
-    cycle: options.cycle,
-    startValue: options.startValue,
-    minValue: options.minValue,
-    maxValue: options.maxValue,
-    ownedBy: options.ownedBy,
+    sequenceName: sequenceName ?? undefined,
+    dataType: options?.dataType,
+    incrementBy: options?.increment,
+    cache: options?.cache,
+    cycle: options?.cycle,
+    startValue: options?.startValue,
+    minValue: options?.minValue,
+    maxValue: options?.maxValue,
+    ownedBy: options?.ownedBy,
   });
 }
 
@@ -670,7 +685,6 @@ function uniquePromotionOps(args: {
         ({
           kind: "INDEX_COLUMN",
           name: `${args.indexName}_column_${col}`,
-          sortDirection: "ASC",
           nulls: "LAST",
           column: col,
         }) as const

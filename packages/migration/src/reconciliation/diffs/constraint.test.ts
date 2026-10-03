@@ -32,6 +32,15 @@ describe("diffConstraint", () => {
   });
 
   describe("PRIMARY_KEY_CONSTRAINT", () => {
+    it("emits a modify on `columns` when the key order changes", () => {
+      const local = { ...pk, columns: ["tenant_id", "id"] } as typeof pk;
+      const remote = { ...pk, columns: ["id", "tenant_id"] } as typeof pk;
+
+      expect(diffConstraint(local, remote)).toEqual([
+        expect.objectContaining({ type: "modify", key: "columns" }),
+      ]);
+    });
+
     it("emits a modify on `columns` when the column list changes", () => {
       const local: SerializedObject<AnyConstraintDefinition> = {
         ...pk,

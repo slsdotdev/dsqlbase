@@ -5,7 +5,7 @@ import {
   AnyUniqueConstraintDefinition,
 } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
-import { Diff, DiffType, hasDiff } from "./base.js";
+import { Diff, DiffType, hasDiff, hasUnorderedDiff } from "./base.js";
 
 export type ConstraintDiff =
   | Diff<DiffType, SerializedObject<AnyCheckConstraintDefinition>>
@@ -74,7 +74,7 @@ export function diffPrimaryKeyConstraint(
     });
   }
 
-  if (hasDiff(local, remote, "include")) {
+  if (hasUnorderedDiff(local, remote, "include")) {
     diffs.push({
       type: "modify",
       kind: local.kind,
@@ -118,7 +118,7 @@ export function diffUniqueConstraint(
     });
   }
 
-  if (hasDiff(local, remote, "include")) {
+  if (hasUnorderedDiff(local, remote, "include")) {
     diffs.push({
       type: "modify",
       kind: local.kind,

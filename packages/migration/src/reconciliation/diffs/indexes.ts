@@ -1,6 +1,6 @@
 import { AnyIndexDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
-import { Diff, DiffType, hasDiff } from "./base.js";
+import { Diff, DiffType, hasDiff, hasUnorderedDiff } from "./base.js";
 
 export function diffIndex(
   local: SerializedObject<AnyIndexDefinition>,
@@ -55,7 +55,7 @@ export function diffIndex(
     });
   }
 
-  if (hasDiff(local, remote, "include")) {
+  if (hasUnorderedDiff(local, remote, "include")) {
     diffs.push({
       type: "modify",
       kind: local.kind,

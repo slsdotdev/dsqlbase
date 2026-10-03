@@ -123,6 +123,9 @@ const printReducer = {
   },
   SEQUENCE_OPTIONS: (node) => {
     const parts: SQLNode[] = [];
+    if (node.sequenceName !== undefined) {
+      parts.push(sql`SEQUENCE NAME ${sql.identifier(node.sequenceName)}`);
+    }
     if (node.dataType !== undefined) parts.push(sql`AS ${sql.raw(node.dataType)}`);
     if (node.incrementBy !== undefined) parts.push(sql.raw(`INCREMENT BY ${node.incrementBy}`));
     if (node.minValue !== undefined) parts.push(sql.raw(`MINVALUE ${node.minValue}`));
@@ -182,7 +185,6 @@ const printReducer = {
   },
   INDEX_COLUMN: (node) => {
     const out = new SQLQuery(sql.identifier(node.columnName));
-    if (node.sortDirection) out.append(sql.raw(` ${node.sortDirection}`));
     if (node.nulls) out.append(sql.raw(` NULLS ${node.nulls}`));
     return out;
   },

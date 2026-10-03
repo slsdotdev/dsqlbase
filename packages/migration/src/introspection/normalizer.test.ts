@@ -282,9 +282,7 @@ describe("normalizeObject", () => {
             name: "widgets_slug_idx",
             unique: false,
             distinctNulls: true,
-            columns: [
-              { kind: "INDEX_COLUMN", column: "slug", sortDirection: "ASC", nulls: "LAST" },
-            ],
+            columns: [{ kind: "INDEX_COLUMN", column: "slug", nulls: "LAST" }],
             include: null,
           },
         ],
@@ -294,7 +292,6 @@ describe("normalizeObject", () => {
       expect(result.indexes[0].columns[0]).toEqual({
         kind: "INDEX_COLUMN",
         name: "widgets_slug_idx_column_slug",
-        sortDirection: "ASC",
         nulls: "LAST",
         column: "slug",
       });

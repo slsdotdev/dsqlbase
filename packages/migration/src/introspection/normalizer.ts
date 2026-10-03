@@ -94,7 +94,6 @@ type RawColumn = {
 type RawIndexColumn = {
   kind: "INDEX_COLUMN";
   column: string;
-  sortDirection: "ASC" | "DESC";
   nulls: "FIRST" | "LAST";
 };
 
@@ -231,7 +230,6 @@ function normalizeIndex(raw: RawIndex): SerializedIndex {
     columns: raw.columns.map((col) => ({
       kind: "INDEX_COLUMN",
       name: `${raw.name}_column_${col.column}`,
-      sortDirection: col.sortDirection,
       nulls: col.nulls,
       column: col.column,
     })),

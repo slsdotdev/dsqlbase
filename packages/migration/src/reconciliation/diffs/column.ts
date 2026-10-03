@@ -1,6 +1,26 @@
 import { AnyCheckConstraintDefinition, AnyColumnDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
+import { changedSequenceOptions } from "./sequence.js";
+
+type Identity = SerializedObject<AnyColumnDefinition>["identity"];
+
+/**
+ * An identity compares by its effective state: its type, its sequence's options with unset ones
+ * at their defaults, and its sequence name only when the definition names one — otherwise the
+ * database picks it.
+ */
+function hasIdentityDiff(local: Identity, remote: Identity): boolean {
+  if (!local || !remote) {
+    return !local !== !remote;
+  }
+
+  return (
+    local.type !== remote.type ||
+    (local.sequenceName != null && local.sequenceName !== remote.sequenceName) ||
+    changedSequenceOptions(local.options, remote.options).length > 0
+  );
+}
 
 export function diffColumn(
   local: SerializedObject<AnyColumnDefinition>,
@@ -30,7 +50,6 @@ export function diffColumn(
     "primaryKey",
     "unique",
     "generated",
-    "identity",
   ] as const) {
     if (hasDiff(local, remote, key)) {
       diffs.push({
@@ -43,6 +62,18 @@ export function diffColumn(
         prevValue: remote[key],
       });
     }
+  }
+
+  if (hasIdentityDiff(local.identity, remote.identity)) {
+    diffs.push({
+      type: diffType(local, remote, "identity"),
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "identity",
+      value: local.identity,
+      prevValue: remote.identity,
+    });
   }
 
   if (hasDiff(local.check, remote.check, "name")) {

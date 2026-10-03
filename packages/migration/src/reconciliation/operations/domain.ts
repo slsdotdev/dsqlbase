@@ -45,7 +45,7 @@ export function dropDomainOperation(
   const statement = ddl.dropDomain({
     name: object.name,
     ifExists: options.safeOperations,
-    cascade: options.safeOperations ? "CASCADE" : "RESTRICT",
+    cascade: "RESTRICT",
   });
 
   return {

@@ -21,6 +21,21 @@ export type OperationExecutionResult = {
   result?: unknown;
 };
 
+/** A `sys.jobs` row, as DSQL returns it. */
+type AsyncJobRow = {
+  job_id: string;
+  status: AsyncJobStatus;
+  job_type: string;
+  details: string | null;
+};
+
+const toAsyncJob = (row: AsyncJobRow): AsyncJob => ({
+  jobId: row.job_id,
+  status: row.status,
+  type: row.job_type,
+  details: row.details ?? undefined,
+});
+
 export class OperationExecutor {
   private _session: Session;
   private _print = createPrinter();
@@ -29,15 +44,19 @@ export class OperationExecutor {
     this._session = session;
   }
 
-  public async getAsyncJob(jobId: string): Promise<AsyncJob> {
+  /**
+   * The job's `sys.jobs` row. Columns are read by their own snake_case names: an unquoted
+   * camelCase alias would fold to lower case and read back undefined.
+   */
+  public async getAsyncJob(jobId: string): Promise<AsyncJob | undefined> {
     const query = sql`
-      SELECT job_id as jobId, status, job_type as type, details 
-      FROM sys.jobs 
+      SELECT job_id, status, job_type, details
+      FROM sys.jobs
       WHERE job_id = ${jobId}
     `;
 
-    const [job] = await this._session.execute<AsyncJob>(query.toQuery());
-    return job;
+    const [row] = await this._session.execute<AsyncJobRow>(query.toQuery());
+    return row ? toAsyncJob(row) : undefined;
   }
 
   public async waitAsyncJob(
@@ -47,17 +66,20 @@ export class OperationExecutor {
       return operationResult;
     }
 
-    const query = sql`
-      call sys.wait_for_job(${operationResult.asyncJob.jobId})
-    `;
+    const { jobId } = operationResult.asyncJob;
 
-    await this._session.execute<AsyncJob>(query.toQuery());
-    const asyncJob = await this.getAsyncJob(operationResult.asyncJob.jobId);
+    // A procedure: `SELECT sys.wait_for_job(…)` is refused. It answers whether the job succeeded.
+    const [wait] = await this._session.execute<{ succeeded: boolean }>(
+      sql`CALL sys.wait_for_job(${jobId})`.toQuery()
+    );
+    // DSQL keeps finished jobs for 30 minutes; the row carries the failure details.
+    const asyncJob = (await this.getAsyncJob(jobId)) ?? operationResult.asyncJob;
+    const succeeded = wait?.succeeded ?? asyncJob.status === "completed";
 
     return {
       ...operationResult,
-      status: asyncJob.status === "completed" ? "completed" : "failed",
-      asyncJob,
+      status: succeeded ? "completed" : "failed",
+      asyncJob: { ...asyncJob, status: succeeded ? "completed" : "failed" },
     };
   }
 
@@ -73,12 +95,12 @@ export class OperationExecutor {
     }
 
     const query = sql`
-      SELECT job_id as jobId, status, job_type as type, details 
-      FROM sys.jobs 
+      SELECT job_id, status, job_type, details
+      FROM sys.jobs
       WHERE job_id IN (${pendingJobIds})
     `;
 
-    const jobs = await this._session.execute<AsyncJob>(query.toQuery());
+    const jobs = (await this._session.execute<AsyncJobRow>(query.toQuery())).map(toAsyncJob);
     const jobStatusMap = new Map(jobs.map((job) => [job.jobId, job]));
 
     return progress.map((current) => {
@@ -105,7 +127,11 @@ export class OperationExecutor {
       const [result] = await this._session.execute<DDLQueryResult>(statement);
 
       if (result?.job_id) {
-        const asyncJob = await this.getAsyncJob(result.job_id);
+        const asyncJob: AsyncJob = (await this.getAsyncJob(result.job_id)) ?? {
+          jobId: result.job_id,
+          status: "submitted",
+          type: "UNKNOWN",
+        };
         const status = asyncJob.status === "submitted" ? "processing" : asyncJob.status;
 
         return {

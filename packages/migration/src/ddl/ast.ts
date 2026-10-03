@@ -85,7 +85,6 @@ export type UniqueConstraintExpression = {
 export type IndexColumnExpression = {
   __kind: "INDEX_COLUMN";
   columnName: string;
-  sortDirection?: "ASC" | "DESC";
   nulls?: "FIRST" | "LAST";
 } & DDLStatement;
 
@@ -229,6 +228,8 @@ export type DropSchemaCommand = {
 
 export type SequenceOptionsExpression = {
   __kind: "SEQUENCE_OPTIONS";
+  /** `SEQUENCE NAME`: an identity column's sequence only. */
+  sequenceName?: string;
   dataType?: string;
   startValue?: number;
   incrementBy?: number;
