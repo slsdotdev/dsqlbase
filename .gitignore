@@ -155,3 +155,4 @@ codegen/
 .claude/prime/
 .claude/proposals/
 .claude/epics/
+.claude/tools/
