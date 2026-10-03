@@ -28,10 +28,7 @@ export type Operation<TMode extends OperationMode, TArgs extends object, TResult
 
 export type AnyOperation = Operation<OperationMode, object, unknown>;
 
-export type OperationRequest<
-  TArgs extends object,
-  TMode extends OperationMode = OperationMode,
-> = {
+export type OperationRequest<TArgs extends object, TMode extends OperationMode = OperationMode> = {
   name?: string;
   mode: TMode;
   args: TArgs;
@@ -93,10 +90,7 @@ export class UnionResolver {
  * the column branch reads from. A resolver that needs the database's own text representation
  * of a value (rather than the decoded one) therefore has it.
  */
-export type MetaResolver = [
-  fieldName: string,
-  resolve: (row: Record<string, unknown>) => unknown,
-];
+export type MetaResolver = [fieldName: string, resolve: (row: Record<string, unknown>) => unknown];
 
 export type ResolverEntry = FieldResolver | MetaResolver;
 
@@ -317,9 +311,7 @@ export class OperationsFactory<
     const conditions = [
       this._tenantPredicate(table),
       ...(Array.isArray(where) ? where : [where]),
-    ].filter(
-      (condition): condition is SQLNode => condition !== undefined && condition !== null
-    );
+    ].filter((condition): condition is SQLNode => condition !== undefined && condition !== null);
 
     if (conditions.length === 0) {
       return undefined;
@@ -539,7 +531,9 @@ export class OperationsFactory<
     table: T,
     args: SelectOperationArgs,
     mode: OperationMode,
-    resolvers: ResolverEntry[] = []
+    resolvers: ResolverEntry[] = [],
+    /** The level is read as JSON (a join, a union branch): see `Column.textInJson`. */
+    json = false
   ) {
     const fields = this._resolveFields(table, args.select);
     resolvers.push(...fields.resolvers);
@@ -555,9 +549,15 @@ export class OperationsFactory<
       (column, index) => sql`${column}::text AS ${sql.identifier(`__k${index}`)}`
     );
 
+    const columns = json
+      ? fields.columns.map((column) =>
+          column.textInJson ? sql`${column}::text AS ${sql.identifier(column.name)}` : column
+        )
+      : fields.columns;
+
     return {
       table,
-      select: [...fields.columns, ...keys],
+      select: [...columns, ...keys],
       distinct: args.distinct,
       where,
       order,
@@ -664,7 +664,8 @@ export class OperationsFactory<
         targetTable,
         tableArgs,
         relation.type === Relation.HAS_MANY ? "many" : "one",
-        joinResolvers
+        joinResolvers,
+        true
       );
 
       // The correlation itself is the query builder's business: only it knows the alias each
@@ -781,9 +782,7 @@ export class OperationsFactory<
       const branchOrder =
         limit !== undefined && ordered
           ? order.flatMap((key, index) =>
-              key.field === KEY_FIELD
-                ? []
-                : [sql`${expressions[index]} ${sql.raw(direction(key))}`]
+              key.field === KEY_FIELD ? [] : [sql`${expressions[index]} ${sql.raw(direction(key))}`]
             )
           : undefined;
 
@@ -812,7 +811,8 @@ export class OperationsFactory<
           offset: undefined,
         },
         "many",
-        memberResolvers
+        memberResolvers,
+        true
       );
 
       params.select = [
@@ -1064,7 +1064,10 @@ export class OperationsFactory<
     TResult extends object,
     TMode extends OperationMode = OperationMode,
     TArgs extends UnionSelectOperationArgs = UnionSelectOperationArgs,
-  >(union: Union, config: OperationRequest<TArgs, TMode>): UnionSelectOperation<TMode, TArgs, TResult> {
+  >(
+    union: Union,
+    config: OperationRequest<TArgs, TMode>
+  ): UnionSelectOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
     const { params, resolver } = this._resolveUnionParams(union, args, mode);
 

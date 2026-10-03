@@ -236,3 +236,30 @@ describe("Column.validator", () => {
     expect(() => label().default("bad").toJSON()).toThrow("refused");
   });
 });
+
+// `row_to_json` emits bigint and numeric as JSON numbers, rounded before the codec sees them.
+describe("Column.textInJson", () => {
+  const table = new Table(
+    new TableDefinition("amounts", {
+      columns: {
+        id: new ColumnDefinition("id", { dataType: "uuid", primaryKey: true }),
+        big: new ColumnDefinition("big", { dataType: "bigint", runtimeType: "bigint" }),
+        money: new ColumnDefinition("money", { dataType: "numeric(12,2)", runtimeType: "number" }),
+        viaDomain: new ColumnDefinition("via_domain", { dataType: "ids", runtimeType: "bigint" }),
+        count: new ColumnDefinition("count", { dataType: "int", runtimeType: "number" }),
+      },
+    })
+  );
+
+  it("is set for bigint and numeric, by type or runtime type, and nothing else", () => {
+    const { id, big, money, viaDomain, count } = table.columns;
+
+    expect([id, big, money, viaDomain, count].map((column) => column.textInJson)).toEqual([
+      false,
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+});
