@@ -17,7 +17,12 @@ What DSQL allows, and how each change is built from it, was verified against a l
 ## Runner
 
 ```ts
-import { createMigrationRunner, formatPlan, getSerializedSchemaObjects } from "@dsqlbase/migration";
+import {
+  createMigrationRunner,
+  formatPlan,
+  getSerializedSchemaObjects,
+  MigrationError,
+} from "@dsqlbase/migration";
 import { createPgSession } from "dsqlbase/pg";
 import * as schema from "./schema";
 
@@ -27,8 +32,14 @@ const definitions = getSerializedSchemaObjects(Object.values(schema));
 const statements = await runner.dryRun(definitions);          // printed SQL, nothing executed
 const plan = await runner.plan(definitions);                  // operations, refusals, rows, risk
 console.log(formatPlan(plan));                                // what would change, as a table
-const result = await runner.run(definitions, { allow: { destructive: false } });
-console.log(formatPlan(result));                              // the same rows, with each status
+try {
+  const result = await runner.run(definitions, { allow: { destructive: false } });
+  console.log(formatPlan(result));                            // the same rows, with each status
+} catch (error) {
+  // A failed step: `result` has every row, the failed one and those skipped after it.
+  if (error instanceof MigrationError && error.result) console.log(formatPlan(error.result));
+  throw error;
+}
 ```
 
 | Method | IO | Returns |
@@ -38,7 +49,7 @@ console.log(formatPlan(result));                              // the same rows, 
 | `reconcile(local, remote, options)` | none | ordered operations + refusals |
 | `plan(definition, options)` | introspect | `{ operations, errors, risk, rows }`; throws `MigrationError` on validation failure |
 | `dryRun(definition, options)` | introspect | `SQLStatement[]`; throws on refusals, or steps whose risk `allow` doesn't cover |
-| `run(definition, options)` | full | executes sequentially, stopping at the first failed step; same gates as `dryRun`; `{ count, progress, rows }` |
+| `run(definition, options)` | full | executes sequentially; same gates as `dryRun`; `{ count, progress, rows }`; throws `MigrationError` (`STEP_FAILED`) at the first failed step |
 
 `getSerializedSchemaObjects` accepts the module's exported values and keeps only tables, domains, sequences, and namespaces (relations are ignored — see [Relations](./relations.md)).
 
@@ -85,7 +96,7 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 
 `safe` steps always run. `run` and `dryRun` throw a `MigrationError` when the plan has a refusal or a step whose risk `allow` doesn't cover; its `issues` name every such step (`DESTRUCTIVE_NOT_ALLOWED`, `LOSSY_NOT_ALLOWED`), and `plan(definition, { allow })` marks them `blocked` so a script can show them first. Drops are always `RESTRICT`: a `CASCADE` would remove objects the plan never listed, and DSQL refuses it for domains.
 
-`run` stops at the first failed step and reports the rest as `skipped`. Every step is its own transaction, so the steps before it stay applied; the next run plans from the database as it then is, and resumes there.
+`run` stops at the first failed step and throws a `MigrationError` whose `issues` hold one `STEP_FAILED` naming the step and its error. Its `result` is the full `RunResult`: the steps before, the failed one with its `error`, and the rest as `skipped`. When the step threw (a statement error, or waiting for an async job failed), that error is the `cause`. A caller that only awaits `run` therefore never mistakes a failed deploy for a successful one. Every step is its own transaction, so the steps before it stay applied; the next run plans from the database as it then is, and resumes there.
 
 The repo's e2e suite runs `{ asyncIndexes: false, ifExists: true, allow: { destructive: true } }` against PGlite: `packages/tests/src/db/migrate.ts`.
 

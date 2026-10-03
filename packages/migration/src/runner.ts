@@ -170,7 +170,15 @@ export class MigrationRunner {
       let result = await this._executor.execute(op);
 
       if (result.status === "processing" && result.asyncJob) {
-        result = await this._executor.waitAsyncJob(result);
+        // A wait that fails (the call errors, or the connection drops) fails the step: the job
+        // may still finish, and a re-run plans from wherever it got to.
+        result = await this._executor.waitAsyncJob(result).catch(
+          (error: unknown): OperationExecutionResult => ({
+            ...result,
+            status: "failed",
+            result: error,
+          })
+        );
       }
 
       progress.push(result);
@@ -182,7 +190,25 @@ export class MigrationRunner {
       });
     }
 
-    return { count: progress.length, progress, rows: executed };
+    const result: RunResult = { count: progress.length, progress, rows: executed };
+    const failed = executed.find((row) => row.status === "failed");
+
+    if (failed) {
+      throw new MigrationError(
+        "A migration step failed; the steps after it were skipped.",
+        [
+          {
+            code: "STEP_FAILED",
+            message:
+              `step ${failed.step}: ${failed.action} ${failed.target ?? failed.subject} on ` +
+              `${failed.subject} failed: ${failed.error ?? "failed"}`,
+          },
+        ],
+        { result, cause: errorOf(progress.find((p) => p.status === "failed")) }
+      );
+    }
+
+    return result;
   }
 }
 
@@ -191,6 +217,11 @@ function allowedRisks(allow: AllowedRisks = {}): Set<OperationRisk> {
   if (allow.lossy ?? true) allowed.add("lossy");
   if (allow.destructive ?? false) allowed.add("destructive");
   return allowed;
+}
+
+/** The error a failed step threw; an async job that failed carries details, not an error. */
+function errorOf(result: OperationExecutionResult | undefined): Error | undefined {
+  return result?.result instanceof Error ? result.result : undefined;
 }
 
 function describeFailure(result: OperationExecutionResult): string {

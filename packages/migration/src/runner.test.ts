@@ -21,6 +21,8 @@ class TestSession implements Session {
   public introspection: SerializedSchema = [];
   public ddlResponses = new Map<string, unknown[]>();
   public asyncJobs = new Map<string, AsyncJob>();
+  /** When set, `CALL sys.wait_for_job` throws it: a dropped connection, a timeout. */
+  public waitError?: Error;
 
   async execute<T = unknown>(query: SQLStatement): Promise<T[]> {
     this.executed.push({ text: query.text, params: query.params });
@@ -42,6 +44,7 @@ class TestSession implements Session {
     }
 
     if (this._isWaitForJobQuery(query.text)) {
+      if (this.waitError) throw this.waitError;
       const jobId = query.params[0] as string;
       const job = this.asyncJobs.get(jobId);
       if (job && job.status !== "failed") {
@@ -434,9 +437,12 @@ describe("MigrationRunner", () => {
       const indexStmt = statements.find((s) => s.text.includes("CREATE INDEX"));
       session.stubAsyncOperation(indexStmt?.text.trim() ?? "", "job-2", "failed");
 
-      const result = await runner.run([tableWithIndex.toJSON()]);
-      const indexProgress = result.progress.find((p) => p.sql.includes("CREATE INDEX"));
+      const error = await runner.run([tableWithIndex.toJSON()]).catch((e: unknown) => e);
+      const indexProgress = (error as MigrationError).result?.progress.find((p) =>
+        p.sql.includes("CREATE INDEX")
+      );
 
+      expect(error).toBeInstanceOf(MigrationError);
       expect(indexProgress?.status).toBe("failed");
     });
 
@@ -455,15 +461,66 @@ describe("MigrationRunner", () => {
       const slugIndex = statements.find((s) => s.text.includes("widgets_slug_idx"));
       session.stubAsyncOperation(slugIndex?.text.trim() ?? "", "job-3", "failed");
 
-      const result = await runner.run([widgets.toJSON()]);
+      const error = await runner.run([widgets.toJSON()]).catch((e: unknown) => e);
+      const rows = (error as MigrationError).result?.rows;
 
-      expect(result.rows.map((row) => [row.target ?? row.subject, row.status])).toEqual([
+      expect(rows?.map((row) => [row.target ?? row.subject, row.status])).toEqual([
         ["widgets", "completed"],
         ["widgets_slug_idx", "failed"],
         ["widgets_name_idx", "skipped"],
       ]);
-      expect(result.rows[1]?.error).toBe("synthetic failure");
+      expect(rows?.[1]?.error).toBe("synthetic failure");
       expect(session.count((q) => q.text.includes("widgets_name_idx"))).toBe(0);
+    });
+
+    // A caller that only awaits `run` must not see success when a step failed.
+    it("throws STEP_FAILED naming the failed step, and carries the result", async () => {
+      const widgets = new TableDefinition("widgets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          slug: new ColumnDefinition("slug", { dataType: "text" }).notNull(),
+        },
+      });
+      widgets.index("widgets_slug_idx").columns((c) => [c.slug]);
+
+      const statements = await runner.dryRun([widgets.toJSON()]);
+      const slugIndex = statements.find((s) => s.text.includes("widgets_slug_idx"));
+      session.stubAsyncOperation(slugIndex?.text.trim() ?? "", "job-4", "failed");
+
+      const error = await runner.run([widgets.toJSON()]).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).issues).toEqual([
+        {
+          code: "STEP_FAILED",
+          message: "step 2: CREATE widgets_slug_idx on widgets failed: synthetic failure",
+        },
+      ]);
+      expect((error as MigrationError).result?.count).toBe(2);
+    });
+
+    it("fails the step, keeping the rows run before it, when waiting for its job throws", async () => {
+      const widgets = new TableDefinition("widgets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          slug: new ColumnDefinition("slug", { dataType: "text" }).notNull(),
+        },
+      });
+      widgets.index("widgets_slug_idx").columns((c) => [c.slug]);
+
+      const statements = await runner.dryRun([widgets.toJSON()]);
+      const slugIndex = statements.find((s) => s.text.includes("widgets_slug_idx"));
+      session.stubAsyncOperation(slugIndex?.text.trim() ?? "", "job-5");
+      session.waitError = new Error("connection terminated");
+
+      const error = await runner.run([widgets.toJSON()]).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).cause).toBe(session.waitError);
+      expect((error as MigrationError).result?.rows.map((row) => [row.status, row.error])).toEqual([
+        ["completed", null],
+        ["failed", "connection terminated"],
+      ]);
     });
 
     it("plans domain + table + sequence in dependency order", async () => {

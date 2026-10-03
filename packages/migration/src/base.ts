@@ -7,6 +7,7 @@ import {
   NodeKind,
   Kind,
 } from "@dsqlbase/core/definition";
+import type { RunResult } from "./runner.js";
 
 export type SchemaObjectType =
   | AnyNamespaceDefinition
@@ -73,23 +74,37 @@ export function sortSchemaObjects<T extends SerializedSchema>(definitions: T): T
   });
 }
 
-type MigrationIssue = {
+export type MigrationIssue = {
   code: string;
   message: string;
 };
 
+export type MigrationErrorOptions = {
+  /** What `run` executed before it stopped: set when a step failed (`STEP_FAILED`). */
+  result?: RunResult;
+  /** The error a failed step threw, when it threw one. */
+  cause?: unknown;
+};
+
+/**
+ * Thrown by `plan`, `dryRun` and `run`: the definition is invalid, the plan has a refusal or a
+ * step whose risk `allow` doesn't cover, or (`run` only) a step failed. `issues` names each one.
+ */
 export class MigrationError extends Error {
   public readonly issues: MigrationIssue[];
+  /** Every step of the run, the failed one included, and those skipped after it. */
+  public readonly result?: RunResult;
 
-  constructor(message: string, issues: MigrationIssue[] = []) {
+  constructor(message: string, issues: MigrationIssue[] = [], options: MigrationErrorOptions = {}) {
     const errorMessage =
       issues.length > 0
         ? `${message} Issues:\n${issues.map((i) => `- [${i.code}] ${i.message}`).join("\n")}`
         : message;
 
-    super(errorMessage);
+    super(errorMessage, options.cause === undefined ? undefined : { cause: options.cause });
 
     this.name = "MigrationError";
     this.issues = issues;
+    this.result = options.result;
   }
 }

@@ -19,6 +19,7 @@ import {
   introspect,
   MigrationRunner,
   getSerializedSchemaObjects,
+  MigrationError,
   type SerializedSchema,
 } from "@dsqlbase/migration";
 import { schema } from "../db/schema";
@@ -193,13 +194,16 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([orders("none")], RUN_OPTS);
       await insert(-1);
 
-      const failed = await runner.run([orders("check")], RUN_OPTS);
+      const failed = await runner.run([orders("check")], RUN_OPTS).catch((e: unknown) => e);
 
-      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+      expect(failed).toBeInstanceOf(MigrationError);
+      expect(
+        (failed as MigrationError).result?.rows.map((row) => [row.action, row.status])
+      ).toEqual([
         ["ADD", "completed"],
         ["VALIDATE", "failed"],
       ]);
-      expect(failed.rows[1]?.error).toMatch(/orders_qty_positive/);
+      expect((failed as MigrationError).result?.rows[1]?.error).toMatch(/orders_qty_positive/);
       // Enforced on new writes even though not valid.
       await expect(insert(0)).rejects.toThrow(/orders_qty_positive/);
 
@@ -331,8 +335,11 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([v1.toJSON()], RUN_OPTS);
       await pg.query(`INSERT INTO items (name) VALUES (NULL)`);
 
-      const failed = await runner.run([v2.toJSON()], RUN_OPTS);
-      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+      const failed = await runner.run([v2.toJSON()], RUN_OPTS).catch((e: unknown) => e);
+      expect(failed).toBeInstanceOf(MigrationError);
+      expect(
+        (failed as MigrationError).result?.rows.map((row) => [row.action, row.status])
+      ).toEqual([
         ["ADD", "completed"],
         ["VALIDATE", "failed"],
       ]);
