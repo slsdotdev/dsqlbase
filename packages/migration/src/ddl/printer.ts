@@ -100,6 +100,10 @@ const printReducer = {
       out.append(sql.raw(" NULLS DISTINCT"));
     }
 
+    if (node.where !== undefined) {
+      out.append(sql` WHERE ${sql.raw(node.where)}`);
+    }
+
     return out;
   },
   DROP_INDEX: (node) => {
@@ -185,7 +189,11 @@ const printReducer = {
     return sql`GENERATED ALWAYS AS (${sql.raw(node.expression)}) STORED`;
   },
   INDEX_COLUMN: (node) => {
-    const out = new SQLQuery(sql.identifier(node.columnName));
+    const out = new SQLQuery(
+      node.expression !== undefined
+        ? sql`(${sql.raw(node.expression)})`
+        : sql.identifier(node.columnName)
+    );
     if (node.nulls) out.append(sql.raw(` NULLS ${node.nulls}`));
     return out;
   },

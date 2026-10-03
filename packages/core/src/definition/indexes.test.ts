@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TableDefinition } from "./table.js";
 import { ColumnDefinition } from "./column.js";
+import { sql } from "../sql/index.js";
 
 const tasks = new TableDefinition("tasks", {
   columns: {
@@ -12,6 +13,43 @@ const tasks = new TableDefinition("tasks", {
 });
 
 describe("IndexDefinition", () => {
+  it("takes an expression over its columns as a key, in order", () => {
+    const json = tasks
+      .index("tasks_status_lower_idx")
+      .columns((c) => [c.projectId, sql`lower(${c.status})`])
+      .toJSON();
+
+    expect(json.columns).toEqual([
+      {
+        kind: "INDEX_COLUMN",
+        name: "tasks_status_lower_idx_column_project_id",
+        nulls: "LAST",
+        column: "project_id",
+      },
+      {
+        kind: "INDEX_COLUMN",
+        name: "tasks_status_lower_idx_expression_1",
+        nulls: "LAST",
+        column: null,
+        expression: 'lower("status")',
+      },
+    ]);
+  });
+
+  it("is partial with a predicate", () => {
+    const json = tasks
+      .index("tasks_open_idx")
+      .columns((c) => [c.dueDate])
+      .where((c) => sql`${c.status} <> 'done'`)
+      .toJSON();
+
+    expect(json.where).toBe(`"status" <> 'done'`);
+  });
+
+  it("has no predicate by default", () => {
+    expect(tasks.index("tasks_plain_idx").toJSON().where).toBeNull();
+  });
+
   it("should create with default config", () => {
     const idx = tasks.index("tasks_default_idx");
     const json = idx.toJSON();

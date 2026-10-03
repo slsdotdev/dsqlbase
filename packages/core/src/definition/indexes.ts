@@ -1,4 +1,5 @@
 import { Unique } from "../utils/index.js";
+import { isSQLNode, SQLContext, SQLNode, SQLQuery, SQLStatement } from "../sql/index.js";
 import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { ColumnGroupDefinition, GroupOf, TableColumnDefinitions } from "./embedded.js";
 import { AnyTableDefinition, ColumnRefOf, ColumnRefs } from "./table.js";
@@ -45,9 +46,10 @@ export class IndexDefinition<
 
   protected _table: TTable;
   protected _unique: boolean;
-  protected _columns: ColumnConfigType<TName, TTable>[] = [];
+  protected _columns: (ColumnConfigType<TName, TTable> | SQLNode)[] = [];
   protected _include?: ColumnRefOf<TTable["columns"]>[];
   protected _distinctNulls?: boolean;
+  protected _where?: SQLNode;
 
   constructor(name: TName, config: IndexConfig) {
     super(name);
@@ -75,10 +77,25 @@ export class IndexDefinition<
     return this as Unique<this>;
   }
 
+  /**
+   * The index's keys, in order: columns, or expressions over them —
+   * `.columns((c) => [c.workspaceId, sql\`lower(${c.email})\`])`. An expression must be
+   * immutable, as DSQL requires.
+   */
   public columns(
-    cb: (columns: ColumnConfigRefs<TName, TTable>) => ColumnConfigType<TName, TTable>[]
+    cb: (columns: ColumnConfigRefs<TName, TTable>) => (ColumnConfigType<TName, TTable> | SQLNode)[]
   ): this {
     this._columns = cb(this._getColumnConfigRefs());
+    return this;
+  }
+
+  /**
+   * Makes the index partial: it covers the rows the predicate holds for —
+   * `.where((c) => sql\`${c.deletedAt} IS NULL\`)`. The predicate must be immutable, and a query
+   * uses the index only when its own `WHERE` implies the predicate.
+   */
+  public where(cb: (columns: ColumnRefs<TTable["columns"]>) => SQLNode): this {
+    this._where = cb(this._table._getColumnRefs());
     return this;
   }
 
@@ -106,8 +123,19 @@ export class IndexDefinition<
       name: this.name,
       unique: this._unique,
       distinctNulls: this._distinctNulls,
-      columns: this._columns.map((col) => col.toJSON()),
+      columns: this._columns.map((col, position) =>
+        col instanceof IndexColumnDefinition || !isSQLNode(col)
+          ? col.toJSON()
+          : ({
+              kind: Kind.INDEX_COLUMN,
+              name: `${this.name}_expression_${position}`,
+              nulls: "LAST" as "FIRST" | "LAST",
+              column: null,
+              expression: new SQLQuery(col).toQuery({ inlineParams: true }).text,
+            } as const)
+      ),
       include: this._include ? this._include.map((col) => col.toJSON()) : null,
+      where: this._where ? new SQLQuery(this._where).toQuery({ inlineParams: true }).text : null,
       // A definition describes a usable index. Introspection reads one whose async build
       // failed as `false`.
       valid: true as boolean,
@@ -129,6 +157,11 @@ export class IndexColumnDefinition<
     super(`${index}_column_${column.name}`);
 
     this._column = new NodeRef(column);
+  }
+
+  /** The column, as an identifier: an index column can be used in an expression key. */
+  toSQL(ctx: SQLContext): SQLStatement {
+    return this._column.toSQL(ctx);
   }
 
   nullsFirst(): this {

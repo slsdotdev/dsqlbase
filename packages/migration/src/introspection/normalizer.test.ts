@@ -316,6 +316,54 @@ describe("normalizeObject", () => {
     });
   });
 
+  describe("expression and partial indexes", () => {
+    it("reads an expression key, named by its position, and the predicate", () => {
+      const result = normalizeObject({
+        kind: "TABLE",
+        name: "users",
+        namespace: "public",
+        columns: [{ ...baseColumn, name: "email", dataType: "text" }],
+        indexes: [
+          {
+            kind: "INDEX",
+            name: "users_email_lower_idx",
+            unique: false,
+            valid: true,
+            distinctNulls: true,
+            include: null,
+            where: "deleted_at IS NULL",
+            columns: [
+              { kind: "INDEX_COLUMN", column: null, expression: "lower(email)", nulls: "LAST" },
+              { kind: "INDEX_COLUMN", column: "email", expression: null, nulls: "FIRST" },
+            ],
+          },
+        ],
+        constraints: [],
+      }) as { indexes: unknown[] };
+
+      expect(result.indexes).toEqual([
+        expect.objectContaining({
+          where: "deleted_at IS NULL",
+          columns: [
+            {
+              kind: "INDEX_COLUMN",
+              name: "users_email_lower_idx_expression_0",
+              nulls: "LAST",
+              column: null,
+              expression: "lower(email)",
+            },
+            {
+              kind: "INDEX_COLUMN",
+              name: "users_email_lower_idx_column_email",
+              nulls: "FIRST",
+              column: "email",
+            },
+          ],
+        }),
+      ]);
+    });
+  });
+
   describe("index column synthesis", () => {
     it("adds the synthetic IndexColumnDefinition.name", () => {
       const result = normalizeObject({

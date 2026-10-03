@@ -119,7 +119,7 @@ Refused, with the reason in the plan: adding a generated or identity column, mak
 
 - **CHECK** — added `NOT VALID`, then validated against the existing rows by an async job (`ALTER TABLE ASYNC … VALIDATE CONSTRAINT`). It is enforced on new writes from the first step. If an existing row violates it, validation fails, the run stops with the database's message, and the constraint **stays** — enforced, but not valid. Fix the data and run again: the next plan is just the `VALIDATE`. A removed CHECK is dropped (lossy).
 - **UNIQUE** — a unique index is built asynchronously, then promoted to the constraint. A removed one is dropped together with its index (lossy); a changed one is dropped and built again.
-- **Indexes** — a changed index is rebuilt: dropped (lossy), then created; it is unavailable in between. So is an index whose async build failed.
+- **Indexes** — a changed index is rebuilt: dropped (lossy), then created; it is unavailable in between. So is an index whose async build failed. Expression keys and a partial index's predicate compare by position and presence, not text — PostgreSQL prints them back reformatted — so to change an expression or a predicate, rename the index.
 - **Primary keys** can't be added, dropped or changed: DSQL fixes them at `CREATE TABLE`.
 
 A constraint compares the same whether it was declared on a column (`.unique()`, `.check()`, `.primaryKey()`) or on the table: PostgreSQL doesn't record the difference. A CHECK and a UNIQUE are matched by name — a column's `.unique()` is the constraint PostgreSQL names `<table>_<column>_key` — so renaming one drops it and adds the new one. CHECK expressions aren't compared yet: change a CHECK by renaming it.

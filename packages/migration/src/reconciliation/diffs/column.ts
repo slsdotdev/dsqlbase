@@ -43,12 +43,7 @@ export function diffColumn(
     return diffs;
   }
 
-  for (const key of [
-    "dataType",
-    "notNull",
-    "domain",
-    "generated",
-  ] as const) {
+  for (const key of ["dataType", "notNull", "domain", "generated"] as const) {
     if (hasDiff(local, remote, key)) {
       diffs.push({
         type: diffType(local, remote, key),

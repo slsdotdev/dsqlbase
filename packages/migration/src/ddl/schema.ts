@@ -79,7 +79,8 @@ export function createIndexDDL(
 ) {
   const indexColumns = index.columns.map((col) =>
     ddl.indexColumn({
-      columnName: col.column,
+      columnName: col.column ?? "",
+      expression: "expression" in col ? col.expression : undefined,
       nulls: col.nulls,
     })
   );
@@ -91,6 +92,7 @@ export function createIndexDDL(
     columns: indexColumns,
     include: index.include ?? undefined,
     nullsDistinct: index.distinctNulls,
+    where: index.where ?? undefined,
     ifNotExists,
     async: async ? true : undefined,
   });

@@ -94,7 +94,8 @@ export const unknownColumnReference: TableRule = (table, context) => {
 
   for (const index of table.indexes ?? []) {
     for (const ic of index.columns) {
-      if (!columnNames.has(ic.column)) {
+      // An expression key names no column of its own.
+      if (ic.column !== null && !columnNames.has(ic.column)) {
         context.report({
           level: "error",
           code: "UNKNOWN_COLUMN_REFERENCE",
@@ -195,7 +196,10 @@ export const duplicateIndexCoverage: TableRule = (table, context) => {
   const seen = new Map<string, string>();
 
   for (const index of indexes) {
-    const key = index.columns.map((ic) => ic.column).join(",");
+    const key = [
+      ...index.columns.map((ic) => ic.column ?? ("expression" in ic ? ic.expression : "")),
+      index.where ?? "",
+    ].join(",");
     const prev = seen.get(key);
     if (prev) {
       context.report({

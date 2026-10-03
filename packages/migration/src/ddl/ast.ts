@@ -88,7 +88,10 @@ export type UniqueConstraintExpression = {
 
 export type IndexColumnExpression = {
   __kind: "INDEX_COLUMN";
+  /** Ignored when `expression` is set. */
   columnName: string;
+  /** An expression key, printed in parentheses. */
+  expression?: string;
   nulls?: "FIRST" | "LAST";
 } & DDLStatement;
 
@@ -234,6 +237,8 @@ export type CreateIndexCommand = {
   ifNotExists?: boolean;
   include?: string[];
   nullsDistinct?: boolean;
+  /** A partial index's predicate. */
+  where?: string;
 } & DDLStatement;
 
 export type DropIndexCommand = {

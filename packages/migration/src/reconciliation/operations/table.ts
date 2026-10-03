@@ -159,7 +159,11 @@ function createIndexDraft(
   references.push(tableName);
 
   const columns: IndexColumnExpression[] = index.columns.map((column) =>
-    ddl.indexColumn({ columnName: column.column, nulls: column.nulls })
+    ddl.indexColumn({
+      columnName: column.column ?? "",
+      expression: "expression" in column ? column.expression : undefined,
+      nulls: column.nulls,
+    })
   );
 
   return {
@@ -172,6 +176,7 @@ function createIndexDraft(
       columns,
       include: index.include ?? undefined,
       nullsDistinct: index.distinctNulls,
+      where: index.where ?? undefined,
       ifNotExists,
       async: async ? true : undefined,
     }),
@@ -184,8 +189,13 @@ function createIndexDraft(
         {
           attribute: "columns",
           from: null,
-          to: index.columns.map((column) => column.column).join(", "),
+          to: index.columns
+            .map(
+              (column) => column.column ?? ("expression" in column ? `(${column.expression})` : "")
+            )
+            .join(", "),
         },
+        ...(index.where ? [{ attribute: "where", from: null, to: index.where }] : []),
       ],
       risk: "safe",
       async,
@@ -782,8 +792,18 @@ function recreateDrafts(columnName: string, ctx: TableProcessingContext): DraftO
     columns?.includes(columnName) ?? false;
   const note = `dropped with "${columnName}"; created again`;
 
+  // An expression key or a predicate names its columns quoted, as the definition prints them.
+  const mentions = (text: string | null | undefined) =>
+    text?.includes(quoteIdentifier(columnName)) ?? false;
+
   const indexes = ctx.local.indexes
-    .filter((index) => involves(index.columns.map((c) => c.column)) || involves(index.include))
+    .filter(
+      (index) =>
+        involves(index.columns.map((c) => c.column)) ||
+        index.columns.some((c) => "expression" in c && mentions(c.expression)) ||
+        involves(index.include) ||
+        mentions(index.where)
+    )
     .map((index) => {
       const draft = createIndexDraft(index, ctx.tableName, true, ctx.options.asyncIndexes);
       return { ...draft, summary: { ...draft.summary, note } };

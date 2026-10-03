@@ -93,7 +93,9 @@ type RawColumn = {
 
 type RawIndexColumn = {
   kind: "INDEX_COLUMN";
-  column: string;
+  /** `null` for an expression key. */
+  column: string | null;
+  expression: string | null;
   nulls: "FIRST" | "LAST";
 };
 
@@ -105,6 +107,7 @@ type RawIndex = {
   distinctNulls: boolean;
   columns: RawIndexColumn[];
   include: string[] | null;
+  where: string | null;
 };
 
 type RawConstraint = {
@@ -230,12 +233,24 @@ function normalizeIndex(raw: RawIndex): SerializedIndex {
     valid: raw.valid,
     distinctNulls: raw.distinctNulls,
     include: raw.include,
-    columns: raw.columns.map((col) => ({
-      kind: "INDEX_COLUMN",
-      name: `${raw.name}_column_${col.column}`,
-      nulls: col.nulls,
-      column: col.column,
-    })),
+    where: raw.where ?? null,
+    // Named as `IndexDefinition.toJSON()` names them.
+    columns: raw.columns.map((col, position) =>
+      col.column === null
+        ? {
+            kind: "INDEX_COLUMN",
+            name: `${raw.name}_expression_${position}`,
+            nulls: col.nulls,
+            column: null,
+            expression: col.expression ?? "",
+          }
+        : {
+            kind: "INDEX_COLUMN",
+            name: `${raw.name}_column_${col.column}`,
+            nulls: col.nulls,
+            column: col.column,
+          }
+    ),
   };
 }
 

@@ -405,4 +405,52 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });
   });
+
+  describe("expression and partial indexes", () => {
+    const users = (variant: { partial?: boolean; nullsFirst?: boolean } = {}) => {
+      const t = table("people", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        email: text("email"),
+        deletedAt: text("deleted_at"),
+      });
+      const index = t
+        .index("people_email_lower_idx")
+        .columns((c) => [sql`lower(${c.email})`, variant.nullsFirst ? c.id.nullsFirst() : c.id]);
+      if (variant.partial) index.where((c) => sql`${c.deletedAt} IS NULL`);
+      return t.toJSON();
+    };
+
+    it("creates an expression and partial index, and plans nothing after", async () => {
+      const result = await runner.run([users({ partial: true, nullsFirst: true })], RUN_OPTS);
+
+      expect(result.rows.map((row) => row.sql)).toContain(
+        `CREATE INDEX IF NOT EXISTS "people_email_lower_idx" ON "people" ` +
+          `((lower("email")) NULLS LAST, "id" NULLS FIRST) NULLS DISTINCT WHERE "deleted_at" IS NULL`
+      );
+      expect(
+        (await runner.plan([users({ partial: true, nullsFirst: true })], RUN_OPTS)).rows
+      ).toEqual([]);
+
+      // A query that implies the predicate and filters by the expression uses the index.
+      await pg.query(`SET enable_seqscan = off`);
+      const explained = await pg.query<Record<string, string>>(
+        `EXPLAIN SELECT id FROM people WHERE lower(email) = 'a' AND deleted_at IS NULL`
+      );
+      expect(explained.rows.map((row) => Object.values(row).join("")).join("\n")).toContain(
+        "people_email_lower_idx"
+      );
+    });
+
+    it("rebuilds the index when it becomes partial", async () => {
+      await runner.run([users()], RUN_OPTS);
+
+      const result = await runner.run([users({ partial: true })], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.status])).toEqual([
+        ["DROP", "completed"],
+        ["CREATE", "completed"],
+      ]);
+      expect((await runner.plan([users({ partial: true })], RUN_OPTS)).rows).toEqual([]);
+    });
+  });
 });

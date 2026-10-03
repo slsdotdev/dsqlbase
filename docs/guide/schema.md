@@ -91,7 +91,18 @@ Each of these returns the index or constraint it declares, not the table, so cal
 separate statements after `table(...)` — chained onto it, the variable would hold the
 constraint, and nothing would register the table.
 
-Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. Partial (`WHERE`) and expression indexes are not modelled yet.
+Indexes support `unique`, `include`, `distinctNulls`, and nulls-first/last ordering. A key can
+be an expression over the columns, and an index can be partial:
+
+```ts
+users
+  .index("users_email_lower_idx")
+  .columns((c) => [sql`lower(${c.email})`, c.createdAt.nullsFirst()])
+  .where((c) => sql`${c.deletedAt} IS NULL`);
+```
+
+Expressions and predicates must be immutable, and a query uses a partial index only when its own
+`WHERE` implies the predicate. Keys can't be `DESC`: DSQL refuses sort order on index keys.
 
 **A table has at most one primary key.** Use `.primaryKey()` on a single column, or `table.primaryKey((c) => [...])` for a composite key — never both, and never two of either. Declaring more than one is rejected when the client is created and by the migration validator (`MULTIPLE_PRIMARY_KEYS`); SQL allows only one `PRIMARY KEY` per table.
 

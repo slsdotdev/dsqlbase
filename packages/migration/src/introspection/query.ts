@@ -87,19 +87,23 @@ const indexes = sql`
         json_build_object(
           'kind', 'INDEX_COLUMN',
           'column', pa.attname,
+          -- An expression key has no column (attnum 0): its text, as PostgreSQL prints it.
+          'expression', CASE WHEN u.attnum = 0
+            THEN pg_get_indexdef(ix.indexrelid, col_pos::int, true) ELSE NULL END,
           'nulls', CASE
-            WHEN (ix.indoption[col_pos] & 2) = 2 THEN 'FIRST'
+            WHEN (ix.indoption[col_pos - 1] & 2) = 2 THEN 'FIRST'
             ELSE 'LAST'
           END
         )
         ORDER BY col_pos
       )
       FROM LATERAL unnest(ix.indkey) WITH ORDINALITY AS u(attnum, col_pos)
-      JOIN pg_attribute pa
+      LEFT JOIN pg_attribute pa
         ON pa.attrelid = c.oid
        AND pa.attnum = u.attnum
       WHERE col_pos <= ix.indnkeyatts
     ),
+    'where', pg_get_expr(ix.indpred, ix.indrelid, true),
     'include', (
       SELECT json_agg(
         pa.attname

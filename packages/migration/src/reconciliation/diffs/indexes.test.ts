@@ -101,4 +101,39 @@ describe("diffIndex", () => {
     const diffs = diffIndex(local, baseIndex);
     expect(diffs.map((d) => d.key)).toEqual(["unique", "distinctNulls", "columns", "include"]);
   });
+
+  describe("expression keys and predicates", () => {
+    const expressionKey = (expression: string) =>
+      ({
+        kind: "INDEX_COLUMN",
+        name: "widgets_slug_idx_expression_0",
+        nulls: "LAST",
+        column: null,
+        expression,
+      }) as unknown as Index["columns"][number];
+
+    it("matches expression keys by position, not by how PostgreSQL prints them", () => {
+      const local: Index = { ...baseIndex, columns: [expressionKey('lower("slug")')] };
+      const remote: Index = { ...baseIndex, columns: [expressionKey("lower(slug)")] };
+
+      expect(diffIndex(local, remote)).toEqual([]);
+    });
+
+    it("tells an expression key from a column key", () => {
+      const local: Index = { ...baseIndex, columns: [expressionKey('lower("slug")')] };
+
+      expect(diffIndex(local, baseIndex)).toEqual([
+        expect.objectContaining({ type: "modify", key: "columns" }),
+      ]);
+    });
+
+    it("compares a predicate by presence", () => {
+      const partial: Index = { ...baseIndex, where: `"slug" <> ''` } as Index;
+
+      expect(diffIndex(partial, { ...partial, where: "(slug <> ''::text)" } as Index)).toEqual([]);
+      expect(diffIndex(partial, baseIndex)).toEqual([
+        expect.objectContaining({ type: "modify", key: "where" }),
+      ]);
+    });
+  });
 });

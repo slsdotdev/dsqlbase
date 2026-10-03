@@ -66,14 +66,14 @@ Sources:
 |---|---|---|
 | `CREATE [UNIQUE] INDEX ASYNC [IF NOT EXISTS] name ON table (…)` | supported; `ASYNC` is required **even on an empty table** (live) | emitted |
 | `NULLS FIRST \| LAST`, `INCLUDE (columns)`, `NULLS [NOT] DISTINCT` | supported (live) | emitted |
-| Expression keys `((expr))`, partial `WHERE predicate` (immutable only) | supported (live) | not modelled |
+| Expression keys `((expr))`, partial `WHERE predicate` (immutable only) | supported (live) | emitted; introspected via `pg_get_indexdef(oid, n, true)` and `pg_get_expr(indpred)`; compared by position and presence |
 | `ASC` / `DESC` on a key | refused (live: `specifying sort order not supported for index keys`) | not offered |
 | Schema-qualified index name | refused (docs); the index lives in its table's schema | — |
 | A failed build (e.g. duplicates for `UNIQUE`) | the job fails; the index stays, `indisvalid = false`; a unique one still enforces uniqueness on writes until dropped (docs, live) | read as `valid: false`; rebuilt |
 | `DROP INDEX [IF EXISTS] … [RESTRICT \| CASCADE]` | supported (live; no grammar published) | emitted |
 | `ALTER INDEX … RENAME TO` | supported (live; not listed in the docs) | not modelled |
 
-The catalog reports the index method as `btree_index`. A primary key's index lists every other column as `INCLUDE` (live), columns added later too: the table is stored by its key.
+The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0-based, as in PostgreSQL (live: `0 2` for a second key `NULLS FIRST`). A primary key's index lists every other column as `INCLUDE` (live), columns added later too: the table is stored by its key.
 
 ## Domains, sequences, schemas, views
 

@@ -40,7 +40,7 @@ A default whose spelling these rules don't cover (a timestamp literal, printed i
 
 ### Diffs (`reconciliation/diffs/`)
 
-Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`) are diffed as whole-config keys; `identity` by its effective state; `defaultValue` through `sameDefault`. **Constraints compare wherever they were declared**, since the catalog doesn't record whether a one-column constraint was written on the column or on the table: CHECK and UNIQUE by name (a column's `unique` flag is the constraint PostgreSQL creates for it, `<table>_<column>_key`), the primary key by its columns.
+Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`) are diffed as whole-config keys; `identity` by its effective state; `defaultValue` through `sameDefault`. **Constraints compare wherever they were declared**, since the catalog doesn't record whether a one-column constraint was written on the column or on the table: CHECK and UNIQUE by name (a column's `unique` flag is the constraint PostgreSQL creates for it, `<table>_<column>_key`), the primary key by its columns. **Index keys** compare by position — a column by its name and NULLS order, an expression only by being one — and a predicate by presence: PostgreSQL prints both back deparsed, and comparing their text is deferred with CHECK expressions.
 
 ### Operations (`reconciliation/operations/`)
 
@@ -51,7 +51,7 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - Column drop → `DROP COLUMN` (destructive), after the table's index and constraint steps; refused on a primary-key column. With a column added in the same plan, its note says "possible rename".
 - `diffTable` reads a `<table>_<column>_not_null` CHECK as that column's `NOT NULL` and doesn't compare it as a constraint, except for whether it was validated.
 - The backfill (`BACKFILL` statement) is DML: the executor runs it batch after batch, one transaction each, retrying `40001`, until a batch updates nothing.
-- Index add → `CREATE INDEX [ASYNC]`; drop → `DROP INDEX RESTRICT` (lossy); any change, or `valid: false`, → rebuild: drop, then create.
+- Index add → `CREATE INDEX [ASYNC]`, with expression keys (`((expr))`) and a partial `WHERE`; drop → `DROP INDEX RESTRICT` (lossy); any change, or `valid: false`, → rebuild: drop, then create.
 - CHECK add → `ADD CONSTRAINT … NOT VALID` (enforced on new writes at once), then `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` (an async job; `ASYNC` follows `asyncIndexes`). A CHECK left `NOT VALID` → `VALIDATE` alone. Drop → `DROP CONSTRAINT` (lossy).
 - UNIQUE add → the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`, modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic. Drop → `DROP CONSTRAINT` (drops its index too; lossy). Change → drop, then the promotion path.
 - Primary key add, drop or change → `IMMUTABLE_CONSTRAINT`: DSQL fixes it at `CREATE TABLE`.

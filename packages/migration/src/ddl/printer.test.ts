@@ -193,6 +193,26 @@ describe("printDDL", () => {
     });
   });
 
+  describe("expression and partial indexes", () => {
+    it("prints an expression key in parentheses, and a predicate", () => {
+      const node = ddl.createIndex({
+        name: "users_email_lower_idx",
+        tableName: "users",
+        async: true,
+        columns: [
+          ddl.indexColumn({ columnName: "", expression: `lower("email")`, nulls: "LAST" }),
+          ddl.indexColumn({ columnName: "id", nulls: "FIRST" }),
+        ],
+        where: `"deleted_at" IS NULL`,
+      });
+
+      expect(print(node).text).toBe(
+        `CREATE INDEX ASYNC "users_email_lower_idx" ON "users" ` +
+          `((lower("email")) NULLS LAST, "id" NULLS FIRST) WHERE "deleted_at" IS NULL`
+      );
+    });
+  });
+
   describe("column policy statements", () => {
     it("prints DROP COLUMN IF EXISTS", () => {
       const node = ddl.alterTable({
