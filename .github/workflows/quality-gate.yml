@@ -7,6 +7,8 @@ name: Quality gate
 #
 # - `pull_request`, never `pull_request_target`: a fork's run gets a read-only token and no
 #   secrets, and runs in the fork's context rather than the base repository's.
+# - `workflow_dispatch` runs a branch of this repository, never a fork, and only someone with
+#   write access (or release.yml, for the Version Packages pull request) can start it.
 # - The token is read-only below, and checkout does not leave it in `.git/config`.
 # - No `${{ github.event.* }}` text a pull request author controls (title, body, branch name)
 #   is interpolated into a `run:` step, where it would be executed as shell.
@@ -18,12 +20,15 @@ name: Quality gate
 on:
   pull_request:
     branches: [main]
+  # release.yml dispatches this on `changeset-release/main`: a pull request opened by
+  # GITHUB_TOKEN starts no `pull_request` run, and its required check comes from this one.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.event.pull_request.number }}
+  group: quality-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:

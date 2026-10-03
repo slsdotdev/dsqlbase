@@ -1,4 +1,15 @@
 name: Release
+
+# Runs on every push to main. `verify` re-runs the whole quality gate, e2e included, with a
+# read-only token. Only once it passes does `publish` get write access: there changesets/action
+# either opens or updates the Version Packages pull request, or, once that pull request has
+# merged, publishes to npm through trusted publishing (OIDC, no npm token).
+#
+# The Version Packages pull request is opened with this workflow's GITHUB_TOKEN, and events
+# caused by that token do not start `pull_request` runs. So `publish` dispatches the quality gate
+# on the release branch itself (`workflow_dispatch` is the documented exception), and the check
+# that run reports is the one the `main` ruleset requires. See docs/internals/conventions.md.
+
 on:
   push:
     branches:
@@ -6,34 +17,72 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+permissions:
+  contents: read
+
 env:
   HUSKY: 0
   CI: true
 
-permissions:
-  id-token: write
-  contents: write
-  pull-requests: write
-
 jobs:
-  publish:
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run e2e
+
+  publish:
+    name: Version or publish
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      # Dispatches the quality gate on the Version Packages pull request.
+      actions: write
+    steps:
+      # Credentials stay in .git/config: changesets/action pushes the release branch and tags.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
           # A publishing job restores nothing another run wrote.
           package-manager-cache: false
-      - run: npm ci
+
+      # No dependency install script runs in the job that holds a write token and an OIDC grant.
+      # `verify` already ran the full install, so nothing here relies on one.
+      - run: npm ci --ignore-scripts
       - run: npm run build
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test
-      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+      - id: changesets
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         # v2 renamed `publish` / `commit`, and takes its token from `github-token`, which defaults
         # to this workflow's token; it no longer reads GITHUB_TOKEN from the environment.
         with:
           publish-script: "npm run publish"
           commit-message: "chore(release): version packages"
+
+      - name: Run the quality gate on the Version Packages pull request
+        if: steps.changesets.outputs.published != 'true' && steps.changesets.outputs.pr-number != ''
+        run: gh workflow run quality-gate.yml --ref changeset-release/main
+        env:
+          GH_TOKEN: ${{ github.token }}
