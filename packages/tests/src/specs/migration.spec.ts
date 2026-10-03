@@ -22,9 +22,8 @@ class PGliteSession implements Session {
   }
 }
 
-// PGlite cannot run DSQL ASYNC indexes. safeOperations adds IF NOT EXISTS so
-// re-runs don't error, destructive lets us drop orphaned objects.
-const RUN_OPTS = { asyncIndexes: false, safeOperations: true, destructive: true };
+// PGlite cannot run DSQL ASYNC indexes; destructive steps are allowed so tests can drop.
+const RUN_OPTS = { asyncIndexes: false, ifExists: true, allow: { destructive: true } };
 
 describe("schema migrations (e2e via PGlite)", () => {
   let pg: PGlite;

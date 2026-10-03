@@ -200,7 +200,7 @@ export function dropTableOperation(
       object,
       statement: ddl.dropTable({
         name: object.name,
-        ifExists: options.safeOperations,
+        ifExists: options.ifExists,
         cascade: "RESTRICT",
       }),
       references: dedupe([...(maybeNamespaceReference(object) ?? []), ...domains]),
@@ -224,7 +224,7 @@ export function dropIndexOperation(
       object,
       statement: ddl.dropIndex({
         name: object.name,
-        ifExists: options.safeOperations,
+        ifExists: options.ifExists,
         cascade: "RESTRICT",
       }),
       references: maybeNamespaceReference(object),
@@ -248,12 +248,10 @@ export function diffTableOperations(
 
   if (!remote) {
     const tableName = qualifiedName(local);
-    operations.push(createTableOperation(local, options.safeOperations));
+    operations.push(createTableOperation(local, options.ifExists));
 
     for (const idx of local.indexes) {
-      operations.push(
-        createIndexOperation(idx, tableName, options.safeOperations, options.asyncIndexes)
-      );
+      operations.push(createIndexOperation(idx, tableName, options.ifExists, options.asyncIndexes));
     }
 
     return { operations, errors };
@@ -553,7 +551,7 @@ function processIndexDiffs(
         createIndexOperation(
           wholeAdd.object as IndexSerialized,
           ctx.tableName,
-          options.safeOperations,
+          options.ifExists,
           options.asyncIndexes
         )
       );

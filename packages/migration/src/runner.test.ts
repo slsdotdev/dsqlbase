@@ -107,6 +107,18 @@ const orphanTable = new TableDefinition("orphan", {
   },
 });
 
+// `users` as introspection reads it back: its key as a named constraint.
+const introspectedUsers = () => {
+  const usersJson = usersTable.toJSON();
+  return {
+    ...usersJson,
+    constraints: [
+      ...usersJson.constraints,
+      { kind: "PRIMARY_KEY_CONSTRAINT", name: "users_pkey", columns: ["id"], include: null },
+    ],
+  } as typeof usersJson;
+};
+
 describe("MigrationRunner", () => {
   let session: TestSession;
   let runner: MigrationRunner;
@@ -121,7 +133,7 @@ describe("MigrationRunner", () => {
       const result = await runner.plan([usersTable.toJSON()]);
 
       expect(result.errors).toEqual([]);
-      expect(result.destructive).toBe(false);
+      expect(result.risk).toBe("safe");
       expect(result.operations).toHaveLength(1);
       expect(result.operations[0]).toMatchObject({
         type: "CREATE",
@@ -150,25 +162,13 @@ describe("MigrationRunner", () => {
       const result = await runner.plan([usersJson]);
 
       expect(result.errors).toEqual([]);
-      expect(result.destructive).toBe(true);
+      expect(result.risk).toBe("destructive");
       expect(result.operations.some((op) => op.type === "DROP")).toBe(true);
     });
 
     it("throws when the definition is invalid", async () => {
       await expect(runner.plan([noPkTable.toJSON()])).rejects.toBeInstanceOf(MigrationError);
     });
-
-    // `users` as introspection reads it back: its key as a named constraint.
-    const introspectedUsers = () => {
-      const usersJson = usersTable.toJSON();
-      return {
-        ...usersJson,
-        constraints: [
-          ...usersJson.constraints,
-          { kind: "PRIMARY_KEY_CONSTRAINT", name: "users_pkey", columns: ["id"], include: null },
-        ],
-      } as typeof usersJson;
-    };
 
     it("reports the plan as rows, with its highest risk", async () => {
       session.introspection = [introspectedUsers(), orphanTable.toJSON()];
@@ -220,11 +220,60 @@ describe("MigrationRunner", () => {
       expect(session.executed).toHaveLength(1);
     });
 
-    it("aborts when the migration contains destructive ops", async () => {
-      const usersJson = usersTable.toJSON();
-      session.introspection = [usersJson, orphanTable.toJSON()];
+    it("aborts when the migration contains destructive ops, naming each step", async () => {
+      session.introspection = [introspectedUsers(), orphanTable.toJSON()];
 
-      await expect(runner.dryRun([usersJson])).rejects.toBeInstanceOf(MigrationError);
+      const error = await runner.dryRun([usersTable.toJSON()]).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).issues).toEqual([
+        {
+          code: "DESTRUCTIVE_NOT_ALLOWED",
+          message:
+            "step 1: DROP table orphan on orphan is destructive; pass allow: { destructive: true } to run it",
+        },
+      ]);
+    });
+
+    it("allows lossy steps by default, and refuses them with allow.lossy false", async () => {
+      const remote = introspectedUsers();
+      session.introspection = [
+        {
+          ...remote,
+          indexes: [
+            {
+              kind: "INDEX",
+              name: "users_name_idx",
+              unique: false,
+              distinctNulls: true,
+              columns: [
+                {
+                  kind: "INDEX_COLUMN",
+                  name: "users_name_idx_column_name",
+                  nulls: "LAST",
+                  column: "name",
+                },
+              ],
+              include: null,
+            },
+          ],
+        } as typeof remote,
+      ];
+
+      expect(await runner.dryRun([usersTable.toJSON()])).toHaveLength(1);
+      await expect(
+        runner.dryRun([usersTable.toJSON()], { allow: { lossy: false } })
+      ).rejects.toThrow(/LOSSY_NOT_ALLOWED/);
+    });
+
+    it("marks the rows a plan would not be allowed to run", async () => {
+      session.introspection = [introspectedUsers(), orphanTable.toJSON()];
+
+      const blocked = await runner.plan([usersTable.toJSON()]);
+      const allowed = await runner.plan([usersTable.toJSON()], { allow: { destructive: true } });
+
+      expect(blocked.rows.map((row) => row.blocked)).toEqual([true]);
+      expect(allowed.rows.map((row) => row.blocked)).toEqual([false]);
     });
 
     it("surfaces destructive ops when allowed", async () => {
@@ -245,7 +294,7 @@ describe("MigrationRunner", () => {
         orphanTable.toJSON(),
       ];
 
-      const statements = await runner.dryRun([usersJson], { destructive: true });
+      const statements = await runner.dryRun([usersJson], { allow: { destructive: true } });
 
       expect(statements.some((s) => s.text.startsWith("DROP TABLE"))).toBe(true);
     });
@@ -295,10 +344,9 @@ describe("MigrationRunner", () => {
     });
 
     it("requires opt-in for destructive migrations", async () => {
-      const usersJson = usersTable.toJSON();
-      session.introspection = [usersJson, orphanTable.toJSON()];
+      session.introspection = [introspectedUsers(), orphanTable.toJSON()];
 
-      await expect(runner.run([usersJson])).rejects.toBeInstanceOf(MigrationError);
+      await expect(runner.run([usersTable.toJSON()])).rejects.toThrow(/DESTRUCTIVE_NOT_ALLOWED/);
       expect(session.count((q) => q.text.startsWith("DROP"))).toBe(0);
     });
 
@@ -320,7 +368,7 @@ describe("MigrationRunner", () => {
         orphanTable.toJSON(),
       ];
 
-      const result = await runner.run([usersJson], { destructive: true });
+      const result = await runner.run([usersJson], { allow: { destructive: true } });
 
       expect(result.progress.every((p) => p.status === "completed")).toBe(true);
       expect(session.count((q) => q.text.startsWith("DROP TABLE"))).toBe(1);
@@ -373,6 +421,32 @@ describe("MigrationRunner", () => {
       const indexProgress = result.progress.find((p) => p.sql.includes("CREATE INDEX"));
 
       expect(indexProgress?.status).toBe("failed");
+    });
+
+    it("stops at a failed step and reports the rest as skipped", async () => {
+      const widgets = new TableDefinition("widgets", {
+        columns: {
+          id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
+          slug: new ColumnDefinition("slug", { dataType: "text" }).notNull(),
+          name: new ColumnDefinition("name", { dataType: "text" }).notNull(),
+        },
+      });
+      widgets.index("widgets_slug_idx").columns((c) => [c.slug]);
+      widgets.index("widgets_name_idx").columns((c) => [c.name]);
+
+      const statements = await runner.dryRun([widgets.toJSON()]);
+      const slugIndex = statements.find((s) => s.text.includes("widgets_slug_idx"));
+      session.stubAsyncOperation(slugIndex?.text.trim() ?? "", "job-3", "failed");
+
+      const result = await runner.run([widgets.toJSON()]);
+
+      expect(result.rows.map((row) => [row.target ?? row.subject, row.status])).toEqual([
+        ["widgets", "completed"],
+        ["widgets_slug_idx", "failed"],
+        ["widgets_name_idx", "skipped"],
+      ]);
+      expect(result.rows[1]?.error).toBe("synthetic failure");
+      expect(session.count((q) => q.text.includes("widgets_name_idx"))).toBe(0);
     });
 
     it("plans domain + table + sequence in dependency order", async () => {

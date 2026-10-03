@@ -246,7 +246,7 @@ describe("migrating column groups", () => {
     await pg.close();
   });
 
-  const RUN_OPTS = { asyncIndexes: false, safeOperations: true, destructive: true };
+  const RUN_OPTS = { asyncIndexes: false, ifExists: true, allow: { destructive: true } };
 
   // No member defaults: a column default re-plans as changed whatever it is on — the planner
   // compares `'-'` with the introspected `'-'::text` — which is the migrations work's to fix.

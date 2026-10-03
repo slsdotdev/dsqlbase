@@ -53,7 +53,7 @@ What ships today on existing tables (see [DSQL capabilities](./dsql-capabilities
 - Constraints → refused (`IMMUTABLE_CONSTRAINT`) except UNIQUE adds, which use the promotion path: `CREATE UNIQUE INDEX ASYNC` then `ADD CONSTRAINT … UNIQUE USING INDEX`. The promotion is modelled as `type: CREATE, object: <UNIQUE_CONSTRAINT>` referencing `[table, index]`, which keeps the planner acyclic.
 - Domain alters → only `defaultValue`; `dataType` / `notNull` / `check` → `IMMUTABLE_DOMAIN`.
 - Sequence option changes → `ALTER SEQUENCE`.
-- Drops are always `RESTRICT`; `safeOperations` only adds `IF EXISTS`. A table drop references the domains its columns use, so a domain dropped in the same plan comes after the table.
+- Drops are always `RESTRICT`; `ifExists` only adds `IF [NOT] EXISTS`. A table drop references the domains its columns use, so a domain dropped in the same plan comes after the table.
 - `CREATE TABLE` carries identity columns (with `SEQUENCE NAME` when the definition names one) and generated columns inline.
 - Sequence and identity options compare by their effective values: an option the definition leaves unset counts as the PostgreSQL default for a `bigint` sequence, and an identity's sequence name only counts when the definition names one. `ALTER SEQUENCE` lists only the options that changed. `ownedBy` isn't compared (deferred).
 - Key-column lists (index, primary key, unique) compare in order; `include` lists compare as sets. A constraint whose kind changes under the same name is removed and added.
@@ -78,9 +78,9 @@ Imperative rules `(node, ctx) => void` keyed by `node.kind`, default registry in
 
 ### Runner and executor (`runner.ts`, `executor.ts`)
 
-`MigrationRunner` exposes `validate` / `introspect` / `reconcile` / `plan` / `dryRun` / `run`. `run` is a sequential orchestrator; it awaits each operation, including async jobs, before the next. `OperationExecutor` prints per-op SQL, dispatches sync/async, waits with `CALL sys.wait_for_job(id)` (a procedure returning `{ succeeded }`), and reads `sys.jobs` by its snake_case columns for the job's type and failure details. **Async is detected by response shape** (a `{ job_id }` row), not by statement kind, so `DROP INDEX` and future async DDL need no special casing. `MigrationRunnerOptions extends Partial<DDLOperationOptions>` so `asyncIndexes` / `safeOperations` flow into operation factories — the seam that lets PGlite and DSQL share one runner.
+`MigrationRunner` exposes `validate` / `introspect` / `reconcile` / `plan` / `dryRun` / `run`. `run` is a sequential orchestrator; it awaits each operation, including async jobs, before the next. `OperationExecutor` prints per-op SQL, dispatches sync/async, waits with `CALL sys.wait_for_job(id)` (a procedure returning `{ succeeded }`), and reads `sys.jobs` by its snake_case columns for the job's type and failure details. **Async is detected by response shape** (a `{ job_id }` row), not by statement kind, so `DROP INDEX` and future async DDL need no special casing. `MigrationRunnerOptions` is `Partial<DDLOperationOptions>` plus `allow`, so `asyncIndexes` / `ifExists` flow into operation factories — the seam that lets PGlite and DSQL share one runner.
 
-Gates: invalid definitions throw from `plan` / `dryRun` / `run`; refusals throw from `dryRun` / `run`; destructive ops need `destructive: true`.
+Gates: invalid definitions throw from `plan` / `dryRun` / `run`. Refusals, and steps whose risk isn't in `allow` (`lossy` allowed by default, `destructive` not), throw from `dryRun` / `run`, listing every offending step; `plan` marks them `blocked`. `run` stops at the first failed step and reports the rest `skipped`.
 
 ## Out of scope today (tracked, not forgotten)
 

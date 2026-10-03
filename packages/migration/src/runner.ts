@@ -15,25 +15,41 @@ import { validateDefinition } from "./validation/validate.js";
 import { OperationExecutionResult, OperationExecutor } from "./executor.js";
 import { DDLOperationOptions } from "./reconciliation/operations/base.js";
 
-export type MigrationRunnerOptions = {
+/**
+ * Which risks `run` and `dryRun` may carry out. `safe` steps always may. See
+ * {@link OperationRisk}.
+ */
+export type AllowedRisks = {
   /**
-   * If true, will destroy objects that don't match the local definition.
+   * Steps that remove what redeploying the previous definition restores — an index, a default,
+   * a constraint. No row data is lost.
+   * @default true
+   */
+  lossy?: boolean;
+  /**
+   * Steps that cannot be undone by redeploying: dropped tables, columns, sequences, domains,
+   * schemas, or what DSQL cannot re-create.
    *
-   * **⚠️ Warning:** can cause data loss.
+   * **⚠️ Warning:** loses data.
    *
    * @default false
    */
   destructive?: boolean;
+};
+
+export type MigrationRunnerOptions = {
+  allow?: AllowedRisks;
 } & Partial<DDLOperationOptions>;
 
 export type PlanResult = {
   operations: IndexedDDLOperation[];
   errors: DDLOperationError[];
-  /** True when the plan drops anything; what `destructive: true` is required for. */
-  destructive: boolean;
   /** The highest risk among the operations; `safe` for an empty plan. */
   risk: OperationRisk;
-  /** One row per operation in execution order, then one per refusal. See `formatPlan`. */
+  /**
+   * One row per operation in execution order, then one per refusal. A row is `blocked` when
+   * the `allow` passed to `plan` does not cover its risk. See `formatPlan`.
+   */
   rows: PlanRow[];
 };
 
@@ -72,7 +88,7 @@ export class MigrationRunner {
 
   public async plan(
     definition: SerializedSchema,
-    options: Partial<DDLOperationOptions> = {}
+    options: MigrationRunnerOptions = {}
   ): Promise<PlanResult> {
     const validation = this.validate(definition);
 
@@ -83,52 +99,72 @@ export class MigrationRunner {
     const remote = await this.introspect();
     const { operations, errors } = this.reconcile(definition, remote, options);
 
+    const allowed = allowedRisks(options.allow);
+
     return {
       operations,
-      destructive: operations.some((op) => op.type === "DROP"),
       errors,
       risk: operations.reduce<OperationRisk>((risk, op) => maxRisk(risk, op.summary.risk), "safe"),
-      rows: planRows(operations, errors, (op) => this._print(op.statement)),
+      rows: planRows(operations, errors, (op) => this._print(op.statement)).map((row) => ({
+        ...row,
+        blocked: row.risk === "refused" || !allowed.has(row.risk),
+      })),
     };
   }
 
-  public async dryRun(definition: SerializedSchema, options: MigrationRunnerOptions = {}) {
-    const { operations, errors, destructive } = await this.plan(definition, options);
-
+  /**
+   * Throws when the plan cannot run as allowed: any refusal, or any step whose risk `allow`
+   * does not cover. Every offending row is listed.
+   */
+  private _assertRunnable({ errors, rows }: PlanResult) {
     if (errors.length > 0) {
       throw new MigrationError("Schema reconciliation failed", errors);
     }
 
-    if (destructive && !options.destructive) {
+    const blocked = rows.filter((row) => row.blocked);
+
+    if (blocked.length > 0) {
       throw new MigrationError(
-        "Migration contains destructive operations. Set `destructive: true` in options to allow this."
+        "The plan has steps whose risk is not allowed.",
+        blocked.map((row) => ({
+          code: `${row.risk.toUpperCase()}_NOT_ALLOWED`,
+          message:
+            `step ${row.step}: ${row.action} ${row.targetKind?.toLowerCase() ?? row.subjectKind.toLowerCase()} ` +
+            `${row.target ?? row.subject} on ${row.subject} is ${row.risk}; ` +
+            `pass allow: { ${row.risk}: true } to run it`,
+        }))
       );
     }
+  }
 
-    return operations.map((op) => this._print(op.statement));
+  public async dryRun(definition: SerializedSchema, options: MigrationRunnerOptions = {}) {
+    const plan = await this.plan(definition, options);
+
+    this._assertRunnable(plan);
+
+    return plan.operations.map((op) => this._print(op.statement));
   }
 
   public async run(
     definition: SerializedSchema,
     options: MigrationRunnerOptions = {}
   ): Promise<RunResult> {
-    const { operations, errors, destructive, rows } = await this.plan(definition, options);
+    const plan = await this.plan(definition, options);
+    const { operations, rows } = plan;
 
-    if (errors.length > 0) {
-      throw new MigrationError("Schema reconciliation failed", errors);
-    }
+    this._assertRunnable(plan);
 
     const progress: OperationExecutionResult[] = [];
-
-    if (destructive && !options.destructive) {
-      throw new MigrationError(
-        "Migration contains destructive operations. Set `destructive: true` in options to allow this."
-      );
-    }
-
     const executed: ExecutedPlanRow[] = [];
 
     for (const [index, op] of operations.entries()) {
+      // A failed step stops the run: later steps may depend on it. A re-run plans from the
+      // database as it now is, so it resumes where this one stopped.
+      if (executed.some((row) => row.status === "failed")) {
+        executed.push({ ...rows[index], status: "skipped", durationMs: 0, error: null });
+        continue;
+      }
+
       const started = Date.now();
       let result = await this._executor.execute(op);
 
@@ -147,6 +183,13 @@ export class MigrationRunner {
 
     return { count: progress.length, progress, rows: executed };
   }
+}
+
+function allowedRisks(allow: AllowedRisks = {}): Set<OperationRisk> {
+  const allowed = new Set<OperationRisk>(["safe"]);
+  if (allow.lossy ?? true) allowed.add("lossy");
+  if (allow.destructive ?? false) allowed.add("destructive");
+  return allowed;
 }
 
 function describeFailure(result: OperationExecutionResult): string {

@@ -57,7 +57,7 @@ export function dropDomainOperation(
 ): DDLOperation {
   const statement = ddl.dropDomain({
     name: object.name,
-    ifExists: options.safeOperations,
+    ifExists: options.ifExists,
     cascade: "RESTRICT",
   });
 
@@ -80,7 +80,7 @@ export function diffDomainOperations(
 ): OperationResult {
   if (!remote) {
     return {
-      operations: [createDomainOperation(local, options.safeOperations)],
+      operations: [createDomainOperation(local, options.ifExists)],
       errors: [],
     };
   }

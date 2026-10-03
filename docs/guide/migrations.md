@@ -27,7 +27,7 @@ const definitions = getSerializedSchemaObjects(Object.values(schema));
 const statements = await runner.dryRun(definitions);          // printed SQL, nothing executed
 const plan = await runner.plan(definitions);                  // operations, refusals, rows, risk
 console.log(formatPlan(plan));                                // what would change, as a table
-const result = await runner.run(definitions, { destructive: false });
+const result = await runner.run(definitions, { allow: { destructive: false } });
 console.log(formatPlan(result));                              // the same rows, with each status
 ```
 
@@ -36,9 +36,9 @@ console.log(formatPlan(result));                              // the same rows, 
 | `validate(definition)` | none | validation errors and warnings |
 | `introspect()` | one query | `SerializedSchema` of the live database |
 | `reconcile(local, remote, options)` | none | ordered operations + refusals |
-| `plan(definition, options)` | introspect | `{ operations, errors, destructive, risk, rows }`; throws `MigrationError` on validation failure |
-| `dryRun(definition, options)` | introspect | `SQLStatement[]`; throws on refusals or ungated destructive ops |
-| `run(definition, options)` | full | executes sequentially; same gates as `dryRun`; `{ count, progress, rows }` |
+| `plan(definition, options)` | introspect | `{ operations, errors, risk, rows }`; throws `MigrationError` on validation failure |
+| `dryRun(definition, options)` | introspect | `SQLStatement[]`; throws on refusals, or steps whose risk `allow` doesn't cover |
+| `run(definition, options)` | full | executes sequentially, stopping at the first failed step; same gates as `dryRun`; `{ count, progress, rows }` |
 
 `getSerializedSchemaObjects` accepts the module's exported values and keeps only tables, domains, sequences, and namespaces (relations are ignored — see [Relations](./relations.md)).
 
@@ -60,7 +60,8 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 | `async` | runs as a DSQL async job (`CREATE INDEX ASYNC`) |
 | `sql` | the statement |
 | `refusal` | `{ code, message }` for a refused change |
-| `status`, `durationMs`, `error` | after `run` only |
+| `blocked` | won't run under the `allow` the plan was made with (always `true` for a refusal) |
+| `status`, `durationMs`, `error` | after `run` only; `status` is `completed`, `failed` or `skipped` (after a failed step) |
 
 `formatPlan(planOrRows, { format: "text" | "markdown", sql?: boolean })` prints them:
 
@@ -77,11 +78,16 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 
 | Option | Default | Effect |
 |---|---|---|
-| `destructive` | `false` | Required to run any `DROP`. Without it `run`/`dryRun` throw when the plan contains drops. |
+| `allow.lossy` | `true` | Run `lossy` steps: removing what redeploying restores (an index, a default, a constraint, an identity). |
+| `allow.destructive` | `false` | Run `destructive` steps: dropping tables, columns, sequences, domains or schemas, or removing what DSQL can't re-create. **Loses data.** |
 | `asyncIndexes` | `true` | Emit `CREATE INDEX ASYNC` (required on DSQL). Set `false` for PGlite / plain Postgres. |
-| `safeOperations` | `false` | Adds `IF [NOT] EXISTS` where applicable. Drops are always `RESTRICT`: a `CASCADE` would remove objects the plan never listed, and DSQL refuses it for domains. |
+| `ifExists` | `true` | Adds `IF [NOT] EXISTS` to creates and drops. |
 
-The repo's e2e suite runs `{ asyncIndexes: false, destructive: true, safeOperations: true }` against PGlite: `packages/tests/src/db/migrate.ts`.
+`safe` steps always run. `run` and `dryRun` throw a `MigrationError` when the plan has a refusal or a step whose risk `allow` doesn't cover; its `issues` name every such step (`DESTRUCTIVE_NOT_ALLOWED`, `LOSSY_NOT_ALLOWED`), and `plan(definition, { allow })` marks them `blocked` so a script can show them first. Drops are always `RESTRICT`: a `CASCADE` would remove objects the plan never listed, and DSQL refuses it for domains.
+
+`run` stops at the first failed step and reports the rest as `skipped`. Every step is its own transaction, so the steps before it stay applied; the next run plans from the database as it then is, and resumes there.
+
+The repo's e2e suite runs `{ asyncIndexes: false, ifExists: true, allow: { destructive: true } }` against PGlite: `packages/tests/src/db/migrate.ts`.
 
 ## Refusals
 

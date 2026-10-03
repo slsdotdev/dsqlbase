@@ -32,11 +32,16 @@ export type PlanRow = {
   /** The statement, printed; `""` for a refusal. */
   sql: string;
   refusal: { code: string; message: string } | null;
+  /**
+   * The step won't run under the options the plan was made with: refused, or its risk isn't
+   * in `allow`. `false` from `planRows`; the runner sets it.
+   */
+  blocked: boolean;
 };
 
-/** A {@link PlanRow} after `run`: how its statement went. */
+/** A {@link PlanRow} after `run`: how its statement went. `skipped` follows a failed step. */
 export type ExecutedPlanRow = PlanRow & {
-  status: "completed" | "failed" | "processing";
+  status: "completed" | "failed" | "processing" | "skipped";
   durationMs: number;
   error: string | null;
 };
@@ -84,6 +89,7 @@ export function planRows(
       note: summary.note ?? null,
       sql: print(operation).text,
       refusal: null,
+      blocked: false,
     };
   });
 
@@ -107,6 +113,7 @@ export function planRows(
       note: null,
       sql: "",
       refusal: { code: String(error.code), message: error.message },
+      blocked: true,
     });
   }
 
@@ -151,7 +158,7 @@ export function formatPlan(
           ? `${lower(row.targetKind)} ${row.target}`
           : row.target,
       row.refusal ? `${row.refusal.code}${row.changes ? `: ${row.changes}` : ""}` : row.changes,
-      row.risk === "destructive" || row.risk === "refused" ? row.risk.toUpperCase() : row.risk,
+      riskCell(row),
       row.async ? "async" : "",
     ];
     if (executed) cells.push("status" in row ? row.status : "");
@@ -171,6 +178,12 @@ export function formatPlan(
   return [table, ...(footer.length || failures.length ? ["", ...failures, ...footer] : [])].join(
     "\n"
   );
+}
+
+function riskCell(row: PlanRow): string {
+  if (row.risk === "refused") return "REFUSED";
+  const risk = row.risk === "destructive" ? "DESTRUCTIVE" : row.risk;
+  return row.blocked ? `${risk} (not allowed)` : risk;
 }
 
 function textTable(header: string[], body: string[][]): string {

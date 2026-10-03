@@ -59,7 +59,7 @@ export function dropSequenceOperation(
 ): DDLOperation {
   const statement = ddl.dropSequence({
     name: object.name,
-    ifExists: options.safeOperations,
+    ifExists: options.ifExists,
     cascade: "RESTRICT",
   });
 
@@ -84,7 +84,7 @@ export function diffSequenceOperations(
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
-    operations.push(createSequenceOperation(local, options.safeOperations));
+    operations.push(createSequenceOperation(local, options.ifExists));
     return { operations, errors };
   }
 

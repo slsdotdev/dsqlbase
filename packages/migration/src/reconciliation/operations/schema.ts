@@ -42,7 +42,7 @@ export function dropSchemaOperation(
 ): DDLOperation {
   const statement = ddl.dropSchema({
     name: object.name,
-    ifExists: options.safeOperations,
+    ifExists: options.ifExists,
     cascade: "RESTRICT",
   });
 
@@ -64,7 +64,7 @@ export function diffSchemaOperations(
 ): OperationResult {
   if (!remote) {
     return {
-      operations: [createSchemaOperation(local, options.safeOperations)],
+      operations: [createSchemaOperation(local, options.ifExists)],
       errors: [],
     };
   }

@@ -11,15 +11,15 @@ export type DDLOperationOptions = {
   asyncIndexes: boolean;
 
   /**
-   * Adds IF NOT EXISTS / IF EXISTS modifiers to operations where applicable.
-   * @default false
+   * Adds `IF NOT EXISTS` / `IF EXISTS` to creates and drops. Drops are always `RESTRICT`.
+   * @default true
    */
-  safeOperations: boolean;
+  ifExists: boolean;
 };
 
 export const DEFAULT_DDL_OPERATION_OPTIONS: DDLOperationOptions = {
   asyncIndexes: true,
-  safeOperations: false,
+  ifExists: true,
 };
 
 export type DDLOperationType = "CREATE" | "DROP" | "ALTER";

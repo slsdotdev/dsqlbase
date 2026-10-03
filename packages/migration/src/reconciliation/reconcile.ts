@@ -1,5 +1,5 @@
 import { SchemaObjectType, SerializedObject, SerializedSchema } from "../base.js";
-import { DDLOperationOptions } from "./operations/base.js";
+import { DDLOperationOptions, DEFAULT_DDL_OPERATION_OPTIONS } from "./operations/base.js";
 import {
   DDLOperation,
   DDLOperationError,
@@ -26,10 +26,7 @@ export class SchemaReconciler {
   ) {
     this._localSchema = new Map(localSchema.map((obj) => [qualifiedName(obj), obj]));
     this._remoteSchema = new Map(remoteSchema.map((obj) => [qualifiedName(obj), obj]));
-    this._options = {
-      asyncIndexes: options.asyncIndexes ?? true,
-      safeOperations: options.safeOperations ?? true,
-    };
+    this._options = { ...DEFAULT_DDL_OPERATION_OPTIONS, ...options };
   }
 
   private _pushOperation(operation: DDLOperation) {

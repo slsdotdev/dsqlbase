@@ -77,10 +77,10 @@ describe("Schema Reconciliation", () => {
 
     // DSQL refuses `DROP DOMAIN … CASCADE`; a CASCADE elsewhere would drop what the plan
     // never listed.
-    it("never cascades, with or without safeOperations", () => {
-      for (const safeOperations of [true, false]) {
+    it("never cascades, with or without ifExists", () => {
+      for (const ifExists of [true, false]) {
         const { operations } = reconcileSchemas([], [status.toJSON(), tasks.toJSON()], {
-          safeOperations,
+          ifExists,
         });
 
         for (const op of operations) {

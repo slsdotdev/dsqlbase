@@ -29,6 +29,7 @@ export {
 export {
   MigrationRunner,
   createMigrationRunner,
+  type AllowedRisks,
   type MigrationRunnerOptions,
   type PlanResult,
   type RunResult,
