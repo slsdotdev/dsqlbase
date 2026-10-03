@@ -25,12 +25,16 @@ Every method returns a query that runs when awaited — an `ExecutableQuery`, or
 | `paginate(args)`                  | see [Pagination](./pagination.md)               | a page of rows with cursors              |
 | `count(args?)`                    | `where`                                         | number                                   |
 | `create({ data, return? })`       | column values; `return` selects what comes back | created row, selected fields, or nothing |
-| `update({ set, where, return? })` |                                                 | updated rows                             |
-| `delete({ where, return? })`      |                                                 | deleted rows                             |
+| `update({ set, where, return? })` |                                                 | one updated row (see below)              |
+| `delete({ where, return? })`      |                                                 | one deleted row (see below)              |
 
 `create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
 An empty `where: {}` does not count: `findOne`, `update` and `delete` refuse it when the query is built,
 before any SQL runs.
+
+> **Known issue.** `update` and `delete` change **every** row their `where` matches, but return only
+> one of them. Until this is fixed, give them a `where` on a unique key (the primary key, or a
+> `.unique()` column) when you mean one row.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
