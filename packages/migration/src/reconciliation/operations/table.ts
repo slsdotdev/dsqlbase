@@ -237,13 +237,25 @@ export function dropTableOperation(
   ])[0];
 }
 
+/**
+ * An index in the database the definition doesn't declare. Without a history the runner can't
+ * tell one removed from the definition from one made by hand, so the note names both.
+ */
 export function dropIndexOperation(
   object: SerializedObject<AnyIndexDefinition>,
   table: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
+  const draft = dropIndexDraft(object, table, options);
+
   return change(`${qualifiedName(table)}.${object.name}`, [
-    dropIndexDraft(object, table, options),
+    {
+      ...draft,
+      summary: {
+        ...draft.summary,
+        note: "not in the definition: removed from it, or created outside it",
+      },
+    },
   ])[0];
 }
 
@@ -1033,7 +1045,9 @@ function processIndexDiffs(
             summary: {
               ...createIndexDraft(local, ctx.local, options.ifExists, options.asyncIndexes).summary,
               changes: attributeChanges(attrDiffs),
-              note: "rebuild: the index is unavailable until this step completes",
+              note: local.unique
+                ? "rebuild: uniqueness isn't enforced until this step completes, and a duplicate written meanwhile fails it"
+                : "rebuild: the index is unavailable until this step completes",
             },
           },
         ])
@@ -1115,8 +1129,19 @@ function processConstraintDiffs(
 
     // A changed UNIQUE: dropped (its index with it), then built and promoted again.
     if (constraint.kind === "UNIQUE_CONSTRAINT") {
+      const drop = dropConstraintDraft(ctx, constraintName);
+
       operations.push(
-        ...change(key, [dropConstraintDraft(ctx, constraintName), ...promotion(constraint)])
+        ...change(key, [
+          {
+            ...drop,
+            summary: {
+              ...drop.summary,
+              note: "uniqueness isn't enforced until the constraint is added again; a duplicate written meanwhile fails that step",
+            },
+          },
+          ...promotion(constraint),
+        ])
       );
     }
   }

@@ -1039,3 +1039,58 @@ describe("diffTableOperations — table in a namespace", () => {
     expect(unqualified(result)).toEqual([]);
   });
 });
+
+// A lossy step loses no row data, but the plan must say what it costs while it runs.
+describe("diffTableOperations — notes on lossy index and UNIQUE steps", () => {
+  const index = {
+    kind: "INDEX" as const,
+    name: "users_email_idx",
+    unique: false,
+    distinctNulls: true,
+    columns: [
+      {
+        kind: "INDEX_COLUMN" as const,
+        name: "users_email_idx_column_email" as const,
+        nulls: "LAST" as const,
+        column: "email",
+      },
+    ],
+    include: null,
+  };
+  const unique = {
+    kind: "UNIQUE_CONSTRAINT" as const,
+    name: "users_email_unique",
+    columns: ["email"],
+    include: null,
+    distinctNulls: true,
+  };
+  const notes = (local: Table, remote: Table) =>
+    diffTableOperations(local, remote).operations.map((op) => [
+      op.summary.action,
+      op.summary.note ?? null,
+    ]);
+
+  it("notes that an index the definition lacks may have been made by hand", () => {
+    expect(notes(baseTable, { ...baseTable, indexes: [index] })).toEqual([
+      ["DROP", "not in the definition: removed from it, or created outside it"],
+    ]);
+  });
+
+  it("notes that a rebuilt unique index doesn't enforce uniqueness until it completes", () => {
+    const local: Table = { ...baseTable, indexes: [{ ...index, unique: true }] };
+
+    expect(notes(local, { ...baseTable, indexes: [index] })[1]?.[1]).toMatch(
+      /uniqueness isn't enforced until this step completes/
+    );
+  });
+
+  it("notes that a changed UNIQUE constraint isn't enforced until it is added again", () => {
+    const local = { ...baseTable, constraints: [{ ...unique, columns: ["email", "id"] }] } as Table;
+    const remote = { ...baseTable, constraints: [unique] } as Table;
+
+    expect(notes(local, remote)[0]).toEqual([
+      "DROP",
+      "uniqueness isn't enforced until the constraint is added again; a duplicate written meanwhile fails that step",
+    ]);
+  });
+});

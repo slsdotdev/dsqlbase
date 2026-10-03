@@ -22,7 +22,8 @@ import { DDLOperationOptions } from "./reconciliation/operations/base.js";
 export type AllowedRisks = {
   /**
    * Steps that remove what redeploying the previous definition restores — an index, a default,
-   * a constraint. No row data is lost.
+   * a constraint — and the drop of a column deprecated in an earlier release, whose data
+   * `.deprecated()` already retired. Otherwise no row data is lost.
    * @default true
    */
   lossy?: boolean;
