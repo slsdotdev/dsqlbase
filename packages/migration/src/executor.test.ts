@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Session, SQLStatement } from "@dsqlbase/core";
 import { OperationExecutionResult, OperationExecutor } from "./executor.js";
+import { ddl } from "./ddl/index.js";
+import { IndexedDDLOperation } from "./reconciliation/operations/index.js";
 
 /** Answers `sys.jobs` reads from a fixed table of jobs, and records each query. */
 class JobsSession implements Session {
@@ -72,5 +74,63 @@ describe("OperationExecutor.updatePendingJobsStatus", () => {
 
     expect(await new OperationExecutor(session).updatePendingJobsStatus([done])).toEqual([done]);
     expect(session.queries).toEqual([]);
+  });
+});
+
+/** Answers each backfill batch with the next of `batches`, then with no rows. */
+class BackfillSession implements Session {
+  public calls = 0;
+
+  constructor(private readonly batches: { filled: boolean }[][]) {}
+
+  async execute<T = unknown>(): Promise<T[]> {
+    return (this.batches[this.calls++] ?? []) as T[];
+  }
+}
+
+const backfill = {
+  id: 0,
+  type: "ALTER",
+  object: { kind: "TABLE", name: "orders" },
+  statement: ddl.backfill({
+    tableName: "orders",
+    schema: "app",
+    columnName: "status",
+    key: ["id"],
+    batchSize: 2,
+  }),
+  summary: { change: "orders.status", step: 1, steps: 1 },
+} as unknown as IndexedDDLOperation;
+
+describe("OperationExecutor — backfill", () => {
+  it("runs batches until one matches nothing, counting the rows filled", async () => {
+    const session = new BackfillSession([
+      [{ filled: true }, { filled: true }],
+      [{ filled: true }, { filled: false }],
+      [{ filled: true }],
+    ]);
+
+    const result = await new OperationExecutor(session).execute(backfill);
+
+    expect(result.status).toBe("completed");
+    expect(result.result).toEqual({ rows: 4 });
+    expect(session.calls).toBe(4);
+  });
+
+  // A default that is NULL for the rows matched would fill nothing, batch after batch, forever.
+  it("fails, naming the column, when a batch fills nothing", async () => {
+    const session = new BackfillSession([
+      [{ filled: true }],
+      [{ filled: false }, { filled: false }],
+      [{ filled: false }, { filled: false }],
+    ]);
+
+    const result = await new OperationExecutor(session).execute(backfill);
+
+    expect(result.status).toBe("failed");
+    expect((result.result as Error | undefined)?.message).toMatch(
+      /Backfill of "app"\."orders"\."status" made no progress after 1 rows: its default is NULL/
+    );
+    expect(session.calls).toBe(2);
   });
 });

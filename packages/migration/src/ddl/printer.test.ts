@@ -246,7 +246,7 @@ describe("printDDL", () => {
       });
       expect(print(node).text).toBe(
         `UPDATE "orders" SET "status" = DEFAULT WHERE "id" IN ` +
-          `(SELECT "id" FROM "orders" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`
+          `(SELECT "id" FROM "orders" WHERE "status" IS NULL LIMIT 1000) RETURNING "status" IS NOT NULL AS "filled"`
       );
     });
 
@@ -259,7 +259,7 @@ describe("printDDL", () => {
       });
       expect(print(node).text).toBe(
         `UPDATE "tags" SET "v" = DEFAULT WHERE ("a", "b") IN ` +
-          `(SELECT "a", "b" FROM "tags" WHERE "v" IS NULL LIMIT 10) RETURNING 1`
+          `(SELECT "a", "b" FROM "tags" WHERE "v" IS NULL LIMIT 10) RETURNING "v" IS NOT NULL AS "filled"`
       );
     });
   });

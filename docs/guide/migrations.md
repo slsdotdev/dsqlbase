@@ -118,7 +118,7 @@ DSQL's `ADD COLUMN` takes no attributes at all — not even a `DEFAULT` — and 
 | Generated column → plain | `DROP EXPRESSION` (values kept; it can't be made generated again) | **destructive** |
 | Identity options, mode | `SET INCREMENT BY …`, `SET START WITH …`, `SET GENERATED …` — never `RESTART` | safe (narrower bounds: lossy) |
 
-A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables.
+A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables. A default that is `NULL` can't fill anything: a literal `NULL` counts as no default (adding a `NOT NULL` column with it is refused), and one that turns out `NULL` at runtime — `nullif(…)`, a lookup that finds nothing — stops the backfill at the first batch that fills no row, failing the step with the column named, instead of looping.
 
 A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`.
 

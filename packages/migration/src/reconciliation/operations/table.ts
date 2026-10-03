@@ -480,6 +480,15 @@ function alterTableDraft(
 /** The comment `deprecated()` leaves on a column: introspection reads it back. */
 const DEPRECATED_MARKER = "dsqlbase:deprecated";
 
+/**
+ * Whether a default can fill a NOT NULL column's NULLs: there is one, and it isn't the literal
+ * NULL (`NULL`, or `NULL::text` as the database prints it back). A default that is NULL only at
+ * runtime gets past this; the backfill stops on it when a batch fills nothing.
+ */
+function fillsNulls(defaultValue: string | null | undefined): boolean {
+  return defaultValue != null && !/^\(*\s*null\s*\)*(\s*::.+)?$/i.test(defaultValue.trim());
+}
+
 /** Rows per backfill batch: well inside DSQL's 3,000 rows written per transaction. */
 const BACKFILL_BATCH_SIZE = 1000;
 
@@ -605,11 +614,12 @@ function columnAdd(
     );
   }
 
-  if (column.notNull && column.defaultValue == null) {
+  if (column.notNull && !fillsNulls(column.defaultValue)) {
     return refuse(
       "NOT_NULL_NEEDS_DEFAULT",
       `Column "${column.name}" can't be added NOT NULL without a default: its existing rows ` +
-        `would be NULL. Give it a default — existing rows are filled with it — or add it nullable.`
+        `would be NULL. Give it a non-NULL default — existing rows are filled with it — or add ` +
+        `it nullable.`
     );
   }
 
@@ -796,7 +806,7 @@ function columnModify(
   const notNull = diffOf("notNull");
 
   if (notNull && local.notNull) {
-    drafts.push(...notNullDrafts(ctx, columnName, local.defaultValue != null));
+    drafts.push(...notNullDrafts(ctx, columnName, fillsNulls(local.defaultValue)));
   } else if (notNull) {
     const check = ctx.remoteNotNull.get(columnName);
 

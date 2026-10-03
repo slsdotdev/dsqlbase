@@ -295,7 +295,7 @@ describe("diffTableOperations — existing remote", () => {
       expect(sqlOf(result)).toEqual([
         `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "status" text`,
         `ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`,
-        `UPDATE "users" SET "status" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`,
+        `UPDATE "users" SET "status" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "status" IS NULL LIMIT 1000) RETURNING "status" IS NOT NULL AS "filled"`,
         `ALTER TABLE "users" ADD CONSTRAINT "users_status_not_null" CHECK ("status" IS NOT NULL) NOT VALID`,
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_status_not_null"`,
       ]);
@@ -321,6 +321,21 @@ describe("diffTableOperations — existing remote", () => {
         operations: [],
         errors: [expect.objectContaining({ code: "NOT_NULL_NEEDS_DEFAULT", subject: "status" })],
       });
+    });
+
+    // A NULL default can't fill the existing rows: the backfill would set them to NULL again.
+    it("refuses adding a NOT NULL column whose default is NULL", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          { ...emailColumn, name: "status", notNull: true, defaultValue: "NULL" },
+        ],
+      };
+
+      expect(diffTableOperations(local, baseTable).errors).toEqual([
+        expect.objectContaining({ code: "NOT_NULL_NEEDS_DEFAULT", subject: "status" }),
+      ]);
     });
 
     it("refuses adding a generated column", () => {
@@ -465,7 +480,7 @@ describe("diffTableOperations — existing remote", () => {
       );
 
       expect(sqlOf(result)).toEqual([
-        `UPDATE "users" SET "email" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "email" IS NULL LIMIT 1000) RETURNING 1`,
+        `UPDATE "users" SET "email" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "email" IS NULL LIMIT 1000) RETURNING "email" IS NOT NULL AS "filled"`,
         `ALTER TABLE "users" ADD CONSTRAINT "users_email_not_null" CHECK ("email" IS NOT NULL) NOT VALID`,
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
       ]);
@@ -479,6 +494,16 @@ describe("diffTableOperations — existing remote", () => {
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
       ]);
       expect(result.operations[1]?.summary.note).toMatch(/fails if a row is NULL/);
+    });
+
+    it("makes a column NOT NULL with a NULL default as without one: no backfill", () => {
+      const result = diffTableOperations(
+        withColumn({ notNull: true, defaultValue: "NULL::text" }),
+        withColumn({ defaultValue: "NULL::text" })
+      );
+
+      expect(sqlOf(result).some((text) => text.startsWith("UPDATE"))).toBe(false);
+      expect(result.operations.at(-1)?.summary.note).toMatch(/fails if a row is NULL/);
     });
 
     it("reads a NOT NULL CHECK as the column's NOT NULL, and drops it to make the column nullable", () => {

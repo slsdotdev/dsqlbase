@@ -292,7 +292,7 @@ const printReducer = {
     const column = sql.identifier(node.columnName);
     const key = identifierList(node.key);
     const keyExpr = node.key.length === 1 ? key : sql`(${key})`;
-    return sql`UPDATE ${table} SET ${column} = DEFAULT WHERE ${keyExpr} IN (SELECT ${key} FROM ${table} WHERE ${column} IS NULL LIMIT ${sql.raw(String(node.batchSize))}) RETURNING 1`;
+    return sql`UPDATE ${table} SET ${column} = DEFAULT WHERE ${keyExpr} IN (SELECT ${key} FROM ${table} WHERE ${column} IS NULL LIMIT ${sql.raw(String(node.batchSize))}) RETURNING ${column} IS NOT NULL AS "filled"`;
   },
   DROP_IDENTITY: (node) =>
     node.ifExists ? sql.raw("DROP IDENTITY IF EXISTS") : sql.raw("DROP IDENTITY"),

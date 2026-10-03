@@ -293,6 +293,34 @@ describe("schema migrations (e2e via PGlite)", () => {
     const rows = async (text: string) => (await pg.query(text)).rows;
     const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
 
+    // A default that is NULL at runtime fills nothing; the backfill stops instead of looping.
+    it("stops a backfill whose default is NULL for the rows it fills", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name").notNull().default("unused"),
+      }).toJSON();
+      const nullDefault = {
+        ...v2,
+        columns: v2.columns.map((column) =>
+          column.name === "name" ? { ...column, defaultValue: "nullif('x', 'x')" } : column
+        ),
+      } as typeof v2;
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO items (name) VALUES (NULL), ('kept')`);
+
+      const error = await runner.run([nullDefault], RUN_OPTS).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).issues[0]?.message).toMatch(
+        /Backfill of "items"\."name" made no progress after 0 rows: its default is NULL for 1 rows/
+      );
+    });
+
     // Its index and CHECK are re-created after the column: steps of one change, all on the
     // table, which once closed a cycle in the planner.
     it("changes the type of a column with an index and a CHECK", async () => {
