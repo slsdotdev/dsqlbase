@@ -27,8 +27,9 @@ export type DDLOperationType = "CREATE" | "DROP" | "ALTER";
 /**
  * What an operation risks, by whether redeploying the previous definition undoes it:
  * - `safe` — adds or relaxes; the previous definition can be restored.
- * - `lossy` — removes something redeploying restores (a default, an index, a constraint); no row
- *   data is lost, but behaviour or performance is degraded until then.
+ * - `lossy` — removes something redeploying restores (a default, an index, a constraint), so no
+ *   row data is lost, but behaviour or performance is degraded until then. Also the drop of a
+ *   column deprecated in an earlier release: `.deprecated()` already retired its data.
  * - `destructive` — cannot be undone by redeploying: row data is lost, or DSQL cannot re-create
  *   what was removed.
  */
@@ -177,6 +178,15 @@ export function hasCustomNamespace(
   obj: SerializedObject<DefinitionNode>
 ): obj is SerializedObject<DefinitionNode> & { namespace: string } {
   return "namespace" in obj && !!obj.namespace && obj.namespace !== "public";
+}
+
+/**
+ * The schema to qualify an object's statements with: its namespace outside `public`, nothing in
+ * it. Every statement that names a table, index, sequence or domain goes through this, so none
+ * depends on `search_path`.
+ */
+export function schemaOf(obj: SerializedObject<DefinitionNode>): string | undefined {
+  return hasCustomNamespace(obj) ? obj.namespace : undefined;
 }
 
 export function qualifiedName(obj: SerializedObject<DefinitionNode>): string {

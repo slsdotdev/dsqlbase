@@ -27,7 +27,7 @@ Per package (`cd packages/<pkg>`):
 - Type-level tests sit next to the source too, as `foo.types.test.ts`, and use `expectTypeOf` / `assertType`. They only run where `test.typecheck` is enabled — today that is `packages/dsqlbase`.
 - **One module, one suite.** A test belongs in the suite of the module whose code it exercises, even when it drives that code through the client — a `where` case goes in `filters.test.ts`, a select case in `normalizer.test.ts`. There is no suite without a module (`select.test.ts`, `array-record.test.ts`), and no new file for a case or two that fit an existing suite. When one suite would be unreadable, split it by scope and keep the module's name: `client.union.types.test.ts`. Fixtures that clash when suites merge go inside a `describe` of their own, rather than being renamed.
 - `packages/tests/src/specs/` holds end-to-end specs that run the full schema → migration → client stack against in-process PGlite. `src/db/schema/schema.ts` is the shared fixture; `src/db/client.ts` and `src/db/migrate.ts` are the reference wiring.
-- Every pull request runs all of the above except coverage — build, lint, typecheck, unit and e2e — in the quality gate ([Conventions](./conventions.md)), and must pass it to merge.
+- Every pull request runs all of the above except coverage — build, lint, typecheck, unit and e2e — in the quality gate ([Conventions](./conventions.md)), and must pass it to merge. Every push to `main` runs it again before anything is versioned or published.
 - There is no DSQL cluster in CI. Anything that only DSQL can answer is listed in [DSQL capabilities → To verify](./dsql-capabilities.md#to-verify-on-a-real-dsql-cluster).
 
 ## Conventions
@@ -36,6 +36,8 @@ Per package (`cd packages/<pkg>`):
 - **Narrow with `?.`, never by throwing.** Inside a test body use `expect(x?.field).toBe(...)`; do not `if (!x) throw` to narrow a type.
 - Migration-layer fixtures use raw `SerializedObject<…>` JSON rather than the high-level builders, so a builder change does not silently rewrite what the reconciler is being tested against.
 - PGlite has no `ASYNC` — run the runner with `asyncIndexes: false` in e2e.
+- e2e specs boot a fresh in-memory PGlite per test, about 0.5 s each. On a loaded runner that alone can pass vitest's 5 s default, so `packages/tests/vitest.config.ts` sets `testTimeout` and `hookTimeout` to 30 s. A spec that needs longer is slow for a reason worth finding, not a reason to raise the limit.
+- **Known gaps:** test files in `packages/core` and `packages/migration` are excluded from their `tsconfig.json` and nothing else type-checks them, so fixtures drift from the types unseen (53 such errors on 2026-10-03; only `packages/dsqlbase` runs its tests through `tsc`). PGlite `0.5` is outside the `^0.4.5` peer range and untested.
 - The turbo `test` task declares `dependsOn: ["^build"]`: a package's tests resolve its workspace dependencies through their `dist/`, so those are built first. `npm run coverage` runs the same task and inherits this.
 
 ## Related

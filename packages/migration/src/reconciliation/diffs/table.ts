@@ -12,6 +12,7 @@ import { Diff, DiffType } from "./base.js";
 import { diffColumn } from "./column.js";
 import { diffConstraint } from "./constraint.js";
 import { diffIndex } from "./indexes.js";
+import { postgresObjectName } from "../names.js";
 
 export type TableDiffType =
   | Diff<DiffType, SerializedObject<AnyColumnDefinition>>
@@ -25,7 +26,9 @@ type ConstraintSerialized = SerializedObject<AnyConstraintDefinition>;
 type ColumnSerialized = SerializedObject<AnyColumnDefinition>;
 
 /** The name PostgreSQL gives the UNIQUE constraint of a column declared `UNIQUE`. */
-export const columnUniqueName = (table: string, column: string) => `${table}_${column}_key`;
+/** The name PostgreSQL gives a column's inline `UNIQUE`: `<table>_<column>_key`, within 63 bytes. */
+export const columnUniqueName = (table: string, column: string) =>
+  postgresObjectName(table, column, "key");
 
 /**
  * A table's CHECK and UNIQUE constraints, wherever they were declared: its table-level ones, its
@@ -63,7 +66,8 @@ export function namedConstraintsOf(
  * The name of the CHECK that enforces a column's NOT NULL on a table that already exists: DSQL
  * has no `SET NOT NULL`, and `CHECK (c IS NOT NULL)` enforces the same.
  */
-export const notNullCheckName = (table: string, column: string) => `${table}_${column}_not_null`;
+export const notNullCheckName = (table: string, column: string) =>
+  postgresObjectName(table, column, "not_null");
 
 /** The NOT NULL CHECKs on a table, by column. */
 export function notNullChecksOf(

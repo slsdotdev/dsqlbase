@@ -24,6 +24,7 @@ import {
 } from "../diffs/table.js";
 import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
 import { renameColumns } from "./rename.js";
+import { deriveIdentifier } from "../names.js";
 import {
   attributeChanges,
   AttributeChange,
@@ -38,6 +39,7 @@ import {
   OperationResult,
   OperationSubject,
   qualifiedName,
+  schemaOf,
   refusal,
   RefusalCode,
 } from "./base.js";
@@ -47,7 +49,11 @@ type IndexSerialized = SerializedObject<AnyIndexDefinition>;
 type ConstraintSerialized = SerializedObject<AnyConstraintDefinition>;
 type AnyDiff = Diff<DiffType, SerializedObject<DefinitionNode>>;
 
-const uniqueIndexNameForConstraint = (constraint: string) => `${constraint}_idx`;
+/** The index a UNIQUE is built on before it is promoted to the constraint. */
+const uniqueIndexNameForConstraint = (constraint: string) => deriveIdentifier(constraint, "idx");
+
+/** The index a changed index is rebuilt under, beside the current one, before the swap. */
+const rebuildIndexName = (index: string) => deriveIdentifier(index, "rebuild");
 
 const tableSubject = (tableName: string): OperationSubject => ({ kind: "TABLE", name: tableName });
 
@@ -122,6 +128,7 @@ export function createTableOperation(
 
   const statement = ddl.createTable({
     name: object.name,
+    schema: schemaOf(object),
     ifNotExists,
     columns,
     constraints,
@@ -139,23 +146,54 @@ export function createTableOperation(
   return operation;
 }
 
+/** `COMMENT ON COLUMN … IS 'dsqlbase:deprecated'` for a column of a table this plan creates. */
+function deprecationMarkerOperation(
+  table: SerializedObject<AnyTableDefinition>,
+  columnName: string
+): DDLOperation {
+  const tableName = qualifiedName(table);
+
+  return change(`${tableName}.${columnName}`, [
+    {
+      type: "ALTER",
+      object: table,
+      statement: ddl.commentOnColumn({
+        tableName: table.name,
+        schema: schemaOf(table),
+        columnName,
+        comment: DEPRECATED_MARKER,
+      }),
+      references: [tableName, ...(maybeNamespaceReference(table) ?? [])],
+      summary: {
+        subject: tableSubject(tableName),
+        action: "ALTER",
+        target: { kind: "COLUMN", name: columnName },
+        changes: [{ attribute: "deprecated", from: false, to: true }],
+        risk: "safe",
+        note: "created deprecated: hidden from the client",
+      },
+    },
+  ])[0];
+}
+
 export function createIndexOperation(
   index: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   ifNotExists = true,
   async = false
 ): DDLOperation {
-  return change(`${tableName}.${index.name}`, [
-    createIndexDraft(index, tableName, ifNotExists, async),
+  return change(`${qualifiedName(table)}.${index.name}`, [
+    createIndexDraft(index, table, ifNotExists, async),
   ])[0];
 }
 
 function createIndexDraft(
   index: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   ifNotExists: boolean,
   async: boolean
 ): DraftOperation {
+  const tableName = qualifiedName(table);
   const references: string[] = maybeNamespaceReference(index) ?? [];
   references.push(tableName);
 
@@ -172,7 +210,8 @@ function createIndexDraft(
     object: index,
     statement: ddl.createIndex({
       name: index.name,
-      tableName,
+      tableName: table.name,
+      tableSchema: schemaOf(table),
       unique: index.unique,
       columns,
       include: index.include ?? undefined,
@@ -219,6 +258,7 @@ export function dropTableOperation(
       object,
       statement: ddl.dropTable({
         name: object.name,
+        schema: schemaOf(object),
         ifExists: options.ifExists,
         cascade: "RESTRICT",
       }),
@@ -232,17 +272,31 @@ export function dropTableOperation(
   ])[0];
 }
 
+/**
+ * An index in the database the definition doesn't declare. Without a history the runner can't
+ * tell one removed from the definition from one made by hand, so the note names both.
+ */
 export function dropIndexOperation(
   object: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
-  return change(`${tableName}.${object.name}`, [dropIndexDraft(object, tableName, options)])[0];
+  const draft = dropIndexDraft(object, table, options);
+
+  return change(`${qualifiedName(table)}.${object.name}`, [
+    {
+      ...draft,
+      summary: {
+        ...draft.summary,
+        note: "not in the definition: removed from it, or created outside it",
+      },
+    },
+  ])[0];
 }
 
 function dropIndexDraft(
   object: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions
 ): DraftOperation {
   return {
@@ -250,12 +304,14 @@ function dropIndexDraft(
     object,
     statement: ddl.dropIndex({
       name: object.name,
+      // An index lives in its table's schema.
+      schema: schemaOf(table),
       ifExists: options.ifExists,
       cascade: "RESTRICT",
     }),
     references: maybeNamespaceReference(object),
     summary: {
-      subject: tableSubject(tableName),
+      subject: tableSubject(qualifiedName(table)),
       action: "DROP",
       target: { kind: "INDEX", name: object.name },
       risk: "lossy",
@@ -272,11 +328,17 @@ export function diffTableOperations(
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
-    const tableName = qualifiedName(local);
     operations.push(createTableOperation(local, options.ifExists));
 
+    // CREATE TABLE can't carry a comment: a column created already deprecated gets its marker
+    // in the same plan, or the next one would add it, and a drop before then would read as
+    // destructive.
+    for (const column of local.columns as ColumnSerialized[]) {
+      if (column.deprecated) operations.push(deprecationMarkerOperation(local, column.name));
+    }
+
     for (const idx of local.indexes) {
-      operations.push(createIndexOperation(idx, tableName, options.ifExists, options.asyncIndexes));
+      operations.push(createIndexOperation(idx, local, options.ifExists, options.asyncIndexes));
     }
 
     return { operations, errors };
@@ -300,12 +362,14 @@ export function diffTableOperations(
   const ctx: TableProcessingContext = {
     local,
     tableName,
+    schema: schemaOf(local),
     tableNamespaceRef: maybeNamespaceReference(local) ?? [],
     options,
     remoteColumns: new Map((remote.columns as ColumnSerialized[]).map((c) => [c.name, c])),
     remoteNotNull: notNullChecksOf(remote),
     remoteKey: primaryKeyOf(remote)?.columns ?? [],
     keyColumns: primaryKeyOf(local)?.columns ?? [],
+    leftoverIndexes: leftoverIndexesOf(local, remote),
   };
 
   const buckets = bucketDiffs(diffTable(local, remote) as unknown as AnyDiff[]);
@@ -331,12 +395,64 @@ export function diffTableOperations(
 
   operations.push(...columnResult.drops);
 
+  // Leftovers no rebuild or promotion needed: their names are free, and they cost writes.
+  for (const leftover of ctx.leftoverIndexes.values()) {
+    const draft = dropIndexDraft(leftover, local, options);
+
+    operations.push(
+      ...change(`${tableName}.${leftover.name}`, [
+        {
+          ...draft,
+          summary: { ...draft.summary, note: "left by an earlier run that stopped part-way" },
+        },
+      ])
+    );
+  }
+
   return { operations, errors };
+}
+
+/** See {@link TableProcessingContext.leftoverIndexes}. */
+function leftoverIndexesOf(
+  local: SerializedObject<AnyTableDefinition>,
+  remote: SerializedObject<AnyTableDefinition>
+): Map<string, IndexSerialized> {
+  const declared = new Set(local.indexes.map((index) => index.name));
+  const derived = new Set([
+    ...local.indexes.map((index) => rebuildIndexName(index.name)),
+    ...namedConstraintsOf(local)
+      .filter((constraint) => constraint.kind === "UNIQUE_CONSTRAINT")
+      .map((constraint) => uniqueIndexNameForConstraint(constraint.name)),
+  ]);
+
+  return new Map(
+    (remote.indexes as IndexSerialized[])
+      .filter((index) => derived.has(index.name) && !declared.has(index.name))
+      .map((index) => [index.name, index])
+  );
+}
+
+/** The step dropping a leftover under `name`, if there is one; it is no longer swept after. */
+function takeLeftover(ctx: TableProcessingContext, name: string): DraftOperation[] {
+  const leftover = ctx.leftoverIndexes.get(name);
+  if (!leftover) return [];
+
+  ctx.leftoverIndexes.delete(name);
+  const draft = dropIndexDraft(leftover, ctx.local, ctx.options);
+
+  return [
+    {
+      ...draft,
+      summary: { ...draft.summary, note: "left by an earlier run that stopped part-way" },
+    },
+  ];
 }
 
 type TableProcessingContext = {
   local: SerializedObject<AnyTableDefinition>;
   tableName: string;
+  /** The table's schema outside `public`: every statement on the table is qualified with it. */
+  schema: string | undefined;
   tableNamespaceRef: string[];
   options: DDLOperationOptions;
   /** The database's columns, as introspected. */
@@ -347,6 +463,13 @@ type TableProcessingContext = {
   remoteKey: readonly string[];
   /** The definition's primary-key columns, which backfill batches are picked by. */
   keyColumns: readonly string[];
+  /**
+   * Indexes in the database under a name the planner builds with (a rebuild, a UNIQUE's index)
+   * that an earlier run left behind when it stopped part-way. Each is dropped before its name is
+   * built again; {@link takeLeftover} hands it to the step that does, and whatever is left is
+   * dropped on its own.
+   */
+  leftoverIndexes: Map<string, IndexSerialized>;
 };
 
 type SubjectProcessingResult = {
@@ -385,7 +508,7 @@ function alterTableDraft(
   return {
     type: "ALTER",
     object: ctx.local,
-    statement: ddl.alterTable({ name: ctx.local.name, actions: [action] }),
+    statement: ddl.alterTable({ name: ctx.local.name, schema: ctx.schema, actions: [action] }),
     references: dedupe([...ctx.tableNamespaceRef, ...references]),
     summary,
   };
@@ -393,6 +516,15 @@ function alterTableDraft(
 
 /** The comment `deprecated()` leaves on a column: introspection reads it back. */
 const DEPRECATED_MARKER = "dsqlbase:deprecated";
+
+/**
+ * Whether a default can fill a NOT NULL column's NULLs: there is one, and it isn't the literal
+ * NULL (`NULL`, or `NULL::text` as the database prints it back). A default that is NULL only at
+ * runtime gets past this; the backfill stops on it when a batch fills nothing.
+ */
+function fillsNulls(defaultValue: string | null | undefined): boolean {
+  return defaultValue != null && !/^\(*\s*null\s*\)*(\s*::.+)?$/i.test(defaultValue.trim());
+}
 
 /** Rows per backfill batch: well inside DSQL's 3,000 rows written per transaction. */
 const BACKFILL_BATCH_SIZE = 1000;
@@ -519,11 +651,12 @@ function columnAdd(
     );
   }
 
-  if (column.notNull && column.defaultValue == null) {
+  if (column.notNull && !fillsNulls(column.defaultValue)) {
     return refuse(
       "NOT_NULL_NEEDS_DEFAULT",
       `Column "${column.name}" can't be added NOT NULL without a default: its existing rows ` +
-        `would be NULL. Give it a default — existing rows are filled with it — or add it nullable.`
+        `would be NULL. Give it a non-NULL default — existing rows are filled with it — or add ` +
+        `it nullable.`
     );
   }
 
@@ -603,6 +736,7 @@ function notNullDrafts(
       object: ctx.local,
       statement: ddl.backfill({
         tableName: ctx.local.name,
+        schema: ctx.schema,
         columnName,
         key: [...ctx.keyColumns],
         batchSize: BACKFILL_BATCH_SIZE,
@@ -709,7 +843,7 @@ function columnModify(
   const notNull = diffOf("notNull");
 
   if (notNull && local.notNull) {
-    drafts.push(...notNullDrafts(ctx, columnName, local.defaultValue != null));
+    drafts.push(...notNullDrafts(ctx, columnName, fillsNulls(local.defaultValue)));
   } else if (notNull) {
     const check = ctx.remoteNotNull.get(columnName);
 
@@ -741,7 +875,7 @@ function columnModify(
       object: ctx.local,
       statement: ddl.commentOnColumn({
         tableName: ctx.local.name,
-        schema: ctx.local.namespace !== "public" ? ctx.local.namespace : undefined,
+        schema: ctx.schema,
         columnName,
         comment: local.deprecated ? DEPRECATED_MARKER : null,
       }),
@@ -845,7 +979,7 @@ function recreateDrafts(columnName: string, ctx: TableProcessingContext): DraftO
         mentions(index.where)
     )
     .map((index) => {
-      const draft = createIndexDraft(index, ctx.tableName, true, ctx.options.asyncIndexes);
+      const draft = createIndexDraft(index, ctx.local, true, ctx.options.asyncIndexes);
       return { ...draft, summary: { ...draft.summary, note } };
     });
 
@@ -946,6 +1080,7 @@ function validateConstraintDraft(ctx: TableProcessingContext, name: string): Dra
     object: ctx.local,
     statement: ddl.alterTable({
       name: ctx.local.name,
+      schema: ctx.schema,
       async: ctx.options.asyncIndexes ? true : undefined,
       actions: [ddl.validateConstraint({ name })],
     }),
@@ -982,48 +1117,71 @@ function processIndexDiffs(
   const operations: DDLOperation[] = [];
   const errors: DDLOperationError[] = [];
   const { options } = ctx;
+  // Taken before the loop: a step may claim a leftover before its own diff comes up.
+  const leftovers = new Set(ctx.leftoverIndexes.keys());
 
   for (const [indexName, diffsForIndex] of indexDiffs) {
     const wholeAdd = diffsForIndex.find((d) => d.type === "add" && !d.key);
     const wholeRemove = diffsForIndex.find((d) => d.type === "remove" && !d.key);
     const attrDiffs = diffsForIndex.filter((d) => d.key !== undefined);
+    const key = `${ctx.tableName}.${indexName}`;
 
     if (wholeAdd) {
-      operations.push(
-        createIndexOperation(
-          wholeAdd.object as IndexSerialized,
-          ctx.tableName,
-          options.ifExists,
-          options.asyncIndexes
-        )
+      // A rebuild that stopped after dropping the old index: build it, then drop the leftover,
+      // which enforces any uniqueness until then.
+      const create = createIndexOperation(
+        wholeAdd.object as IndexSerialized,
+        ctx.local,
+        options.ifExists,
+        options.asyncIndexes
       );
+      const leftover = takeLeftover(ctx, rebuildIndexName(indexName));
+
+      operations.push(...(leftover.length > 0 ? change(key, [create, ...leftover]) : [create]));
       continue;
     }
 
+    // A leftover is dropped by the step that builds its name again, or swept after.
+    if (wholeRemove && leftovers.has(indexName)) continue;
+
     if (wholeRemove) {
       operations.push(
-        dropIndexOperation(wholeRemove.object as IndexSerialized, ctx.tableName, options)
+        dropIndexOperation(wholeRemove.object as IndexSerialized, ctx.local, options)
       );
       continue;
     }
 
     if (attrDiffs.length > 0) {
-      // An index can't be altered: it is rebuilt. Also how an index whose async build failed
-      // (`valid: false`) is repaired.
+      // An index can't be altered: it is rebuilt — also how an index whose async build failed
+      // (`valid: false`) is repaired. The new one is built beside it under another name, and
+      // swapped in only once built, so the old one serves reads and enforces uniqueness until
+      // then.
       const local = attrDiffs[0].object as IndexSerialized;
+      const temporary = rebuildIndexName(indexName);
+      const build = createIndexDraft(
+        { ...local, name: temporary },
+        ctx.local,
+        options.ifExists,
+        options.asyncIndexes
+      );
+      const drop = dropIndexDraft(local, ctx.local, options);
 
       operations.push(
-        ...change(`${ctx.tableName}.${indexName}`, [
-          dropIndexDraft(local, ctx.tableName, options),
+        ...change(key, [
+          ...takeLeftover(ctx, temporary),
           {
-            ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes),
+            ...build,
             summary: {
-              ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes)
-                .summary,
+              ...build.summary,
               changes: attributeChanges(attrDiffs),
-              note: "rebuild: the index is unavailable until this step completes",
+              note: `rebuild of ${indexName}: built beside it, which stays in use until the swap`,
             },
           },
+          {
+            ...drop,
+            summary: { ...drop.summary, note: "replaced by the index built in the step before" },
+          },
+          renameIndexDraft(ctx, temporary, indexName),
         ])
       );
     }
@@ -1074,15 +1232,17 @@ function processConstraintDiffs(
       continue;
     }
 
-    const promotion = (unique: AnyUniqueConstraint) =>
-      uniquePromotionDrafts(ctx, {
+    const promotion = (unique: AnyUniqueConstraint) => [
+      ...takeLeftover(ctx, uniqueIndexNameForConstraint(unique.name)),
+      ...uniquePromotionDrafts(ctx, {
         indexName: uniqueIndexNameForConstraint(unique.name),
         constraintName: unique.name,
         columns: unique.columns,
         include: unique.include ?? undefined,
         nullsDistinct: unique.distinctNulls ?? undefined,
         constraintObject: unique,
-      });
+      }),
+    ];
 
     if (wholeAdd) {
       operations.push(
@@ -1101,10 +1261,26 @@ function processConstraintDiffs(
       continue;
     }
 
-    // A changed UNIQUE: dropped (its index with it), then built and promoted again.
+    // A changed UNIQUE: its new index is built first, while the old constraint still enforces
+    // uniqueness; then the old one is dropped (its index with it) and the new index promoted.
+    // Only those two statements run without the constraint.
     if (constraint.kind === "UNIQUE_CONSTRAINT") {
+      const drop = dropConstraintDraft(ctx, constraintName);
+      const steps = promotion(constraint);
+      const promote = steps.pop();
+
       operations.push(
-        ...change(key, [dropConstraintDraft(ctx, constraintName), ...promotion(constraint)])
+        ...change(key, [
+          ...steps,
+          {
+            ...drop,
+            summary: {
+              ...drop.summary,
+              note: "replaced by the constraint the next step adds; uniqueness isn't enforced in between",
+            },
+          },
+          ...(promote ? [promote] : []),
+        ])
       );
     }
   }
@@ -1255,6 +1431,27 @@ function identitySequenceOptions(identity: NonNullable<ColumnSerialized["identit
   });
 }
 
+/** `ALTER INDEX … RENAME`: the last step of a rebuild, swapping the new index in. */
+function renameIndexDraft(ctx: TableProcessingContext, from: string, to: string): DraftOperation {
+  return {
+    type: "ALTER",
+    object: ctx.local,
+    statement: ddl.alterIndex({
+      name: from,
+      schema: ctx.schema,
+      action: ddl.rename({ newName: to }),
+    }),
+    references: dedupe(ctx.tableNamespaceRef),
+    summary: {
+      subject: tableSubject(ctx.tableName),
+      action: "RENAME",
+      target: { kind: "INDEX", name: to },
+      changes: [{ attribute: "name", from, to }],
+      risk: "safe",
+    },
+  };
+}
+
 function uniquePromotionDrafts(
   ctx: TableProcessingContext,
   args: {
@@ -1291,7 +1488,8 @@ function uniquePromotionDrafts(
     object: indexObject,
     statement: ddl.createIndex({
       name: args.indexName,
-      tableName,
+      tableName: ctx.local.name,
+      tableSchema: ctx.schema,
       unique: true,
       async: options.asyncIndexes ? true : undefined,
       columns: args.columns.map((col) => ddl.indexColumn({ columnName: col, nulls: "LAST" })),
@@ -1325,7 +1523,8 @@ function uniquePromotionDrafts(
     type: "CREATE",
     object: constraintObject,
     statement: ddl.alterTable({
-      name: tableName,
+      name: ctx.local.name,
+      schema: ctx.schema,
       actions: [
         ddl.addConstraintUsingIndex({
           name: args.constraintName,

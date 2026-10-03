@@ -2,8 +2,6 @@
 
 _Audience: application developers._
 
-> **Status: stub.** Full content lands with the client work. What is here is accurate but brief.
-
 `dsql.$transaction(...)` runs work inside `BEGIN … COMMIT` on a dedicated transaction session and retries on DSQL's optimistic-concurrency failure (`SQLSTATE 40001`). Source: `packages/dsqlbase/src/client/transaction/`.
 
 Two forms:
@@ -57,11 +55,19 @@ Batching a scoped query into an unscoped transaction is safe. An `ExecutableQuer
 await dsql.$transaction([db.invoices.findMany({})]);   // still scoped to `workspaceId`
 ```
 
-## Intended contents
+## Conflicts and retries
 
-- OCC retry policy (`maxRetries: 3`, `delay: 50`, `maxDelay: 1000` in `occ-retry.ts`). Not configurable from `$transaction` yet; exposing the options is client work.
-- DSQL transaction limits (3,000 rows, one DDL per transaction, no DDL + DML mixing) and how they surface.
-- Isolation semantics and what a retry re-executes.
+DSQL takes no locks: two transactions that touch the same rows both run, and the one that commits second fails with `SQLSTATE 40001` — usually at `COMMIT`. `$transaction` rolls back and runs the whole transaction again on a fresh one:
+
+- **What reruns** — the callback, from the start, against a new transaction client; or every query of a batch, in order. Anything the callback does besides querying (a request, an email, a counter in memory) runs again too, so keep side effects out of it, or make them safe to repeat.
+- **How often** — at most 3 runs: the first, then 2 retries. The delay before a retry doubles each time from 100 ms (with up to 10% jitter), capped at 1 s. Source: `packages/dsqlbase/src/client/transaction/occ-retry.ts`. These aren't configurable from `$transaction` yet.
+- **What doesn't retry** — any other error. It is thrown as is, after the rollback; a rollback that fails too never replaces it.
+
+A query awaited outside `$transaction` is its own transaction, and a `40001` from it is thrown to you: nothing retries it. Put writes that can conflict in a `$transaction`.
+
+## Limits
+
+A DSQL transaction writes at most 3,000 rows and 10 MiB, and lives at most 5 minutes; past a limit, the statement fails and the transaction rolls back. A transaction can't mix DDL with data changes, or hold more than one DDL statement — the [migration runner](./migrations.md) keeps to that for you. See [DSQL notes](./dsql-notes.md).
 
 ## Related
 

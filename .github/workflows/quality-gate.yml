@@ -7,6 +7,8 @@ name: Quality gate
 #
 # - `pull_request`, never `pull_request_target`: a fork's run gets a read-only token and no
 #   secrets, and runs in the fork's context rather than the base repository's.
+# - `workflow_dispatch` runs a branch of this repository, never a fork, and only someone with
+#   write access (or release.yml, for the Version Packages pull request) can start it.
 # - The token is read-only below, and checkout does not leave it in `.git/config`.
 # - No `${{ github.event.* }}` text a pull request author controls (title, body, branch name)
 #   is interpolated into a `run:` step, where it would be executed as shell.
@@ -18,12 +20,15 @@ name: Quality gate
 on:
   pull_request:
     branches: [main]
+  # release.yml dispatches this on `changeset-release/main`: a pull request opened by
+  # GITHUB_TOKEN starts no `pull_request` run, and its required check comes from this one.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.event.pull_request.number }}
+  group: quality-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -47,7 +52,20 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: npm run check:packages
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run e2e
+
+      # The published packages declare `engines.node >=22`; the repo itself runs on 24. Installed
+      # and built on 24 above, the suites run again on 22 to keep that floor honest.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Test on Node 22
+        run: |
+          for package in core dsqlbase migration tests; do
+            (cd "packages/$package" && node ../../node_modules/vitest/vitest.mjs run) || exit 1
+          done

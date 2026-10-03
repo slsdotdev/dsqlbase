@@ -155,3 +155,7 @@ codegen/
 .claude/prime/
 .claude/proposals/
 .claude/epics/
+.claude/tools/
+
+# Copied from the root LICENSE by each package's prepack.
+packages/*/LICENSE

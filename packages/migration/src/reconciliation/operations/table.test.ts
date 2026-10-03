@@ -23,6 +23,8 @@ const idColumn: Column = {
   domain: null,
   generated: null,
   identity: null,
+  deprecated: false,
+  renamedFrom: null,
 } as Column;
 
 const emailColumn: Column = {
@@ -37,6 +39,8 @@ const emailColumn: Column = {
   domain: null,
   generated: null,
   identity: null,
+  deprecated: false,
+  renamedFrom: null,
 } as Column;
 
 const baseTable: Table = {
@@ -50,6 +54,15 @@ const baseTable: Table = {
 
 describe("diffTableOperations — new table", () => {
   const print = createPrinter();
+
+  it("marks a column created deprecated in the same plan", () => {
+    const local = { ...baseTable, columns: [idColumn, { ...emailColumn, deprecated: true }] };
+
+    expect(sqlOf(diffTableOperations(local))).toEqual([
+      expect.stringMatching(/^CREATE TABLE IF NOT EXISTS "users"/),
+      `COMMENT ON COLUMN "users"."email" IS 'dsqlbase:deprecated'`,
+    ]);
+  });
 
   it("creates an identity column with its sequence options and name", () => {
     const counter = {
@@ -112,6 +125,8 @@ describe("diffTableOperations — risk and summaries", () => {
             },
           ],
           include: null,
+          where: null,
+          valid: true,
         },
       ],
     } as Table;
@@ -289,7 +304,7 @@ describe("diffTableOperations — existing remote", () => {
       expect(sqlOf(result)).toEqual([
         `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "status" text`,
         `ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT 'active'`,
-        `UPDATE "users" SET "status" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "status" IS NULL LIMIT 1000) RETURNING 1`,
+        `UPDATE "users" SET "status" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "status" IS NULL LIMIT 1000) RETURNING "status" IS NOT NULL AS "filled"`,
         `ALTER TABLE "users" ADD CONSTRAINT "users_status_not_null" CHECK ("status" IS NOT NULL) NOT VALID`,
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_status_not_null"`,
       ]);
@@ -315,6 +330,21 @@ describe("diffTableOperations — existing remote", () => {
         operations: [],
         errors: [expect.objectContaining({ code: "NOT_NULL_NEEDS_DEFAULT", subject: "status" })],
       });
+    });
+
+    // A NULL default can't fill the existing rows: the backfill would set them to NULL again.
+    it("refuses adding a NOT NULL column whose default is NULL", () => {
+      const local: Table = {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          { ...emailColumn, name: "status", notNull: true, defaultValue: "NULL" },
+        ],
+      };
+
+      expect(diffTableOperations(local, baseTable).errors).toEqual([
+        expect.objectContaining({ code: "NOT_NULL_NEEDS_DEFAULT", subject: "status" }),
+      ]);
     });
 
     it("refuses adding a generated column", () => {
@@ -354,6 +384,7 @@ describe("diffTableOperations — existing remote", () => {
               },
             ],
             include: null,
+            where: null,
             valid: true,
           },
         ],
@@ -406,6 +437,7 @@ describe("diffTableOperations — existing remote", () => {
           },
         ],
         include: null,
+        where: null,
         valid: true,
       } as Table["indexes"][number];
       const remote: Table = { ...withColumn({}), indexes: [index] };
@@ -457,7 +489,7 @@ describe("diffTableOperations — existing remote", () => {
       );
 
       expect(sqlOf(result)).toEqual([
-        `UPDATE "users" SET "email" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "email" IS NULL LIMIT 1000) RETURNING 1`,
+        `UPDATE "users" SET "email" = DEFAULT WHERE "id" IN (SELECT "id" FROM "users" WHERE "email" IS NULL LIMIT 1000) RETURNING "email" IS NOT NULL AS "filled"`,
         `ALTER TABLE "users" ADD CONSTRAINT "users_email_not_null" CHECK ("email" IS NOT NULL) NOT VALID`,
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
       ]);
@@ -471,6 +503,16 @@ describe("diffTableOperations — existing remote", () => {
         `ALTER TABLE ASYNC "users" VALIDATE CONSTRAINT "users_email_not_null"`,
       ]);
       expect(result.operations[1]?.summary.note).toMatch(/fails if a row is NULL/);
+    });
+
+    it("makes a column NOT NULL with a NULL default as without one: no backfill", () => {
+      const result = diffTableOperations(
+        withColumn({ notNull: true, defaultValue: "NULL::text" }),
+        withColumn({ defaultValue: "NULL::text" })
+      );
+
+      expect(sqlOf(result).some((text) => text.startsWith("UPDATE"))).toBe(false);
+      expect(result.operations.at(-1)?.summary.note).toMatch(/fails if a row is NULL/);
     });
 
     it("reads a NOT NULL CHECK as the column's NOT NULL, and drops it to make the column nullable", () => {
@@ -674,6 +716,8 @@ describe("diffTableOperations — existing remote", () => {
         },
       ],
       include: null,
+      where: null,
+      valid: true,
     };
 
     it("emits CREATE INDEX ASYNC when an index is added", () => {
@@ -704,7 +748,8 @@ describe("diffTableOperations — existing remote", () => {
       });
     });
 
-    it("rebuilds a changed index: drop, then create, as one change", () => {
+    // The old index serves reads, and enforces uniqueness, until the new one is built.
+    it("rebuilds a changed index beside the old one, then swaps it in, as one change", () => {
       const local: Table = { ...baseTable, indexes: [{ ...idx, unique: true }] };
       const remote: Table = { ...baseTable, indexes: [idx] };
 
@@ -712,14 +757,16 @@ describe("diffTableOperations — existing remote", () => {
 
       expect(result.errors).toEqual([]);
       expect(sqlOf(result)).toEqual([
+        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx_rebuild" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
         `DROP INDEX IF EXISTS "users_email_idx" RESTRICT`,
-        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+        `ALTER INDEX "users_email_idx_rebuild" RENAME TO "users_email_idx"`,
       ]);
       expect(
         result.operations.map((op) => [`${op.summary.step}/${op.summary.steps}`, op.summary.risk])
       ).toEqual([
-        ["1/2", "lossy"],
-        ["2/2", "safe"],
+        ["1/3", "safe"],
+        ["2/3", "lossy"],
+        ["3/3", "safe"],
       ]);
     });
 
@@ -728,8 +775,41 @@ describe("diffTableOperations — existing remote", () => {
       const local: Table = { ...baseTable, indexes: [{ ...idx, valid: true }] };
 
       expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `CREATE INDEX ASYNC IF NOT EXISTS "users_email_idx_rebuild" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
         `DROP INDEX IF EXISTS "users_email_idx" RESTRICT`,
-        `CREATE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+        `ALTER INDEX "users_email_idx_rebuild" RENAME TO "users_email_idx"`,
+      ]);
+    });
+
+    // A run that stopped part-way leaves the rebuild's index; the next one starts it over.
+    it("drops a rebuild's leftover before building it again", () => {
+      const local: Table = { ...baseTable, indexes: [{ ...idx, unique: true }] };
+      const remote: Table = {
+        ...baseTable,
+        indexes: [idx, { ...idx, name: "users_email_idx_rebuild", unique: true, valid: false }],
+      };
+
+      const result = diffTableOperations(local, remote);
+
+      expect(sqlOf(result)).toEqual([
+        `DROP INDEX IF EXISTS "users_email_idx_rebuild" RESTRICT`,
+        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx_rebuild" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+        `DROP INDEX IF EXISTS "users_email_idx" RESTRICT`,
+        `ALTER INDEX "users_email_idx_rebuild" RENAME TO "users_email_idx"`,
+      ]);
+      expect(new Set(result.operations.map((op) => op.summary.change)).size).toBe(1);
+    });
+
+    it("builds the index, then drops the leftover, when a rebuild stopped after the drop", () => {
+      const local: Table = { ...baseTable, indexes: [{ ...idx, unique: true }] };
+      const remote: Table = {
+        ...baseTable,
+        indexes: [{ ...idx, name: "users_email_idx_rebuild", unique: true }],
+      };
+
+      expect(sqlOf(diffTableOperations(local, remote))).toEqual([
+        `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_idx" ON "users" ("email" NULLS LAST) NULLS DISTINCT`,
+        `DROP INDEX IF EXISTS "users_email_idx_rebuild" RESTRICT`,
       ]);
     });
   });
@@ -752,6 +832,7 @@ describe("diffTableOperations — existing remote", () => {
       kind: "CHECK_CONSTRAINT" as const,
       name: "users_email_chk",
       expression: "email <> ''",
+      validated: true,
     };
 
     it("emits CREATE INDEX + USING INDEX when a UNIQUE constraint is added", () => {
@@ -843,7 +924,8 @@ describe("diffTableOperations — existing remote", () => {
       ]);
     });
 
-    it("rebuilds a UNIQUE constraint whose columns changed: drop, index, promote", () => {
+    // The old constraint enforces uniqueness while the new index builds.
+    it("rebuilds a UNIQUE constraint whose columns changed: index, drop, promote", () => {
       const remote: Table = { ...baseTable, constraints: [uniqueConstraint] };
       const local: Table = {
         ...baseTable,
@@ -854,11 +936,11 @@ describe("diffTableOperations — existing remote", () => {
 
       expect(result.errors).toEqual([]);
       expect(sqlOf(result)).toEqual([
-        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_unique" RESTRICT`,
         `CREATE UNIQUE INDEX ASYNC IF NOT EXISTS "users_email_unique_idx" ON "users" ("email" NULLS LAST, "id" NULLS LAST) NULLS DISTINCT`,
+        `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_email_unique" RESTRICT`,
         `ALTER TABLE "users" ADD CONSTRAINT "users_email_unique" UNIQUE USING INDEX "users_email_unique_idx"`,
       ]);
-      expect(result.operations.map((op) => op.summary.risk)).toEqual(["lossy", "safe", "safe"]);
+      expect(result.operations.map((op) => op.summary.risk)).toEqual(["safe", "lossy", "safe"]);
     });
 
     // The key compares by its columns, wherever it was declared: on `id`, or as a constraint.
@@ -901,6 +983,7 @@ describe("diffTableOperations — existing remote", () => {
       kind: "CHECK_CONSTRAINT" as const,
       name: "email_check",
       expression: "email <> ''",
+      validated: true,
     };
 
     it("adds a column CHECK NOT VALID, then validates it", () => {
@@ -958,5 +1041,151 @@ describe("diffTableOperations — existing remote", () => {
       ]);
       expect(result.operations[0]?.summary.risk).toBe("lossy");
     });
+  });
+});
+
+// A bare name resolves through `search_path`, so a statement on a namespaced table that names it
+// unqualified lands in (or drops from) `public` instead.
+describe("diffTableOperations — table in a namespace", () => {
+  const appTable: Table = { ...baseTable, namespace: "app" };
+  const index = {
+    kind: "INDEX" as const,
+    name: "users_email_idx",
+    unique: false,
+    distinctNulls: true,
+    columns: [
+      {
+        kind: "INDEX_COLUMN" as const,
+        name: "users_email_idx_column_email" as const,
+        nulls: "LAST" as const,
+        column: "email",
+      },
+    ],
+    include: null,
+    where: null,
+    valid: true,
+  };
+
+  /**
+   * Each statement's references to the table or its index that are not schema-qualified. The
+   * name `CREATE INDEX` gives an index, and the new name `RENAME TO` gives one, are bare by
+   * syntax: the index lives in its table's schema.
+   */
+  const unqualified = (result: OperationResult) =>
+    sqlOf(result)
+      .map((text) =>
+        text
+          .replace(/^(CREATE (UNIQUE )?INDEX (ASYNC )?(IF NOT EXISTS )?)"\w+"/, "$1")
+          .replace(/ RENAME TO "\w+"$/, "")
+      )
+      .filter((text) => /(?<!"app"\.)"(users|users_email_idx)"/.test(text));
+
+  it("creates the table and its indexes in the schema", () => {
+    const result = diffTableOperations({ ...appTable, indexes: [index] });
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result)[0]).toContain(`CREATE TABLE IF NOT EXISTS "app"."users"`);
+    expect(sqlOf(result)[1]).toContain(`ON "app"."users"`);
+    expect(unqualified(result)).toEqual([]);
+  });
+
+  it("qualifies column, constraint and index changes on an existing table", () => {
+    const local: Table = {
+      ...appTable,
+      columns: [
+        idColumn,
+        { ...emailColumn, notNull: true, defaultValue: "'none'", deprecated: true },
+        { ...emailColumn, name: "handle", unique: true },
+      ],
+      indexes: [{ ...index, unique: true }],
+      constraints: [
+        {
+          kind: "CHECK_CONSTRAINT",
+          name: "users_email_set",
+          expression: `"email" <> ''`,
+          validated: true,
+        },
+      ],
+    } as Table;
+    const remote: Table = { ...appTable, indexes: [index] };
+
+    const result = diffTableOperations(local, remote);
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result).length).toBeGreaterThan(5);
+    expect(unqualified(result)).toEqual([]);
+  });
+
+  it("qualifies renames and drops", () => {
+    const local: Table = {
+      ...appTable,
+      columns: [idColumn, { ...emailColumn, name: "mail", renamedFrom: "email" }],
+    } as Table;
+    const remote: Table = { ...appTable, indexes: [index] };
+
+    const result = diffTableOperations(local, remote);
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result)).toContain(`DROP INDEX IF EXISTS "app"."users_email_idx" RESTRICT`);
+    expect(unqualified(result)).toEqual([]);
+  });
+});
+
+// A lossy step loses no row data, but the plan must say what it costs while it runs.
+describe("diffTableOperations — notes on lossy index and UNIQUE steps", () => {
+  const index = {
+    kind: "INDEX" as const,
+    name: "users_email_idx",
+    unique: false,
+    distinctNulls: true,
+    columns: [
+      {
+        kind: "INDEX_COLUMN" as const,
+        name: "users_email_idx_column_email" as const,
+        nulls: "LAST" as const,
+        column: "email",
+      },
+    ],
+    include: null,
+    where: null,
+    valid: true,
+  };
+  const unique = {
+    kind: "UNIQUE_CONSTRAINT" as const,
+    name: "users_email_unique",
+    columns: ["email"],
+    include: null,
+    distinctNulls: true,
+  };
+  const notes = (local: Table, remote: Table) =>
+    diffTableOperations(local, remote).operations.map((op) => [
+      op.summary.action,
+      op.summary.note ?? null,
+    ]);
+
+  it("notes that an index the definition lacks may have been made by hand", () => {
+    expect(notes(baseTable, { ...baseTable, indexes: [index] })).toEqual([
+      ["DROP", "not in the definition: removed from it, or created outside it"],
+    ]);
+  });
+
+  it("notes that a rebuilt index stays in use until the swap", () => {
+    const local: Table = { ...baseTable, indexes: [{ ...index, unique: true }] };
+
+    expect(notes(local, { ...baseTable, indexes: [index] })).toEqual([
+      ["CREATE", "rebuild of users_email_idx: built beside it, which stays in use until the swap"],
+      ["DROP", "replaced by the index built in the step before"],
+      ["RENAME", null],
+    ]);
+  });
+
+  it("notes that a changed UNIQUE constraint isn't enforced between its drop and promotion", () => {
+    const local = { ...baseTable, constraints: [{ ...unique, columns: ["email", "id"] }] } as Table;
+    const remote = { ...baseTable, constraints: [unique] } as Table;
+
+    expect(notes(local, remote)[1]).toEqual([
+      "DROP",
+      "replaced by the constraint the next step adds; uniqueness isn't enforced in between",
+    ]);
   });
 });

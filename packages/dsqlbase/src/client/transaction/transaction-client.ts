@@ -61,14 +61,13 @@ export async function createTransactionRunner<
       await session.commit();
       return result;
     } catch (error) {
-      await session.rollback();
+      // The error that made it roll back is the one that counts: a rollback that fails too (the
+      // connection broke) must not replace it, or a `40001` would no longer be retried.
+      await session.rollback().catch(() => undefined);
 
       if (isOccError(error) && attempt < maxRetries) {
         await sleep(backoffDelay(attempt, delay, maxDelay));
-        const runner = await createTransactionRunner<TDefinition, TClaims, TEnforce>(
-          ctx,
-          options
-        );
+        const runner = await createTransactionRunner<TDefinition, TClaims, TEnforce>(ctx, options);
         return runner(opsOrCallback, attempt + 1);
       }
 

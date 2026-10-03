@@ -166,8 +166,9 @@ export type DropColumnAction = {
 
 /**
  * Fills a column's NULLs with its default, in batches: `UPDATE … SET c = DEFAULT` on up to
- * `batchSize` rows at a time, picked by primary key. Not DDL: the executor repeats it, one
- * transaction per batch, until a batch updates nothing.
+ * `batchSize` rows at a time, picked by primary key, returning whether each row was filled. Not
+ * DDL: the executor repeats it, one transaction per batch, until a batch matches nothing — or
+ * fills nothing, when the default is NULL for the rows it matched.
  */
 export type BackfillCommand = {
   __kind: "BACKFILL";

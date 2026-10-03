@@ -13,7 +13,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://www.sls.dev",
+  "engines": {
+    "node": ">=22"
+  },
+  "homepage": "https://github.com/slsdotdev/dsqlbase#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/slsdotdev/dsqlbase.git",
@@ -26,20 +29,22 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "../../LICENSE"
+    "LICENSE"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "default": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
+    "prebuild": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
     "build": "tsc -b",
     "test": "vitest run",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   },
   "dependencies": {
     "@dsqlbase/core": "^0.1.6"

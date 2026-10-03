@@ -33,26 +33,29 @@
     "coverage": "turbo run test -- --coverage",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "check:packages": "for p in core dsqlbase migration; do publint packages/$p --strict && attw --pack packages/$p --profile esm-only || exit 1; done",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "changeset": "changeset",
     "publish": "changeset publish"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@changesets/cli": "^3.0.3",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-config-turbo": "^2.9.6",
     "globals": "^17.5.0",
     "husky": "^9.1.7",
     "prettier": "^3.8.3",
+    "publint": "^0.3.25",
     "turbo": "^2.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.0",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
   },
   "workspaces": [
     "packages/*"

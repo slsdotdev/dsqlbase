@@ -1,6 +1,7 @@
 import { Session, sql } from "@dsqlbase/core";
 import { IndexedDDLOperation } from "./reconciliation/operations/index.js";
 import { createPrinter } from "./ddl/index.js";
+import { BackfillCommand } from "./ddl/ast.js";
 
 export type DDLQueryResult = { job_id: string } | undefined;
 
@@ -37,6 +38,15 @@ const toAsyncJob = (row: AsyncJobRow): AsyncJob => ({
 });
 
 const BACKFILL_ATTEMPTS = 5;
+
+/** `"schema"."table"."column"` of a backfill, for its messages. */
+function backfillTarget(operation: IndexedDDLOperation): string {
+  const statement = operation.statement as BackfillCommand;
+  return [statement.schema, statement.tableName, statement.columnName]
+    .filter((part): part is string => part !== undefined)
+    .map((part) => `"${part}"`)
+    .join(".");
+}
 
 const isSerializationFailure = (error: unknown) =>
   typeof error === "object" && error !== null && "code" in error && error.code === "40001";
@@ -88,6 +98,12 @@ export class OperationExecutor {
     };
   }
 
+  /**
+   * Refreshes every still-`processing` async job in `progress` with one `sys.jobs` read. For a
+   * caller that submits independent async steps without waiting on each — an index on one table,
+   * then another table's — and waits only before a step that depends on them, such as
+   * `ADD CONSTRAINT … USING INDEX`. Results without a pending job are returned unchanged.
+   */
   public async updatePendingJobsStatus(
     progress: OperationExecutionResult[]
   ): Promise<OperationExecutionResult[]> {
@@ -99,10 +115,11 @@ export class OperationExecutor {
       return progress;
     }
 
+    // One parameter per id: a JS array bound as one parameter is not a list of strings.
     const query = sql`
       SELECT job_id, status, job_type, details
       FROM sys.jobs
-      WHERE job_id IN (${pendingJobIds})
+      WHERE ${sql.in("job_id", pendingJobIds)}
     `;
 
     const jobs = (await this._session.execute<AsyncJobRow>(query.toQuery())).map(toAsyncJob);
@@ -136,19 +153,32 @@ export class OperationExecutor {
     let rows = 0;
 
     for (;;) {
-      let updated: number | undefined;
+      let batch: { filled: boolean }[] | undefined;
 
-      for (let attempt = 1; updated === undefined; attempt++) {
+      for (let attempt = 1; batch === undefined; attempt++) {
         try {
-          updated = (await this._session.execute(statement)).length;
+          batch = await this._session.execute<{ filled: boolean }>(statement);
         } catch (error) {
           if (!isSerializationFailure(error) || attempt >= BACKFILL_ATTEMPTS) throw error;
           await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
         }
       }
 
-      rows += updated;
-      if (updated === 0) break;
+      if (batch.length === 0) break;
+
+      const filled = batch.filter((row) => row.filled).length;
+
+      // Rows matched but none filled: the default is NULL for them, and every later batch would
+      // pick them again. NOT NULL can't hold, so stop rather than loop.
+      if (filled === 0) {
+        throw new Error(
+          `Backfill of ${backfillTarget(operation)} made no progress after ${rows} rows: its ` +
+            `default is NULL for ${batch.length} rows still NULL, so NOT NULL can't hold. ` +
+            `Change the default.`
+        );
+      }
+
+      rows += filled;
     }
 
     return { opId: operation.id, sql: statement.text, status: "completed", result: { rows } };

@@ -31,6 +31,13 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly dataType: string;
   /** The kind of value the column holds, for querying; see {@link ColumnRuntimeType}. */
   readonly runtimeType: ColumnRuntimeType;
+  /**
+   * Whether a JSON projection (a joined row, a union row) must carry this column as text. The
+   * driver hands a root read of `bigint` and `numeric` to the codec as the database's exact
+   * text; `row_to_json` would emit a JSON number, already rounded to a double before the codec
+   * sees it. Cast, the codec gets the same string either way.
+   */
+  readonly textInJson: boolean;
   readonly notNull: TConfig["notNull"];
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
@@ -42,6 +49,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.name = definition.name;
     this.dataType = definition["_dataType"];
     this.runtimeType = definition["_runtimeType"];
+    this.textInJson =
+      this.runtimeType === "bigint" || /^(bigint|int8|numeric|decimal)\b/i.test(this.dataType);
     this.notNull = definition["_notNull"];
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];

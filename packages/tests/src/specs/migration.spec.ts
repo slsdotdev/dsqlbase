@@ -2,13 +2,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { sql, SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import { bigint, domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
+import {
+  bigint,
+  domain,
+  int,
+  namespace,
+  sequence,
+  table,
+  text,
+  uuid,
+  varchar,
+} from "dsqlbase/schema";
 import {
   createMigrationRunner,
   formatPlan,
   introspect,
   MigrationRunner,
   getSerializedSchemaObjects,
+  MigrationError,
   type SerializedSchema,
 } from "@dsqlbase/migration";
 import { schema } from "../db/schema";
@@ -183,13 +194,16 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([orders("none")], RUN_OPTS);
       await insert(-1);
 
-      const failed = await runner.run([orders("check")], RUN_OPTS);
+      const failed = await runner.run([orders("check")], RUN_OPTS).catch((e: unknown) => e);
 
-      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+      expect(failed).toBeInstanceOf(MigrationError);
+      expect(
+        (failed as MigrationError).result?.rows.map((row) => [row.action, row.status])
+      ).toEqual([
         ["ADD", "completed"],
         ["VALIDATE", "failed"],
       ]);
-      expect(failed.rows[1]?.error).toMatch(/orders_qty_positive/);
+      expect((failed as MigrationError).result?.rows[1]?.error).toMatch(/orders_qty_positive/);
       // Enforced on new writes even though not valid.
       await expect(insert(0)).rejects.toThrow(/orders_qty_positive/);
 
@@ -219,9 +233,10 @@ describe("schema migrations (e2e via PGlite)", () => {
 
       const result = await runner.run([orders("unique-qty-sku")], RUN_OPTS);
 
+      // The new index is built while the old constraint still enforces uniqueness.
       expect(result.rows.map((row) => [row.action, row.changeStep, row.status])).toEqual([
-        ["DROP", "1/3", "completed"],
-        ["CREATE", "2/3", "completed"],
+        ["CREATE", "1/3", "completed"],
+        ["DROP", "2/3", "completed"],
         ["ADD", "3/3", "completed"],
       ]);
       expect((await runner.plan([orders("unique-qty-sku")], RUN_OPTS)).rows).toEqual([]);
@@ -244,9 +259,31 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([v1.toJSON()], RUN_OPTS);
       const result = await runner.run([v2.toJSON()], RUN_OPTS);
 
+      // Built beside the old index, which stays in use until the swap.
       expect(result.rows.map((row) => [row.action, row.risk, row.status])).toEqual([
-        ["DROP", "lossy", "completed"],
         ["CREATE", "safe", "completed"],
+        ["DROP", "lossy", "completed"],
+        ["RENAME", "safe", "completed"],
+      ]);
+      expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("starts a rebuild over when an earlier run left its index behind", async () => {
+      const v1 = table("orders", { id: uuid("id").primaryKey(), qty: int("qty") });
+      v1.index("orders_qty_idx").columns((c) => [c.qty]);
+      const v2 = table("orders", { id: uuid("id").primaryKey(), qty: int("qty") });
+      v2.index("orders_qty_idx", { unique: true }).columns((c) => [c.qty]);
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`CREATE INDEX orders_qty_idx_rebuild ON orders (id)`);
+
+      const result = await runner.run([v2.toJSON()], RUN_OPTS);
+
+      expect(result.rows.map((row) => [row.action, row.target])).toEqual([
+        ["DROP", "orders_qty_idx_rebuild"],
+        ["CREATE", "orders_qty_idx_rebuild"],
+        ["DROP", "orders_qty_idx"],
+        ["RENAME", "orders_qty_idx"],
       ]);
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
     });
@@ -255,6 +292,74 @@ describe("schema migrations (e2e via PGlite)", () => {
   describe("columns on an existing table", () => {
     const rows = async (text: string) => (await pg.query(text)).rows;
     const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
+
+    // `<table>_<column>_not_null` would be 66 bytes: the server cut it, and every later plan
+    // failed to find it and tried again. The planner now names it within 63, as PostgreSQL would.
+    it("converges when a derived constraint name would pass 63 bytes", async () => {
+      const addresses = (notNull: boolean) =>
+        table("customer_billing_addresses_v2", {
+          id: uuid("id").primaryKey().defaultRandom(),
+          secondaryPostalCodeValue: notNull
+            ? text("secondary_postal_code_value").notNull().default("none")
+            : text("secondary_postal_code_value"),
+        }).toJSON();
+
+      await runner.run([addresses(false)], RUN_OPTS);
+      await pg.query(`INSERT INTO customer_billing_addresses_v2 DEFAULT VALUES`);
+
+      const result = await runner.run([addresses(true)], RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect((await runner.plan([addresses(true)], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    // A default that is NULL at runtime fills nothing; the backfill stops instead of looping.
+    it("stops a backfill whose default is NULL for the rows it fills", async () => {
+      const v1 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name"),
+      });
+      const v2 = table("items", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        name: text("name").notNull().default("unused"),
+      }).toJSON();
+      const nullDefault = {
+        ...v2,
+        columns: v2.columns.map((column) =>
+          column.name === "name" ? { ...column, defaultValue: "nullif('x', 'x')" } : column
+        ),
+      } as typeof v2;
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      await pg.query(`INSERT INTO items (name) VALUES (NULL), ('kept')`);
+
+      const error = await runner.run([nullDefault], RUN_OPTS).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).issues[0]?.message).toMatch(
+        /Backfill of "items"\."name" made no progress after 0 rows: its default is NULL for 1 rows/
+      );
+    });
+
+    // Its index and CHECK are re-created after the column: steps of one change, all on the
+    // table, which once closed a cycle in the planner.
+    it("changes the type of a column with an index and a CHECK", async () => {
+      const orders = (qty: typeof int | typeof bigint) => {
+        const t = table("orders", { id: uuid("id").primaryKey(), qty: qty("qty") });
+        t.index("orders_qty_idx").columns((c) => [c.qty]);
+        t.check((c) => sql`${c.qty} > 0`, "orders_qty_positive");
+        return t.toJSON();
+      };
+
+      await runner.run([orders(int)], RUN_OPTS);
+      const result = await runner.run([orders(bigint)], RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(result.rows.map((row) => row.targetKind)).toEqual(
+        expect.arrayContaining(["INDEX", "CONSTRAINT"])
+      );
+      expect((await runner.plan([orders(bigint)], RUN_OPTS)).rows).toEqual([]);
+    });
 
     it("adds a column with a default: new rows get it, existing rows stay NULL", async () => {
       const v1 = table("items", {
@@ -321,8 +426,11 @@ describe("schema migrations (e2e via PGlite)", () => {
       await runner.run([v1.toJSON()], RUN_OPTS);
       await pg.query(`INSERT INTO items (name) VALUES (NULL)`);
 
-      const failed = await runner.run([v2.toJSON()], RUN_OPTS);
-      expect(failed.rows.map((row) => [row.action, row.status])).toEqual([
+      const failed = await runner.run([v2.toJSON()], RUN_OPTS).catch((e: unknown) => e);
+      expect(failed).toBeInstanceOf(MigrationError);
+      expect(
+        (failed as MigrationError).result?.rows.map((row) => [row.action, row.status])
+      ).toEqual([
         ["ADD", "completed"],
         ["VALIDATE", "failed"],
       ]);
@@ -447,8 +555,9 @@ describe("schema migrations (e2e via PGlite)", () => {
       const result = await runner.run([users({ partial: true })], RUN_OPTS);
 
       expect(result.rows.map((row) => [row.action, row.status])).toEqual([
-        ["DROP", "completed"],
         ["CREATE", "completed"],
+        ["DROP", "completed"],
+        ["RENAME", "completed"],
       ]);
       expect((await runner.plan([users({ partial: true })], RUN_OPTS)).rows).toEqual([]);
     });
@@ -497,6 +606,77 @@ describe("schema migrations (e2e via PGlite)", () => {
     });
   });
 
+  // Every object outside `public` must be created, altered and dropped in its own schema. A bare
+  // name lands in `public`, and the next plan then drops it as an object the definition lacks.
+  describe("objects in a namespace", () => {
+    const rows = async (text: string) => (await pg.query(text)).rows;
+    const tablesNamed = (name: string) =>
+      rows(`SELECT table_schema FROM information_schema.tables WHERE table_name = '${name}'`);
+
+    const app = namespace("app");
+    const email = app
+      .domain("app_email")
+      .check((value) => sql`${value} LIKE '%@%'`, "app_email_at");
+
+    const v1 = () => {
+      const t = app.table("widgets", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        contact: email.column("contact"),
+        qty: int("qty"),
+        name: text("name").unique(),
+      });
+      t.index("widgets_qty_idx").columns((c) => [c.qty]);
+      t.check((c) => sql`${c.qty} > 0`, "widgets_qty_positive");
+      return [app.toJSON(), email.toJSON(), t.toJSON()];
+    };
+
+    const v2 = () => {
+      const t = app.table("widgets", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        contact: email.column("contact"),
+        quantity: int("quantity").renamedFrom("qty"),
+        name: text("name").unique(),
+        label: text("label").notNull().default("none"),
+      });
+      t.index("widgets_name_idx").columns((c) => [c.name]);
+      return [app.toJSON(), email.toJSON(), t.toJSON()];
+    };
+
+    it("creates them in their schema, and a second plan is empty", async () => {
+      const result = await runner.run(v1(), RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await tablesNamed("widgets")).toEqual([{ table_schema: "app" }]);
+      expect((await runner.plan(v1(), RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("alters, renames, backfills and re-indexes them in their schema", async () => {
+      await runner.run(v1(), RUN_OPTS);
+      await pg.query(`INSERT INTO app.widgets (contact, qty, name) VALUES ('a@b', 2, 'w')`);
+
+      const result = await runner.run(v2(), RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await rows(`SELECT quantity, label FROM app.widgets`)).toEqual([
+        { quantity: 2, label: "none" },
+      ]);
+      expect(await tablesNamed("widgets")).toEqual([{ table_schema: "app" }]);
+      expect((await runner.plan(v2(), RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("drops the table, then its domain, from their schema", async () => {
+      await runner.run(v1(), RUN_OPTS);
+
+      const dropped = await runner.run([app.toJSON(), email.toJSON()], RUN_OPTS);
+      expect(dropped.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await tablesNamed("widgets")).toEqual([]);
+
+      const domainDropped = await runner.run([app.toJSON()], RUN_OPTS);
+      expect(domainDropped.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await rows(`SELECT 1 FROM pg_type WHERE typname = 'app_email'`)).toEqual([]);
+    });
+  });
+
   describe("renames and deprecation", () => {
     const NO_DESTRUCTIVE = { asyncIndexes: false, ifExists: true };
     const rows = async (text: string) => (await pg.query(text)).rows;
@@ -525,6 +705,24 @@ describe("schema migrations (e2e via PGlite)", () => {
       expect(result.rows.every((row) => row.status === "completed")).toBe(true);
       expect(await rows(`SELECT full_name FROM people`)).toEqual([{ full_name: "ada" }]);
       expect((await runner.plan([v2.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+
+    // A fresh environment built from a definition that still carries a deprecated column.
+    it("creates a table with a deprecated column in one run, and drops it as lossy", async () => {
+      const v1 = table("users", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        nickname: text("nickname").deprecated(),
+      });
+
+      await runner.run([v1.toJSON()], RUN_OPTS);
+      expect((await runner.plan([v1.toJSON()], RUN_OPTS)).rows).toEqual([]);
+
+      const v2 = table("users", { id: uuid("id").primaryKey().defaultRandom() });
+      const dropped = await runner.run([v2.toJSON()], NO_DESTRUCTIVE);
+
+      expect(dropped.rows.map((row) => [row.action, row.target, row.risk])).toEqual([
+        ["DROP", "nickname", "lossy"],
+      ]);
     });
 
     it("deprecates a column, then drops it later without allowing destructive steps", async () => {

@@ -4,7 +4,7 @@
     "rootDir": "src",
     "noEmit": false,
     "outDir": "dist",
-    "inlineSources": false,
+    "inlineSources": true,
     "incremental": true,
     "isolatedModules": true,
     "composite": true,

@@ -1,5 +1,5 @@
-# Keeps the SHA-pinned actions in .github/workflows current: each update arrives as a pull
-# request, and so passes the quality gate before it can merge.
+# Keeps the SHA-pinned actions in .github/workflows and the npm dependencies current: each
+# update arrives as a pull request, and so passes the quality gate before it can merge.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -9,3 +9,14 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+  # One lockfile at the root covers every workspace. Grouped so a week's bumps arrive as at most
+  # two pull requests; security updates are not grouped and arrive on their own.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      development:
+        dependency-type: development
+      production:
+        dependency-type: production

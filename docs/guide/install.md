@@ -4,7 +4,7 @@ _Audience: application developers._
 
 ## Requirements
 
-- Node `>=24.14.1`, npm `>=11.11.0`.
+- Node `>=22` (each package's `engines`); CI runs the test suites on Node 22 and 24. Any npm or bundler that resolves package `exports`.
 - ESM only. Every package ships `"type": "module"`; import with ESM syntax.
 
 ## Application (Aurora DSQL)

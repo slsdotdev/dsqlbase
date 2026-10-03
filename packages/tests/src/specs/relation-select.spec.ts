@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sql } from "@dsqlbase/core";
 import { withSeededClient } from "../fixures/seeded-client";
 
 /**
@@ -137,5 +138,30 @@ describe("relations in select", () => {
     expect(() =>
       client.tasks.findMany({ select: { project: true }, join: { project: true } })
     ).toThrow('Relation "project" appears in both select and join on "tasks"');
+  });
+
+  // A joined row is read through `row_to_json`; a bigint must not come back as a rounded double.
+  describe("exact numbers in joined rows", () => {
+    const exact = 9007199254740993n; // 2^53 + 1: the first integer a double can't hold
+
+    it("keeps a bigint exact through a belongs-to and a has-many", async () => {
+      const client = getClient();
+      await client.$query(sql`UPDATE "tasks" SET "estimate_seconds" = ${exact.toString()}::bigint`);
+
+      const [child] = await client.tasks.findMany({
+        where: { parentId: { exists: true } },
+        select: { id: true, parent: { estimateSeconds: true } },
+        limit: 1,
+      });
+      const parent = await client.tasks.findOne({
+        // The seed makes tasks 2 and 3 children of task 1.
+        where: { id: { eq: getData().tasks[0]?.id ?? "" } },
+        select: { id: true, subtasks: { estimateSeconds: true } },
+      });
+
+      expect(child?.parent?.estimateSeconds).toBe(exact);
+      expect(parent?.subtasks.length).toBeGreaterThan(0);
+      expect(parent?.subtasks.every((task) => task.estimateSeconds === exact)).toBe(true);
+    });
   });
 });

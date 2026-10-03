@@ -1,4 +1,5 @@
 import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
+import { escapeIdentifier } from "../sql/utils.js";
 import { HasDefault, NotNull, WithDomain, ValueType } from "../utils/index.js";
 import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
 import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "./column.js";
@@ -104,13 +105,19 @@ export class DomainDefinition<
     >,
     this
   > {
+    const namespace = this._namespace?.name;
+
     return new ColumnDefinition(name, {
-      dataType: this.name,
+      // Schema-qualified outside `public`, so the column's type never depends on `search_path`.
+      dataType:
+        namespace && namespace !== "public"
+          ? `${escapeIdentifier(namespace)}.${escapeIdentifier(this.name)}`
+          : this.name,
       runtimeType: this._runtimeType,
       notNull: this._notNull,
       defaultValue: this._defaultValue,
       codec: this._codec,
-      domain: new NodeRef(this),
+      domain: new NodeRef(this, namespace),
     }) as WithDomain<
       ColumnDefinition<
         TColumnName,

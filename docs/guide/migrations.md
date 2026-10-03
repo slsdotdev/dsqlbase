@@ -17,7 +17,12 @@ What DSQL allows, and how each change is built from it, was verified against a l
 ## Runner
 
 ```ts
-import { createMigrationRunner, formatPlan, getSerializedSchemaObjects } from "@dsqlbase/migration";
+import {
+  createMigrationRunner,
+  formatPlan,
+  getSerializedSchemaObjects,
+  MigrationError,
+} from "@dsqlbase/migration";
 import { createPgSession } from "dsqlbase/pg";
 import * as schema from "./schema";
 
@@ -27,8 +32,14 @@ const definitions = getSerializedSchemaObjects(Object.values(schema));
 const statements = await runner.dryRun(definitions);          // printed SQL, nothing executed
 const plan = await runner.plan(definitions);                  // operations, refusals, rows, risk
 console.log(formatPlan(plan));                                // what would change, as a table
-const result = await runner.run(definitions, { allow: { destructive: false } });
-console.log(formatPlan(result));                              // the same rows, with each status
+try {
+  const result = await runner.run(definitions, { allow: { destructive: false } });
+  console.log(formatPlan(result));                            // the same rows, with each status
+} catch (error) {
+  // A failed step: `result` has every row, the failed one and those skipped after it.
+  if (error instanceof MigrationError && error.result) console.log(formatPlan(error.result));
+  throw error;
+}
 ```
 
 | Method | IO | Returns |
@@ -38,7 +49,7 @@ console.log(formatPlan(result));                              // the same rows, 
 | `reconcile(local, remote, options)` | none | ordered operations + refusals |
 | `plan(definition, options)` | introspect | `{ operations, errors, risk, rows }`; throws `MigrationError` on validation failure |
 | `dryRun(definition, options)` | introspect | `SQLStatement[]`; throws on refusals, or steps whose risk `allow` doesn't cover |
-| `run(definition, options)` | full | executes sequentially, stopping at the first failed step; same gates as `dryRun`; `{ count, progress, rows }` |
+| `run(definition, options)` | full | executes sequentially; same gates as `dryRun`; `{ count, progress, rows }`; throws `MigrationError` (`STEP_FAILED`) at the first failed step |
 
 `getSerializedSchemaObjects` accepts the module's exported values and keeps only tables, domains, sequences, and namespaces (relations are ignored — see [Relations](./relations.md)).
 
@@ -56,7 +67,7 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 | `action` | `CREATE`, `ADD`, `ALTER`, `DROP`, `RENAME`, `VALIDATE`, `BACKFILL` |
 | `target`, `targetKind` | the column, index, constraint, identity, default or options changed |
 | `changes` | `attribute: from → to`, `;`-separated |
-| `risk`, `destructive` | `safe`, `lossy` (removes what redeploying restores: an index, a default), `destructive` (loses rows, or can't be re-created), or `refused` |
+| `risk`, `destructive` | `safe`, `lossy` (removes what redeploying restores: an index, a default; or drops a column deprecated in an earlier release), `destructive` (loses rows, or can't be re-created), or `refused` |
 | `async` | runs as a DSQL async job (`CREATE INDEX ASYNC`) |
 | `sql` | the statement |
 | `refusal` | `{ code, message }` for a refused change |
@@ -78,14 +89,14 @@ A **change** is one difference on one target: a column, an index, a constraint. 
 
 | Option | Default | Effect |
 |---|---|---|
-| `allow.lossy` | `true` | Run `lossy` steps: removing what redeploying restores (an index, a default, a constraint, an identity). |
+| `allow.lossy` | `true` | Run `lossy` steps: removing what redeploying restores (an index, a default, a constraint, an identity), and dropping a column `.deprecated()` in an earlier release. No other row data is lost. |
 | `allow.destructive` | `false` | Run `destructive` steps: dropping tables, columns, sequences, domains or schemas, or removing what DSQL can't re-create. **Loses data.** |
 | `asyncIndexes` | `true` | Emit `CREATE INDEX ASYNC` and `ALTER TABLE ASYNC … VALIDATE CONSTRAINT` (required on DSQL). Set `false` for PGlite / plain Postgres. |
 | `ifExists` | `true` | Adds `IF [NOT] EXISTS` to creates and drops. |
 
 `safe` steps always run. `run` and `dryRun` throw a `MigrationError` when the plan has a refusal or a step whose risk `allow` doesn't cover; its `issues` name every such step (`DESTRUCTIVE_NOT_ALLOWED`, `LOSSY_NOT_ALLOWED`), and `plan(definition, { allow })` marks them `blocked` so a script can show them first. Drops are always `RESTRICT`: a `CASCADE` would remove objects the plan never listed, and DSQL refuses it for domains.
 
-`run` stops at the first failed step and reports the rest as `skipped`. Every step is its own transaction, so the steps before it stay applied; the next run plans from the database as it then is, and resumes there.
+`run` stops at the first failed step and throws a `MigrationError` whose `issues` hold one `STEP_FAILED` naming the step and its error. Its `result` is the full `RunResult`: the steps before, the failed one with its `error`, and the rest as `skipped`. When the step threw (a statement error, or waiting for an async job failed), that error is the `cause`. A caller that only awaits `run` therefore never mistakes a failed deploy for a successful one. Every step is its own transaction, so the steps before it stay applied; the next run plans from the database as it then is, and resumes there.
 
 The repo's e2e suite runs `{ asyncIndexes: false, ifExists: true, allow: { destructive: true } }` against PGlite: `packages/tests/src/db/migrate.ts`.
 
@@ -107,9 +118,9 @@ DSQL's `ADD COLUMN` takes no attributes at all — not even a `DEFAULT` — and 
 | Generated column → plain | `DROP EXPRESSION` (values kept; it can't be made generated again) | **destructive** |
 | Identity options, mode | `SET INCREMENT BY …`, `SET START WITH …`, `SET GENERATED …` — never `RESTART` | safe (narrower bounds: lossy) |
 
-A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables.
+A **backfill** is `UPDATE … SET c = DEFAULT` on 1,000 rows at a time, each batch its own transaction (DSQL writes at most 3,000 rows per transaction), repeated until no `NULL` is left. A batch that conflicts with a concurrent write is retried; it only fills `NULL`s, so it is safe to run again. It takes a while on large tables. A default that is `NULL` can't fill anything: a literal `NULL` counts as no default (adding a `NOT NULL` column with it is refused), and one that turns out `NULL` at runtime — `nullif(…)`, a lookup that finds nothing — stops the backfill at the first batch that fills no row, failing the step with the column named, instead of looping.
 
-A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`.
+A `NOT NULL` added to an existing table is a `CHECK (c IS NOT NULL)` named `<table>_<column>_not_null` — it enforces the same — and the runner reads it back as the column's `NOT NULL`. When that name would pass PostgreSQL's 63-byte limit, the table and column parts are shortened the way PostgreSQL shortens its own constraint names, so the runner still finds it.
 
 To change a type **and keep the data**, don't let the runner drop the column: add a new column with the new type, copy the values, switch the code over, then `.deprecated()` the old one and remove it in a later release. A destructive step's note in the plan, and the error when it isn't allowed, say so.
 
@@ -118,7 +129,7 @@ Refused, with the reason in the plan: adding a generated or identity column, mak
 ## Renames and deprecation
 
 - **`renamedFrom`** — a column or table renamed in the definition is renamed in the database (`RENAME COLUMN`, `ALTER TABLE … RENAME TO`), with the constraints and indexes named after it (`<table>_<column>_key`, `<column>_check`, `<table>_<column>_not_null`, and for a table its `<table>_…` names). Safe, but not zero-downtime: code still using the old name fails until it is deployed. When both names exist, it's refused (`RENAME_CONFLICT`). Without the hint, a dropped and an added column in the same plan get a note: *possible rename*.
-- **`deprecated()`** — the column gets the comment `dsqlbase:deprecated` (safe) and, if it's `NOT NULL` without a default, `DROP NOT NULL` (lossy). The marker is how a later run knows the drop was planned — the runner keeps no history of its own — so a deprecated column removed from the definition is dropped as a **lossy** step. Removing `.deprecated()` removes the marker. The comment replaces any other comment on the column.
+- **`deprecated()`** — the column gets the comment `dsqlbase:deprecated` (safe) and, if it's `NOT NULL` without a default, `DROP NOT NULL` (lossy). The marker is how a later run knows the drop was planned — the runner keeps no history of its own — so a deprecated column removed from the definition is dropped as a **lossy** step. Removing `.deprecated()` removes the marker. The comment replaces any other comment on the column. A table created with a column already deprecated — a fresh environment built from the current definition — gets the marker in the same run, so the drop is lossy there too.
 
 For a rename with no downtime, add the new column, backfill it, switch the code over, and `.deprecated()` the old one — then remove it a release later.
 
@@ -127,11 +138,15 @@ For a rename with no downtime, add the new column, backfill it, switch the code 
 - **Domains** — a default is set or dropped (`ALTER DOMAIN … SET` / `DROP DEFAULT`). Dropping a domain's `NOT NULL` or its `CHECK` works, but is **destructive**: DSQL can't add either back. Making a domain `NOT NULL`, adding a `CHECK`, or changing its type is refused — define a new domain and move the columns to it (a type change for each). A `CHECK`'s expression is compared by name only, as a table's is: to change one, rename it — which a domain can't take, so it means a new domain.
 - **Sequences** — only the options that changed are altered (`ALTER SEQUENCE … INCREMENT BY 5 CACHE 65536`); a changed start value sets `START WITH` and never restarts the sequence. Narrower bounds are lossy: the next value can fail.
 
+## Namespaces
+
+Tables, domains and sequences declared with `namespace()` are created, altered, renamed and dropped in their own schema. Every statement names them schema-qualified, so a plan never depends on the connection's `search_path`. The schema itself is created before anything in it.
+
 ## Constraints and indexes on existing tables
 
 - **CHECK** — added `NOT VALID`, then validated against the existing rows by an async job (`ALTER TABLE ASYNC … VALIDATE CONSTRAINT`). It is enforced on new writes from the first step. If an existing row violates it, validation fails, the run stops with the database's message, and the constraint **stays** — enforced, but not valid. Fix the data and run again: the next plan is just the `VALIDATE`. A removed CHECK is dropped (lossy).
-- **UNIQUE** — a unique index is built asynchronously, then promoted to the constraint. A removed one is dropped together with its index (lossy); a changed one is dropped and built again.
-- **Indexes** — a changed index is rebuilt: dropped (lossy), then created; it is unavailable in between. So is an index whose async build failed. Expression keys and a partial index's predicate compare by position and presence, not text — PostgreSQL prints them back reformatted — so to change an expression or a predicate, rename the index.
+- **UNIQUE** — a unique index is built asynchronously, then promoted to the constraint. A removed one is dropped together with its index (lossy); a changed one gets its new index built first, while the old constraint still enforces uniqueness; then the old constraint is dropped and the new index promoted. Only those last two statements run without it. If the existing rows violate the new constraint, the build fails and the run stops there (`STEP_FAILED`), with the old constraint still in place: fix the data and run again.
+- **Indexes** — a changed index is rebuilt without a gap: the new one is built beside it as `<name>_rebuild`, the old one is dropped (lossy), and the new one renamed into place. The old index serves reads, and enforces uniqueness, until the new one is built. An index whose async build failed is rebuilt the same way. If a run stops part-way, the next one drops the `_rebuild` index it left and starts over. An index in the database that the definition doesn't declare is dropped (lossy), including one created by hand: the runner keeps no history, so it can't tell the two apart, and the plan's note says so. Expression keys and a partial index's predicate compare by position and presence, not text — PostgreSQL prints them back reformatted — so to change an expression or a predicate, rename the index.
 - **Primary keys** can't be added, dropped or changed: DSQL fixes them at `CREATE TABLE`.
 
 A constraint compares the same whether it was declared on a column (`.unique()`, `.check()`, `.primaryKey()`) or on the table: PostgreSQL doesn't record the difference. A CHECK and a UNIQUE are matched by name — a column's `.unique()` is the constraint PostgreSQL names `<table>_<column>_key` — so renaming one drops it and adds the new one. CHECK expressions aren't compared yet: change a CHECK by renaming it.

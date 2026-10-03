@@ -26,9 +26,11 @@ const columns = sql`
       FROM pg_attrdef d
       WHERE d.adrelid = c.oid AND d.adnum = a.attnum
     ) ELSE NULL END,
+    -- Keyed as the planner keys a domain: namespace.name outside public.
     'domain', (
-      SELECT t.typname
+      SELECT CASE WHEN n.nspname = 'public' THEN t.typname ELSE n.nspname || '.' || t.typname END
       FROM pg_type t
+      JOIN pg_namespace n ON n.oid = t.typnamespace
       WHERE t.oid = a.atttypid AND t.typtype = 'd'
     ),
     'generated', CASE

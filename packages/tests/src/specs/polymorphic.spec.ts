@@ -410,4 +410,29 @@ describe("polymorphic relations", () => {
       expect(() => client.users.findMany({ join: { feed: true } })).toThrow(TenancyError);
     });
   });
+
+  // Every union row is read through `row_to_json`, at the root or joined.
+  describe("exact numbers in union rows", () => {
+    const exact = 9007199254740993n; // 2^53 + 1
+
+    it("keeps a member's bigint exact, read at the root and joined", async () => {
+      const client = getClient();
+      const [root] = getData().folders;
+      await client.$query(sql`UPDATE "files" SET "size" = ${exact.toString()}::bigint`);
+
+      const entries = await client.entries.findMany({ where: { $$key: "files" } });
+      const folder = await client.folders.findOne({
+        where: { id: { eq: root.id } },
+        join: { entries: true },
+      });
+
+      expect(entries.length).toBeGreaterThan(0);
+      expect(entries.every((entry) => entry.$$key === "files" && entry.size === exact)).toBe(true);
+      expect(
+        folder?.entries
+          .filter((entry) => entry.$$key === "files")
+          .every((entry) => entry.$$key === "files" && entry.size === exact)
+      ).toBe(true);
+    });
+  });
 });

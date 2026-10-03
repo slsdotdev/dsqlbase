@@ -325,6 +325,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (direction === "asc" || direction === "desc") {
         keys.push({ field, column, direction });
+      } else if (direction !== undefined) {
+        throw new Error(
+          `Invalid direction ${JSON.stringify(direction)} for "${field}" in orderBy for table ` +
+            `"${table.name}"; use "asc" or "desc".`
+        );
       }
     }
 
@@ -575,6 +580,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       if (direction === "asc" || direction === "desc") {
         keys.push({ field, direction });
+      } else if (direction !== undefined) {
+        throw new Error(
+          `Invalid direction ${JSON.stringify(direction)} for "${field}" in orderBy for union ` +
+            `"${union.alias}"; use "asc" or "desc".`
+        );
       }
     }
 

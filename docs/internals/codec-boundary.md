@@ -53,6 +53,17 @@ returns its `valueType`; `Column.param` takes `valueType`.
 Core gives the validator no meaning. `dsqlbase` installs one for `.schema()` on JSON columns,
 below.
 
+## Joined and union rows: exact types travel as text
+
+A joined row and every union row reach the client inside JSON (`row_to_json`, `json_agg` in
+`packages/core/src/runtime/query.ts`), parsed by the driver before any codec runs. JSON has one
+number type, so `bigint` and `numeric` would arrive as doubles — `9007199254740993` as
+`9007199254740992` — where a root read hands the codec the database's exact text. A level read as
+JSON therefore projects every column whose `Column.textInJson` is set (runtime type `bigint`, or
+SQL type `bigint` / `int8` / `numeric` / `decimal`) as `::text`, under its own name
+(`_resolveSelectParams` in `packages/core/src/runtime/operation.ts`): the codec gets the same
+string at every depth. Other types arrive as JSON renders them, and their codecs accept that.
+
 ## JSON columns: the driver parses, the validator checks
 
 `json` and `jsonb` columns (`packages/dsqlbase/src/schema/columns/json.ts`) rely on the session

@@ -372,9 +372,32 @@ the core constant is `KEY_FIELD`.
 
 ## Known gaps (fix, do not design around)
 
-None open. When one is found, add it here with the code path it lives in and what it blocks; a
-proposal that needs it names the fix as a prerequisite story rather than designing around it.
-Public API may change; call out the changeset level.
+When one is found, add it here with the code path it lives in and what it blocks; a proposal
+that needs it names the fix as a prerequisite story rather than designing around it. Public API
+may change; call out the changeset level. Open since the 0.2.0 release review (2026-10-03):
+
+- **`update` / `delete` change every matching row but return one.** They build with mode `"one"`
+  and no row limit (`buildUpdateQuery` / `buildDeleteQuery` in
+  `packages/core/src/runtime/query.ts`, `ModelClient.update` / `delete` in
+  `packages/dsqlbase/src/client/model/client.ts`). The fix is an API decision — require a unique
+  `where`, add `updateMany` / `deleteMany`, or check the affected count — and breaks callers
+  (`minor`). Documented as a known issue in the guide's querying page.
+- **No OCC retry outside `$transaction`.** A single `create` / `update` / `delete` that hits
+  `40001` throws (`packages/dsqlbase/src/client/transaction/occ-retry.ts` is only used by the
+  transaction runner). Also there: `maxRetries` counts attempts, not retries, jitter is 10%, and
+  there is no statement timeout.
+- **A counted page reads its page and its count on separate connections**
+  (`ModelClient.paginate`), so `totalCount` can disagree with the page outside a transaction;
+  `hasPreviousPage` means only "a cursor was given".
+- **Cursor and global-id input** has no length cap, and a value invalid for the column's type
+  surfaces as the database's `22P02` rather than `InvalidCursorError` / `GlobalIdError`; in
+  `$listByGlobalId` it fails the whole batch.
+- **An explicit `null` on insert becomes `DEFAULT`** (`Column.getInsertValue`), so a column with
+  a default can't be inserted `NULL`.
+- **A read validator failing on one stored row fails the whole `findMany`.** A lenient read mode
+  would let old rows through.
+- **Cross-tenant references.** A scoped client can insert a row whose foreign key points at
+  another tenant's parent; nothing checks that the parent carries the same claims.
 
 ## Related
 

@@ -12,6 +12,7 @@ import {
   OperationRisk,
   OperationSubject,
   qualifiedName,
+  schemaOf,
 } from "./base.js";
 import { ddl } from "../../ddl/index.js";
 import { changedSequenceOptions, effectiveSequenceOptions } from "../diffs/sequence.js";
@@ -59,6 +60,7 @@ export function dropSequenceOperation(
 ): DDLOperation {
   const statement = ddl.dropSequence({
     name: object.name,
+    schema: schemaOf(object),
     ifExists: options.ifExists,
     cascade: "RESTRICT",
   });

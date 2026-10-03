@@ -37,6 +37,16 @@ describe("diffColumn", () => {
     expect(diffColumn(local, remote)).toEqual([]);
   });
 
+  it("compares a domain column by its domain, not by how each side spells the type", () => {
+    const local: Column = { ...baseColumn, domain: "app.status", dataType: `"app"."status"` };
+    const remote: Column = { ...baseColumn, domain: "app.status", dataType: "app.status" };
+
+    expect(diffColumn(local, remote)).toEqual([]);
+    expect(diffColumn(local, { ...remote, domain: "app.state" })).toMatchObject([
+      { key: "domain", value: "app.status", prevValue: "app.state" },
+    ]);
+  });
+
   it("emits a modify for a default that changed", () => {
     const local: Column = { ...baseColumn, defaultValue: "'1'" };
     const remote: Column = { ...baseColumn, defaultValue: "0" };
