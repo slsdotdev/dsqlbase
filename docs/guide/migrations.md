@@ -127,6 +127,10 @@ For a rename with no downtime, add the new column, backfill it, switch the code 
 - **Domains** — a default is set or dropped (`ALTER DOMAIN … SET` / `DROP DEFAULT`). Dropping a domain's `NOT NULL` or its `CHECK` works, but is **destructive**: DSQL can't add either back. Making a domain `NOT NULL`, adding a `CHECK`, or changing its type is refused — define a new domain and move the columns to it (a type change for each). A `CHECK`'s expression is compared by name only, as a table's is: to change one, rename it — which a domain can't take, so it means a new domain.
 - **Sequences** — only the options that changed are altered (`ALTER SEQUENCE … INCREMENT BY 5 CACHE 65536`); a changed start value sets `START WITH` and never restarts the sequence. Narrower bounds are lossy: the next value can fail.
 
+## Namespaces
+
+Tables, domains and sequences declared with `namespace()` are created, altered, renamed and dropped in their own schema. Every statement names them schema-qualified, so a plan never depends on the connection's `search_path`. The schema itself is created before anything in it.
+
 ## Constraints and indexes on existing tables
 
 - **CHECK** — added `NOT VALID`, then validated against the existing rows by an async job (`ALTER TABLE ASYNC … VALIDATE CONSTRAINT`). It is enforced on new writes from the first step. If an existing row violates it, validation fails, the run stops with the database's message, and the constraint **stays** — enforced, but not valid. Fix the data and run again: the next plan is just the `VALIDATE`. A removed CHECK is dropped (lossy).

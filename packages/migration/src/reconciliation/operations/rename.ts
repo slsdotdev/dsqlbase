@@ -14,6 +14,7 @@ import {
   DraftOperation,
   maybeNamespaceReference,
   qualifiedName,
+  schemaOf,
   refusal,
 } from "./base.js";
 
@@ -72,7 +73,7 @@ export function renameTable(
     object: local,
     statement: ddl.alterTable({
       name: previous,
-      schema: local.namespace !== "public" ? local.namespace : undefined,
+      schema: schemaOf(local),
       actions: [ddl.rename({ newName: local.name })],
     }),
     references: maybeNamespaceReference(local),
@@ -161,6 +162,7 @@ export function renameColumns(local: Table, remote: Table): RenameResult {
           object: local,
           statement: ddl.alterTable({
             name: local.name,
+            schema: schemaOf(local),
             actions: [ddl.renameColumn({ columnName: previous, newName: column.name })],
           }),
           references: maybeNamespaceReference(local),
@@ -231,6 +233,7 @@ function derivedDrafts(
         object: local,
         statement: ddl.alterTable({
           name: local.name,
+          schema: schemaOf(local),
           actions: [ddl.renameConstraint({ constraintName: from, newName: to })],
         }),
         references: maybeNamespaceReference(local),
@@ -247,7 +250,11 @@ function derivedDrafts(
       ([from, to]): DraftOperation => ({
         type: "ALTER",
         object: local,
-        statement: ddl.alterIndex({ name: from, action: ddl.rename({ newName: to }) }),
+        statement: ddl.alterIndex({
+          name: from,
+          schema: schemaOf(local),
+          action: ddl.rename({ newName: to }),
+        }),
         references: maybeNamespaceReference(local),
         summary: {
           subject,

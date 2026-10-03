@@ -38,6 +38,7 @@ import {
   OperationResult,
   OperationSubject,
   qualifiedName,
+  schemaOf,
   refusal,
   RefusalCode,
 } from "./base.js";
@@ -122,6 +123,7 @@ export function createTableOperation(
 
   const statement = ddl.createTable({
     name: object.name,
+    schema: schemaOf(object),
     ifNotExists,
     columns,
     constraints,
@@ -141,21 +143,22 @@ export function createTableOperation(
 
 export function createIndexOperation(
   index: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   ifNotExists = true,
   async = false
 ): DDLOperation {
-  return change(`${tableName}.${index.name}`, [
-    createIndexDraft(index, tableName, ifNotExists, async),
+  return change(`${qualifiedName(table)}.${index.name}`, [
+    createIndexDraft(index, table, ifNotExists, async),
   ])[0];
 }
 
 function createIndexDraft(
   index: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   ifNotExists: boolean,
   async: boolean
 ): DraftOperation {
+  const tableName = qualifiedName(table);
   const references: string[] = maybeNamespaceReference(index) ?? [];
   references.push(tableName);
 
@@ -172,7 +175,8 @@ function createIndexDraft(
     object: index,
     statement: ddl.createIndex({
       name: index.name,
-      tableName,
+      tableName: table.name,
+      tableSchema: schemaOf(table),
       unique: index.unique,
       columns,
       include: index.include ?? undefined,
@@ -219,6 +223,7 @@ export function dropTableOperation(
       object,
       statement: ddl.dropTable({
         name: object.name,
+        schema: schemaOf(object),
         ifExists: options.ifExists,
         cascade: "RESTRICT",
       }),
@@ -234,15 +239,17 @@ export function dropTableOperation(
 
 export function dropIndexOperation(
   object: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions = DEFAULT_DDL_OPERATION_OPTIONS
 ): DDLOperation {
-  return change(`${tableName}.${object.name}`, [dropIndexDraft(object, tableName, options)])[0];
+  return change(`${qualifiedName(table)}.${object.name}`, [
+    dropIndexDraft(object, table, options),
+  ])[0];
 }
 
 function dropIndexDraft(
   object: SerializedObject<AnyIndexDefinition>,
-  tableName: string,
+  table: SerializedObject<AnyTableDefinition>,
   options: DDLOperationOptions
 ): DraftOperation {
   return {
@@ -250,12 +257,14 @@ function dropIndexDraft(
     object,
     statement: ddl.dropIndex({
       name: object.name,
+      // An index lives in its table's schema.
+      schema: schemaOf(table),
       ifExists: options.ifExists,
       cascade: "RESTRICT",
     }),
     references: maybeNamespaceReference(object),
     summary: {
-      subject: tableSubject(tableName),
+      subject: tableSubject(qualifiedName(table)),
       action: "DROP",
       target: { kind: "INDEX", name: object.name },
       risk: "lossy",
@@ -272,11 +281,10 @@ export function diffTableOperations(
   const errors: DDLOperationError[] = [];
 
   if (!remote) {
-    const tableName = qualifiedName(local);
     operations.push(createTableOperation(local, options.ifExists));
 
     for (const idx of local.indexes) {
-      operations.push(createIndexOperation(idx, tableName, options.ifExists, options.asyncIndexes));
+      operations.push(createIndexOperation(idx, local, options.ifExists, options.asyncIndexes));
     }
 
     return { operations, errors };
@@ -300,6 +308,7 @@ export function diffTableOperations(
   const ctx: TableProcessingContext = {
     local,
     tableName,
+    schema: schemaOf(local),
     tableNamespaceRef: maybeNamespaceReference(local) ?? [],
     options,
     remoteColumns: new Map((remote.columns as ColumnSerialized[]).map((c) => [c.name, c])),
@@ -337,6 +346,8 @@ export function diffTableOperations(
 type TableProcessingContext = {
   local: SerializedObject<AnyTableDefinition>;
   tableName: string;
+  /** The table's schema outside `public`: every statement on the table is qualified with it. */
+  schema: string | undefined;
   tableNamespaceRef: string[];
   options: DDLOperationOptions;
   /** The database's columns, as introspected. */
@@ -385,7 +396,7 @@ function alterTableDraft(
   return {
     type: "ALTER",
     object: ctx.local,
-    statement: ddl.alterTable({ name: ctx.local.name, actions: [action] }),
+    statement: ddl.alterTable({ name: ctx.local.name, schema: ctx.schema, actions: [action] }),
     references: dedupe([...ctx.tableNamespaceRef, ...references]),
     summary,
   };
@@ -603,6 +614,7 @@ function notNullDrafts(
       object: ctx.local,
       statement: ddl.backfill({
         tableName: ctx.local.name,
+        schema: ctx.schema,
         columnName,
         key: [...ctx.keyColumns],
         batchSize: BACKFILL_BATCH_SIZE,
@@ -741,7 +753,7 @@ function columnModify(
       object: ctx.local,
       statement: ddl.commentOnColumn({
         tableName: ctx.local.name,
-        schema: ctx.local.namespace !== "public" ? ctx.local.namespace : undefined,
+        schema: ctx.schema,
         columnName,
         comment: local.deprecated ? DEPRECATED_MARKER : null,
       }),
@@ -845,7 +857,7 @@ function recreateDrafts(columnName: string, ctx: TableProcessingContext): DraftO
         mentions(index.where)
     )
     .map((index) => {
-      const draft = createIndexDraft(index, ctx.tableName, true, ctx.options.asyncIndexes);
+      const draft = createIndexDraft(index, ctx.local, true, ctx.options.asyncIndexes);
       return { ...draft, summary: { ...draft.summary, note } };
     });
 
@@ -946,6 +958,7 @@ function validateConstraintDraft(ctx: TableProcessingContext, name: string): Dra
     object: ctx.local,
     statement: ddl.alterTable({
       name: ctx.local.name,
+      schema: ctx.schema,
       async: ctx.options.asyncIndexes ? true : undefined,
       actions: [ddl.validateConstraint({ name })],
     }),
@@ -992,7 +1005,7 @@ function processIndexDiffs(
       operations.push(
         createIndexOperation(
           wholeAdd.object as IndexSerialized,
-          ctx.tableName,
+          ctx.local,
           options.ifExists,
           options.asyncIndexes
         )
@@ -1002,7 +1015,7 @@ function processIndexDiffs(
 
     if (wholeRemove) {
       operations.push(
-        dropIndexOperation(wholeRemove.object as IndexSerialized, ctx.tableName, options)
+        dropIndexOperation(wholeRemove.object as IndexSerialized, ctx.local, options)
       );
       continue;
     }
@@ -1014,12 +1027,11 @@ function processIndexDiffs(
 
       operations.push(
         ...change(`${ctx.tableName}.${indexName}`, [
-          dropIndexDraft(local, ctx.tableName, options),
+          dropIndexDraft(local, ctx.local, options),
           {
-            ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes),
+            ...createIndexDraft(local, ctx.local, options.ifExists, options.asyncIndexes),
             summary: {
-              ...createIndexDraft(local, ctx.tableName, options.ifExists, options.asyncIndexes)
-                .summary,
+              ...createIndexDraft(local, ctx.local, options.ifExists, options.asyncIndexes).summary,
               changes: attributeChanges(attrDiffs),
               note: "rebuild: the index is unavailable until this step completes",
             },
@@ -1291,7 +1303,8 @@ function uniquePromotionDrafts(
     object: indexObject,
     statement: ddl.createIndex({
       name: args.indexName,
-      tableName,
+      tableName: ctx.local.name,
+      tableSchema: ctx.schema,
       unique: true,
       async: options.asyncIndexes ? true : undefined,
       columns: args.columns.map((col) => ddl.indexColumn({ columnName: col, nulls: "LAST" })),
@@ -1325,7 +1338,8 @@ function uniquePromotionDrafts(
     type: "CREATE",
     object: constraintObject,
     statement: ddl.alterTable({
-      name: tableName,
+      name: ctx.local.name,
+      schema: ctx.schema,
       actions: [
         ddl.addConstraintUsingIndex({
           name: args.constraintName,

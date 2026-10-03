@@ -132,7 +132,7 @@ export class ColumnDefinition<
   constructor(name: TName, config: Partial<TConfig> = {}) {
     super(name);
 
-    this._dataType = config.domain?.name ?? config.dataType ?? "text";
+    this._dataType = config.dataType ?? config.domain?.name ?? "text";
     this._runtimeType = config.runtimeType ?? "string";
     this._notNull = config.notNull ?? false;
     this._primaryKey = config.primaryKey ?? false;
@@ -313,7 +313,7 @@ export class ColumnDefinition<
         ? new SQLQuery(this._defaultValue).toQuery({ inlineParams: true }).text
         : null,
       check: this._check?.toJSON() ?? null,
-      domain: this._domain?.toJSON() ?? null,
+      domain: this._domain?.qualifiedName ?? null,
       generated: this._generated
         ? {
             type: this._generated.type,

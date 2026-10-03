@@ -44,6 +44,10 @@ export function diffColumn(
   }
 
   for (const key of ["dataType", "notNull", "domain", "generated", "deprecated"] as const) {
+    // A domain column's type is its domain, compared by key. Its `dataType` is only how each
+    // side spells it: quoted by the definition, as `format_type` prints it by the database.
+    if (key === "dataType" && local.domain && remote.domain) continue;
+
     if (hasDiff(local, remote, key)) {
       diffs.push({
         type: diffType(local, remote, key),

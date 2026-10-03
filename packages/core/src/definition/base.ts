@@ -117,8 +117,22 @@ export class NodeRef<TNode extends DefinitionNode>
 
   declare readonly __type: TNode["__type"];
 
-  constructor(target: TNode) {
+  /** The schema the target lives in, for a target that has one (a domain). */
+  readonly namespace?: string;
+
+  constructor(target: TNode, namespace?: string) {
     super(target.name);
+    this.namespace = namespace;
+  }
+
+  /**
+   * How the migration planner keys the target: `namespace.name` outside `public`, the bare name
+   * in it. Two objects with one name in different schemas never collide.
+   */
+  get qualifiedName(): string {
+    return this.namespace && this.namespace !== "public"
+      ? `${this.namespace}.${this.name}`
+      : this.name;
   }
 
   toJSON(): TNode["name"] {

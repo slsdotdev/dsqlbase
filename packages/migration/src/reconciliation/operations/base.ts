@@ -179,6 +179,15 @@ export function hasCustomNamespace(
   return "namespace" in obj && !!obj.namespace && obj.namespace !== "public";
 }
 
+/**
+ * The schema to qualify an object's statements with: its namespace outside `public`, nothing in
+ * it. Every statement that names a table, index, sequence or domain goes through this, so none
+ * depends on `search_path`.
+ */
+export function schemaOf(obj: SerializedObject<DefinitionNode>): string | undefined {
+  return hasCustomNamespace(obj) ? obj.namespace : undefined;
+}
+
 export function qualifiedName(obj: SerializedObject<DefinitionNode>): string {
   return hasCustomNamespace(obj) ? `${obj.namespace}.${obj.name}` : obj.name;
 }

@@ -14,6 +14,7 @@ import {
   OperationSubject,
   OperationTarget,
   qualifiedName,
+  schemaOf,
   refusal,
   RefusalCode,
 } from "./base.js";
@@ -60,6 +61,7 @@ export function dropDomainOperation(
 ): DDLOperation {
   const statement = ddl.dropDomain({
     name: object.name,
+    schema: schemaOf(object),
     ifExists: options.ifExists,
     cascade: "RESTRICT",
   });

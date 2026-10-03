@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { sql, SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import { bigint, domain, int, sequence, table, text, uuid, varchar } from "dsqlbase/schema";
+import {
+  bigint,
+  domain,
+  int,
+  namespace,
+  sequence,
+  table,
+  text,
+  uuid,
+  varchar,
+} from "dsqlbase/schema";
 import {
   createMigrationRunner,
   formatPlan,
@@ -494,6 +504,77 @@ describe("schema migrations (e2e via PGlite)", () => {
         `ALTER SEQUENCE "public"."ticket_seq" INCREMENT BY 5 CACHE 65536`,
       ]);
       expect((await runner.plan([next.toJSON()], RUN_OPTS)).rows).toEqual([]);
+    });
+  });
+
+  // Every object outside `public` must be created, altered and dropped in its own schema. A bare
+  // name lands in `public`, and the next plan then drops it as an object the definition lacks.
+  describe("objects in a namespace", () => {
+    const rows = async (text: string) => (await pg.query(text)).rows;
+    const tablesNamed = (name: string) =>
+      rows(`SELECT table_schema FROM information_schema.tables WHERE table_name = '${name}'`);
+
+    const app = namespace("app");
+    const email = app
+      .domain("app_email")
+      .check((value) => sql`${value} LIKE '%@%'`, "app_email_at");
+
+    const v1 = () => {
+      const t = app.table("widgets", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        contact: email.column("contact"),
+        qty: int("qty"),
+        name: text("name").unique(),
+      });
+      t.index("widgets_qty_idx").columns((c) => [c.qty]);
+      t.check((c) => sql`${c.qty} > 0`, "widgets_qty_positive");
+      return [app.toJSON(), email.toJSON(), t.toJSON()];
+    };
+
+    const v2 = () => {
+      const t = app.table("widgets", {
+        id: uuid("id").primaryKey().defaultRandom(),
+        contact: email.column("contact"),
+        quantity: int("quantity").renamedFrom("qty"),
+        name: text("name").unique(),
+        label: text("label").notNull().default("none"),
+      });
+      t.index("widgets_name_idx").columns((c) => [c.name]);
+      return [app.toJSON(), email.toJSON(), t.toJSON()];
+    };
+
+    it("creates them in their schema, and a second plan is empty", async () => {
+      const result = await runner.run(v1(), RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await tablesNamed("widgets")).toEqual([{ table_schema: "app" }]);
+      expect((await runner.plan(v1(), RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("alters, renames, backfills and re-indexes them in their schema", async () => {
+      await runner.run(v1(), RUN_OPTS);
+      await pg.query(`INSERT INTO app.widgets (contact, qty, name) VALUES ('a@b', 2, 'w')`);
+
+      const result = await runner.run(v2(), RUN_OPTS);
+
+      expect(result.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await rows(`SELECT quantity, label FROM app.widgets`)).toEqual([
+        { quantity: 2, label: "none" },
+      ]);
+      expect(await tablesNamed("widgets")).toEqual([{ table_schema: "app" }]);
+      expect((await runner.plan(v2(), RUN_OPTS)).rows).toEqual([]);
+    });
+
+    it("drops the table, then its domain, from their schema", async () => {
+      await runner.run(v1(), RUN_OPTS);
+
+      const dropped = await runner.run([app.toJSON(), email.toJSON()], RUN_OPTS);
+      expect(dropped.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await tablesNamed("widgets")).toEqual([]);
+
+      const domainDropped = await runner.run([app.toJSON()], RUN_OPTS);
+      expect(domainDropped.rows.every((row) => row.status === "completed")).toBe(true);
+      expect(await rows(`SELECT 1 FROM pg_type WHERE typname = 'app_email'`)).toEqual([]);
     });
   });
 

@@ -960,3 +960,82 @@ describe("diffTableOperations — existing remote", () => {
     });
   });
 });
+
+// A bare name resolves through `search_path`, so a statement on a namespaced table that names it
+// unqualified lands in (or drops from) `public` instead.
+describe("diffTableOperations — table in a namespace", () => {
+  const appTable: Table = { ...baseTable, namespace: "app" };
+  const index = {
+    kind: "INDEX" as const,
+    name: "users_email_idx",
+    unique: false,
+    distinctNulls: true,
+    columns: [
+      {
+        kind: "INDEX_COLUMN" as const,
+        name: "users_email_idx_column_email" as const,
+        nulls: "LAST" as const,
+        column: "email",
+      },
+    ],
+    include: null,
+  };
+
+  /**
+   * Each statement's references to the table or its index that are not schema-qualified. The
+   * name `CREATE INDEX` gives an index is bare by syntax: the index lands in its table's schema.
+   */
+  const unqualified = (result: OperationResult) =>
+    sqlOf(result)
+      .map((text) =>
+        text.replace(/^(CREATE (UNIQUE )?INDEX (ASYNC )?(IF NOT EXISTS )?)"\w+"/, "$1")
+      )
+      .filter((text) => /(?<!"app"\.)"(users|users_email_idx)"/.test(text));
+
+  it("creates the table and its indexes in the schema", () => {
+    const result = diffTableOperations({ ...appTable, indexes: [index] }, undefined, {
+      ifExists: true,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result)[0]).toContain(`CREATE TABLE IF NOT EXISTS "app"."users"`);
+    expect(sqlOf(result)[1]).toContain(`ON "app"."users"`);
+    expect(unqualified(result)).toEqual([]);
+  });
+
+  it("qualifies column, constraint and index changes on an existing table", () => {
+    const local: Table = {
+      ...appTable,
+      columns: [
+        idColumn,
+        { ...emailColumn, notNull: true, defaultValue: "'none'", deprecated: true },
+        { ...emailColumn, name: "handle", unique: true },
+      ],
+      indexes: [{ ...index, unique: true }],
+      constraints: [
+        { kind: "CHECK_CONSTRAINT", name: "users_email_set", expression: `"email" <> ''` },
+      ],
+    } as Table;
+    const remote: Table = { ...appTable, indexes: [index] };
+
+    const result = diffTableOperations(local, remote, { ifExists: true });
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result).length).toBeGreaterThan(5);
+    expect(unqualified(result)).toEqual([]);
+  });
+
+  it("qualifies renames and drops", () => {
+    const local: Table = {
+      ...appTable,
+      columns: [idColumn, { ...emailColumn, name: "mail", renamedFrom: "email" }],
+    } as Table;
+    const remote: Table = { ...appTable, indexes: [index] };
+
+    const result = diffTableOperations(local, remote, { ifExists: true });
+
+    expect(result.errors).toEqual([]);
+    expect(sqlOf(result)).toContain(`DROP INDEX IF EXISTS "app"."users_email_idx" RESTRICT`);
+    expect(unqualified(result)).toEqual([]);
+  });
+});
