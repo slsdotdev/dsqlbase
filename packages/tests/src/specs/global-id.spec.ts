@@ -294,6 +294,18 @@ describe("global ids", () => {
       ]);
     });
 
+    // The database finds the row for any spelling of its uuid; matching it back must too.
+    it("matches an id whose uuid is spelled in upper case", async () => {
+      const [author] = getData().authors;
+      const id = wrap("authors", author.id.toUpperCase());
+
+      const [single] = await getClient().$listByGlobalId({ ids: [id] });
+      const found = await getClient().$findByGlobalId({ id });
+
+      expect(single?.$$key === "authors" ? single.name : null).toBe(author.name);
+      expect(found?.$$key === "authors" ? found.name : null).toBe(author.name);
+    });
+
     it("returns null for a miss, in place", async () => {
       const [author] = getData().authors;
       const missing = wrap("authors", "0f9b6b6a-1111-4222-8333-444444444444");

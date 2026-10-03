@@ -78,9 +78,9 @@ const tasks = await dsql.tasks.findMany({
   - **Naming columns** returns those columns.
   - **Naming only relations** returns only those relations, with no columns of the row itself.
 - **`where`** — per field, the operators its column type allows (below); combinators `and`, `or`, `not`. Several operators on one field all apply, AND-ed: `{ pages: { gte: 1, lte: 5 } }`. An operator set to `undefined` is skipped.
-  An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out.
-  Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. On a string column, `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted; on a `jsonb` column, `contains` takes a fragment of the document (below).
-- **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below).
+  An empty `where: {}` — or an empty `and` / `or` group — filters nothing, the same as leaving it out. So does an `or` with a `{}` branch: that branch matches every row. `in: []` matches no row, and `notIn: []` every row.
+  Comparison values are written the same way the column stores them, so you filter a `date` column with a JS `Date`, a `bigint` column with a `bigint`, and an `interval` column with a `Duration` or ISO string. On a string column, `beginsWith` / `endsWith` / `contains` build a `LIKE` pattern and are not converted; `%` and `_` in the value match themselves, not any text; on a `jsonb` column, `contains` takes a fragment of the document (below).
+- **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below). Any other direction (`"DESC"`, `"up"`) throws; a field set to `undefined` is skipped.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns. A `json` column has no equality and is refused, so `distinct` throws when one is selected — including when nothing is named and every column is. A `jsonb` column is compared.
 - **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
@@ -109,7 +109,9 @@ cannot see (a resolver passing arguments through).
 | `object`     | `record`                                                   | `eq` `neq` `contains` `hasKey` `exists`                                                     | no         | no        |
 
 - **A bare value** is shorthand for `eq`. A plain object counts as operators when it names one;
-  one that names none is a value (an `interval` read as a `Duration`).
+  one that names none is a value only on an `interval` column (a `Duration`). On any other
+  column it throws as an unknown operator: `{ assigneeId: { isNull: true } }` is a typo for
+  `exists`, not a value to compare.
 - **Document, array and binary columns take no bare value.** `{ settings: { theme: "dark" } }`
   could be a document or a filter; it throws, asking for one of the column's operators.
 - **`jsonb` filters compare documents.** `eq` / `neq` take a whole document, compared as

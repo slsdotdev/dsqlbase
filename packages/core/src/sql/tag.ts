@@ -139,12 +139,16 @@ sql.between = (node: SQLNode, lower: SQLValue, upper: SQLValue) => {
   return sql.join([node, sql.raw("BETWEEN"), asNode(lower), sql.raw("AND"), asNode(upper)]);
 };
 
+// An empty list has no SQL form — `IN ()` is a syntax error — so it renders as the answer:
+// nothing is in an empty list, everything is outside it.
 sql.in = (name: string | SQLNode, values: SQLValue[]) => {
+  if (values.length === 0) return sql`FALSE`;
   const identifier = typeof name === "string" ? new SQLIdentifier(name) : name;
   return sql`${identifier} IN ${sql.wrap(sql.join(values.map(asNode), ", "))}`;
 };
 
 sql.notIn = (name: string | SQLNode, values: SQLValue[]) => {
+  if (values.length === 0) return sql`TRUE`;
   const identifier = typeof name === "string" ? new SQLIdentifier(name) : name;
   return sql`${identifier} NOT IN ${sql.wrap(sql.join(values.map(asNode), ", "))}`;
 };

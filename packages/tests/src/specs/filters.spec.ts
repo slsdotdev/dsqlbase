@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sql } from "@dsqlbase/core";
 import { withSeededClient } from "../fixures/seeded-client.js";
 
 /**
@@ -7,7 +8,7 @@ import { withSeededClient } from "../fixures/seeded-client.js";
  * what the column wrote — not just what the normalizer produced.
  */
 describe("filters on codec columns", () => {
-  const { getClient } = withSeededClient();
+  const { getClient, getData } = withSeededClient();
 
   describe("date", () => {
     it("matches a date by equality", async () => {
@@ -150,6 +151,25 @@ describe("filters on codec columns", () => {
       });
 
       expect(rows.map((r) => r.title)).toEqual(["Setup authentication"]);
+    });
+
+    // `%` and `_` in a value match themselves, not any text.
+    it("matches % and _ literally", async () => {
+      const client = getClient();
+      const [task] = getData().tasks;
+      await client.$query(sql`UPDATE "tasks" SET "title" = ${"50%_off"} WHERE "id" = ${task.id}`);
+
+      const literal = await client.tasks.findMany({
+        select: { title: true },
+        where: { title: { contains: "%_" } },
+      });
+      const wildcard = await client.tasks.findMany({
+        select: { title: true },
+        where: { title: { beginsWith: "%" } },
+      });
+
+      expect(literal.map((r) => r.title)).toEqual(["50%_off"]);
+      expect(wildcard).toEqual([]);
     });
   });
 });

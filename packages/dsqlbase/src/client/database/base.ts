@@ -90,7 +90,9 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       );
     }
 
-    const { select, where, join } = (option && typeof option === "object" ? option : {}) as NodeArgs;
+    const { select, where, join } = (
+      option && typeof option === "object" ? option : {}
+    ) as NodeArgs;
 
     return { node, value: pk[node.keyField], args: { select, where, join } };
   }
@@ -204,8 +206,10 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       groups.set(node.alias, group);
     }
 
-    // One query per table, all of them in flight together.
+    // One query per table, all of them in flight together. Rows are matched back by node and
+    // canonical key, not by id text: the database finds a row for any spelling of its uuid.
     const rows = new Map<string, Record<string, unknown>>();
+    const keyOf = (alias: string, value: string) => `${alias}\u0000${canonicalUuid(value)}`;
 
     await Promise.all(
       [...groups.values()].map(async ({ node, values, args: { select, where, join } }) => {
@@ -218,14 +222,16 @@ export abstract class BaseClient<T extends DefinitionSchema> {
         })) as unknown as Record<string, unknown>[];
 
         for (const row of found) {
-          // The key column reads back already wrapped, so the row indexes by global id.
-          rows.set(String(row[node.keyField]), this._tag(row, node));
+          // The key column reads back wrapped as a global id; its payload is the stored uuid.
+          const { pk } = decodeGlobalId(String(row[node.keyField]));
+          rows.set(keyOf(node.alias, pk[node.keyField] ?? ""), this._tag(row, node));
         }
       })
     );
 
-    return args.ids.map(
-      (id) => (rows.get(id) ?? null) as GlobalIdListResultOf<Schema<T>, TOn> | null
+    return resolved.map(
+      ({ node, value }) =>
+        (rows.get(keyOf(node.alias, value)) ?? null) as GlobalIdListResultOf<Schema<T>, TOn> | null
     );
   }
 
@@ -247,6 +253,14 @@ export abstract class BaseClient<T extends DefinitionSchema> {
 
   async $execute<T = unknown>(query: SQLStatement): Promise<T[]> {
     this._assertUnscoped("$execute");
+
+    // A `sql` template here is an object with no `text`: the session would run nothing.
+    if (typeof (query as Partial<SQLStatement> | null)?.text !== "string") {
+      throw new TypeError(
+        "$execute takes a rendered statement ({ text, params }); pass a sql`…` template to " +
+          "$query, or call .toQuery() on it."
+      );
+    }
 
     return this._ctx.session.execute<T>(query);
   }
@@ -286,4 +300,15 @@ export function attachModels<T extends DefinitionSchema>(
       enumerable: true,
     });
   }
+}
+
+/**
+ * A uuid as PostgreSQL prints it — lower case, hyphenated 8-4-4-4-12 — from any spelling its
+ * input accepts (upper case, braces, hyphens anywhere or none). Anything that is not 32 hex
+ * digits is returned as given: the database refuses it.
+ */
+function canonicalUuid(value: string): string {
+  const hex = value.replace(/[{}-]/g, "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(hex)) return value;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

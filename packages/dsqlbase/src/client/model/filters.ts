@@ -112,6 +112,28 @@ export const JSONB_RUNTIME_TYPES: ReadonlySet<ColumnRuntimeType> = new Set([
   "object",
 ]);
 
+/** The runtime types whose values can be plain objects: a `Duration`, a JSON document. */
+const PLAIN_OBJECT_VALUES: ReadonlySet<ColumnRuntimeType> = new Set([
+  "interval",
+  "json",
+  "jsonb",
+  "object",
+]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * A pattern operator's value as a `LIKE` literal: `%` and `_` match themselves, not any text.
+ * Backslash is PostgreSQL's default `LIKE` escape character, so it is escaped first.
+ */
+function escapeLike(value: unknown): string {
+  return String(value).replace(/[\\%_]/g, "\\$&");
+}
+
 export function rulesOf(column: AnyColumn): RuntimeTypeRules {
   return RUNTIME_TYPE_RULES[column.runtimeType];
 }
@@ -405,8 +427,11 @@ export class WhereBuilder {
           .map((expr) => this._build(table, group, expr as Record<string, unknown>, path))
           .filter(Boolean) as SQLNode[];
 
-        // An empty group constrains nothing; left in, it would render as `()`.
-        if (children.length > 0) {
+        // An empty group constrains nothing; left in, it would render as `()`. Nor does an `or`
+        // with a branch that matches every row (`{}`): dropping that branch would narrow it.
+        const everyRow = fieldName === "or" && children.length < condition.length;
+
+        if (children.length > 0 && !everyRow) {
           expressions.push(sql.wrap(fieldName === "and" ? sql.and(children) : sql.or(children)));
         }
 
@@ -467,6 +492,16 @@ export class WhereBuilder {
         throw new Error(
           `Filter the ${subject} with one of its operators (${rules.operators.join(", ")}), ` +
             `not a bare value.`
+        );
+      }
+
+      // An object naming no operator is a value only where values can be plain objects; on any
+      // other column it is a misspelt operator (`{ isNull: true }`), not a value to compare.
+      if (isPlainObject(condition) && !PLAIN_OBJECT_VALUES.has(column.runtimeType)) {
+        throw new Error(
+          `Unknown operator ${Object.keys(condition)
+            .map((key) => `"${key}"`)
+            .join(", ")} in the filter on the ${subject} (valid: ${rules.operators.join(", ")}).`
         );
       }
 
@@ -611,12 +646,12 @@ export class WhereBuilder {
       case "exists":
         return value ? sql.isNotNull(column) : sql.isNull(column);
       case "beginsWith":
-        return sql.like(column, `${value as string}%`);
+        return sql.like(column, `${escapeLike(value)}%`);
       case "endsWith":
-        return sql.like(column, `%${value as string}`);
+        return sql.like(column, `%${escapeLike(value)}`);
       case "contains":
         if (!JSONB_RUNTIME_TYPES.has(column.runtimeType)) {
-          return sql.like(column, `%${value as string}%`);
+          return sql.like(column, `%${escapeLike(value)}%`);
         }
 
         // On an array column the fragment lists items; a lone item would be ambiguous when the

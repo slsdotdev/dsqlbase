@@ -112,6 +112,14 @@ describe("sql tag", () => {
   });
 });
 
+// `IN ()` is a syntax error; an empty list has an answer instead.
+describe("sql.in / sql.notIn with an empty list", () => {
+  it("renders FALSE and TRUE", () => {
+    expect(sql.in("id", []).toQuery()).toEqual({ text: "FALSE", params: [] });
+    expect(sql.notIn("id", []).toQuery()).toEqual({ text: "TRUE", params: [] });
+  });
+});
+
 describe("sql.keyset", () => {
   const a = sql.identifier("a");
   const b = sql.identifier("b");

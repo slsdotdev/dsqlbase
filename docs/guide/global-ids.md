@@ -147,6 +147,10 @@ the shape a batch resolver wants:
 const records = await dsql.$listByGlobalId({ ids }); // records[i] ↔ ids[i], or null
 ```
 
+A row is matched back to its id by node and key, not by the id's text: an id whose uuid is
+spelled differently — upper case, braces, no hyphens — resolves here as it does in
+`$findByGlobalId`.
+
 It always returns the node's key field, even when `select` leaves it out: matching a row back to
 the id that asked for it is what the key is for.
 

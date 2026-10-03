@@ -115,6 +115,25 @@ describe("DatabaseClient.$identityClaims", () => {
  * guards only ever fire for a caller who got past them — a JavaScript consumer, or one holding
  * the client through a widened type. That is what the cast reproduces.
  */
+// A `sql` template has no `text`: passed here, the session would have run nothing, silently.
+describe("DatabaseClient.$execute", () => {
+  it("refuses a sql template, naming $query", async () => {
+    const { dsql, last } = setup();
+
+    await expect(dsql.$execute(sql`SELECT 1` as never)).rejects.toThrow(
+      /\$execute takes a rendered statement .* pass a sql`…` template to \$query/
+    );
+    expect(last()).toBeUndefined();
+  });
+
+  it("runs a rendered statement", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$execute(sql`SELECT 1`.toQuery());
+    expect(last()?.text).toBe("SELECT 1");
+  });
+});
+
 describe("DatabaseClient guards on a scoped client", () => {
   const scoped = () =>
     setup().dsql.$identityClaims({ workspaceId: "w1" }) as unknown as ReturnType<

@@ -125,6 +125,38 @@ describe("filters by runtime type", () => {
       );
     });
 
+    // An object naming no operator is a value only where values can be plain objects.
+    it("refuses an object that names only unknown operators, where it can't be a value", async () => {
+      await expect(where({ id: { isNull: true } })).rejects.toThrow(
+        'Unknown operator "isNull" in the filter on the uuid column "id" of "docs" ' +
+          "(valid: eq, neq, in, gt, gte, lt, lte, between, exists)."
+      );
+      expect(calls).toHaveLength(0);
+    });
+
+    // An interval's value is a `Duration`, itself a plain object.
+    it("keeps an object with no operator as a value on an interval column", async () => {
+      expect(await where({ ttl: { days: 1 } })).toBe('"__t0"."ttl" = $1');
+    });
+
+    it("escapes LIKE wildcards in a pattern operator's value", async () => {
+      await where({ title: { beginsWith: "50%_off\\" } });
+      expect(calls.at(-1)?.params).toEqual(["50\\%\\_off\\\\%"]);
+
+      await where({ title: { contains: "a_b" } });
+      expect(calls.at(-1)?.params).toEqual(["%a\\_b%"]);
+    });
+
+    it("renders in: [] as matching nothing", async () => {
+      expect(await where({ pages: { in: [] } })).toBe("FALSE");
+    });
+
+    // `{}` matches every row, so an `or` holding it does too: no condition at all.
+    it("drops an or with a branch that matches every row", async () => {
+      await where({ or: [{}, { pages: { eq: 1 } }] });
+      expect(calls.at(-1)?.text).not.toContain("WHERE");
+    });
+
     it("reserves `where` for filtering into a value", async () => {
       await expect(where({ settings: { where: { theme: { eq: "dark" } } } })).rejects.toThrow(
         'A nested `where` on the json column "settings" of "docs" is not supported yet.'
@@ -329,6 +361,20 @@ describe("filters by runtime type", () => {
       expect(() => loose.items.findMany({ where: { settings: { eq: "x" } } })).toThrow(
         'Operator "eq" is not valid on the json column "settings"'
       );
+    });
+
+    it("refuses a direction other than asc or desc", () => {
+      expect(() => loose.docs.findMany({ orderBy: { pages: "DESC" } })).toThrow(
+        'Invalid direction "DESC" for "pages" in orderBy for table "docs"; use "asc" or "desc".'
+      );
+      expect(() => loose.items.findMany({ orderBy: { title: "up" } })).toThrow(
+        'Invalid direction "up" for "title" in orderBy for union "items"'
+      );
+    });
+
+    it("skips a field whose direction is undefined", async () => {
+      await loose.docs.findMany({ orderBy: { pages: undefined, title: "asc" } });
+      expect(calls.at(-1)?.text).toMatch(/ORDER BY "__t0"."title" ASC/);
     });
 
     it("cannot order by a shared json field", () => {
