@@ -23,6 +23,8 @@ const idColumn: Column = {
   domain: null,
   generated: null,
   identity: null,
+  deprecated: false,
+  renamedFrom: null,
 } as Column;
 
 const emailColumn: Column = {
@@ -37,6 +39,8 @@ const emailColumn: Column = {
   domain: null,
   generated: null,
   identity: null,
+  deprecated: false,
+  renamedFrom: null,
 } as Column;
 
 const baseTable: Table = {
@@ -112,6 +116,8 @@ describe("diffTableOperations — risk and summaries", () => {
             },
           ],
           include: null,
+          where: null,
+          valid: true,
         },
       ],
     } as Table;
@@ -354,6 +360,7 @@ describe("diffTableOperations — existing remote", () => {
               },
             ],
             include: null,
+            where: null,
             valid: true,
           },
         ],
@@ -406,6 +413,7 @@ describe("diffTableOperations — existing remote", () => {
           },
         ],
         include: null,
+        where: null,
         valid: true,
       } as Table["indexes"][number];
       const remote: Table = { ...withColumn({}), indexes: [index] };
@@ -674,6 +682,8 @@ describe("diffTableOperations — existing remote", () => {
         },
       ],
       include: null,
+      where: null,
+      valid: true,
     };
 
     it("emits CREATE INDEX ASYNC when an index is added", () => {
@@ -788,6 +798,7 @@ describe("diffTableOperations — existing remote", () => {
       kind: "CHECK_CONSTRAINT" as const,
       name: "users_email_chk",
       expression: "email <> ''",
+      validated: true,
     };
 
     it("emits CREATE INDEX + USING INDEX when a UNIQUE constraint is added", () => {
@@ -938,6 +949,7 @@ describe("diffTableOperations — existing remote", () => {
       kind: "CHECK_CONSTRAINT" as const,
       name: "email_check",
       expression: "email <> ''",
+      validated: true,
     };
 
     it("adds a column CHECK NOT VALID, then validates it", () => {
@@ -1016,6 +1028,8 @@ describe("diffTableOperations — table in a namespace", () => {
       },
     ],
     include: null,
+    where: null,
+    valid: true,
   };
 
   /**
@@ -1033,9 +1047,7 @@ describe("diffTableOperations — table in a namespace", () => {
       .filter((text) => /(?<!"app"\.)"(users|users_email_idx)"/.test(text));
 
   it("creates the table and its indexes in the schema", () => {
-    const result = diffTableOperations({ ...appTable, indexes: [index] }, undefined, {
-      ifExists: true,
-    });
+    const result = diffTableOperations({ ...appTable, indexes: [index] });
 
     expect(result.errors).toEqual([]);
     expect(sqlOf(result)[0]).toContain(`CREATE TABLE IF NOT EXISTS "app"."users"`);
@@ -1053,12 +1065,17 @@ describe("diffTableOperations — table in a namespace", () => {
       ],
       indexes: [{ ...index, unique: true }],
       constraints: [
-        { kind: "CHECK_CONSTRAINT", name: "users_email_set", expression: `"email" <> ''` },
+        {
+          kind: "CHECK_CONSTRAINT",
+          name: "users_email_set",
+          expression: `"email" <> ''`,
+          validated: true,
+        },
       ],
     } as Table;
     const remote: Table = { ...appTable, indexes: [index] };
 
-    const result = diffTableOperations(local, remote, { ifExists: true });
+    const result = diffTableOperations(local, remote);
 
     expect(result.errors).toEqual([]);
     expect(sqlOf(result).length).toBeGreaterThan(5);
@@ -1072,7 +1089,7 @@ describe("diffTableOperations — table in a namespace", () => {
     } as Table;
     const remote: Table = { ...appTable, indexes: [index] };
 
-    const result = diffTableOperations(local, remote, { ifExists: true });
+    const result = diffTableOperations(local, remote);
 
     expect(result.errors).toEqual([]);
     expect(sqlOf(result)).toContain(`DROP INDEX IF EXISTS "app"."users_email_idx" RESTRICT`);
@@ -1096,6 +1113,8 @@ describe("diffTableOperations — notes on lossy index and UNIQUE steps", () => 
       },
     ],
     include: null,
+    where: null,
+    valid: true,
   };
   const unique = {
     kind: "UNIQUE_CONSTRAINT" as const,

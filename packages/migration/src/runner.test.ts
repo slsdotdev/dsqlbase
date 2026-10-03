@@ -275,6 +275,8 @@ describe("MigrationRunner", () => {
                 },
               ],
               include: null,
+              where: null,
+              valid: true,
             },
           ],
         } as typeof remote,
