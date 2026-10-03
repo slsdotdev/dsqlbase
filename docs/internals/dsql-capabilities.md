@@ -73,7 +73,7 @@ Sources:
 | `DROP INDEX [IF EXISTS] … [RESTRICT \| CASCADE]` | supported (live; no grammar published) | emitted |
 | `ALTER INDEX … RENAME TO` | supported (live; not listed in the docs) | not modelled |
 
-The catalog reports the index method as `btree_index`.
+The catalog reports the index method as `btree_index`. A primary key's index lists every other column as `INCLUDE` (live), columns added later too: the table is stored by its key.
 
 ## Domains, sequences, schemas, views
 

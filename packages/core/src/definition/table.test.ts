@@ -79,9 +79,7 @@ describe("Table", () => {
             displayName: new ColumnDefinition("display_name"),
           },
         })
-    ).toThrow(
-      /maps fields "name" and "displayName" to the same column "display_name"/
-    );
+    ).toThrow(/maps fields "name" and "displayName" to the same column "display_name"/);
   });
 
   it("should accept fields whose aliases differ from distinct column names", () => {
@@ -113,6 +111,26 @@ describe("Table", () => {
       name: "team_members_primary_key",
       columns: ["team_id", "user_id"],
     });
+  });
+
+  // PostgreSQL makes every primary-key column NOT NULL; the serialized table says so too, or it
+  // would read as a NOT NULL change against every database it was applied to.
+  it("serializes the columns of a composite primary key as NOT NULL", () => {
+    const tags = new TableDefinition("article_tags", {
+      columns: {
+        articleId: new ColumnDefinition("article_id"),
+        tagId: new ColumnDefinition("tag_id"),
+        note: new ColumnDefinition("note"),
+      },
+    });
+
+    tags.primaryKey((c) => [c.articleId, c.tagId]);
+
+    expect(tags.toJSON().columns.map((c) => [c.name, c.notNull])).toEqual([
+      ["article_id", true],
+      ["tag_id", true],
+      ["note", false],
+    ]);
   });
 
   it("should serialize index with columns", () => {
@@ -206,7 +224,8 @@ describe("TableDefinition tenant claims", () => {
       workspaceId: new ColumnDefinition("workspace_id").notNull(),
     });
 
-    expect(() => ws.table("invoices", { id: new ColumnDefinition("id").primaryKey() })).not.toThrow();
+    expect(() =>
+      ws.table("invoices", { id: new ColumnDefinition("id").primaryKey() })
+    ).not.toThrow();
   });
 });
-

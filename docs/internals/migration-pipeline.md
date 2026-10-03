@@ -14,7 +14,7 @@ validation/  introspection/query.ts   normalizer.ts   reconciliation/diffs/  ope
 These hold across every layer. A change that breaks one needs a decision record.
 
 1. **`SerializedSchema` is the contract** between introspection and reconciliation (`base.ts`). Local (`TableDefinition.toJSON()`) and remote (introspection query) must produce the same shape. Adapter logic lives in `introspection/normalizer.ts`, never in reconciliation.
-2. **Diffs are dumb.** `reconciliation/diffs/*` has no knowledge of DSQL, refusals, or operation rules. It diffs every observable attribute (`hasDiff` is a recursive deep-equal) and emits raw `Diff` records.
+2. **Diffs are dumb.** `reconciliation/diffs/*` has no knowledge of DSQL, refusals, or operation rules. It diffs every observable attribute (`hasDiff` is a recursive deep-equal) and emits raw `Diff` records. Some attributes need an equality that knows their spelling — defaults (`diffs/expression.ts`), sequence options — and those comparisons live here too; deciding what to _do_ about a difference does not.
 3. **Operations are the policy layer.** `reconciliation/operations/*` translate diffs into DDL operations or refusals. All DSQL capability rules live here, and only here.
 4. **Per-subject batching.** All diffs for one subject (a column, an index, a domain) collapse into one operation or one refusal carrying every blocked diff.
 5. **Refusals are not errors.** A refusal is a structured record (`code`, `subject`, `diffs[]`, `message`) in `operations/base.ts`. The runner decides whether to fail on them; today `dryRun` / `run` throw `MigrationError`, `plan` returns them in `errors[]`.
@@ -27,11 +27,20 @@ These hold across every layer. A change that breaks one needs a decision record.
 
 One `pg_catalog` round trip (`query.ts`), unified `constraints[]` per table (PK / UNIQUE / CHECK), identity and generated columns via `pg_attribute.attidentity` / `attgenerated` + `pg_get_expr`. `normalizer.ts` does per-kind dispatch, column-level vs table-level constraint split, null → undefined coercion.
 
-Known follow-up: PG normalizes CHECK expressions (`qty > 0` → `(qty > (0)::integer)`), so an equivalent local expression emits a `modify` diff → refusal. Normalizing local expressions in the adapter is the intended fix.
+The normalizer also clears a primary key's `include` when it lists every non-key column: on DSQL the key's index covers the whole row, columns added later included, without anything declaring it.
+
+PostgreSQL prints expressions back deparsed, so they don't round-trip as written. **Defaults** compare through `sameDefault` (`reconciliation/diffs/expression.ts`):
+
+- keyword case outside quotes is ignored;
+- a literal's cast is ignored (`'EUR'` = `'EUR'::text`);
+- a number compares quoted or bare;
+- a `json` / `jsonb` literal compares by value.
+
+A default whose spelling these rules don't cover (a timestamp literal, printed in the session's time zone) re-plans as changed; it never goes unnoticed. **CHECK expressions are compared by name only**, so a changed expression under the same name isn't detected. The planned migration state (a snapshot of the last applied definition) is the intended fix for both.
 
 ### Diffs (`reconciliation/diffs/`)
 
-Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`, `identity`, `check`) are diffed as whole-config keys.
+Per object: `column.ts`, `indexes.ts`, `constraint.ts`, `domain.ts`, `sequence.ts`; `table.ts` orchestrates. Column attributes (`generated`, `check`) are diffed as whole-config keys; `identity` by its effective state; `defaultValue` through `sameDefault`.
 
 ### Operations (`reconciliation/operations/`)
 

@@ -226,13 +226,24 @@ export class TableDefinition<
   }
 
   public toJSON() {
+    const constraints = this._constraints?.map((constraint) => constraint.toJSON());
+    // PostgreSQL makes every primary-key column NOT NULL; a composite key's columns say so here.
+    const keyColumns = new Set<string>(
+      constraints.flatMap((constraint) =>
+        constraint.kind === Kind.PRIMARY_KEY_CONSTRAINT ? constraint.columns : []
+      )
+    );
+
     return {
       kind: this.kind,
       name: this.name,
       namespace: this._namespace?.name ?? "public",
-      columns: columnEntries(this.columns).map(([, column]) => column.toJSON()),
+      columns: columnEntries(this.columns).map(([, column]) => {
+        const json = column.toJSON();
+        return keyColumns.has(json.name) ? { ...json, notNull: true } : json;
+      }),
       indexes: this._indexes.map((idx) => idx.toJSON()),
-      constraints: this._constraints?.map((constraint) => constraint.toJSON()),
+      constraints,
     } as const;
   }
 }

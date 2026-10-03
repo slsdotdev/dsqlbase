@@ -1,6 +1,7 @@
 import { AnyCheckConstraintDefinition, AnyColumnDefinition } from "@dsqlbase/core/definition";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
+import { sameDefault } from "./expression.js";
 import { changedSequenceOptions } from "./sequence.js";
 
 type Identity = SerializedObject<AnyColumnDefinition>["identity"];
@@ -45,7 +46,6 @@ export function diffColumn(
   for (const key of [
     "dataType",
     "notNull",
-    "defaultValue",
     "domain",
     "primaryKey",
     "unique",
@@ -62,6 +62,18 @@ export function diffColumn(
         prevValue: remote[key],
       });
     }
+  }
+
+  if (!sameDefault(local.defaultValue, remote.defaultValue)) {
+    diffs.push({
+      type: diffType(local, remote, "defaultValue"),
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "defaultValue",
+      value: local.defaultValue,
+      prevValue: remote.defaultValue,
+    });
   }
 
   if (hasIdentityDiff(local.identity, remote.identity)) {

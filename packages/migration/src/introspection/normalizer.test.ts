@@ -269,6 +269,43 @@ describe("normalizeObject", () => {
     });
   });
 
+  // On DSQL a table is stored by its primary key, and the key's index lists every other column
+  // as INCLUDE — including columns added later. It isn't declared, so it isn't compared.
+  describe("DSQL primary-key INCLUDE", () => {
+    const table = (include: string[] | null) =>
+      normalizeObject({
+        kind: "TABLE",
+        name: "article_tags",
+        namespace: "public",
+        columns: [
+          { ...baseColumn, name: "article_id", dataType: "uuid", notNull: true },
+          { ...baseColumn, name: "tag_id", dataType: "uuid", notNull: true },
+          { ...baseColumn, name: "note", dataType: "text" },
+          { ...baseColumn, name: "rank", dataType: "int" },
+        ],
+        indexes: [],
+        constraints: [
+          {
+            kind: "PRIMARY_KEY_CONSTRAINT",
+            name: "article_tags_primary_key",
+            columns: ["article_id", "tag_id"],
+            expression: null,
+            distinctNulls: null,
+            include,
+          },
+        ],
+      }) as { constraints: { include: string[] | null }[] };
+
+    it("drops an INCLUDE that lists every non-key column", () => {
+      expect(table(["note", "rank"]).constraints[0]?.include).toBeNull();
+      expect(table(["rank", "note"]).constraints[0]?.include).toBeNull();
+    });
+
+    it("keeps an INCLUDE that lists only some of them", () => {
+      expect(table(["note"]).constraints[0]?.include).toEqual(["note"]);
+    });
+  });
+
   describe("index column synthesis", () => {
     it("adds the synthetic IndexColumnDefinition.name", () => {
       const result = normalizeObject({

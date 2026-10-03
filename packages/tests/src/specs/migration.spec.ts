@@ -67,8 +67,7 @@ describe("schema migrations (e2e via PGlite)", () => {
 
   // The whole e2e fixture: every column kind, default, domain, sequence, index and constraint the
   // builders produce. A second plan must be empty, or every deploy re-plans (and refuses) work
-  // that is already done. Fails until expressions are normalized (defaults, composite-key NOT
-  // NULL): the migrations catch-up, story 1.
+  // that is already done.
   it("plans nothing on a second run of the full fixture schema", async () => {
     const definitions = getSerializedSchemaObjects(Object.values(schema));
 

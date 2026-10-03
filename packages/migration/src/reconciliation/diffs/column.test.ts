@@ -30,6 +30,22 @@ describe("diffColumn", () => {
     expect(diffColumn(baseColumn, baseColumn)).toEqual([]);
   });
 
+  it("emits no diff for a default the database spells differently", () => {
+    const local: Column = { ...baseColumn, defaultValue: "current_timestamp" };
+    const remote: Column = { ...baseColumn, defaultValue: "CURRENT_TIMESTAMP" };
+
+    expect(diffColumn(local, remote)).toEqual([]);
+  });
+
+  it("emits a modify for a default that changed", () => {
+    const local: Column = { ...baseColumn, defaultValue: "'1'" };
+    const remote: Column = { ...baseColumn, defaultValue: "0" };
+
+    expect(diffColumn(local, remote)).toEqual([
+      expect.objectContaining({ type: "modify", key: "defaultValue" }),
+    ]);
+  });
+
   it.each([
     ["dataType", { dataType: "bigint" }],
     ["notNull", { notNull: true }],

@@ -289,12 +289,24 @@ function partitionConstraints(
         kind: "PRIMARY_KEY_CONSTRAINT",
         name: constraint.name,
         columns: constraint.columns,
-        include: constraint.include,
+        include: coversEveryOtherColumn(constraint, columnsByName) ? null : constraint.include,
       });
     }
   }
 
   return tableLevel;
+}
+
+// DSQL stores a table by its primary key: the key's index lists every other column as INCLUDE,
+// columns added later too. Nothing declared it, so it is read as no INCLUDE at all.
+function coversEveryOtherColumn(
+  constraint: RawConstraint,
+  columnsByName: Map<string, SerializedColumn>
+): boolean {
+  const include = new Set(constraint.include ?? []);
+  const others = [...columnsByName.keys()].filter((name) => !constraint.columns.includes(name));
+
+  return include.size > 0 && include.size === others.length && others.every((n) => include.has(n));
 }
 
 function normalizeTable(raw: RawTable): SerializedObject<AnyTableDefinition> {

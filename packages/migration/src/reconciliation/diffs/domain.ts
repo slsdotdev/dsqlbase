@@ -1,6 +1,7 @@
 import { AnyDomainDefinition } from "@dsqlbase/core";
 import { SerializedObject } from "../../base.js";
 import { Diff, diffType, DiffType, hasDiff } from "./base.js";
+import { sameDefault } from "./expression.js";
 
 export function diffDomain(
   local: SerializedObject<AnyDomainDefinition>,
@@ -8,7 +9,19 @@ export function diffDomain(
 ) {
   const diffs: Diff<DiffType, SerializedObject<AnyDomainDefinition>>[] = [];
 
-  for (const key of ["dataType", "notNull", "defaultValue"] as const) {
+  if (!sameDefault(local.defaultValue, remote.defaultValue)) {
+    diffs.push({
+      type: diffType(local, remote, "defaultValue"),
+      kind: local.kind,
+      name: local.name,
+      object: local,
+      key: "defaultValue",
+      value: local.defaultValue,
+      prevValue: remote.defaultValue,
+    });
+  }
+
+  for (const key of ["dataType", "notNull"] as const) {
     if (hasDiff(local, remote, key)) {
       diffs.push({
         type: diffType(local, remote, key),
