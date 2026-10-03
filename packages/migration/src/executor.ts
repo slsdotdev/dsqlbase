@@ -88,6 +88,12 @@ export class OperationExecutor {
     };
   }
 
+  /**
+   * Refreshes every still-`processing` async job in `progress` with one `sys.jobs` read. For a
+   * caller that submits independent async steps without waiting on each — an index on one table,
+   * then another table's — and waits only before a step that depends on them, such as
+   * `ADD CONSTRAINT … USING INDEX`. Results without a pending job are returned unchanged.
+   */
   public async updatePendingJobsStatus(
     progress: OperationExecutionResult[]
   ): Promise<OperationExecutionResult[]> {
@@ -99,10 +105,11 @@ export class OperationExecutor {
       return progress;
     }
 
+    // One parameter per id: a JS array bound as one parameter is not a list of strings.
     const query = sql`
       SELECT job_id, status, job_type, details
       FROM sys.jobs
-      WHERE job_id IN (${pendingJobIds})
+      WHERE ${sql.in("job_id", pendingJobIds)}
     `;
 
     const jobs = (await this._session.execute<AsyncJobRow>(query.toQuery())).map(toAsyncJob);
