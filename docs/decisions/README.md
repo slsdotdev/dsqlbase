@@ -23,6 +23,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0013](./0013-embeddable-objects.md) | Embedded objects as column groups | 2026-10-02 | accepted |
 | [0014](./0014-migration-dsql-catchup.md) | Migrations: DSQL catch-up, changes and steps, risk gates | 2026-10-03 | accepted |
 | [0015](./0015-release-readiness.md) | Release readiness for 0.2.0 | 2026-10-03 | accepted |
+| [0016](./0016-numeric-modes.md) | `numeric()` read modes | 2026-10-11 | accepted |
 
 ## Template
 

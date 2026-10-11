@@ -24,6 +24,7 @@ import {
   embedded,
   numeric,
 } from "dsqlbase/schema";
+import { Decimal } from "decimal.js";
 import { z } from "zod";
 
 export type ProjectSettings = {
@@ -463,6 +464,31 @@ const projectBoardRelations = relations(projects, {
 });
 
 /**
+ * `numeric` read modes, wider than a double holds: `amount` as exact text, `balance` as a
+ * decimal.js `Decimal`. Entries hang off projects so a nested select reads them through JSON.
+ */
+const ledgerEntries = table("ledger_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull(),
+  amount: numeric("amount", { precision: 38, scale: 6, mode: "string" }).notNull(),
+  balance: numeric("balance", { precision: 38, scale: 6, mode: Decimal }),
+});
+
+const ledgerEntryRelations = relations(ledgerEntries, {
+  project: belongsTo(projects, {
+    from: [ledgerEntries.columns.projectId],
+    to: [projects.columns.id],
+  }),
+});
+
+const projectLedgerRelations = relations(projects, {
+  ledgerEntries: hasMany(ledgerEntries, {
+    from: [projects.columns.id],
+    to: [ledgerEntries.columns.projectId],
+  }),
+});
+
+/**
  * Column groups. `money` has required members, so `netValue` is never null, and `discount`
  * can be left out of a create because its group default fills the one required member without
  * one. `address` has only nullable members and a nested `geo`, so `billing` can be absent.
@@ -545,4 +571,7 @@ export {
   projectBoardRelations,
   currency,
   invoices,
+  ledgerEntries,
+  ledgerEntryRelations,
+  projectLedgerRelations,
 };

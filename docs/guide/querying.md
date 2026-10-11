@@ -115,7 +115,10 @@ cannot see (a resolver passing arguments through).
 - **A bare value** is shorthand for `eq`. A plain object counts as operators when it names one;
   one that names none is a value only on an `interval` column (a `Duration`). On any other
   column it throws as an unknown operator: `{ assigneeId: { isNull: true } }` is a typo for
-  `exists`, not a value to compare.
+  `exists`, not a value to compare. A class instance is never a plain object, so a decimal read
+  by a [`numeric` column's `mode`](./schema.md#numeric-columns) is a value: `{ total: price }`.
+- **Filter values take the column's read type**, so a `numeric` column in `"string"` mode
+  compares strings and in class mode instances; they are sent as decimal text either way.
 - **Document, array and binary columns take no bare value.** `{ settings: { theme: "dark" } }`
   could be a document or a filter; it throws, asking for one of the column's operators.
 - **`jsonb` filters compare documents.** `eq` / `neq` take a whole document, compared as

@@ -64,6 +64,14 @@ SQL type `bigint` / `int8` / `numeric` / `decimal`) as `::text`, under its own n
 (`_resolveSelectParams` in `packages/core/src/runtime/operation.ts`): the codec gets the same
 string at every depth. Other types arrive as JSON renders them, and their codecs accept that.
 
+`numeric()` relies on this for its read `mode` (`packages/dsqlbase/src/schema/columns/numeric.ts`):
+`"number"` parses the text to a double, `"string"` returns it unchanged, and a decimal class is
+built from it with `new Mode(text)`. The latter two are lossless only because the text is the
+database's at every depth. Encode is `String(value)` in every mode, which a decimal class's
+`toString()` satisfies — exponent notation included, as Postgres reads it. The write validator
+converts a `string` or `number` input to the read form — in those two modes the column's
+`inputType` is wider than its `valueType` — and checks precision and scale on that value's text.
+
 ## JSON columns: the driver parses, the validator checks
 
 `json` and `jsonb` columns (`packages/dsqlbase/src/schema/columns/json.ts`) rely on the session
@@ -85,7 +93,8 @@ read (before the schema), with or without `.schema()`. The filters on them rely 
 A validator cannot await, so a schema that returns a `Promise` throws. Writes and reads have
 their own types here: `ColumnConfig.inputType` carries the write side (`CreateValuesOf` /
 `UpdateValuesOf`, `.default()`, `$onCreate`, `$onUpdate`), `valueType` the read side and filters.
-They are the same type for every other column.
+They are the same type for every other column except `numeric()` in `"string"` or class
+mode (above).
 
 ## Filtering by a codec column in raw SQL
 

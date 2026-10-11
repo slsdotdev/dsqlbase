@@ -29,6 +29,14 @@ export {
 } from "./columns/json.js";
 export { record } from "./columns/record.js";
 export { decimal, numeric } from "./columns/numeric.js";
+export type {
+  DecimalConstructor,
+  DecimalLike,
+  NumericInputType,
+  NumericMode,
+  NumericOptions,
+  NumericValueType,
+} from "./columns/numeric.js";
 export { real, float4 } from "./columns/real.js";
 export { smallint, int2 } from "./columns/smallint.js";
 export { text } from "./columns/text.js";

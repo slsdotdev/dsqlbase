@@ -232,20 +232,20 @@ members is enough.
 
 ## Column types
 
-| Constructor(s)                                          | PG type                         | Notes                                                                                                            |
-| ------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                                  |
-| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                                         |
-| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                                        |
-| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        | `numeric(name, { precision, scale })`, default `(18,6)` (DSQL's own); refuses a write it would round or overflow |
-| `boolean`/`bool`                                        | `boolean`                       |                                                                                                                  |
-| `bytea`                                                 | `bytea`                         |                                                                                                                  |
-| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                          |
-| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                                       |
-| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                            |
-| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type                        |
-| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type                              |
-| `identity(name, { type, sequenceName })`                | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation; `.cache()`, `.startValue()`, … set sequence options     |
+| Constructor(s)                                          | PG type                         | Notes                                                                                                                                                                                                    |
+| ------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`, `varchar(name, length)`, `char`                 | `text`, `varchar(n)`, `char(n)` |                                                                                                                                                                                                          |
+| `uuid`                                                  | `uuid`                          | `.defaultRandom()` → `gen_random_uuid()`                                                                                                                                                                 |
+| `smallint`/`int2`, `int`/`int4`, `bigint`/`int8`        | integers                        | `bigint` values are JS `bigint` via codec                                                                                                                                                                |
+| `numeric`/`decimal`, `real`/`float4`, `double`/`float8` | numerics                        | `numeric(name, { precision, scale, mode })`, default `(18,6)` (DSQL's own); refuses a write it would round or overflow; read as a `number`, exact text or your decimal class ([below](#numeric-columns)) |
+| `boolean`/`bool`                                        | `boolean`                       |                                                                                                                                                                                                          |
+| `bytea`                                                 | `bytea`                         |                                                                                                                                                                                                          |
+| `date`, `time`, `timestamp`/`datetime`                  | temporal                        | mode options control JS representation (`DateTimeMode`)                                                                                                                                                  |
+| `interval`/`duration`                                   | `interval`                      | `Duration` object or ISO string via `mode`                                                                                                                                                               |
+| `jsonb`, `json`                                         | `jsonb`, `json`                 | any JSON value; `unknown` until `.$type<T>()` or `.schema(s)` (below). Prefer `jsonb`                                                                                                                    |
+| `array`                                                 | `jsonb`                         | a JSON array, checked on every write and read; `.$type<T>()` takes the item or array type                                                                                                                |
+| `record`                                                | `jsonb`                         | a JSON object, checked on every write and read; `.$type<T>()` takes the object type                                                                                                                      |
+| `identity(name, { type, sequenceName })`                | `GENERATED … AS IDENTITY`       | the only column kind DSQL lets you alter after creation; `.cache()`, `.startValue()`, … set sequence options                                                                                             |
 
 Source: `packages/dsqlbase/src/schema/columns/`.
 
@@ -253,6 +253,42 @@ Each constructor also sets the column's **runtime type** — the kind of value i
 querying — which decides the filter operators it takes, whether a bare value means `eq`, and
 whether it can be ordered by. `domain()` and `$enum()` columns are `string`. See
 [Operators by column type](./querying.md#operators-by-column-type).
+
+## Numeric columns
+
+`numeric(name, { precision, scale })` is an exact decimal. By default a read is a JavaScript
+`number`, which holds about 15 significant digits: past that, and for arithmetic on money, the
+value is no longer exact. `mode` picks another form:
+
+| `mode`               | Read                          | Write accepts                     |
+| -------------------- | ----------------------------- | --------------------------------- |
+| `"number"` (default) | `number`                      | `number`                          |
+| `"string"`           | the exact text, `"12.500000"` | `string \| number`                |
+| a decimal class      | an instance of it             | an instance, `string` or `number` |
+
+A decimal class is any class built from a string whose instances have `toString()` and
+`toJSON()` — `Decimal` from decimal.js (and Prisma), `Big` from big.js, `BigNumber` from
+bignumber.js. dsqlbase depends on none of them; it calls `new Mode(text)` on read and
+`toString()` on write.
+
+```ts
+import { Decimal } from "decimal.js";
+import { numeric, table, uuid } from "dsqlbase/schema";
+
+export const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  total: numeric("total", { precision: 38, scale: 6, mode: Decimal }).notNull(),
+  fee: numeric("fee", { mode: "string" }),
+});
+
+// invoice.total is a Decimal, invoice.fee a string such as "1.500000"
+await dsql.invoices.findMany({ where: { total: { gt: new Decimal("1000") } } });
+```
+
+Every mode refuses a write that the column's scale would round or its precision overflow, and
+the `"string"` and class modes refuse a string that is not a decimal number. The value is exact at
+every depth — a nested relation read gets the database's text too. Filters take the read type:
+a string in `"string"` mode, an instance in class mode. The mode changes no DDL.
 
 ## JSON columns
 

@@ -248,6 +248,7 @@ describe("EmbeddedObjectDefinition — renames and deprecation", () => {
       amount: new ColumnDefinition("amount").renamedFrom("value"),
     });
 
+    // @ts-expect-error: renaming a member of an embedded object should throw
     const json = table({ price: money.column("price") }).toJSON();
 
     expect(json.columns.find((c) => c.name === "price_amount")?.renamedFrom).toBe("price_value");
@@ -257,7 +258,7 @@ describe("EmbeddedObjectDefinition — renames and deprecation", () => {
     const money = new EmbeddedObjectDefinition({
       amount: new ColumnDefinition("amount").deprecated(),
     });
-
+    // @ts-expect-error: deprecating a member of an embedded object should throw
     expect(() => table({ price: money.column("price") })).toThrow(
       /deprecates "price.amount", a member of an embedded object/
     );
