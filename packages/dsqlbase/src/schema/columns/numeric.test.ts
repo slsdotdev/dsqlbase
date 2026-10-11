@@ -2,8 +2,25 @@ import { describe, expect, it } from "vitest";
 import { ColumnValidationError } from "../utils/column-validation.js";
 import { numeric } from "./numeric.js";
 
-const write = (column: ReturnType<typeof numeric>, value: number) =>
-  column["_validator"]?.write(value);
+type AnyNumeric = { _validator?: { write(value: unknown): unknown } };
+
+const write = (column: unknown, value: unknown) => (column as AnyNumeric)._validator?.write(value);
+const codec = (column: unknown) =>
+  (column as { _codec: { encode(value: unknown): string; decode(text: string): unknown } })._codec;
+
+/** A minimal decimal class, as decimal.js, big.js or bignumber.js would be passed. */
+class Dec {
+  constructor(readonly text: string) {}
+  toString() {
+    return this.text;
+  }
+  toJSON() {
+    return this.text;
+  }
+}
+
+/** More significant digits than a double holds: `parseFloat` rounds it. */
+const EXACT = "12345678901234567.123456";
 
 describe("numeric()", () => {
   it("defaults to numeric(18,6), DSQL's own default for a bare numeric", () => {
@@ -57,6 +74,79 @@ describe("numeric()", () => {
 
     it("validates a declared default", () => {
       expect(() => numeric("amount").default(1.23456789).toJSON()).toThrow(/decimal places/);
+    });
+  });
+
+  describe("mode", () => {
+    const wide = { precision: 38, scale: 6 } as const;
+
+    it("reads a number by default, which loses digits past a double's precision", () => {
+      expect(codec(numeric("amount", wide)).decode(EXACT)).toBe(parseFloat(EXACT));
+      expect(codec(numeric("amount", wide)).decode(EXACT)).not.toBe(EXACT);
+    });
+
+    it('reads the exact decimal text in "string" mode', () => {
+      expect(codec(numeric("amount", { ...wide, mode: "string" })).decode(EXACT)).toBe(EXACT);
+    });
+
+    it("reads an instance of the decimal class it is given, built from the exact text", () => {
+      const value = codec(numeric("amount", { ...wide, mode: Dec })).decode(EXACT);
+
+      expect(value).toBeInstanceOf(Dec);
+      expect((value as Dec | undefined)?.text).toBe(EXACT);
+    });
+
+    it("encodes every mode as decimal text", () => {
+      expect(codec(numeric("amount")).encode(1.5)).toBe("1.5");
+      expect(codec(numeric("amount", { mode: "string" })).encode("1.5")).toBe("1.5");
+      expect(codec(numeric("amount", { mode: Dec })).encode(new Dec("1.5"))).toBe("1.5");
+    });
+
+    it('takes a string or a number on write in "string" mode, and stores the text', () => {
+      const amount = numeric("amount", { ...wide, mode: "string" });
+
+      expect(write(amount, EXACT)).toBe(EXACT);
+      expect(write(amount, 1.5)).toBe("1.5");
+    });
+
+    it("takes an instance, a string or a number on write in class mode, and stores an instance", () => {
+      const amount = numeric("amount", { ...wide, mode: Dec });
+      const value = new Dec("1.5");
+
+      expect(write(amount, value)).toBe(value);
+      expect((write(amount, EXACT) as Dec | undefined)?.text).toBe(EXACT);
+      expect((write(amount, 2) as Dec | undefined)?.text).toBe("2");
+    });
+
+    it("refuses a string that is not a decimal number", () => {
+      expect(() => write(numeric("amount", { mode: "string" }), "12abc")).toThrow(
+        /"12abc" is not a decimal number/
+      );
+      expect(() => write(numeric("amount", { mode: Dec }), "")).toThrow(/not a decimal number/);
+    });
+
+    it("accepts NaN and Infinity as text, as number mode does", () => {
+      expect(write(numeric("amount", { mode: "string" }), "NaN")).toBe("NaN");
+      expect(write(numeric("amount", { mode: "string" }), "-Infinity")).toBe("-Infinity");
+    });
+
+    it("refuses a value that would be rounded or overflow, in every mode", () => {
+      const asString = numeric("amount", { mode: "string" });
+      const asClass = numeric("amount", { mode: Dec });
+
+      expect(() => write(asString, "1.23456789")).toThrow(/8 decimal places/);
+      expect(() => write(asString, "-1234567890123")).toThrow(/13 integer digits/);
+      expect(() => write(asClass, new Dec("1.23456789"))).toThrow(/8 decimal places/);
+      expect(() => write(asClass, new Dec("1e-7"))).toThrow(/7 decimal places/);
+      expect(() => write(asClass, new Dec("1.5E+12"))).toThrow(/13 integer digits/);
+      expect(write(asString, "000123.450000")).toBe("000123.450000");
+    });
+
+    it("validates a declared default in the column's mode", () => {
+      expect(() => numeric("amount", { mode: "string" }).default("1.23456789").toJSON()).toThrow(
+        /decimal places/
+      );
+      expect(numeric("amount", { mode: Dec }).default("1.5").toJSON().defaultValue).toBeDefined();
     });
   });
 });
