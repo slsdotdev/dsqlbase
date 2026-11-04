@@ -153,9 +153,9 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   async $findByGlobalId(id: string): Promise<GlobalIdResultOf<Schema<T>>> {
     const { node, fields, pk } = this._resolveNode(id);
 
-    const row = (await this._model(node.alias).findOne({
+    const row = await this._model(node.alias).findOne({
       where: this._byKey(fields, pk),
-    })) as Record<string, unknown> | null;
+    });
 
     return (row ? this._tag(row, node) : null) as GlobalIdResultOf<Schema<T>>;
   }
@@ -204,13 +204,12 @@ export abstract class BaseClient<T extends DefinitionSchema> {
 
     await Promise.all(
       [...groups.entries()].map(async ([group, { node, fields, pks }]) => {
-        const found = (await this._model(node.alias).findMany({
+        const found = await this._model(node.alias).findMany({
           where: this._byKeys(fields, [...pks.values()]),
-        })) as unknown as Record<string, unknown>[];
+        });
 
         for (const row of found) {
           const id = matchKey(node, fields, (field) => rawValue(row[field]));
-
           rows.set(`${group}\u0000${id.row}`, this._tag(row, node));
         }
       })
