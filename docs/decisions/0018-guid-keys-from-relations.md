@@ -50,6 +50,9 @@ duplication caused more errors than that dependency would.
     table's primary key, so a self reference now needs its relation.
   - A node can no longer be given a key other than its alias.
   - Changeset level **minor** (0.x).
+- The node types (`NodeAliasesOf`) still read only a table's column shapes, so a shared-key
+  table appears as a `$findByGlobalId` result branch that no id can reach. It is harmless, but
+  imprecise.
 - Adding a relation to a column that had none changes the wire format of its ids. This is the
   cost 0007 named; it is accepted as part of a schema change.
 

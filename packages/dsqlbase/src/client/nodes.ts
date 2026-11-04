@@ -282,11 +282,13 @@ function collectReferences(
 /**
  * Refuses a relation that pairs a guid column with something it cannot agree with.
  *
- * `article.authorId === article.author.id` is the promise a keyed guid column makes, and it
- * only holds if both sides of every pair wrap with the same node. A guid paired with a plain
- * uuid leaves one side wrapped and the other raw; two guids with different keys produce two
- * different strings for one row. Neither breaks the SQL — a join correlates on raw columns —
- * which is exactly why it has to be caught when the client is built rather than in production.
+ * `article.authorId === article.author.id` is the promise a guid column makes, and it only
+ * holds if both sides of every pair wrap with the same node. A guid paired with a plain uuid
+ * leaves one side wrapped and the other raw. A static pair agrees by construction — the key
+ * side takes the binding of the column it references — so a key mismatch can only come from a
+ * polymorphic column paired with a table outside its union. Neither breaks the SQL — a join
+ * correlates on raw columns — which is exactly why it has to be caught when the client is
+ * built rather than in production.
  */
 function validateRelationPairs(
   registry: SchemaRegistry<DefinitionSchema>,
