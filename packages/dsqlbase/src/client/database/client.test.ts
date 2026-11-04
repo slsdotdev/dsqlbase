@@ -246,7 +246,7 @@ describe("BaseClient.$findByGlobalId", () => {
       authors: [AUTHOR_ROW],
     });
 
-    const record = await dsql.$findByGlobalId({ id: authorId });
+    const record = await dsql.$findByGlobalId(authorId);
 
     expect(record?.$$key).toBe("authors");
     expect(statements[0]?.text).toContain('FROM "authors"');
@@ -256,7 +256,7 @@ describe("BaseClient.$findByGlobalId", () => {
 
   it("returns the row's own id wrapped", async () => {
     const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
-    const record = await dsql.$findByGlobalId({ id: authorId });
+    const record = await dsql.$findByGlobalId(authorId);
 
     expect(record?.$$key === "authors" ? record.id : undefined).toBe(authorId);
   });
@@ -264,44 +264,31 @@ describe("BaseClient.$findByGlobalId", () => {
   it("returns null when the row is gone", async () => {
     const { dsql } = nodeSetup();
 
-    expect(await dsql.$findByGlobalId({ id: authorId })).toBeNull();
+    expect(await dsql.$findByGlobalId(authorId)).toBeNull();
   });
 
-  it("applies a per-alias select", async () => {
-    const { dsql, statements } = nodeSetup({ authors: [{ name: "Ada" }] });
-
-    await dsql.$findByGlobalId({ id: authorId, on: { authors: { select: { name: true } } } });
-
-    // The projection only — `id` still appears in the WHERE, which is not what is at issue.
-    expect(statements[0]?.text.split(" FROM ")[0]).toBe('SELECT "__t0"."name"');
-  });
-
-  it("ignores the entry for a table the id did not name", async () => {
+  it("reads every column of the row", async () => {
     const { dsql, statements } = nodeSetup({ authors: [AUTHOR_ROW] });
 
-    await dsql.$findByGlobalId({
-      id: authorId,
-      on: { articles: { select: { title: true } }, authors: true },
-    });
+    await dsql.$findByGlobalId(authorId);
 
-    expect(statements[0]?.text).toContain('FROM "authors"');
-    expect(statements[0]?.text).toContain('"__t0"."name"');
+    expect(statements[0]?.text.split(" FROM ")[0]).toBe('SELECT "__t0"."id", "__t0"."name"');
   });
 
   it("refuses an id whose table is not a node", async () => {
     const { dsql } = nodeSetup();
 
     await expect(
-      dsql.$findByGlobalId({ id: encodeGlobalId("teams", { id: AUTHOR_UUID }) })
+      dsql.$findByGlobalId(encodeGlobalId("teams", { id: AUTHOR_UUID }))
     ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
   });
 
   it("refuses an id whose payload is not the node's key", async () => {
     const { dsql } = nodeSetup();
 
-    await expect(
-      dsql.$findByGlobalId({ id: encodeGlobalId("authors", { name: "Ada" }) })
-    ).rejects.toThrow(/carries "name" rather than its key "id"/);
+    await expect(dsql.$findByGlobalId(encodeGlobalId("authors", { name: "Ada" }))).rejects.toThrow(
+      /carries "name" rather than its key "id"/
+    );
   });
 
   it("refuses an id read off a column no relation names", async () => {
@@ -311,7 +298,7 @@ describe("BaseClient.$findByGlobalId", () => {
     const [article] = await dsql.articles.findMany({ select: { authorId: true } });
 
     expect(article?.authorId).toBe(encodeGlobalId("articles", { authorId: AUTHOR_UUID }));
-    await expect(dsql.$findByGlobalId({ id: article?.authorId ?? "" })).rejects.toThrow(
+    await expect(dsql.$findByGlobalId(article?.authorId ?? "")).rejects.toThrow(
       /carries "authorId" rather than its key "id"/
     );
   });
@@ -319,30 +306,30 @@ describe("BaseClient.$findByGlobalId", () => {
   it("refuses a malformed id", async () => {
     const { dsql } = nodeSetup();
 
-    await expect(dsql.$findByGlobalId({ id: AUTHOR_UUID })).rejects.toThrow(
+    await expect(dsql.$findByGlobalId(AUTHOR_UUID)).rejects.toThrow(
       expect.objectContaining({ code: "format" })
-    );
-  });
-
-  it("refuses a member the `on` map excluded", async () => {
-    // `false` removes the branch from the result union, so reaching it is a caller bug rather
-    // than a miss — a `null` here would be a row that exists and was silently withheld.
-    const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
-
-    await expect(dsql.$findByGlobalId({ id: authorId, on: { authors: false } })).rejects.toThrow(
-      /excluded from this lookup/
     );
   });
 
   it("refuses everything before building a query", async () => {
     const { dsql, statements } = nodeSetup();
 
-    await expect(dsql.$findByGlobalId({ id: "nonsense" })).rejects.toThrow();
+    await expect(dsql.$findByGlobalId("nonsense")).rejects.toThrow();
     expect(statements).toHaveLength(0);
   });
 });
 
 describe("BaseClient.$listByGlobalId", () => {
+  it("refuses a member the `on` map excluded", async () => {
+    // `false` removes the branch from the result union, so reaching it is a caller bug rather
+    // than a miss — a `null` here would be a row that exists and was silently withheld.
+    const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
+
+    await expect(dsql.$listByGlobalId({ ids: [authorId], on: { authors: false } })).rejects.toThrow(
+      /excluded from this lookup/
+    );
+  });
+
   it("returns rows in the order the ids were given", async () => {
     const { dsql } = nodeSetup({
       authors: [AUTHOR_ROW],
@@ -422,7 +409,7 @@ describe("global id lookups on a derived client", () => {
   it("are available inside a transaction", async () => {
     const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
 
-    const record = await dsql.$transaction(async (tx) => tx.$findByGlobalId({ id: authorId }));
+    const record = await dsql.$transaction(async (tx) => tx.$findByGlobalId(authorId));
 
     expect(record?.$$key).toBe("authors");
   });
@@ -455,12 +442,12 @@ describe("global-id lookups with a widened on map", () => {
     const dsql = createClient({ schema: nodeSchema, session });
     const id = encodeGlobalId("authors", { id: "7b3c3a52-3c0a-4a57-9d6b-3b8f1ffb1b0a" });
 
-    await dsql.$findByGlobalId({
-      id,
+    await dsql.$listByGlobalId({
+      ids: [id],
       on: { authors: { where: { name: { beginsWith: "A" } }, join: { books: true } } },
     });
 
-    expect(calls[0]?.text).toContain(`WHERE ("__t0"."id" = $1 AND "__t0"."name" LIKE $2)`);
+    expect(calls[0]?.text).toContain(`WHERE ("__t0"."id" IN ($1) AND "__t0"."name" LIKE $2)`);
     expect(calls[0]?.text).toContain('AS "__join_books" ON true');
   });
 });

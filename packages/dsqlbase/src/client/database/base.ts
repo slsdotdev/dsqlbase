@@ -58,7 +58,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    *
    * Every failure is raised here, before a query is built: an id that does not decode, one
    * naming a table that is not a node, one whose payload is not that node's key, and one the
-   * caller's `on` map excluded.
+   * caller's `on` map excluded (`$listByGlobalId` only).
    */
   private _resolveNode(
     id: string,
@@ -133,7 +133,8 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /**
-   * Reads the single row a global id names, or `null` when it no longer exists.
+   * Reads the single row a global id names, with every column, or `null` when it no longer
+   * exists. A narrower read is that table's own `findOne`, keyed by the same id.
    *
    * The lookup runs through the table's own model client rather than issuing SQL of its own,
    * so every seam a `findOne` passes applies to it — the tenant predicate above all. A node
@@ -146,31 +147,22 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    *
    * @example
    * ```ts
-   * const record = await dsql.$findByGlobalId({
-   *   id,
-   *   on: { users: { select: { id: true, name: true } }, workspaces: true },
-   * });
+   * const record = await dsql.$findByGlobalId(id);
    *
    * if (record?.$$key === "users") record.name;
    * ```
    *
-   * @throws GlobalIdError when the id does not decode, names a table that is not a node,
-   *   carries a payload that is not that node's key, or names a member `on` set to `false`.
+   * @throws GlobalIdError when the id does not decode, names a table that is not a node, or
+   *   carries a payload that is not that node's key.
    */
-  async $findByGlobalId<TOn extends GlobalIdOptionsOf<Schema<T>> | undefined = undefined>(args: {
-    id: string;
-    on?: TOn;
-  }): Promise<GlobalIdResultOf<Schema<T>, TOn>> {
-    const { node, value, args: nodeArgs } = this._resolveNode(args.id, args.on);
-    const { select, where, join } = nodeArgs;
+  async $findByGlobalId(id: string): Promise<GlobalIdResultOf<Schema<T>>> {
+    const { node, value } = this._resolveNode(id);
 
     const row = (await this._model(node.alias).findOne({
-      where: this._lookupWhere(node.keyField, { eq: value }, where),
-      ...(select ? { select } : {}),
-      ...(join ? { join } : {}),
+      where: this._byKey(node.keyField, { eq: value }),
     })) as Record<string, unknown> | null;
 
-    return (row ? this._tag(row, node) : null) as GlobalIdResultOf<Schema<T>, TOn>;
+    return (row ? this._tag(row, node) : null) as GlobalIdResultOf<Schema<T>>;
   }
 
   /** Tags a resolved row with the alias it came from, so a caller can narrow the union. */

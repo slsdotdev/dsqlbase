@@ -194,7 +194,7 @@ describe("global ids", () => {
   describe("$findByGlobalId", () => {
     it("reads back the row an id names", async () => {
       const [author] = getData().authors;
-      const record = await getClient().$findByGlobalId({ id: wrap("authors", author.id) });
+      const record = await getClient().$findByGlobalId(wrap("authors", author.id));
 
       expect(record?.$$key).toBe("authors");
       expect(record?.$$key === "authors" ? record.name : null).toBe(author.name);
@@ -206,7 +206,7 @@ describe("global ids", () => {
         where: { id: { eq: getData().articles[0].id } },
       });
 
-      const record = await getClient().$findByGlobalId({ id: article?.id ?? "" });
+      const record = await getClient().$findByGlobalId(article?.id ?? "");
 
       expect(record?.$$key).toBe("articles");
       expect(record?.$$key === "articles" ? record.title : null).toBe(getData().articles[0].title);
@@ -214,25 +214,18 @@ describe("global ids", () => {
 
     it("reaches a node whose alias differs from its table name", async () => {
       const [revision] = getData().revisions;
-      const record = await getClient().$findByGlobalId({ id: wrap("revisions", revision.id) });
+      const record = await getClient().$findByGlobalId(wrap("revisions", revision.id));
 
       expect(record?.$$key).toBe("revisions");
       expect(record?.$$key === "revisions" ? record.note : null).toBe(revision.note);
     });
 
-    it("applies a per-alias select", async () => {
+    it("reads every column of the row", async () => {
       const [author] = getData().authors;
+      const record = await getClient().$findByGlobalId(wrap("authors", author.id));
+      const row = await getClient().authors.findOne({ where: { id: { eq: author.id } } });
 
-      const record = await getClient().$findByGlobalId({
-        id: wrap("authors", author.id),
-        on: { authors: { select: { name: true } } },
-      });
-
-      expect(record).toEqual({
-        $$key: "authors",
-        $$meta: { key: "authors", table: "authors", __typename: "Author" },
-        name: author.name,
-      });
+      expect(record).toEqual({ ...row, $$key: "authors" });
     });
 
     it("returns null for a row that is gone", async () => {
@@ -242,12 +235,12 @@ describe("global ids", () => {
       await getClient().$query(sql`DELETE FROM "articles" WHERE "author_id" = ${author.id}`);
       await getClient().$query(sql`DELETE FROM "authors" WHERE "id" = ${author.id}`);
 
-      expect(await getClient().$findByGlobalId({ id })).toBeNull();
+      expect(await getClient().$findByGlobalId(id)).toBeNull();
     });
 
     it("refuses an id for a table that is not a node", async () => {
       await expect(
-        getClient().$findByGlobalId({ id: encodeGlobalId("tags", { id: getData().authors[0].id }) })
+        getClient().$findByGlobalId(encodeGlobalId("tags", { id: getData().authors[0].id }))
       ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
     });
 
@@ -255,7 +248,7 @@ describe("global ids", () => {
       const [author] = getData().authors;
 
       const record = await getClient().$transaction(async (tx) =>
-        tx.$findByGlobalId({ id: wrap("authors", author.id) })
+        tx.$findByGlobalId(wrap("authors", author.id))
       );
 
       expect(record?.$$key).toBe("authors");
@@ -300,7 +293,7 @@ describe("global ids", () => {
       const id = wrap("authors", author.id.toUpperCase());
 
       const [single] = await getClient().$listByGlobalId({ ids: [id] });
-      const found = await getClient().$findByGlobalId({ id });
+      const found = await getClient().$findByGlobalId(id);
 
       expect(single?.$$key === "authors" ? single.name : null).toBe(author.name);
       expect(found?.$$key === "authors" ? found.name : null).toBe(author.name);
@@ -338,7 +331,7 @@ describe("global ids", () => {
 
     it("resolves a node the scoped client owns", async () => {
       const [own] = getData().drafts;
-      const record = await acme().$findByGlobalId({ id: wrap("drafts", own.id) });
+      const record = await acme().$findByGlobalId(wrap("drafts", own.id));
 
       expect(record?.$$key === "drafts" ? record.title : null).toBe(own.title);
     });
@@ -349,7 +342,7 @@ describe("global ids", () => {
       // predicate is in the WHERE. A lookup that issued its own SQL would have returned it.
       const [, other] = getData().drafts;
 
-      expect(await acme().$findByGlobalId({ id: wrap("drafts", other.id) })).toBeNull();
+      expect(await acme().$findByGlobalId(wrap("drafts", other.id))).toBeNull();
 
       const [row] = await getClient().$query<{ title: string }>(
         sql`SELECT "title" FROM "drafts" WHERE "id" = ${other.id}`
@@ -374,7 +367,7 @@ describe("global ids", () => {
     it("refuses a scoped node on a client with no claims", async () => {
       const [own] = getData().drafts;
 
-      await expect(getClient().$findByGlobalId({ id: wrap("drafts", own.id) })).rejects.toThrow(
+      await expect(getClient().$findByGlobalId(wrap("drafts", own.id))).rejects.toThrow(
         TenancyError
       );
     });
@@ -383,7 +376,7 @@ describe("global ids", () => {
       const document = getData().documents[0];
 
       await expect(
-        getClient().$findByGlobalId({ id: encodeGlobalId("documents", { id: document.id }) })
+        getClient().$findByGlobalId(encodeGlobalId("documents", { id: document.id }))
       ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
     });
   });

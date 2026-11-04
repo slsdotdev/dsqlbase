@@ -132,7 +132,7 @@ const article = await dsql.articles.findOne({ where: { id }, join: { author: tru
 article?.id;                                 // "guid:WyJhcnRpY2xlcyIs…"
 article?.authorId === article?.author?.id;   // true
 
-const record = await dsql.$findByGlobalId({ id });
+const record = await dsql.$findByGlobalId(id);
 if (record?.$$key === "articles") record.title;
 ```
 

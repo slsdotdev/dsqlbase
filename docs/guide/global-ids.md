@@ -115,23 +115,42 @@ same mistake with plain uuids is a query that quietly matches nothing.
 ```ts
 import { decodeGlobalId, encodeGlobalId, isGlobalId, GlobalIdError } from "dsqlbase";
 
-const record = await dsql.$findByGlobalId({ id });
+const record = await dsql.$findByGlobalId(id);
 
 if (record?.$$key === "authors") record.name;
 if (record?.$$key === "articles") record.title;
 ```
 
-`$findByGlobalId({ id, on? })` returns the row, or `null` if it no longer exists. The result is
-a union over every node in the schema, and **`$$key` is what narrows it** — the literal alias,
-on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
+`$findByGlobalId(id)` returns the row with every column, or `null` if it no longer exists. The
+result is a union over every node in the schema, and **`$$key` is what narrows it** — the
+literal alias, on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
 on a nested property, so `record.$$meta.key === "authors"` compiles and narrows nothing.
+
+It takes nothing else. A narrower read — some columns, a join, an extra filter — is the
+table's own `findOne`, which accepts the same id:
+
+```ts
+const { key } = decodeGlobalId(id);
+
+if (key === "authors") {
+  await dsql.authors.findOne({ where: { id: { eq: id } }, select: { name: true } });
+}
+```
+
+`$listByGlobalId({ ids, on? })` resolves many at once — one query per table rather than one per
+id — and returns them **in the order you asked**, with `null` wherever a row is missing. That is
+the shape a batch resolver wants:
+
+```ts
+const records = await dsql.$listByGlobalId({ ids }); // records[i] ↔ ids[i], or null
+```
 
 `on` says what to read per node — the same map a [union join](./polymorphic-relations.md)
 takes:
 
 ```ts
-const record = await dsql.$findByGlobalId({
-  id,
+const records = await dsql.$listByGlobalId({
+  ids,
   on: {
     authors: { select: { id: true, name: true }, join: { articles: true } },
     articles: { where: { publishedAt: { exists: true } } }, // a draft reads as a miss
@@ -143,14 +162,6 @@ const record = await dsql.$findByGlobalId({
 An entry is `true` (the whole row, also the default), `false`, or an object with a `select`, a
 `join` over that node's relations, and a `where` AND-ed with the id — a row that fails it is
 `null`, exactly as a missing one.
-
-`$listByGlobalId({ ids, on? })` resolves many at once — one query per table rather than one per
-id — and returns them **in the order you asked**, with `null` wherever a row is missing. That is
-the shape a batch resolver wants:
-
-```ts
-const records = await dsql.$listByGlobalId({ ids }); // records[i] ↔ ids[i], or null
-```
 
 A row is matched back to its id by node and key, not by the id's text: an id whose uuid is
 spelled differently — upper case, braces, no hyphens — resolves here as it does in
@@ -174,8 +185,8 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | Malformed `guid:` string                                    | `GlobalIdError("format")`                                |
 | Wrapped id naming another node                              | `GlobalIdError("key_mismatch")`, when the query is built |
 | Wrapped id whose payload is not that node's key             | `GlobalIdError("key_mismatch")`                          |
-| `$findByGlobalId` for a table that is not a node            | `GlobalIdError("unknown_node")`                          |
-| `$findByGlobalId` for a node `on` set to `false`            | `GlobalIdError("unknown_node")`                          |
+| A lookup for a table that is not a node                     | `GlobalIdError("unknown_node")`                          |
+| `$listByGlobalId` for a node `on` set to `false`            | `GlobalIdError("unknown_node")`                          |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
 | A relation pairing a guid with a uuid                       | throws when the client is built                          |

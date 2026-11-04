@@ -921,7 +921,7 @@ export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = 
     | boolean;
 };
 
-/** The `on` map `$findByGlobalId` and `$listByGlobalId` take. */
+/** The `on` map `$listByGlobalId` takes. */
 export type GlobalIdOptionsOf<TSchema extends AnySchema> = OnSelectionOf<
   NodeAliasesOf<TSchema>,
   TSchema

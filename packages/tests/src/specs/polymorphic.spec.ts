@@ -368,12 +368,12 @@ describe("polymorphic relations", () => {
     it("forwards where and join per node", async () => {
       const author = getData().authors[0];
 
-      const found = await getClient().$findByGlobalId({
-        id: wrap("authors", author.id),
+      const [found] = await getClient().$listByGlobalId({
+        ids: [wrap("authors", author.id)],
         on: { authors: { join: { posts: { where: { $$key: "photos" } } } } },
       });
-      const missed = await getClient().$findByGlobalId({
-        id: wrap("authors", author.id),
+      const [missed] = await getClient().$listByGlobalId({
+        ids: [wrap("authors", author.id)],
         on: { authors: { where: { name: { eq: "Someone else" } } } },
       });
 

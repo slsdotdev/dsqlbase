@@ -1,7 +1,7 @@
 # 0007 — Global ids
 
 - **Date:** 2026-09-27
-- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md)
+- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md); `$findByGlobalId` takes only an id since 2026-11-04 (see below)
 - **Proposal:** `schema-guid.md` (local working artifact, not tracked)
 
 ## Context
@@ -19,6 +19,7 @@ Wrapping at the application boundary was the alternative actually on the table (
 - **One swap covers every direction.** `Column` funnels reads through `codec.decode` and writes and filters through `codec.encode`, so nothing in the pipeline changed.
 - **Input is lenient, wrapped input is checked.** A raw uuid is accepted; a wrapped id naming another node throws `GlobalIdError("key_mismatch")` when the query is built. That check is the thing generated middleware cannot provide.
 - **`$findByGlobalId({ id, on? })` and `$listByGlobalId({ ids, on? })` go through the model clients**, never issuing SQL of their own, so a node lookup inherits the tenant predicate structurally rather than by remembering to.
+  - _Amended 2026-11-04:_ `$findByGlobalId(id)` takes the id alone and reads every column. Its `on` map only restated the named table's own `findOne`, which accepts the same id, so a narrower read goes there. `$listByGlobalId` keeps `on`, since a batch has no single table to delegate to.
 - **`$$key`, not `$$meta.key`, is the discriminant** — see below.
 - **Both sides of a relation pair must agree**: both guid columns naming the same node, or neither.
 
