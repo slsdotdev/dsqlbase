@@ -76,6 +76,7 @@ export type ColumnConfig<
   TRuntimeType extends ColumnRuntimeType = ColumnRuntimeType,
   TInputType = TValueType,
 > = {
+  /** SQL data type for the column */
   dataType: string;
   runtimeType: TRuntimeType;
   /** What a read returns. */

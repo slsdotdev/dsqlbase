@@ -396,7 +396,10 @@ describe("union joins — results", () => {
   };
 
   it("dispatches every row to its member's resolvers and tags it with $$key", () => {
-    const result = resolve([{ id: "u1", feed: [photoRow, videoRow], latest: videoRow }]);
+    const result = resolve([{ id: "u1", feed: [photoRow, videoRow], latest: videoRow }]) as {
+      feed: Record<string, unknown>[];
+      latest: Record<string, unknown> | null;
+    };
 
     expect(result?.feed).toEqual([
       {
@@ -420,7 +423,10 @@ describe("union joins — results", () => {
   });
 
   it("answers an empty has-many with [] and a missing has-one with null", () => {
-    const result = resolve([{ id: "u1", feed: [], latest: null }]);
+    const result = resolve([{ id: "u1", feed: [], latest: null }]) as {
+      feed: Record<string, unknown>[];
+      latest: Record<string, unknown> | null;
+    };
 
     expect(result?.feed).toEqual([]);
     expect(result?.latest).toBeNull();

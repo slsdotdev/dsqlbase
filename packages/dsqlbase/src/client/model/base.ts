@@ -844,14 +844,18 @@ type JoinFieldResultOf<TTable extends AnyTable, TSchema extends AnySchema, K, TE
     : never;
 
 /** The relations named in `select`, each shaped as the `join` entry it is read as. */
-type SelectedRelationsResultOf<TTable extends AnyTable, TSchema extends AnySchema, TSelection> = {
+type SelectedRelationsResultOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TSelection,
+> = Prettify<{
   [K in SelectedRelationsOf<TTable, TSelection>]: JoinFieldResultOf<
     TTable,
     TSchema,
     K,
     TSelection[K] extends true ? true : { select: TSelection[K] }
   >;
-};
+}>;
 
 export type QueryResultOf<
   TTable extends AnyTable,
@@ -970,7 +974,10 @@ type SharedSelectOf<TArgs> = TArgs extends { select: infer TSelect } ? TSelect :
  * its alias in `$$key` — which is what narrows it — and shaped by that member's own selection.
  */
 export type UnionResultOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> = {
-  [A in keyof TMembers & string]: IsExcluded<A, TArgs extends { on: infer TOn } ? TOn : undefined> extends true
+  [A in keyof TMembers & string]: IsExcluded<
+    A,
+    TArgs extends { on: infer TOn } ? TOn : undefined
+  > extends true
     ? never
     : Prettify<
         { $$key: A } & QueryResultOf<
@@ -991,7 +998,8 @@ export type UnionJoinResultOf<
   : UnionResultOf<TMembers, TSchema, TArgs> | null;
 
 /** The members of a union definition, as a record of member alias → table definition. */
-export type UnionMembersOf<TUnion> = TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
+export type UnionMembersOf<TUnion> =
+  TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
 
 /** A union's `findOne`: like `findMany`, but a `where` must name the row. */
 export type UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {

@@ -245,7 +245,7 @@ describe("Table meta", () => {
   });
 
   it("carries the namespace when the table declares one", () => {
-    const billing = new NamespaceDefinition("billing", {});
+    const billing = new NamespaceDefinition("billing");
     const definition = new TableDefinition("invoices", {
       columns,
       namespace: new NodeRef(billing),
