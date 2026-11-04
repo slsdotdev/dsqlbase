@@ -1,5 +1,4 @@
 import {
-  AnySchema,
   AnyTable,
   DefinitionSchema,
   ExecutableQuery,
@@ -12,22 +11,10 @@ import {
 import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
-import {
-  GlobalIdListResultOf,
-  GlobalIdOptionsOf,
-  GlobalIdResultOf,
-  JoinExpressionOf,
-} from "../model/base.js";
+import { GlobalIdResultOf } from "../model/base.js";
 import { WhereExpressionOf } from "../model/filters.js";
 import { GlobalIdError, decodeGlobalId } from "../../schema/utils/global-id.js";
 import { NodeTable, getNodes } from "../nodes.js";
-
-/** The member arguments an `on` entry carries into a global-id lookup. */
-type NodeArgs = {
-  select?: Record<string, boolean>;
-  where?: WhereExpressionOf<AnyTable>;
-  join?: JoinExpressionOf<AnyTable, AnySchema>;
-};
 
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ExecutionContext<T>;
@@ -54,16 +41,12 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /**
-   * Resolves a global id to the node it names, and to how the caller wants it read.
+   * Resolves a global id to the node it names and the key value it carries.
    *
    * Every failure is raised here, before a query is built: an id that does not decode, one
-   * naming a table that is not a node, one whose payload is not that node's key, and one the
-   * caller's `on` map excluded (`$listByGlobalId` only).
+   * naming a table that is not a node, and one whose payload is not that node's key.
    */
-  private _resolveNode(
-    id: string,
-    on?: Record<string, unknown>
-  ): { node: NodeTable; value: string; args: NodeArgs } {
+  private _resolveNode(id: string): { node: NodeTable; value: string } {
     const { key, pk } = decodeGlobalId(id);
     const node = getNodes(this._ctx.schema).get(key);
 
@@ -81,20 +64,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       );
     }
 
-    const option = on?.[node.alias];
-
-    if (option === false) {
-      throw new GlobalIdError(
-        "unknown_node",
-        `"${node.alias}" was excluded from this lookup by its \`on\` map.`
-      );
-    }
-
-    const { select, where, join } = (
-      option && typeof option === "object" ? option : {}
-    ) as NodeArgs;
-
-    return { node, value: pk[node.keyField], args: { select, where, join } };
+    return { node, value: pk[node.keyField] };
   }
 
   /**
@@ -106,20 +76,6 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    */
   private _byKey(field: string, condition: object): WhereExpressionOf<AnyTable> {
     return { [field]: condition } as WhereExpressionOf<AnyTable>;
-  }
-
-  /**
-   * The lookup's own key filter, AND-ed with the member's `on.<alias>.where` when it has one. A
-   * row that fails the member filter is a miss, exactly as if the id named nothing.
-   */
-  private _lookupWhere(
-    field: string,
-    condition: object,
-    where: WhereExpressionOf<AnyTable> | undefined
-  ): WhereExpressionOf<AnyTable> {
-    const key = this._byKey(field, condition);
-
-    return where ? ({ and: [key, where] } as WhereExpressionOf<AnyTable>) : key;
   }
 
   private _model(alias: string): ModelClient<AnyTable, T> {
@@ -171,28 +127,27 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /**
-   * Reads many global ids at once: one query per table rather than one per id, with the
-   * results handed back **in the order the ids were given** and `null` wherever a row no
-   * longer exists — the shape a batch resolver wants.
+   * Reads many global ids at once, each row with every column: one query per table rather than
+   * one per id, with the results handed back **in the order the ids were given** and `null`
+   * wherever a row no longer exists — the shape a batch resolver wants.
    *
    * Unlike {@link $findByGlobalId} this cannot be a single `ExecutableQuery`, because ids
    * from different tables fan out to different queries.
    *
-   * The node's key field is always projected, even when `select` leaves it out: matching a
-   * row back to the id that asked for it is what the key is for.
+   * @example
+   * ```ts
+   * const [a, b, c] = await dsql.$listByGlobalId([id1, id2, id3]); // b is null if id2 is gone
+   * ```
    *
    * @throws GlobalIdError on the first id that does not resolve. A missing *row* is a `null`
    *   in the result; a malformed id is a caller bug and is not silently dropped.
    */
-  async $listByGlobalId<TOn extends GlobalIdOptionsOf<Schema<T>> | undefined = undefined>(args: {
-    ids: readonly string[];
-    on?: TOn;
-  }): Promise<(GlobalIdListResultOf<Schema<T>, TOn> | null)[]> {
-    const resolved = args.ids.map((id) => this._resolveNode(id, args.on));
-    const groups = new Map<string, { node: NodeTable; values: Set<string>; args: NodeArgs }>();
+  async $listByGlobalId(ids: readonly string[]): Promise<GlobalIdResultOf<Schema<T>>[]> {
+    const resolved = ids.map((id) => this._resolveNode(id));
+    const groups = new Map<string, { node: NodeTable; values: Set<string> }>();
 
-    for (const { node, value, args: nodeArgs } of resolved) {
-      const group = groups.get(node.alias) ?? { node, values: new Set<string>(), args: nodeArgs };
+    for (const { node, value } of resolved) {
+      const group = groups.get(node.alias) ?? { node, values: new Set<string>() };
 
       group.values.add(value);
       groups.set(node.alias, group);
@@ -204,13 +159,9 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     const keyOf = (alias: string, value: string) => `${alias}\u0000${canonicalUuid(value)}`;
 
     await Promise.all(
-      [...groups.values()].map(async ({ node, values, args: { select, where, join } }) => {
+      [...groups.values()].map(async ({ node, values }) => {
         const found = (await this._model(node.alias).findMany({
-          where: this._lookupWhere(node.keyField, { in: [...values] }, where),
-          // The key is always projected: it is the only thing that can put a row back
-          // against the id that asked for it.
-          ...(select ? { select: { ...select, [node.keyField]: true } } : {}),
-          ...(join ? { join } : {}),
+          where: this._byKey(node.keyField, { in: [...values] }),
         })) as unknown as Record<string, unknown>[];
 
         for (const row of found) {
@@ -223,7 +174,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
 
     return resolved.map(
       ({ node, value }) =>
-        (rows.get(keyOf(node.alias, value)) ?? null) as GlobalIdListResultOf<Schema<T>, TOn> | null
+        (rows.get(keyOf(node.alias, value)) ?? null) as GlobalIdResultOf<Schema<T>>
     );
   }
 

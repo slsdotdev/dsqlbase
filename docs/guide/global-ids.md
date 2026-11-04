@@ -126,8 +126,8 @@ result is a union over every node in the schema, and **`$$key` is what narrows i
 literal alias, on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
 on a nested property, so `record.$$meta.key === "authors"` compiles and narrows nothing.
 
-It takes nothing else. A narrower read — some columns, a join, an extra filter — is the
-table's own `findOne`, which accepts the same id:
+Neither lookup takes anything else. A narrower read — some columns, a join, an extra filter — is
+the table's own `findOne` or `findMany`, which accept the same ids:
 
 ```ts
 const { key } = decodeGlobalId(id);
@@ -137,38 +137,17 @@ if (key === "authors") {
 }
 ```
 
-`$listByGlobalId({ ids, on? })` resolves many at once — one query per table rather than one per
-id — and returns them **in the order you asked**, with `null` wherever a row is missing. That is
-the shape a batch resolver wants:
+`$listByGlobalId(ids)` resolves many at once — one query per table rather than one per id — and
+returns them **in the order you asked**, each with every column, and `null` wherever a row is
+missing. That is the shape a batch resolver wants:
 
 ```ts
-const records = await dsql.$listByGlobalId({ ids }); // records[i] ↔ ids[i], or null
+const [a, b, c] = await dsql.$listByGlobalId([id1, id2, id3]); // [{ … }, null, { … }] if id2 is gone
 ```
-
-`on` says what to read per node — the same map a [union join](./polymorphic-relations.md)
-takes:
-
-```ts
-const records = await dsql.$listByGlobalId({
-  ids,
-  on: {
-    authors: { select: { id: true, name: true }, join: { articles: true } },
-    articles: { where: { publishedAt: { exists: true } } }, // a draft reads as a miss
-    revisions: false, // excluded: gone from the union, and refused at runtime
-  },
-});
-```
-
-An entry is `true` (the whole row, also the default), `false`, or an object with a `select`, a
-`join` over that node's relations, and a `where` AND-ed with the id — a row that fails it is
-`null`, exactly as a missing one.
 
 A row is matched back to its id by node and key, not by the id's text: an id whose uuid is
 spelled differently — upper case, braces, no hyphens — resolves here as it does in
 `$findByGlobalId`.
-
-It always returns the node's key field, even when `select` leaves it out: matching a row back to
-the id that asked for it is what the key is for.
 
 ## Tenancy
 
@@ -186,7 +165,6 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | Wrapped id naming another node                              | `GlobalIdError("key_mismatch")`, when the query is built |
 | Wrapped id whose payload is not that node's key             | `GlobalIdError("key_mismatch")`                          |
 | A lookup for a table that is not a node                     | `GlobalIdError("unknown_node")`                          |
-| `$listByGlobalId` for a node `on` set to `false`            | `GlobalIdError("unknown_node")`                          |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
 | A relation pairing a guid with a uuid                       | throws when the client is built                          |

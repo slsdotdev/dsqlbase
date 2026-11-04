@@ -261,13 +261,11 @@ describe("global ids", () => {
       const [article] = getData().articles;
       const [revision] = getData().revisions;
 
-      const records = await getClient().$listByGlobalId({
-        ids: [
-          wrap("revisions", revision.id),
-          wrap("authors", author.id),
-          wrap("articles", article.id),
-        ],
-      });
+      const records = await getClient().$listByGlobalId([
+        wrap("revisions", revision.id),
+        wrap("authors", author.id),
+        wrap("articles", article.id),
+      ]);
 
       expect(records.map((record) => record?.$$key)).toEqual(["revisions", "authors", "articles"]);
     });
@@ -277,9 +275,10 @@ describe("global ids", () => {
       // naturally return them in.
       const [first, second] = getData().authors;
 
-      const records = await getClient().$listByGlobalId({
-        ids: [wrap("authors", second.id), wrap("authors", first.id)],
-      });
+      const records = await getClient().$listByGlobalId([
+        wrap("authors", second.id),
+        wrap("authors", first.id),
+      ]);
 
       expect(records.map((record) => (record?.$$key === "authors" ? record.name : null))).toEqual([
         second.name,
@@ -292,35 +291,45 @@ describe("global ids", () => {
       const [author] = getData().authors;
       const id = wrap("authors", author.id.toUpperCase());
 
-      const [single] = await getClient().$listByGlobalId({ ids: [id] });
+      const [single] = await getClient().$listByGlobalId([id]);
       const found = await getClient().$findByGlobalId(id);
 
       expect(single?.$$key === "authors" ? single.name : null).toBe(author.name);
       expect(found?.$$key === "authors" ? found.name : null).toBe(author.name);
     });
 
+    it("reads every column of each row, with null for a miss in place", async () => {
+      const [first, second] = getData().authors;
+      const missing = wrap("authors", "0f9b6b6a-1111-4222-8333-444444444444");
+      const rows = await getClient().authors.findMany({
+        where: { id: { in: [first.id, second.id] } },
+      });
+      const rowOf = (id: string) => rows.find((row) => row.id === wrap("authors", id));
+
+      const records = await getClient().$listByGlobalId([
+        wrap("authors", first.id),
+        missing,
+        wrap("authors", second.id),
+      ]);
+
+      expect(records).toEqual([
+        { ...rowOf(first.id), $$key: "authors" },
+        null,
+        { ...rowOf(second.id), $$key: "authors" },
+      ]);
+    });
+
     it("returns null for a miss, in place", async () => {
       const [author] = getData().authors;
       const missing = wrap("authors", "0f9b6b6a-1111-4222-8333-444444444444");
 
-      const records = await getClient().$listByGlobalId({
-        ids: [missing, wrap("authors", author.id), missing],
-      });
+      const records = await getClient().$listByGlobalId([
+        missing,
+        wrap("authors", author.id),
+        missing,
+      ]);
 
       expect(records.map((record) => record?.$$key ?? null)).toEqual([null, "authors", null]);
-    });
-
-    it("keeps the node key even when select leaves it out", async () => {
-      const [author] = getData().authors;
-
-      const records = await getClient().$listByGlobalId({
-        ids: [wrap("authors", author.id)],
-        on: { authors: { select: { name: true } } },
-      });
-
-      const record = records[0];
-
-      expect(record?.$$key === "authors" ? record.id : null).toBe(wrap("authors", author.id));
     });
   });
 
@@ -354,9 +363,10 @@ describe("global ids", () => {
     it("skips another tenant's node in a batch, keeping the rest in place", async () => {
       const [own, other] = getData().drafts;
 
-      const records = await acme().$listByGlobalId({
-        ids: [wrap("drafts", other.id), wrap("drafts", own.id)],
-      });
+      const records = await acme().$listByGlobalId([
+        wrap("drafts", other.id),
+        wrap("drafts", own.id),
+      ]);
 
       expect(records.map((record) => (record?.$$key === "drafts" ? record.title : null))).toEqual([
         null,

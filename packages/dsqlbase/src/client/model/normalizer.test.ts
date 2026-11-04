@@ -354,40 +354,6 @@ describe("selection", () => {
       });
     });
   });
-
-  describe("relation fields in a global-id lookup's select", () => {
-    const authors = table("authors", {
-      id: guid("id").primaryKey(),
-      name: text("name").notNull(),
-    });
-    const books = table("books", {
-      id: guid("id").primaryKey(),
-      authorId: guid("author_id").notNull(),
-      title: text("title").notNull(),
-    });
-    const authorRelations = relations(authors, {
-      books: hasMany(books, { from: [authors.columns.id], to: [books.columns.authorId] }),
-    });
-
-    it("still projects the key a list lookup matches on when select names only relations", async () => {
-      const calls: SQLStatement[] = [];
-      const session = {
-        execute: vi.fn(async (query: SQLStatement) => {
-          calls.push(query);
-          return [];
-        }),
-      } as unknown as Session;
-      const nodes = createClient({ schema: { authors, books, authorRelations }, session });
-      const id = "5f0c6a38-54d2-4a4c-9d5b-3f1f2f2d8a11";
-
-      await nodes.$listByGlobalId({
-        ids: [encodeGlobalId("authors", { id })],
-        on: { authors: { select: { books: { title: true } } } },
-      });
-
-      expect(calls[0]?.text).toMatch(/^SELECT "__t0"\."id", "__join_books"\."data" AS "books"/);
-    });
-  });
 });
 
 describe("union joins", () => {

@@ -364,26 +364,6 @@ describe("polymorphic relations", () => {
     });
   });
 
-  describe("global-id lookups with a widened on map", () => {
-    it("forwards where and join per node", async () => {
-      const author = getData().authors[0];
-
-      const [found] = await getClient().$listByGlobalId({
-        ids: [wrap("authors", author.id)],
-        on: { authors: { join: { posts: { where: { $$key: "photos" } } } } },
-      });
-      const [missed] = await getClient().$listByGlobalId({
-        ids: [wrap("authors", author.id)],
-        on: { authors: { where: { name: { eq: "Someone else" } } } },
-      });
-
-      expect(
-        found?.$$key === "authors" && found.posts.every((post) => post.$$key === "photos")
-      ).toBe(true);
-      expect(missed).toBeNull();
-    });
-  });
-
   describe("tenancy", () => {
     const acme = () => getClient().$identityClaims({ workspaceId: getData().workspaces[0].id });
 

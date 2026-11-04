@@ -295,4 +295,4 @@ transaction client inside one, it is present again.
 - [Schema](./schema.md#unions)
 - [Querying](./querying.md)
 - [Pagination](./pagination.md)
-- [Global ids](./global-ids.md) — the same `on` map
+- [Global ids](./global-ids.md)

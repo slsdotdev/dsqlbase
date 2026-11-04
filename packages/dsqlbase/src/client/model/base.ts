@@ -921,23 +921,6 @@ export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = 
     | boolean;
 };
 
-/** The `on` map `$listByGlobalId` takes. */
-export type GlobalIdOptionsOf<TSchema extends AnySchema> = OnSelectionOf<
-  NodeAliasesOf<TSchema>,
-  TSchema
->;
-
-/** The query args one member of an `on` map resolves to. */
-type NodeArgsOf<
-  TSchema extends AnySchema,
-  TAlias extends NodeAliasesOf<TSchema>,
-  TOn,
-> = TAlias extends keyof TOn
-  ? TOn[TAlias] extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
-    ? TOn[TAlias]
-    : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
-  : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>;
-
 /** Whether an `on` map excluded a member outright. */
 type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn
   ? TOn[TAlias] extends false
@@ -957,45 +940,18 @@ type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn
  * It is added by the lookup methods, not by the resolver, so an ordinary `findOne` row is
  * unchanged — a single-table read has nothing to discriminate.
  */
-type TaggedNodeOf<TSchema extends AnySchema, TAlias extends NodeAliasesOf<TSchema>, TOn> = Prettify<
+type TaggedNodeOf<TSchema extends AnySchema, TAlias extends NodeAliasesOf<TSchema>> = Prettify<
   { $$key: TAlias } & QueryResultOf<
     TableByAlias<TSchema, TAlias>,
     TSchema,
-    NodeArgsOf<TSchema, TAlias, TOn>
+    QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
   >
 >;
 
 /**
- * The row a global id resolves to: a union over every node the schema declares, narrowed by
- * the caller's `on` map, discriminated by `$$key`.
+ * The row a global id resolves to, with every column: a union over every node the schema
+ * declares, discriminated by `$$key`, or `null` when the row no longer exists.
  */
-export type GlobalIdResultOf<TSchema extends AnySchema, TOn = undefined> =
-  | {
-      [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
-        ? never
-        : TaggedNodeOf<TSchema, K, TOn>;
-    }[NodeAliasesOf<TSchema>]
+export type GlobalIdResultOf<TSchema extends AnySchema> =
+  | { [K in NodeAliasesOf<TSchema>]: TaggedNodeOf<TSchema, K> }[NodeAliasesOf<TSchema>]
   | null;
-
-/**
- * As {@link GlobalIdResultOf}, with the node's key field forced into every selection.
- *
- * `$listByGlobalId` returns rows in the order the ids were given, which means matching each
- * row back to the id that asked for it — and the only thing that can do that is the key
- * itself. So it is always projected, even when `select` leaves it out.
- */
-export type GlobalIdListResultOf<TSchema extends AnySchema, TOn = undefined> = {
-  [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
-    ? never
-    : Prettify<
-        { $$key: K } & QueryResultOf<
-          TableByAlias<TSchema, K>,
-          TSchema,
-          NodeArgsOf<TSchema, K, TOn> extends { select: infer TSelect }
-            ? Omit<NodeArgsOf<TSchema, K, TOn>, "select"> & {
-                select: TSelect & Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true>;
-              }
-            : NodeArgsOf<TSchema, K, TOn>
-        >
-      >;
-}[NodeAliasesOf<TSchema>];
