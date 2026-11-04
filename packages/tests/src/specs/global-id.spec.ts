@@ -72,7 +72,7 @@ describe("global ids", () => {
       expect(revision?.$$meta.table).toBe("article_revisions");
     });
 
-    it("leaves a table that is not a node raw", async () => {
+    it("leaves a uuid key raw", async () => {
       const [tag] = await getClient().$query<{ id: string }>(
         sql`INSERT INTO "tags" ("label") VALUES ('raw') RETURNING "id"`
       );
@@ -238,10 +238,51 @@ describe("global ids", () => {
       expect(await getClient().$findByGlobalId(id)).toBeNull();
     });
 
-    it("refuses an id for a table that is not a node", async () => {
+    it("reads a composite key", async () => {
+      const [article] = getData().articles;
+      const [tag] = await getClient().$query<{ id: string }>(
+        sql`INSERT INTO "tags" ("label") VALUES ('composite') RETURNING "id"`
+      );
+
+      await getClient().$query(
+        sql`INSERT INTO "article_tags" ("article_id", "tag_id") VALUES (${article.id}, ${tag.id})`
+      );
+
+      const record = await getClient().$findByGlobalId(
+        encodeGlobalId("articleTags", { articleId: article.id, tagId: tag.id })
+      );
+
+      expect(record).toEqual({
+        $$key: "articleTags",
+        $$meta: { key: "articleTags", table: "article_tags" },
+        articleId: wrap("articles", article.id),
+        tagId: tag.id,
+      });
+    });
+
+    it("reads a uuid-keyed table by its key or by a unique column", async () => {
+      const [tag] = await getClient().$query<{ id: string }>(
+        sql`INSERT INTO "tags" ("label") VALUES ('by-label') RETURNING "id"`
+      );
+
+      const byId = await getClient().$findByGlobalId(encodeGlobalId("tags", { id: tag.id }));
+      const byLabel = await getClient().$findByGlobalId(
+        encodeGlobalId("tags", { label: "by-label" })
+      );
+
+      expect(byId?.$$key === "tags" ? byId.label : null).toBe("by-label");
+      expect(byLabel?.$$key === "tags" ? byLabel.id : null).toBe(tag.id);
+    });
+
+    it("refuses an id that names no unique key", async () => {
       await expect(
-        getClient().$findByGlobalId(encodeGlobalId("tags", { id: getData().authors[0].id }))
+        getClient().$findByGlobalId(encodeGlobalId("nowhere", { id: getData().authors[0].id }))
       ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
+      await expect(
+        getClient().$findByGlobalId(
+          encodeGlobalId("articleTags", { articleId: getData().articles[0].id })
+        )
+      ).rejects.toThrow(expect.objectContaining({ code: "key_mismatch" }));
     });
 
     it("works inside a transaction", async () => {
@@ -319,6 +360,30 @@ describe("global ids", () => {
       ]);
     });
 
+    it("matches composite keys back in place beside single ones", async () => {
+      const [first, second] = getData().articles;
+      const [tag] = await getClient().$query<{ id: string }>(
+        sql`INSERT INTO "tags" ("label") VALUES ('batch') RETURNING "id"`
+      );
+
+      await getClient().$query(
+        sql`INSERT INTO "article_tags" ("article_id", "tag_id") VALUES (${first.id}, ${tag.id})`
+      );
+
+      const records = await getClient().$listByGlobalId([
+        encodeGlobalId("articleTags", { articleId: second.id, tagId: tag.id }),
+        wrap("articles", first.id),
+        // Upper case: matched back by canonical value, not by the id's text.
+        encodeGlobalId("articleTags", { articleId: first.id, tagId: tag.id.toUpperCase() }),
+      ]);
+
+      expect(records.map((record) => record?.$$key ?? null)).toEqual([
+        null,
+        "articles",
+        "articleTags",
+      ]);
+    });
+
     it("returns null for a miss, in place", async () => {
       const [author] = getData().authors;
       const missing = wrap("authors", "0f9b6b6a-1111-4222-8333-444444444444");
@@ -382,12 +447,12 @@ describe("global ids", () => {
       );
     });
 
-    it("refuses an id for a table that is not a node, tenant-scoped or not", async () => {
+    it("scopes a uuid-keyed tenant table like any other", async () => {
       const document = getData().documents[0];
 
       await expect(
         getClient().$findByGlobalId(encodeGlobalId("documents", { id: document.id }))
-      ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
+      ).rejects.toThrow(TenancyError);
     });
   });
 

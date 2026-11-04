@@ -270,8 +270,9 @@ const taskRelations = relations(tasks, {
  * `authors` owns `articles`, which own `revisions`. `articles.authorId` is paired with
  * `authors.id` by a relation, so `article.authorId` and `article.author.id` have to be the same
  * string; `revisions` is keyed under an alias that differs from its database name, so a node
- * key follows the name the client uses rather than the physical one. `tags` is deliberately **not** a node: a uuid key
- * is just a uuid key, and `articleTags` has a composite key, which `guid()` cannot name.
+ * key follows the name the client uses rather than the physical one. `tags` has a plain uuid
+ * key, so its rows emit no ids, but a hand-built id over its key or its unique `label` still
+ * resolves; `articleTags` is addressed by both fields of its composite key.
  */
 const authors = table("authors", {
   id: guid("id").primaryKey().defaultRandom(),
@@ -302,13 +303,13 @@ const drafts = ws.table("drafts", {
   title: text("title").notNull(),
 });
 
-// Not a node: a plain uuid key names nothing.
+// A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.
 const tags = table("tags", {
   id: uuid("id").primaryKey().defaultRandom(),
   label: text("label").notNull().unique(),
 });
 
-// Not a node either: a composite key cannot be carried by a single guid() column.
+// Addressable by both fields of its composite key; its rows emit no id of their own.
 const articleTags = table("article_tags", {
   articleId: guid("article_id"),
   tagId: uuid("tag_id"),

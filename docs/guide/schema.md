@@ -51,8 +51,8 @@ A primary-key column can't be deprecated.
 ### Global ids
 
 `guid(name)` is a `uuid` column whose values leave the ORM as opaque strings naming both
-the row and its table. A table whose primary key is exactly one `guid()` column is a **node**,
-addressable by [`$findByGlobalId`](./global-ids.md):
+the row and its table. Any table with a unique key is a **node**, addressable by
+[`$findByGlobalId`](./global-ids.md); a guid primary key is what makes its rows emit their ids:
 
 ```ts
 const authors = table("authors", {

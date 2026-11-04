@@ -13,8 +13,15 @@ import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import { GlobalIdResultOf } from "../model/base.js";
 import { WhereExpressionOf } from "../model/filters.js";
-import { GlobalIdError, decodeGlobalId } from "../../schema/utils/global-id.js";
+import { GlobalIdError, decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
 import { NodeTable, getNodes } from "../nodes.js";
+
+/** A global id resolved against the schema: its table, the unique key it matches, its values. */
+type ResolvedId = {
+  readonly node: NodeTable;
+  readonly fields: readonly string[];
+  readonly pk: Record<string, string>;
+};
 
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ExecutionContext<T>;
@@ -41,41 +48,73 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /**
-   * Resolves a global id to the node it names and the key value it carries.
+   * Resolves a global id to the table it names and the unique key its payload matches.
    *
    * Every failure is raised here, before a query is built: an id that does not decode, one
-   * naming a table that is not a node, and one whose payload is not that node's key.
+   * naming a table that is not in the schema or has no unique key, and one whose fields are not
+   * exactly one of that table's unique keys — a payload that could match many rows is not an
+   * address.
    */
-  private _resolveNode(id: string): { node: NodeTable; value: string } {
+  private _resolveNode(id: string): ResolvedId {
     const { key, pk } = decodeGlobalId(id);
     const node = getNodes(this._ctx.schema).get(key);
 
     if (!node) {
-      throw new GlobalIdError("unknown_node", `"${key}" is not a node in this schema.`);
-    }
-
-    const fields = Object.keys(pk);
-
-    if (fields.length !== 1 || fields[0] !== node.keyField) {
       throw new GlobalIdError(
-        "key_mismatch",
-        `Global id for "${key}" carries ${fields.map((field) => `"${field}"`).join(", ")} ` +
-          `rather than its key "${node.keyField}".`
+        "unknown_node",
+        `"${key}" is not a table with a unique key in this schema.`
       );
     }
 
-    return { node, value: pk[node.keyField] };
+    const fields = Object.keys(pk).sort();
+    const match = node.keys.find(
+      (key) => key.length === fields.length && key.every((field, i) => field === fields[i])
+    );
+
+    if (!match) {
+      const list = (key: readonly string[]) => `(${key.join(", ")})`;
+
+      throw new GlobalIdError(
+        "key_mismatch",
+        `Global id for "${key}" carries ${list(fields)}, which is not a unique key of it. ` +
+          `Its keys are ${node.keys.map(list).join(", ")}.`
+      );
+    }
+
+    return { node, fields: match, pk };
   }
 
   /**
-   * A `where` over a field named at runtime.
+   * A `where` matching one payload on every field of its key.
    *
-   * `_models` is keyed by alias and typed over `AnyTable`, so the key field is a `string` the
-   * compiler cannot match to a column. The node registry resolved it against the real table
+   * `_models` is keyed by alias and typed over `AnyTable`, so the key fields are `string`s the
+   * compiler cannot match to columns. The node registry resolved them against the real table
    * when the client was built, which is the check this cast stands on.
    */
-  private _byKey(field: string, condition: object): WhereExpressionOf<AnyTable> {
-    return { [field]: condition } as WhereExpressionOf<AnyTable>;
+  private _byKey(
+    fields: readonly string[],
+    pk: Record<string, string>
+  ): WhereExpressionOf<AnyTable> {
+    return Object.fromEntries(
+      fields.map((field) => [field, { eq: pk[field] }])
+    ) as WhereExpressionOf<AnyTable>;
+  }
+
+  /**
+   * One `where` for every payload of a group: an `in` over a single-field key, an `or` of
+   * field maps over a composite one.
+   */
+  private _byKeys(
+    fields: readonly string[],
+    pks: Record<string, string>[]
+  ): WhereExpressionOf<AnyTable> {
+    if (fields.length === 1) {
+      const [field] = fields as [string];
+
+      return { [field]: { in: pks.map((pk) => pk[field]) } } as WhereExpressionOf<AnyTable>;
+    }
+
+    return { or: pks.map((pk) => this._byKey(fields, pk)) } as WhereExpressionOf<AnyTable>;
   }
 
   private _model(alias: string): ModelClient<AnyTable, T> {
@@ -108,14 +147,14 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    * if (record?.$$key === "users") record.name;
    * ```
    *
-   * @throws GlobalIdError when the id does not decode, names a table that is not a node, or
-   *   carries a payload that is not that node's key.
+   * @throws GlobalIdError when the id does not decode, names a table that is not in the schema,
+   *   or carries fields that are not one of that table's unique keys.
    */
   async $findByGlobalId(id: string): Promise<GlobalIdResultOf<Schema<T>>> {
-    const { node, value } = this._resolveNode(id);
+    const { node, fields, pk } = this._resolveNode(id);
 
     const row = (await this._model(node.alias).findOne({
-      where: this._byKey(node.keyField, { eq: value }),
+      where: this._byKey(fields, pk),
     })) as Record<string, unknown> | null;
 
     return (row ? this._tag(row, node) : null) as GlobalIdResultOf<Schema<T>>;
@@ -144,38 +183,44 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    */
   async $listByGlobalId(ids: readonly string[]): Promise<GlobalIdResultOf<Schema<T>>[]> {
     const resolved = ids.map((id) => this._resolveNode(id));
-    const groups = new Map<string, { node: NodeTable; values: Set<string> }>();
+    const groups = new Map<
+      string,
+      { node: NodeTable; fields: readonly string[]; pks: Map<string, Record<string, string>> }
+    >();
 
-    for (const { node, value } of resolved) {
-      const group = groups.get(node.alias) ?? { node, values: new Set<string>() };
+    // A table may be asked for under two different keys in one batch; each is its own query.
+    for (const { node, fields, pk } of resolved) {
+      const id = matchKey(node, fields, (field) => pk[field]);
+      const group = groups.get(id.group) ?? { node, fields, pks: new Map() };
 
-      group.values.add(value);
-      groups.set(node.alias, group);
+      group.pks.set(id.row, pk);
+      groups.set(id.group, group);
     }
 
-    // One query per table, all of them in flight together. Rows are matched back by node and
-    // canonical key, not by id text: the database finds a row for any spelling of its uuid.
+    // One query per table and key, all of them in flight together. Rows are matched back by
+    // canonical key values, not by id text: the database finds a row for any spelling of its
+    // uuid.
     const rows = new Map<string, Record<string, unknown>>();
-    const keyOf = (alias: string, value: string) => `${alias}\u0000${canonicalUuid(value)}`;
 
     await Promise.all(
-      [...groups.values()].map(async ({ node, values }) => {
+      [...groups.entries()].map(async ([group, { node, fields, pks }]) => {
         const found = (await this._model(node.alias).findMany({
-          where: this._byKey(node.keyField, { in: [...values] }),
+          where: this._byKeys(fields, [...pks.values()]),
         })) as unknown as Record<string, unknown>[];
 
         for (const row of found) {
-          // The key column reads back wrapped as a global id; its payload is the stored uuid.
-          const { pk } = decodeGlobalId(String(row[node.keyField]));
-          rows.set(keyOf(node.alias, pk[node.keyField] ?? ""), this._tag(row, node));
+          const id = matchKey(node, fields, (field) => rawValue(row[field]));
+
+          rows.set(`${group}\u0000${id.row}`, this._tag(row, node));
         }
       })
     );
 
-    return resolved.map(
-      ({ node, value }) =>
-        (rows.get(keyOf(node.alias, value)) ?? null) as GlobalIdResultOf<Schema<T>>
-    );
+    return resolved.map(({ node, fields, pk }) => {
+      const id = matchKey(node, fields, (field) => pk[field]);
+
+      return (rows.get(`${id.group}\u0000${id.row}`) ?? null) as GlobalIdResultOf<Schema<T>>;
+    });
   }
 
   $query<T = unknown>(sql: SQLQuery) {
@@ -243,6 +288,38 @@ export function attachModels<T extends DefinitionSchema>(
       enumerable: true,
     });
   }
+}
+
+/**
+ * How `$listByGlobalId` puts a row back against the id that asked for it: the group is the
+ * table and key, the row the key's values. uuid values are canonicalised, so any spelling of
+ * one matches what the database hands back.
+ */
+function matchKey(
+  node: NodeTable,
+  fields: readonly string[],
+  valueOf: (field: string) => string | undefined
+): { group: string; row: string } {
+  const values = fields.map((field) => {
+    const value = valueOf(field) ?? "";
+
+    return node.table.getColumn(field)?.dataType === "uuid" ? canonicalUuid(value) : value;
+  });
+
+  return { group: `${node.alias}\u0000${fields.join(",")}`, row: values.join("\u0000") };
+}
+
+/**
+ * A key value as a payload carries it. A guid column reads back wrapped, and one bound to
+ * another table wraps under that table's field (`articleTags.articleId` reads as
+ * `["articles", { id }]`), so the stored value is the payload's only entry.
+ */
+function rawValue(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  return isGlobalId(value) ? Object.values(decodeGlobalId(value).pk)[0] : String(value);
 }
 
 /**

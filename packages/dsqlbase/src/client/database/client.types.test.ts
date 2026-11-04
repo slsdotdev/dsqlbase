@@ -137,17 +137,20 @@ const articles = table("articles", {
   title: text("title").notNull(),
 });
 
-// Not a node: a uuid primary key is just a uuid primary key.
+// Its rows emit no ids, but a hand-built one over its key resolves.
 const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
 });
 
-// Not a node either: `guid()` can only name one column, so a composite key has no id.
+// Addressed by both fields of its key.
 const memberships = table("memberships", {
   authorId: guid("author_id"),
   teamId: uuid("team_id"),
-}).primaryKey((c) => [c.authorId, c.teamId]);
+});
+
+// Not chained: `primaryKey()` returns the constraint, not the table.
+memberships.primaryKey((c) => [c.authorId, c.teamId]);
 
 const nodeSchema = { authors, articles, teams, memberships };
 type NodeSchema = CoreSchema<typeof nodeSchema>;
@@ -160,8 +163,10 @@ const nodes = createClient({ schema: nodeSchema, session: nodeSession });
 const someAuthorId = encodeGlobalId("authors", { id: "3f1c0e3e-0a3f-4a1e-9c2e-8b5f1d2a7c44" });
 
 describe("NodeAliasesOf", () => {
-  it("is every table whose primary key is a single guid column", () => {
-    expectTypeOf<NodeAliasesOf<NodeSchema>>().toEqualTypeOf<"authors" | "articles">();
+  it("is every table, since keys beyond the column flags are invisible to the types", () => {
+    expectTypeOf<NodeAliasesOf<NodeSchema>>().toEqualTypeOf<
+      "authors" | "articles" | "teams" | "memberships"
+    >();
   });
 });
 
@@ -169,7 +174,9 @@ describe("$findByGlobalId", () => {
   it("returns a union over every node, discriminated by $$meta.key", async () => {
     const record = await nodes.$findByGlobalId(someAuthorId);
 
-    expectTypeOf(record).toExtend<{ $$key: "authors" | "articles" } | null>();
+    expectTypeOf(record).toExtend<{
+      $$key: "authors" | "articles" | "teams" | "memberships";
+    } | null>();
 
     if (record?.$$key === "authors") {
       expectTypeOf(record.name).toEqualTypeOf<string>();
@@ -177,6 +184,10 @@ describe("$findByGlobalId", () => {
 
     if (record?.$$key === "articles") {
       expectTypeOf(record.title).toEqualTypeOf<string>();
+    }
+
+    if (record?.$$key === "memberships") {
+      expectTypeOf(record.teamId).toEqualTypeOf<string | null>();
     }
   });
 
@@ -195,7 +206,9 @@ describe("$listByGlobalId", () => {
     const records = await nodes.$listByGlobalId([someAuthorId]);
 
     expectTypeOf(records).toExtend<unknown[]>();
-    expectTypeOf(records[0]).toExtend<{ $$key: "authors" | "articles" } | null | undefined>();
+    expectTypeOf(records[0]).toExtend<
+      { $$key: "authors" | "articles" | "teams" | "memberships" } | null | undefined
+    >();
   });
 });
 

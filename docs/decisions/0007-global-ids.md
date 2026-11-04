@@ -1,7 +1,7 @@
 # 0007 — Global ids
 
 - **Date:** 2026-09-27
-- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md); the lookups take only ids since 2026-11-04 (see below)
+- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md); the lookups take only ids, and ids resolve by any unique key, since 2026-11-04 (see below)
 - **Proposal:** `schema-guid.md` (local working artifact, not tracked)
 
 ## Context
@@ -13,7 +13,7 @@ Wrapping at the application boundary was the alternative actually on the table (
 ## Decision
 
 - **`guid()` is a `uuid` column with a codec.** It lives entirely in `dsqlbase`; `@dsqlbase/core` is untouched. Nothing below the client has an opinion about the shape of an id — core sees a column with a codec, exactly as it sees an `interval` column with a `Duration` codec.
-- **A table is a node iff its primary key is exactly one `guid()` column.** Its key is the table's **schema alias**, so ids follow the identity the client addresses (`members`, not `team_members`) and a database rename does not invalidate ids in the wild. An explicit `guid(col, key)` overrides it and doubles as a stable label.
+- **A table is a node iff its primary key is exactly one `guid()` column.** _Amended 2026-11-04:_ a table is a node when it has a unique key — a primary key of any arity, a unique column, constraint, or non-partial unique index over plain columns — and an id resolves only when its payload's fields are exactly one of them, so an id names at most one row. Only guid columns emit ids; composite and uuid keys are addressed by ids built with `encodeGlobalId`. The alternatives — first matching row, or throwing when several match — were rejected because an id is an address. `NodeAliasesOf` is every table, since composite keys, constraints and indexes are invisible to the types. Its key is the table's **schema alias**, so ids follow the identity the client addresses (`members`, not `team_members`) and a database rename does not invalidate ids in the wild. An explicit `guid(col, key)` overrides it and doubles as a stable label.
 - **The payload is `guid:` + base64url of `[tableKey, { [keyField]: value }]`.** The prefix makes "already wrapped?" exact, since a uuid never starts with `guid:`. The payload names its key field rather than assuming `id`.
 - **Binding happens once, when the client is built.** A codec sees one value and no context, but it needs the node key — which defaults to the schema alias — and the _target's_ key field name. Neither is knowable where the column is declared, so `createClient` resolves every guid column against the whole schema and installs the bound codec on the built `Column`.
 - **One swap covers every direction.** `Column` funnels reads through `codec.decode` and writes and filters through `codec.encode`, so nothing in the pipeline changed.

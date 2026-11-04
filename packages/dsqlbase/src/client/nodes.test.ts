@@ -30,7 +30,7 @@ function register<TSchema extends DefinitionSchema>(schema: TSchema) {
 }
 
 describe("registerNodes", () => {
-  it("should make a table with a single guid primary key a node, keyed by its alias", () => {
+  it("should make a table with a primary key a node, keyed by its alias", () => {
     const authors = table("authors", {
       id: guid("id").primaryKey().defaultRandom(),
       name: text("name").notNull(),
@@ -40,8 +40,7 @@ describe("registerNodes", () => {
     const node = nodes.get("authors");
 
     expect(node?.alias).toBe("authors");
-    expect(node?.keyField).toBe("id");
-    expect(node?.keyColumn.name).toBe("id");
+    expect(node?.keys).toEqual([["id"]]);
   });
 
   it("should key a node by its alias, not its database name", () => {
@@ -57,25 +56,76 @@ describe("registerNodes", () => {
     expect(nodes.get("revisions")?.table.name).toBe("article_revisions");
   });
 
-  it("should not make a uuid-keyed table a node", () => {
+  it("should make a uuid-keyed table a node", () => {
+    // Its rows emit no ids, but one built with `encodeGlobalId` still names exactly one row.
     const teams = table("teams", { id: uuid("id").primaryKey().defaultRandom() });
 
-    expect(register({ teams }).nodes.size).toBe(0);
+    expect(register({ teams }).nodes.get("teams")?.keys).toEqual([["id"]]);
   });
 
-  it("should not make a composite-key table a node", () => {
-    // `guid()` can only name one column, so nothing could produce an id for this table.
+  it("should key a composite-key table by every field of its key", () => {
     const memberships = table("memberships", {
-      teamId: guid("team_id"),
       userId: guid("user_id"),
-    }).primaryKey((c) => [c.teamId, c.userId]);
+      teamId: guid("team_id"),
+    });
 
-    const teams = table("teams", { id: guid("id").primaryKey() });
-    const users = table("users", { id: guid("id").primaryKey() });
+    // Not chained: `primaryKey()` returns the constraint, not the table.
+    memberships.primaryKey((c) => [c.userId, c.teamId]);
 
-    const { nodes } = register({ teams, users, memberships });
+    expect(register({ memberships }).nodes.get("memberships")?.keys).toEqual([
+      ["teamId", "userId"],
+    ]);
+  });
 
-    expect([...nodes.keys()].sort()).toEqual(["teams", "users"]);
+  it("should key a table by its unique columns, constraints and indexes too", () => {
+    const users = table("users", {
+      id: guid("id").primaryKey(),
+      email: text("email").unique(),
+      workspaceId: uuid("workspace_id"),
+      handle: text("handle"),
+      slug: text("slug"),
+    });
+
+    users.unique((c) => [c.workspaceId, c.handle]);
+    users
+      .index("users_slug")
+      .unique()
+      .columns((c) => [c.slug]);
+
+    expect(register({ users }).nodes.get("users")?.keys).toEqual([
+      ["id"],
+      ["email"],
+      ["handle", "workspaceId"],
+      ["slug"],
+    ]);
+  });
+
+  it("should not key a table by a partial or expression unique index", () => {
+    // Neither names one row by its fields: a partial index is unique only where its predicate
+    // holds, and no payload field can name an expression.
+    const users = table("users", {
+      id: guid("id").primaryKey(),
+      email: text("email"),
+      deletedAt: text("deleted_at"),
+    });
+
+    users
+      .index("users_email_live")
+      .unique()
+      .columns((c) => [c.email])
+      .where((c) => sql`${c.deletedAt} IS NULL`);
+    users
+      .index("users_email_lower")
+      .unique()
+      .columns((c) => [sql`lower(${c.email})`]);
+
+    expect(register({ users }).nodes.get("users")?.keys).toEqual([["id"]]);
+  });
+
+  it("should not make a table without a unique key a node", () => {
+    const events = table("events", { at: text("at"), kind: text("kind") });
+
+    expect(register({ events }).nodes.size).toBe(0);
   });
 
   it("should bind a key column to its own node", () => {
@@ -155,8 +205,8 @@ describe("registerNodes", () => {
       key: "photos",
       keyField: "ownerId",
     });
-    // Still one node, addressed by its key: an ownerId id does not name a photo.
-    expect(nodes.get("photos")?.keyField).toBe("id");
+    // Not a key, so an ownerId id is not the address of a photo.
+    expect(nodes.get("photos")?.keys).toEqual([["id"]]);
   });
 
   it("should follow a reference to a column that is itself a reference", () => {
@@ -194,8 +244,9 @@ describe("registerNodes", () => {
     });
   });
 
-  it("should not make a primary key that references another table a node", () => {
-    // A shared-key one-to-one: a profile's id is its user's id, so it reads as one.
+  it("should read a primary key that references another table as that table's id", () => {
+    // A shared-key one-to-one: a profile's id is its user's id, so it reads as one. The profile
+    // is still addressable by a hand-built id over its own key.
     const users = table("users", { id: guid("id").primaryKey() });
     const profiles = table("profiles", { userId: guid("user_id").primaryKey() });
     const profileRelations = relations(profiles, {
@@ -204,7 +255,7 @@ describe("registerNodes", () => {
 
     const { registry, nodes } = register({ users, profiles, profileRelations });
 
-    expect([...nodes.keys()]).toEqual(["users"]);
+    expect([...nodes.keys()]).toEqual(["users", "profiles"]);
     expect(getGuidBinding(registry.getTable("profiles").columns.userId)).toEqual({
       key: "users",
       keyField: "id",
@@ -293,7 +344,9 @@ describe("registerNodes", () => {
       a: belongsTo(a, { from: [b.columns.aId], to: [a.columns.bId] }),
     });
 
-    expect(() => register({ a, b, aRelations, bRelations })).toThrow(/reference each other in a ring/);
+    expect(() => register({ a, b, aRelations, bRelations })).toThrow(
+      /reference each other in a ring/
+    );
   });
 });
 
@@ -565,9 +618,8 @@ describe("polymorphic guid columns", () => {
       });
     });
 
-    it("rejects a member that is not a node", () => {
-      const shops = table("shops", { id: uuid("id").primaryKey(), name: text("name") });
-      // `id` is a guid on one member and a uuid on the other, so the union cannot share it.
+    it("rejects a member related through a field that is not its unique key", () => {
+      const shops = table("shops", { id: guid("id").primaryKey(), code: guid("code") });
       const sellers = union({ companies, shops }, {});
       const entries = table("entries", {
         id: guid("id").primaryKey(),
@@ -577,13 +629,13 @@ describe("polymorphic guid columns", () => {
       const rels = relations(entries, {
         seller: belongsTo(sellers, {
           from: [entries.columns.sellerId],
-          to: { companies: [companies.columns.id], shops: [shops.columns.id] },
+          to: { companies: [companies.columns.id], shops: [shops.columns.code] },
           discriminator: entries.columns.kind,
         }),
       });
 
       expect(() => register({ companies, shops, sellers, entries, rels })).toThrow(
-        /union member "shops" is not a node keyed by "id"/
+        /"code" is not a unique key of union member "shops"/
       );
     });
 

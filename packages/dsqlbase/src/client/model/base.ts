@@ -888,24 +888,14 @@ export type AnyRelationQuery =
  * ---------------------------------------------------------------------------------------- */
 
 /**
- * The field a table's primary key is a single `guid()` column under, or `never`.
+ * The aliases of a schema that can be addressed by global id: every table.
  *
- * Mirrors the runtime rule in `packages/dsqlbase/src/client/nodes.ts`. A composite key is
- * declared with `table.primaryKey((c) => [...])`, which sets no column-level flag, so such a
- * table yields `never` here exactly as it fails to become a node there.
+ * At runtime a table is addressable when it has a unique key — a primary key of any arity, a
+ * unique column, constraint or index (`packages/dsqlbase/src/client/nodes.ts`). Composite keys,
+ * constraints and indexes leave no trace in a table's column types, so the types cannot tell;
+ * a table with no unique key at all is listed here and refused at runtime.
  */
-export type NodeKeyFieldOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true; guid: true } ? K : never;
-}[FieldNamesOf<T>];
-
-/** The aliases of a schema that can be addressed by global id. */
-export type NodeAliasesOf<TSchema extends AnySchema> = {
-  [K in keyof TSchema["tables"] & string]: [NodeKeyFieldOf<TableByAlias<TSchema, K>>] extends [
-    never,
-  ]
-    ? never
-    : K;
-}[keyof TSchema["tables"] & string];
+export type NodeAliasesOf<TSchema extends AnySchema> = keyof TSchema["tables"] & string;
 
 /**
  * What to do with each member of a set of tables a single call may resolve to — the members

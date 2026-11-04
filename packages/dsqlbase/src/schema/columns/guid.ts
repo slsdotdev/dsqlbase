@@ -19,9 +19,9 @@ export class GuidColumnDefinition<
  * Defines a `uuid` column whose values are global ids — opaque strings naming both the row and
  * the table it belongs to, rather than a bare uuid that could have come from anywhere.
  *
- * A table is a **node** when its primary key is exactly one `guid()` column. Its node key is
- * the table's schema alias, so `dsql.members` produces ids keyed `members` even though the
- * table is `team_members`.
+ * A guid primary key makes a table's rows emit their own ids. They are keyed by the table's
+ * schema alias, so `dsql.members` produces ids keyed `members` even though the table is
+ * `team_members`. An id resolves by any of the table's unique keys, not only this one.
  *
  * What a column's ids name is resolved when the client is built, from the relations:
  *

@@ -218,9 +218,9 @@ export const ledgerEntryRelations = relations(ledgerEntries, {
 
   A raw uuid compares the id alone.
 
-- **Pairs must agree.** The `from` column must be a `guid()` and every member a
-  [node](./global-ids.md#nodes) related through its own key, or `from` and every member key
-  must be plain `uuid()`. A mix throws when the client is built, as for any relation.
+- **Pairs must agree.** The `from` column must be a `guid()` and every member
+  related through a single-column unique key of its own ([nodes](./global-ids.md#nodes)), or
+  `from` and every member key must be plain `uuid()`. A mix throws when the client is built, as for any relation.
 - **Reverse relations.** A member may declare a has-many back onto the polymorphic column, such
   as `companies.entries`. That relation correlates on the id alone; the discriminator is not
   applied to it.

@@ -53,6 +53,9 @@ duplication caused more errors than that dependency would.
 - The node types (`NodeAliasesOf`) still read only a table's column shapes, so a shared-key
   table appears as a `$findByGlobalId` result branch that no id can reach. It is harmless, but
   imprecise.
+  - _Amended 2026-11-04:_ ids now resolve by any unique key ([0007](./0007-global-ids.md)), so a
+    shared-key table is reachable by a hand-built id over its own key; its rows still emit the
+    parent's id. `NodeAliasesOf` is now every table.
 - Adding a relation to a column that had none changes the wire format of its ids. This is the
   cost 0007 named; it is accepted as part of a schema change.
 

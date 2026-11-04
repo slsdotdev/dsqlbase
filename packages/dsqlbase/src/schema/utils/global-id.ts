@@ -54,9 +54,9 @@ export type GlobalId = {
  * Wraps a primary key as an opaque global id.
  *
  * The payload is `[key, pk]`, JSON-encoded and base64url-wrapped. `pk` is an object rather
- * than a bare value so the key field is named rather than assumed to be `id`, and so the
- * format never has to change to carry a composite key — today nothing produces one, because
- * only a single-column `guid()` key can be declared.
+ * than a bare value so the key field is named rather than assumed to be `id`, and so a
+ * composite key is one object carrying every field of it. Rows only emit single-field ids, from
+ * their `guid()` columns; a composite one is built here by the caller.
  *
  * Both the table key and the pk field names are **aliases**: the names the client addresses
  * (`members`, not `team_members`), so an id follows the client-visible identity rather than

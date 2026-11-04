@@ -11,7 +11,11 @@ import {
   TableDefinition,
   UnionDefinition,
 } from "@dsqlbase/core";
-import { AnyUnionColumnDefinition } from "@dsqlbase/core/definition";
+import {
+  AnyUnionColumnDefinition,
+  IndexColumnDefinition,
+  UniqueConstraintDefinition,
+} from "@dsqlbase/core/definition";
 import { GuidColumnDefinition } from "../schema/columns/guid.js";
 import {
   GlobalIdError,
@@ -55,7 +59,7 @@ export type DynamicGuidBinding = {
   readonly members: Readonly<Record<string, string>>;
 };
 
-/** A table addressable by global id: one whose primary key is exactly one `guid()` column. */
+/** A table addressable by global id: one with at least one unique key. */
 export type NodeTable = {
   /** The node key ids carry — the table's schema alias. */
   readonly key: string;
@@ -65,10 +69,12 @@ export type NodeTable = {
 
   readonly table: AnyTable;
 
-  /** The field name of the primary key (`id`), as the payload names it. */
-  readonly keyField: string;
-
-  readonly keyColumn: AnyColumn;
+  /**
+   * Every field set that names at most one row — the primary key, then each unique column,
+   * constraint and index — sorted, as a payload's fields are matched against them. An id
+   * resolves only when its fields are exactly one of these.
+   */
+  readonly keys: readonly (readonly string[])[];
 };
 
 /**
@@ -126,7 +132,7 @@ export function registerNodes(
   const dynamic = collectDynamicColumns(registry, schema);
   const guidColumns = collectGuidColumns(registry, schema, dynamic);
   const bindings = resolveBindings(registry, guidColumns);
-  const nodes = collectNodes(guidColumns, bindings);
+  const nodes = collectNodes(registry, schema);
 
   for (const [definition, { column }] of guidColumns) {
     const binding = bindings.get(definition) as GuidBinding;
@@ -137,11 +143,13 @@ export function registerNodes(
 
   for (const { column, binding } of dynamic.values()) {
     for (const [member, keyField] of Object.entries(binding.members)) {
-      if (nodes.get(member)?.keyField !== keyField) {
+      const keys = nodes.get(member)?.keys ?? [];
+
+      if (!keys.some((key) => key.length === 1 && key[0] === keyField)) {
         throw new Error(
           `Column "${column.table.alias}.${column.name}" reads its node from a discriminator, ` +
-            `but union member "${member}" is not a node keyed by "${keyField}". Every member a ` +
-            `polymorphic guid() can name must be a node, related through its own key.`
+            `but "${keyField}" is not a unique key of union member "${member}". Every member a ` +
+            `polymorphic guid() can name must be related through a unique key of its own.`
         );
       }
     }
@@ -518,7 +526,9 @@ export function decodeMemberId(
     throw new GlobalIdError(
       "key_mismatch",
       `Global id for "${key}" cannot be stored here: this column holds ids for ` +
-        `${Object.keys(members).map((member) => `"${member}"`).join(", ")}.`
+        `${Object.keys(members)
+          .map((member) => `"${member}"`)
+          .join(", ")}.`
     );
   }
 
@@ -633,38 +643,79 @@ function collectGuidColumns(
 }
 
 /**
- * The tables addressable by global id: those whose primary key is exactly one guid column naming
- * the table itself.
+ * The tables addressable by global id: every table with at least one unique key, keyed by alias.
  *
- * A composite key is not one — a node is addressed by a single value, and `guid()` has no way to
- * carry the other half. Nor is a primary key that is also a relation key (a shared-key
- * one-to-one): its ids name the row it shares a key with, so the table has no ids of its own.
+ * Uniqueness is what makes an id an address — a payload over a set of fields that is not a key
+ * could name many rows. A partial unique index is not a key (it is unique only where its
+ * predicate holds), and neither is one over an expression, which no payload field can name.
  */
 function collectNodes(
-  guidColumns: Map<object, GuidColumn>,
-  bindings: Map<object, GuidBinding>
+  registry: SchemaRegistry<DefinitionSchema>,
+  schema: DefinitionSchema
 ): Map<string, NodeTable> {
   const nodes = new Map<string, NodeTable>();
 
-  for (const [definition, { table, field, column }] of guidColumns) {
-    const binding = bindings.get(definition) as GuidBinding;
-
-    if (table.primaryKey.length !== 1 || table.primaryKey[0] !== column) {
+  for (const [alias, node] of Object.entries(schema)) {
+    if (!(node instanceof TableDefinition)) {
       continue;
     }
 
-    if (binding.key !== table.alias || binding.keyField !== field) {
-      continue;
-    }
+    const table = registry.getTable(alias);
+    const keys = uniqueKeysOf(table, node);
 
-    nodes.set(table.alias, {
-      key: table.alias,
-      alias: table.alias,
-      table,
-      keyField: field,
-      keyColumn: column,
-    });
+    if (keys.length > 0) {
+      nodes.set(alias, { key: alias, alias, table, keys });
+    }
   }
 
   return nodes;
+}
+
+/** A table's unique keys as sorted field sets, the primary key first, without repeats. */
+function uniqueKeysOf(table: AnyTable, definition: AnyTableDefinition): string[][] {
+  // Constraints and indexes name database columns; a payload names fields.
+  const fieldOf = new Map(table.getColumnEntries().map(([field, column]) => [column.name, field]));
+  const keys = new Map<string, string[]>();
+
+  const add = (fields: (string | undefined)[]) => {
+    // A key over a deprecated column is not addressable: the client has no field for it.
+    if (fields.length === 0 || fields.some((field) => field === undefined)) {
+      return;
+    }
+
+    const key = [...new Set(fields as string[])].sort();
+    keys.set(key.join("\u0000"), key);
+  };
+
+  add(table.primaryKey.map((column) => fieldOf.get(column.name)));
+
+  for (const [field, column] of table.getColumnEntries()) {
+    if (column.unique) add([field]);
+  }
+
+  for (const constraint of definition["_constraints"]) {
+    if (constraint instanceof UniqueConstraintDefinition) {
+      add(constraint["_columns"].map((ref: { name: string }) => fieldOf.get(ref.name)));
+    }
+  }
+
+  for (const index of definition["_indexes"]) {
+    const columns = index["_columns"];
+
+    if (
+      !index["_unique"] ||
+      index["_where"] ||
+      columns.some((c) => !(c instanceof IndexColumnDefinition))
+    ) {
+      continue;
+    }
+
+    add(
+      columns.map((c) =>
+        fieldOf.get((c as IndexColumnDefinition<string, AnyColumnDefinition>)["_column"].name)
+      )
+    );
+  }
+
+  return [...keys.values()];
 }
