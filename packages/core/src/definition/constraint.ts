@@ -1,7 +1,7 @@
 import { SQLQuery } from "../sql/nodes.js";
 import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
-import { AnyTableDefinition, ColumnRefOf, ColumnRefs } from "./table.js";
+import { AnyTableDefinition, ColumnRefs } from "./table.js";
 
 type ColumnRef = NodeRef<AnyColumnDefinition>;
 
@@ -27,12 +27,12 @@ export type CheckConstraintConfig = {
 
 export type UniqueConstraintConfig<TTable extends AnyTableDefinition> = {
   table: TTable;
-  columns: ColumnRefOf<TTable["columns"]>[];
+  columns: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
 };
 
 export type PrimaryKeyConstraintConfig<TTable extends AnyTableDefinition> = {
   table: TTable;
-  columns: ColumnRefOf<TTable["columns"]>[];
+  columns: ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][];
 };
 
 export const extractConstrainName = <
@@ -120,7 +120,9 @@ export class UniqueConstraintDefinition<
   }
 
   public include(
-    cb: (columns: ColumnRefs<TTable["columns"]>) => ColumnRefOf<TTable["columns"]>[]
+    cb: (
+      columns: ColumnRefs<TTable["columns"]>
+    ) => ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][]
   ): this {
     this._include = cb(this._table._getColumnRefs());
     return this;
@@ -160,7 +162,9 @@ export class PrimaryKeyConstraintDefinition<
   }
 
   public include(
-    cb: (columns: ColumnRefs<TTable["columns"]>) => ColumnRefOf<TTable["columns"]>[]
+    cb: (
+      columns: ColumnRefs<TTable["columns"]>
+    ) => ColumnRefs<TTable["columns"]>[keyof TTable["columns"]][]
   ): this {
     this._include = cb(this._table._getColumnRefs());
     return this;

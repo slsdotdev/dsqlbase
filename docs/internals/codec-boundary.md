@@ -2,7 +2,7 @@
 
 _Audience: contributors and agents._
 
-Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values; a future embeddable type would too. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
+Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
 
 A codec **translates** and nothing else. Checking a value is the column's optional `ColumnConfig.validator { write, read }`, which runs on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters).
 
@@ -144,14 +144,7 @@ cannot see that sibling, so the read side is a **row decoder** instead:
   job: `WhereBuilder._getPolymorphicFilter` (`filters.ts`) and the normalizer's
   `_fillDiscriminators`. Only they see the whole filter or the whole row.
 
-**Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper, a future embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
-
-## Column groups
-
-A column group's members are ordinary columns, each with its own codec and validator, so every
-boundary above applies per member: a group is decoded member by member when it is read, and each
-member value is validated and encoded on its own when it is written or filtered. A group has no
-codec or validator of its own; a check across members is not supported yet.
+**Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
 ## Rules for new work
 

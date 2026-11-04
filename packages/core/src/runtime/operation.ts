@@ -4,8 +4,7 @@ import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
-import { AnyColumn, Column } from "./column.js";
-import { AnyColumnGroup, AnyField, ColumnGroup, GroupSelection } from "./group.js";
+import { AnyColumn } from "./column.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -34,19 +33,12 @@ export type OperationRequest<TArgs extends object, TMode extends OperationMode =
   args: TArgs;
 };
 
-/**
- * One selected field: a column, or a column group with the members selected within it — none
- * meaning all of them.
- */
-export type FieldSelection =
-  | [fieldName: string, column: AnyColumn | SQLIdentifier | FieldSelection[]]
-  | [fieldName: string, group: AnyColumnGroup, selection?: GroupSelection];
+export type FieldSelection = [
+  fieldName: string,
+  column: AnyColumn | SQLIdentifier | FieldSelection[],
+];
 
-/**
- * One value a write sets: on a plain column, named by its field, or on a column directly — how a
- * column group's member is written, since it has no field of its own on the table.
- */
-export type FieldMutation = [target: string | AnyColumn, value: SQLNode | SQLValue];
+export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
 
 /**
  * How one field of a result record is produced from a driver row: read a column and decode
@@ -363,47 +355,23 @@ export class OperationsFactory<
       resolvers.push([fieldName, (row) => column.resolveRow(row)]);
     };
 
-    // A group projects its columns and is resolved from the row as one value — the group
-    // decides which columns that takes (`runtime/group.ts`).
-    const addGroup = (fieldName: string, group: AnyColumnGroup, members?: GroupSelection) => {
-      const reader = group.reader(members);
-
-      for (const column of reader.columns) {
-        if (!columns.includes(column)) {
-          columns.push(column);
-        }
-      }
-
-      resolvers.push([fieldName, (row) => reader.resolve(row)]);
-    };
-
-    const addField = (fieldName: string, field: AnyField, members?: GroupSelection) => {
-      if (field instanceof ColumnGroup) {
-        addGroup(fieldName, field, members);
-      } else {
-        add(fieldName, field);
-      }
-    };
-
     if (!selection) {
-      for (const [fieldName, field] of Object.entries<AnyField>(table.columns)) {
-        addField(fieldName, field);
+      for (const [fieldName, column] of Object.entries<AnyColumn>(table.columns)) {
+        add(fieldName, column);
       }
 
       return { columns, resolvers };
     }
 
-    for (const [fieldName, selected, members] of selection) {
+    for (const [fieldName, selected] of selection) {
       if (selected) {
-        const field = table.columns[fieldName as keyof typeof table.columns] as
-          | AnyField
-          | undefined;
+        const column = table.columns[fieldName as keyof typeof table.columns];
 
-        if (!field) {
+        if (!column) {
           throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
         }
 
-        addField(fieldName, field, members);
+        add(fieldName, column);
       }
     }
 
@@ -432,21 +400,6 @@ export class OperationsFactory<
     return value;
   }
 
-  /**
-   * The column a mutation sets: a plain column by its field, or a column given directly, which
-   * must be one of the table's own — a group's member.
-   */
-  private _getMutationColumn<T extends AnyTable>(table: T, target: string | AnyColumn): AnyColumn {
-    const column = typeof target === "string" ? table.getColumn(target) : target;
-
-    if (!(column instanceof Column) || column.table !== table) {
-      const name = typeof target === "string" ? target : target.name;
-      throw new Error(`Column "${name}" does not exist on table "${table.name}"`);
-    }
-
-    return column;
-  }
-
   private _resolveInsertEntries<T extends AnyTable>(
     table: T,
     data: FieldMutation[][]
@@ -454,8 +407,7 @@ export class OperationsFactory<
     const columns: SQLNode[] = [];
     const rows: SQLNode[][] = [];
 
-    // Every real column, a group's members included: one not written takes its default.
-    const columnEntries = table.getLeafEntries();
+    const columnEntries = table.getColumnEntries();
 
     for (const [, column] of columnEntries) {
       columns.push(new SQLIdentifier(column.name));
@@ -463,16 +415,10 @@ export class OperationsFactory<
 
     for (const record of data) {
       const row: SQLNode[] = [];
-      const values = new Map<AnyColumn, FieldMutation[1]>();
+      const values = Object.fromEntries(record);
 
-      for (const [target, value] of record) {
-        values.set(this._getMutationColumn(table, target), value);
-      }
-
-      for (const [path, column] of columnEntries) {
-        const fieldName = path.join(".");
-
-        if (column.readOnly && values.get(column) !== undefined) {
+      for (const [fieldName, column] of columnEntries) {
+        if (column.readOnly && values[fieldName] !== undefined) {
           throw new Error(`Cannot write read-only column "${fieldName}"`);
         }
 
@@ -481,7 +427,7 @@ export class OperationsFactory<
           continue;
         }
 
-        const value = column.getInsertValue(values.get(column));
+        const value = column.getInsertValue(values[fieldName]);
         row.push(value);
       }
 
@@ -498,9 +444,12 @@ export class OperationsFactory<
     const entries: [SQLNode, SQLNode][] = [];
     const named = new Set<AnyColumn>();
 
-    for (const [target, value] of data) {
-      const column = this._getMutationColumn(table, target);
-      const key = typeof target === "string" ? target : column.name;
+    for (const [key, value] of data) {
+      const column = table.getColumn(key);
+
+      if (!column) {
+        throw new Error(`Column "${key}" does not exist on table "${table.name}"`);
+      }
 
       if (column.primaryKey) {
         throw new Error(`Cannot update primary key column "${key}"`);
@@ -518,7 +467,7 @@ export class OperationsFactory<
     // `$onUpdate` runs on every update, not only when the caller names its column — the way
     // `$onCreate` runs on every insert. A read-only column is written here too: the hook is the
     // owner the caller is kept out for.
-    for (const [, column] of table.getLeafEntries()) {
+    for (const [, column] of table.getColumnEntries()) {
       if (column.onUpdate && !named.has(column)) {
         entries.push([new SQLIdentifier(column.name), column.getUpdateValue(undefined)]);
       }
@@ -650,7 +599,7 @@ export class OperationsFactory<
       const toColumns = (relation.to as AnyColumnDefinition[]).map((ref) => {
         const column = targetTable.getColumn(ref.name);
 
-        if (!(column instanceof Column)) {
+        if (!column) {
           throw new Error(
             `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}" on target table "${targetTable.name}"`
           );
@@ -692,7 +641,7 @@ export class OperationsFactory<
     return from.map((ref) => {
       const column = table.getColumn(ref.name);
 
-      if (!(column instanceof Column)) {
+      if (!column) {
         throw new Error(
           `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
         );

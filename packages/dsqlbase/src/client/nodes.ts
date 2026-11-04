@@ -10,7 +10,7 @@ import {
   TableDefinition,
   UnionDefinition,
 } from "@dsqlbase/core";
-import { AnyUnionColumnDefinition, columnEntries } from "@dsqlbase/core/definition";
+import { AnyUnionColumnDefinition } from "@dsqlbase/core/definition";
 import { GuidColumnDefinition } from "../schema/columns/guid.js";
 import {
   GlobalIdError,
@@ -511,20 +511,14 @@ function collectGuidColumns(
     }
 
     const table = registry.getTable(alias);
-    // A column group's members are walked too, by field path: a `guid()` member carries ids
-    // like any other column, and is reached through its group on both sides.
-    const columns = new Map(
-      table.getLeafEntries().map(([path, column]) => [path.join("."), column])
-    );
 
-    for (const [path, definition] of columnEntries(node.columns)) {
+    for (const [field, definition] of Object.entries(node.columns)) {
       // A polymorphic column has no fixed node; it is bound separately.
       if (!(definition instanceof GuidColumnDefinition) || dynamic.has(definition)) {
         continue;
       }
 
-      const field = path.join(".");
-      const column = columns.get(field);
+      const column = table.getColumn(field);
 
       if (!column) {
         continue;
