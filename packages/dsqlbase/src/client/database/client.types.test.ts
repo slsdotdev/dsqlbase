@@ -133,7 +133,7 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
@@ -145,7 +145,7 @@ const teams = table("teams", {
 
 // Not a node either: `guid()` can only name one column, so a composite key has no id.
 const memberships = table("memberships", {
-  authorId: guid("author_id", "authors"),
+  authorId: guid("author_id"),
   teamId: uuid("team_id"),
 }).primaryKey((c) => [c.authorId, c.teamId]);
 
@@ -285,7 +285,7 @@ describe("the widened on map on global-id lookups", () => {
   });
   const books = table("books", {
     id: guid("id").primaryKey(),
-    authorId: guid("author_id", "authors").notNull(),
+    authorId: guid("author_id").notNull(),
     title: text("title").notNull(),
   });
   const authorRelations = relations(authors, {

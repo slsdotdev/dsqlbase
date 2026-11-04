@@ -19,7 +19,7 @@ export const authors = table("authors", {
 
 export const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
@@ -57,35 +57,43 @@ export const revisions = table("article_revisions", { id: guid("id").primaryKey(
 ```
 
 So ids follow the identity your callers see. Renaming the database table does not invalidate
-ids already handed out; re-keying the schema object does. If you need a key that outlives both,
-pass it explicitly — `guid("id", "Article")` — and it becomes a stable label you control.
+ids already handed out; re-keying the schema object does.
 
 A table whose primary key is a plain `uuid()`, or is composite, is **not** a node. It works
-normally; it just has no id of its own, and nothing can point at it with `guid(col, key)`.
+normally; it just has no id of its own. Nor is a table whose single guid key is also a relation
+key — a profile sharing its user's id: that id names the user.
 
-## Pointing at another node
+## What a column's ids name
 
-The second argument names the node a column's values belong to:
+`guid()` takes only a column name. What its values name is worked out from the relations when
+the client is built, in this order:
 
-```ts
-authorId: guid("author_id", "authors"); // wraps as an authors id
-parentId: guid("parent_id"); // no key → this column's own table (self reference)
-```
+1. **The `from` of a belongs-to a union** names whichever member its discriminator says, row by
+   row — see [below](#a-column-that-points-at-one-of-several-nodes).
+2. **A relation key column** names the column it is paired with: the `from` of a `belongsTo`, or
+   the `to` of a `hasMany` / `hasOne`. `articles.authorId` above reads as an authors id because
+   `articles.author` pairs it with `authors.id`. A self reference works the same way, through
+   its own relation.
+3. **Any other column** names its own table and field. A primary key is the table's node id; an
+   unrelated `photos.ownerId` reads as a photos id carrying `ownerId`, which is a stable,
+   self-describing value but not the address of a photo — `$findByGlobalId` refuses it.
 
-This is what makes `article.authorId === article.author.id` hold. Without it the application
-has to unwrap one side before it can compare them.
+Rule 2 is what makes `article.authorId === article.author.id` hold without the application
+unwrapping either side. Since the target comes from the relation, it cannot drift from it.
+Adding a relation to a column that had none changes what its ids name; treat it as the schema
+change it is.
 
-Both sides of a relation pair must agree. A `guid()` paired with a plain `uuid()`, or with a
-`guid()` naming a different node, throws when the client is built. Neither would break the SQL
-— a join correlates on the raw columns — which is exactly why it is caught early.
+Both sides of a relation pair must be `guid()` columns, or neither. A `guid()` paired with a
+plain `uuid()` throws when the client is built, and so does a column that two relations pair
+with different targets. Neither would break the SQL — a join correlates on the raw columns —
+which is exactly why it is caught early.
 
 ### A column that points at one of several nodes
 
 The `from` column of a [belongs-to a union](./polymorphic-relations.md#a-belongs-to-a-union) is
-a keyless `guid()` whose node is named row by row by the relation's discriminator. It reads back
-wrapped with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for
-any member of the union on writes and filters, and throws `key_mismatch` for any other. Declaring it
-with a static key throws, since only one of the key and the discriminator can decide.
+a `guid()` whose node is named row by row by the relation's discriminator. It reads back wrapped
+with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for any
+member of the union on writes and filters, and throws `key_mismatch` for any other.
 
 ## Reading and writing
 
@@ -170,8 +178,8 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | `$findByGlobalId` for a node `on` set to `false`            | `GlobalIdError("unknown_node")`                          |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
-| Two tables claiming one node key, or a key naming no node   | throws when the client is built                          |
-| A relation pairing a guid with a uuid, or with another node | throws when the client is built                          |
+| A relation pairing a guid with a uuid                       | throws when the client is built                          |
+| A column two relations pair with different targets          | throws when the client is built                          |
 | `$query` with a wrapped id                                  | **not** unwrapped — see below                            |
 
 ## Raw SQL

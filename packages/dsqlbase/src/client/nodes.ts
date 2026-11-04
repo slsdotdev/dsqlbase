@@ -6,6 +6,7 @@ import {
   AnyTableDefinition,
   ColumnCodec,
   DefinitionSchema,
+  Relation,
   SchemaRegistry,
   TableDefinition,
   UnionDefinition,
@@ -56,7 +57,7 @@ export type DynamicGuidBinding = {
 
 /** A table addressable by global id: one whose primary key is exactly one `guid()` column. */
 export type NodeTable = {
-  /** The node key ids carry — the table's schema alias, unless its key column overrode it. */
+  /** The node key ids carry — the table's schema alias. */
   readonly key: string;
 
   /** The key the client addresses this table by (`dsql.members`). */
@@ -79,14 +80,11 @@ export type NodeTable = {
  */
 const NODES = new WeakMap<SchemaRegistry<DefinitionSchema>, Map<string, NodeTable>>();
 
-/** A guid column found in the schema, before its target has been resolved. */
+/** A guid column found in the schema, before what its ids name has been resolved. */
 type GuidColumn = {
   readonly table: AnyTable;
   readonly field: string;
   readonly column: AnyColumn;
-  /** The declaration, kept only to key relation pairs by identity. */
-  readonly definition: object;
-  readonly key: string;
 };
 
 export function getGuidBinding(column: AnyColumn): GuidBinding | undefined {
@@ -127,25 +125,14 @@ export function registerNodes(
 ): Map<string, NodeTable> {
   const dynamic = collectDynamicColumns(registry, schema);
   const guidColumns = collectGuidColumns(registry, schema, dynamic);
-  const nodes = collectNodes(guidColumns);
+  const bindings = resolveBindings(registry, guidColumns);
+  const nodes = collectNodes(guidColumns, bindings);
 
-  for (const guidColumn of guidColumns) {
-    const node = nodes.get(guidColumn.key);
+  for (const [definition, { column }] of guidColumns) {
+    const binding = bindings.get(definition) as GuidBinding;
 
-    if (!node) {
-      throw new Error(
-        `Column "${guidColumn.table.alias}.${guidColumn.field}" carries global ids for "${guidColumn.key}", ` +
-          `which is not a node in this schema. A node is a table whose primary key is exactly one guid() column` +
-          (nodes.size > 0
-            ? `; this schema has ${[...nodes.keys()].map((key) => `"${key}"`).join(", ")}.`
-            : ".")
-      );
-    }
-
-    const binding: GuidBinding = { key: node.key, keyField: node.keyField };
-
-    setGuidBinding(guidColumn.column, binding);
-    bindGuidCodec(guidColumn.column, binding);
+    setGuidBinding(column, binding);
+    bindGuidCodec(column, binding);
   }
 
   for (const { column, binding } of dynamic.values()) {
@@ -162,11 +149,134 @@ export function registerNodes(
     bindDynamicGuid(column, binding);
   }
 
-  validateRelationPairs(registry, new Map(guidColumns.map((c) => [c.definition, c.key])), dynamic);
+  validateRelationPairs(
+    registry,
+    new Map([...bindings].map(([definition, binding]) => [definition, binding.key])),
+    dynamic
+  );
 
   NODES.set(registry, nodes);
 
   return nodes;
+}
+
+/** A relation pair naming a guid column as its key side, and the column it references. */
+type Reference = {
+  readonly references: object;
+  /** How the pair is named in an error: `relation "author" on table "articles"`. */
+  readonly via: string;
+};
+
+/**
+ * Resolves what every (non-polymorphic) guid column's ids name: `(alias, field)` of the column
+ * its relations pair it with, or its own table and field when no relation does.
+ *
+ * The key side of a pair — the `from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` —
+ * takes the binding of the column it references, which is itself resolved the same way. So
+ * `articles.authorId` reads as an authors id through `articles.author`, and a primary key, which
+ * no relation makes a key side, names its own table.
+ *
+ * A column referencing two different targets has no single answer and is refused, as is a ring
+ * of columns referencing each other, which has none.
+ */
+function resolveBindings(
+  registry: SchemaRegistry<DefinitionSchema>,
+  guidColumns: Map<object, GuidColumn>
+): Map<object, GuidBinding> {
+  const references = collectReferences(registry, guidColumns);
+  const bindings = new Map<object, GuidBinding>();
+
+  const label = (definition: object) => {
+    const { table, field } = guidColumns.get(definition) as GuidColumn;
+    return `"${table.alias}.${field}"`;
+  };
+
+  const resolve = (definition: object, path: object[]): GuidBinding => {
+    const known = bindings.get(definition);
+
+    if (known) {
+      return known;
+    }
+
+    if (path.includes(definition)) {
+      throw new Error(
+        `Columns ${[...path, definition].map(label).join(" → ")} reference each other in a ` +
+          `ring, so none of them names a node. One side of a relation must be a key.`
+      );
+    }
+
+    const { table, field } = guidColumns.get(definition) as GuidColumn;
+    const candidates = (references.get(definition) ?? []).map(({ references: target, via }) => ({
+      via,
+      binding: resolve(target, [...path, definition]),
+    }));
+
+    const [first, ...rest] = candidates;
+    const conflict = rest.find(
+      ({ binding }) =>
+        binding.key !== first.binding.key || binding.keyField !== first.binding.keyField
+    );
+
+    if (conflict) {
+      throw new Error(
+        `Column ${label(definition)} is paired by ${first.via} with ` +
+          `"${first.binding.key}.${first.binding.keyField}" and by ${conflict.via} with ` +
+          `"${conflict.binding.key}.${conflict.binding.keyField}". A guid() column names one node.`
+      );
+    }
+
+    const binding = first?.binding ?? { key: table.alias, keyField: field };
+    bindings.set(definition, binding);
+
+    return binding;
+  };
+
+  for (const definition of guidColumns.keys()) {
+    resolve(definition, []);
+  }
+
+  return bindings;
+}
+
+/**
+ * Every relation pair whose key side is a guid column, keyed by that column's declaration.
+ *
+ * A pair with a polymorphic or non-guid column on either side is skipped: the first is bound by
+ * its discriminator, and the second is refused by {@link validateRelationPairs}.
+ */
+function collectReferences(
+  registry: SchemaRegistry<DefinitionSchema>,
+  guidColumns: Map<object, GuidColumn>
+): Map<object, Reference[]> {
+  const references = new Map<object, Reference[]>();
+
+  for (const [alias] of registry.getTableEntries()) {
+    if (!registry.hasRelations(alias)) {
+      continue;
+    }
+
+    const relations = registry.getRelations(alias) as Record<string, AnyFieldRelation>;
+
+    for (const [field, relation] of Object.entries(relations)) {
+      const via = `relation "${field}" on table "${alias}"`;
+
+      for (const [, to] of targetColumnLists(relation)) {
+        for (const [index, fromColumn] of relation.from.entries()) {
+          const toColumn = to[index];
+          const [key, target] =
+            relation.type === Relation.BELONGS_TO ? [fromColumn, toColumn] : [toColumn, fromColumn];
+
+          if (!guidColumns.has(key) || !guidColumns.has(target) || key === target) {
+            continue;
+          }
+
+          references.set(key, [...(references.get(key) ?? []), { references: target, via }]);
+        }
+      }
+    }
+  }
+
+  return references;
 }
 
 /**
@@ -274,9 +384,6 @@ type DynamicColumn = {
 /**
  * Finds every `guid()` column whose node is named per row by a discriminator — the `from` side of
  * a belongs-to a union — keyed by its declaration.
- *
- * Such a column must be declared keyless: a static key would say "always this node" while the
- * discriminator says "whichever member this row names", and only one of them can be true.
  */
 function collectDynamicColumns(
   registry: SchemaRegistry<DefinitionSchema>,
@@ -308,14 +415,6 @@ function collectDynamicColumns(
         }
 
         const label = `Column "${alias}.${fieldOf(table, table.getColumn(definition.name) as AnyColumn)}"`;
-
-        if (definition["_guidKey"] !== undefined) {
-          throw new Error(
-            `${label} names node "${definition["_guidKey"] as string}", but relation "${field}" ` +
-              `reads its node from discriminator "${discriminatorField}". Declare it keyless — ` +
-              `guid("${definition.name}") — so the discriminator decides.`
-          );
-        }
 
         if (dynamic.has(definition)) {
           throw new Error(
@@ -499,12 +598,12 @@ function collectGuidColumns(
   registry: SchemaRegistry<DefinitionSchema>,
   schema: DefinitionSchema,
   dynamic: Map<object, DynamicColumn>
-): GuidColumn[] {
-  const guidColumns: GuidColumn[] = [];
+): Map<object, GuidColumn> {
+  const guidColumns = new Map<object, GuidColumn>();
 
   // Walked over the *definitions* rather than the registry's tables, because `guid()` is a
   // subclass of `ColumnDefinition` and nothing about it survives into the runtime column. The
-  // definition object's keys are the aliases, which is also what a node key defaults to.
+  // definition object's keys are the aliases, which is also what a node key is.
   for (const [alias, node] of Object.entries(schema)) {
     if (!(node instanceof TableDefinition)) {
       continue;
@@ -524,43 +623,45 @@ function collectGuidColumns(
         continue;
       }
 
-      guidColumns.push({
-        table,
-        field,
-        column,
-        definition,
-        key: (definition["_guidKey"] as string | undefined) ?? alias,
-      });
+      guidColumns.set(definition, { table, field, column });
     }
   }
 
   return guidColumns;
 }
 
-function collectNodes(guidColumns: GuidColumn[]): Map<string, NodeTable> {
+/**
+ * The tables addressable by global id: those whose primary key is exactly one guid column naming
+ * the table itself.
+ *
+ * A composite key is not one — a node is addressed by a single value, and `guid()` has no way to
+ * carry the other half. Nor is a primary key that is also a relation key (a shared-key
+ * one-to-one): its ids name the row it shares a key with, so the table has no ids of its own.
+ */
+function collectNodes(
+  guidColumns: Map<object, GuidColumn>,
+  bindings: Map<object, GuidBinding>
+): Map<string, NodeTable> {
   const nodes = new Map<string, NodeTable>();
 
-  for (const guidColumn of guidColumns) {
-    const { table, field, column, key } = guidColumn;
+  for (const [definition, { table, field, column }] of guidColumns) {
+    const binding = bindings.get(definition) as GuidBinding;
 
-    // A node is addressed by a single value, so a composite key cannot be one: `guid()` has no
-    // way to declare the other half. Such a table is simply not a node, and a column pointing
-    // at it fails the "not a node in this schema" check above.
     if (table.primaryKey.length !== 1 || table.primaryKey[0] !== column) {
       continue;
     }
 
-    const existing = nodes.get(key);
-
-    if (existing) {
-      throw new Error(
-        `Tables "${existing.alias}" and "${table.alias}" both claim the node key "${key}". ` +
-          `A global id names exactly one table, so two nodes cannot share a key; pass a distinct ` +
-          `key to guid() on one of them.`
-      );
+    if (binding.key !== table.alias || binding.keyField !== field) {
+      continue;
     }
 
-    nodes.set(key, { key, alias: table.alias, table, keyField: field, keyColumn: column });
+    nodes.set(table.alias, {
+      key: table.alias,
+      alias: table.alias,
+      table,
+      keyField: field,
+      keyColumn: column,
+    });
   }
 
   return nodes;

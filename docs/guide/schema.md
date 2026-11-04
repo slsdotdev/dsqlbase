@@ -50,7 +50,7 @@ A primary-key column can't be deprecated.
 
 ### Global ids
 
-`guid(name, key?)` is a `uuid` column whose values leave the ORM as opaque strings naming both
+`guid(name)` is a `uuid` column whose values leave the ORM as opaque strings naming both
 the row and its table. A table whose primary key is exactly one `guid()` column is a **node**,
 addressable by [`$findByGlobalId`](./global-ids.md):
 
@@ -62,12 +62,14 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(), // points at the authors node
+  authorId: guid("author_id").notNull(), // an authors id, once a relation pairs it with authors.id
 });
 ```
 
-It serializes exactly as `uuid()`, so adopting it on an existing column produces no DDL. Full
-rules — node keys, relation pairs, what is and is not accepted as input — are in
+A column's ids name the column a relation pairs it with, or its own table when none does — the
+target is never written on the column. It serializes exactly as `uuid()`, so adopting it on an
+existing column produces no DDL. Full rules — node keys, relation pairs, what is and is not
+accepted as input — are in
 [Global ids](./global-ids.md).
 
 ### Tenant scopes
@@ -157,13 +159,13 @@ import { union } from "dsqlbase/schema";
 
 export const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   photoUrl: text("photo_url").notNull(),
 });
 
 export const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   videoUrl: text("video_url").notNull(),
 });
 

@@ -109,10 +109,11 @@ The tenant rows are the one place a value is encoded inside `core` rather than b
 ## A codec bound when the client is built
 
 Most codecs are fixed where the column is declared. `guid()` cannot be: wrapping a value needs
-the node key — which defaults to the table's schema alias — and the _target_ node's key field
-name, and neither exists until the whole schema does. So `registerNodes`
-(`packages/dsqlbase/src/client/nodes.ts`) resolves both when `createClient` runs and installs
-the bound codec on the built `Column`, not on the definition. A definition is the user's object
+the `(alias, field)` its ids name, and that comes from the relations, which do not exist until
+the whole schema does. So `registerNodes` (`packages/dsqlbase/src/client/nodes.ts`) resolves it
+when `createClient` runs — `resolveBindings` gives the key side of every relation pair the
+binding of the column it references, recursively, and every other column its own table and
+field — and installs the bound codec on the built `Column`, not on the definition. A definition is the user's object
 and may be shared by two clients, while a binding depends on the alias the table was exported
 under.
 

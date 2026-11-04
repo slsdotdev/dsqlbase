@@ -93,7 +93,7 @@ the key lives on the members.
 export const comments = table("comments", {
   id: guid("id").primaryKey().defaultRandom(),
   subjectType: text("subject_type"), // "photos" or "videos"
-  subjectId: uuid("subject_id"),
+  subjectId: guid("subject_id"), // the members' ids are guid(), so this is too
 });
 
 export const commentRelations = relations(comments, {
@@ -115,15 +115,18 @@ every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
 ## Relations between global-id columns
 
 Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
-columns naming the same node, or neither. `createClient` throws otherwise, naming both columns.
+columns, or neither. `createClient` throws otherwise, naming both columns.
+
+The relation is also what decides what a key column's ids name: the key side of a pair — the
+`from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` — reads as the column it is paired
+with, so `article.authorId === article.author.id` holds. A column two relations pair with
+different targets has no single answer, and `createClient` throws.
 
 Neither failure shows up in SQL — a join correlates on the raw columns, so the query works
-either way. What breaks is quieter. A `guid()` paired with a plain `uuid()` leaves
+either way. What breaks is quieter: a `guid()` paired with a plain `uuid()` leaves
 `article.authorId` raw while `article.author.id` comes back wrapped, so the two never compare
-equal; two `guid()` columns naming different nodes produce two different strings for one row.
-
-The usual mistake is the first one: adding a relation to a node table and leaving the foreign
-key as `uuid()`.
+equal. The usual mistake is adding a relation to a node table and leaving the foreign key as
+`uuid()`.
 
 ## Relations across a tenant boundary
 

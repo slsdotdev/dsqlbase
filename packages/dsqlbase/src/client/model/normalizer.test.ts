@@ -355,7 +355,7 @@ describe("selection", () => {
     });
     const books = table("books", {
       id: guid("id").primaryKey(),
-      authorId: guid("author_id", "authors").notNull(),
+      authorId: guid("author_id").notNull(),
       title: text("title").notNull(),
     });
     const authorRelations = relations(authors, {

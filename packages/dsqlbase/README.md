@@ -122,7 +122,7 @@ export const authors = table("authors", {
 
 export const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),   // points at the authors node
+  authorId: guid("author_id").notNull(),   // an authors id, through a relation to authors.id
 });
 ```
 

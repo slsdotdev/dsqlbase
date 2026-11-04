@@ -25,14 +25,14 @@ Source: `packages/dsqlbase/src/schema/union.ts`, `packages/core/src/runtime/quer
 ```ts
 export const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
   photoUrl: text("photo_url").notNull(),
 }).meta({ __typename: "Photo" });
 
 export const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
@@ -150,13 +150,13 @@ refused with a `TenancyError`, exactly as a join to that member alone would be.
 
 A row that points at one of several tables stores the pair a global id is made of: which
 member, in a text **discriminator** column holding the member's alias, and which row, in the
-`from` column. Declare the `from` column as a keyless `guid()`:
+`from` column. Declare the `from` column as a `guid()`:
 
 ```ts
 export const ledgerEntries = table("ledger_entries", {
   id: guid("id").primaryKey().defaultRandom(),
   counterpartyType: text("counterparty_type"), // "companies" or "persons"
-  counterpartyId: guid("counterparty_id"), // no key: the discriminator names it, row by row
+  counterpartyId: guid("counterparty_id"), // the discriminator names its node, row by row
   amount: numeric("amount").notNull(),
 });
 
@@ -189,10 +189,9 @@ export const ledgerEntryRelations = relations(ledgerEntries, {
 
   A raw uuid compares the id alone.
 
-- **Pairs must agree.** The `from` column must be a keyless `guid()` and every member a
+- **Pairs must agree.** The `from` column must be a `guid()` and every member a
   [node](./global-ids.md#nodes) related through its own key, or `from` and every member key
-  must be plain `uuid()`. A mix throws when the client is built, as for any relation. A static
-  key on the `from` column throws too: only one of it and the discriminator can decide.
+  must be plain `uuid()`. A mix throws when the client is built, as for any relation.
 - **Reverse relations.** A member may declare a has-many back onto the polymorphic column, such
   as `companies.entries`. That relation correlates on the id alone; the discriminator is not
   applied to it.

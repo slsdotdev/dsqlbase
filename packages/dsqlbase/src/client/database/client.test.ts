@@ -198,7 +198,7 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
@@ -302,6 +302,18 @@ describe("BaseClient.$findByGlobalId", () => {
     await expect(
       dsql.$findByGlobalId({ id: encodeGlobalId("authors", { name: "Ada" }) })
     ).rejects.toThrow(/carries "name" rather than its key "id"/);
+  });
+
+  it("refuses an id read off a column no relation names", async () => {
+    // `articles.authorId` has no relation here, so it reads as an articles id carrying
+    // `authorId` — a valid value for the column, but not the address of an article.
+    const { dsql } = nodeSetup({ articles: [{ id: ARTICLE_UUID, author_id: AUTHOR_UUID }] });
+    const [article] = await dsql.articles.findMany({ select: { authorId: true } });
+
+    expect(article?.authorId).toBe(encodeGlobalId("articles", { authorId: AUTHOR_UUID }));
+    await expect(dsql.$findByGlobalId({ id: article?.authorId ?? "" })).rejects.toThrow(
+      /carries "authorId" rather than its key "id"/
+    );
   });
 
   it("refuses a malformed id", async () => {
@@ -423,7 +435,7 @@ describe("global-id lookups with a widened on map", () => {
   });
   const books = table("books", {
     id: guid("id").primaryKey(),
-    authorId: guid("author_id", "authors").notNull(),
+    authorId: guid("author_id").notNull(),
     title: text("title").notNull(),
   });
   const authorRelations = relations(authors, {

@@ -267,10 +267,10 @@ const taskRelations = relations(tasks, {
  * Additive on purpose. Every table above keeps its `uuid()` key, so each existing spec runs
  * against raw ids exactly as it always has and nothing here has to be read twice.
  *
- * `authors` owns `articles`, which own `revisions`. `articles.authorId` is a *keyed* guid, so
- * `article.authorId` and `article.author.id` have to be the same string; `revisions` is keyed
- * under an alias that differs from its database name, so a node key follows the name the
- * client uses rather than the physical one. `tags` is deliberately **not** a node: a uuid key
+ * `authors` owns `articles`, which own `revisions`. `articles.authorId` is paired with
+ * `authors.id` by a relation, so `article.authorId` and `article.author.id` have to be the same
+ * string; `revisions` is keyed under an alias that differs from its database name, so a node
+ * key follows the name the client uses rather than the physical one. `tags` is deliberately **not** a node: a uuid key
  * is just a uuid key, and `articleTags` has a composite key, which `guid()` cannot name.
  */
 const authors = table("authors", {
@@ -280,7 +280,7 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
   body: varchar("body", 5000),
 }).meta({ __typename: "Article" });
@@ -288,7 +288,7 @@ const articles = table("articles", {
 // Keyed under an alias that differs from its database name, so its node key is "revisions".
 const revisions = table("article_revisions", {
   id: guid("id").primaryKey().defaultRandom(),
-  articleId: guid("article_id", "articles").notNull(),
+  articleId: guid("article_id").notNull(),
   note: text("note").notNull(),
 });
 
@@ -310,12 +310,20 @@ const tags = table("tags", {
 
 // Not a node either: a composite key cannot be carried by a single guid() column.
 const articleTags = table("article_tags", {
-  articleId: guid("article_id", "articles"),
+  articleId: guid("article_id"),
   tagId: uuid("tag_id"),
 });
 
 // Not chained: `primaryKey()` returns the constraint, not the table.
 articleTags.primaryKey((c) => [c.articleId, c.tagId]);
+
+// Its relation is what makes `articleId` read as an articles id rather than its own.
+const articleTagRelations = relations(articleTags, {
+  article: belongsTo(articles, {
+    from: [articleTags.columns.articleId],
+    to: [articles.columns.id],
+  }),
+});
 
 const authorRelations = relations(authors, {
   articles: hasMany(articles, {
@@ -350,8 +358,8 @@ const revisionRelations = relations(revisions, {
  * - `posts` unions two nodes, `photos` and `videos`, written by `authors`. Their author key is
  *   one shared field stored under two column names (`author_id`, `owner_id`), and `caption` is
  *   nullable, so ordering and paging across members meet a per-member column and a null.
- * - `postComments` belongs to a post of either kind through a discriminator, with a keyless
- *   `guid()` whose node is read row by row.
+ * - `postComments` belongs to a post of either kind through a discriminator, with a `guid()`
+ *   whose node is read row by row.
  * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
  *   one of whose members is the table the join starts from.
  * - `userFeed` unions tenant-scoped `documents` with global `bookmarks`, so a union join and the
@@ -359,7 +367,7 @@ const revisionRelations = relations(revisions, {
  */
 const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   caption: text("caption"),
   createdAt: datetime("created_at").notNull(),
   photoUrl: text("photo_url").notNull(),
@@ -367,7 +375,7 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("owner_id", "authors").notNull(),
+  authorId: guid("owner_id").notNull(),
   caption: text("caption"),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
@@ -384,13 +392,13 @@ const postComments = table("post_comments", {
 
 const folders = table("folders", {
   id: guid("id").primaryKey().defaultRandom(),
-  parentId: guid("parent_id", "folders"),
+  parentId: guid("parent_id"),
   name: text("name").notNull(),
 });
 
 const files = table("files", {
   id: guid("id").primaryKey().defaultRandom(),
-  parentId: guid("parent_id", "folders"),
+  parentId: guid("parent_id"),
   name: text("name").notNull(),
   size: bigint("size").notNull(),
 });
@@ -518,6 +526,7 @@ export {
   authorRelations,
   articleRelations,
   revisionRelations,
+  articleTagRelations,
   photos,
   videos,
   posts,

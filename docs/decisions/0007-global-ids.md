@@ -1,7 +1,7 @@
 # 0007 — Global ids
 
 - **Date:** 2026-09-27
-- **Status:** accepted
+- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md)
 - **Proposal:** `schema-guid.md` (local working artifact, not tracked)
 
 ## Context
