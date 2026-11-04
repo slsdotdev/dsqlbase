@@ -79,7 +79,8 @@ export {
   type AnyUnionColumnDefinition,
   type AnyUnionDefinition,
   type AnyUnionMembers,
-  type SharedFieldsOf,
+  type CommonFieldsOf,
+  type UnionColumnsConfig,
   type UnionColumns,
   type UnionConfig,
 } from "./union.js";

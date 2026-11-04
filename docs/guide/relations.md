@@ -76,7 +76,7 @@ export const userRelations = relations(users, {
   // A shared field: resolves to each member's own column.
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
 
-  // One list per member, for members that store the key under different fields.
+  // One list per member, for a key the union does not share — stored under different fields.
   owned: hasMany(posts, {
     from: [users.columns.id],
     to: { photos: [photos.columns.ownerId], videos: [videos.columns.userId] },
@@ -107,7 +107,7 @@ export const commentRelations = relations(comments, {
 
 `createClient` checks every member: the columns must be declared on that member and pair with
 `from` by type, and a per-member map must name each member exactly once. A list given in
-the first form may only hold the union's shared fields.
+the first form may only hold fields the union declares.
 
 Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
 every row — is covered in [Polymorphic relations](./polymorphic-relations.md).

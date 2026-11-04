@@ -13,12 +13,12 @@ Source: `packages/dsqlbase/src/schema/union.ts`, `packages/core/src/runtime/quer
 
 ## In GraphQL terms
 
-| GraphQL                       | dsqlbase                                                          |
-| ----------------------------- | ----------------------------------------------------------------- |
-| `union Post = Photo \| Video` | `union({ photos, videos })` — members keyed by schema alias       |
-| `interface Post { id }`       | the same `union()`; the interface's fields are **shared fields**  |
-| `... on Photo { photoUrl }`   | `on: { photos: { select: { photoUrl: true } } }`                  |
-| `__typename`                  | `$$key` (the member alias), or `$$meta.__typename` from `.meta()` |
+| GraphQL                       | dsqlbase                                                            |
+| ----------------------------- | ------------------------------------------------------------------- |
+| `union Post = Photo \| Video` | `union({ photos, videos }, {})` — members keyed by schema alias     |
+| `interface Post { id }`       | `union({ photos, videos }, { id: guid("id") })` — **shared fields** |
+| `... on Photo { photoUrl }`   | `on: { photos: { select: { photoUrl: true } } }`                    |
+| `__typename`                  | `$$key` (the member alias), or `$$meta.__typename` from `.meta()`   |
 
 ## Declaring one
 
@@ -37,13 +37,26 @@ export const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-export const posts = union({ photos, videos }); // shared: id, userId, createdAt
+export const posts = union(
+  { photos, videos },
+  {
+    id: guid("id"),
+    userId: guid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 export const userRelations = relations(users, {
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
   latestPost: hasOne(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
 });
 ```
+
+The second argument declares the **shared fields** — what `posts.columns` holds, and what
+selects, filters and orders across the union. Each must be the same column on every member:
+same field, database name, type and kind, and `NOT NULL` on every member if declared so
+([Schema → Unions](./schema.md#unions)). A field on one member only is not declared; it is
+reached through `on`.
 
 See [Relations to a union](./relations.md#relations-to-a-union) for the per-member `to` form and
 for the checks `createClient` runs.
@@ -128,6 +141,22 @@ await dsql.users.findOne({
   the type both.
 - **Ordering by `$$key`** sorts by member alias. Not naming it still uses it as the first
   tiebreaker.
+
+### Filtering by global id
+
+A shared `guid()` field is decided per member the same way when its value is a
+[global id](./global-ids.md). Each member's `id` holds ids for that member only, so a photos id
+cannot match a video:
+
+```ts
+const post = await dsql.posts.findOne({ where: { id: { eq: postId } } }); // reads one member
+```
+
+- `eq` with an id for another member produces no branch for that member, and `in` hands each
+  member only the ids that name it.
+- `neq` with an id for another member is true of every row of it that has a value.
+- A field whose ids name one node on every member, such as `userId` above, keeps every branch.
+  A raw uuid keeps every branch too, since it could be in any member.
 
 ## Ordering and pages
 
@@ -257,7 +286,7 @@ transaction client inside one, it is present again.
 
 - No foreign key can be emitted for a union target, and a polymorphic `from` column cannot
   carry one in the database; relations emit none anyway.
-- Only shared fields filter, select or order across a union.
+- Only declared shared fields filter, select or order across a union.
 - `paginate` needs members whose primary keys line up.
 
 ## Related

@@ -27,13 +27,20 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("owner_id").notNull(),
+  userId: uuid("user_id").notNull(),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
   caption: text("caption"),
 });
 
-const posts = union({ photos, videos });
+const posts = union(
+  { photos, videos },
+  {
+    id: uuid("id"),
+    userId: uuid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 const userRelations = relations(users, {
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
@@ -86,8 +93,8 @@ describe("the union client", () => {
     const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
     const notes = ws.table("notes", { id: uuid("id").primaryKey(), title: text("title") });
     const links = table("links", { id: uuid("id").primaryKey(), title: text("title") });
-    const items = union({ notes, links });
-    const onlyLinks = union({ links });
+    const items = union({ notes, links }, { id: uuid("id"), title: text("title") });
+    const onlyLinks = union({ links }, { id: uuid("id") });
 
     const base = createClient({ schema: { notes, links, items, onlyLinks }, session });
 

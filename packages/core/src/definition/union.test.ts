@@ -3,7 +3,7 @@ import { Kind, Relation } from "./base.js";
 import { ColumnDefinition, ColumnConfig } from "./column.js";
 import { RelationsDefinition } from "./relations.js";
 import { TableDefinition } from "./table.js";
-import { SharedFieldsOf, UnionColumnDefinition, UnionDefinition } from "./union.js";
+import { CommonFieldsOf, UnionColumnDefinition, UnionDefinition } from "./union.js";
 
 const uuid = (name: string) =>
   new ColumnDefinition<string, ColumnConfig<string, string>>(name, { dataType: "uuid" });
@@ -35,54 +35,97 @@ const users = new TableDefinition("users", {
   columns: { id: uuid("id").primaryKey() },
 });
 
+/** A column kind of its own — what a `guid()` is to a `uuid()`. */
+class TaggedColumn extends ColumnDefinition<string, ColumnConfig<string, string>> {}
+
 describe("UnionDefinition", () => {
+  const union = () => new UnionDefinition({ photos, videos }, { id: uuid("id") });
+
   it("is a UNION node that names its members", () => {
-    const posts = new UnionDefinition({ photos, videos });
+    const posts = union();
 
     expect(posts.kind).toBe(Kind.UNION);
     expect(posts.name).toBe("union(photos|videos)");
     expect(posts.members.photos).toBe(photos);
   });
 
-  it("shares the fields every member declares with the same data type", () => {
-    const posts = new UnionDefinition({ photos, videos });
-
-    // `size` is integer on one member and text on the other; `duration` is on one member only.
-    expect(Object.keys(posts.columns)).toEqual(["id", "userId", "url"]);
+  it("shares exactly the fields it declares", () => {
+    // `url` is on every member too, but undeclared fields are not shared.
+    expect(Object.keys(union().columns)).toEqual(["id"]);
   });
 
-  it("resolves a shared field to each member's own column", () => {
-    const posts = new UnionDefinition({ photos, videos });
-    const userId = posts.columns.userId;
+  it("resolves a declared field to each member's own column", () => {
+    const id = union().columns.id;
 
-    expect(userId).toBeInstanceOf(UnionColumnDefinition);
-    expect(userId.kind).toBe(Kind.UNION_COLUMN);
-    expect(userId.name).toBe("userId");
-    expect(userId.members.photos).toBe(photos.columns.userId);
-    expect(userId.members.videos).toBe(videos.columns.userId);
+    expect(id).toBeInstanceOf(UnionColumnDefinition);
+    expect(id.kind).toBe(Kind.UNION_COLUMN);
+    expect(id.name).toBe("id");
+    expect(id.members.photos).toBe(photos.columns.id);
+    expect(id.members.videos).toBe(videos.columns.id);
   });
 
-  it("types the shared fields as the intersection with equal value types", () => {
-    expectTypeOf<SharedFieldsOf<{ photos: typeof photos; videos: typeof videos }>>().toEqualTypeOf<
-      "id" | "userId" | "url"
+  it("types its columns from the declaration, and only fields every member has", () => {
+    expectTypeOf<keyof ReturnType<typeof union>["columns"]>().toEqualTypeOf<"id">();
+    expectTypeOf<CommonFieldsOf<{ photos: typeof photos; videos: typeof videos }>>().toEqualTypeOf<
+      "id" | "userId" | "url" | "size"
     >();
   });
 
+  it("rejects a field a member does not have", () => {
+    expect(() => new UnionDefinition({ photos, videos }, { duration: int("duration") })).toThrow(
+      /declares "duration", but member "photos" has no such field/
+    );
+  });
+
+  it("rejects a field a member stores under another column name", () => {
+    expect(() => new UnionDefinition({ photos, videos }, { userId: uuid("user_id") })).toThrow(
+      /member "videos" stores it in column "owner_id", not "user_id"/
+    );
+  });
+
+  it("rejects a field whose data type differs on a member", () => {
+    const a = new TableDefinition("a", { columns: { size: int("size") } });
+    const b = new TableDefinition("b", { columns: { size: text("size") } });
+
+    expect(() => new UnionDefinition({ a, b }, { size: int("size") })).toThrow(
+      /member "b" declares it as a different kind of column \(text\)/
+    );
+  });
+
+  it("rejects a field whose column kind differs on a member", () => {
+    const a = new TableDefinition("a", {
+      columns: { id: new TaggedColumn("id", { dataType: "uuid" }) },
+    });
+    const b = new TableDefinition("b", { columns: { id: uuid("id") } });
+
+    expect(
+      () => new UnionDefinition({ a, b }, { id: new TaggedColumn("id", { dataType: "uuid" }) })
+    ).toThrow(/member "b" declares it as a different kind of column/);
+  });
+
+  it("rejects a NOT NULL field a member allows NULL in", () => {
+    const a = new TableDefinition("a", { columns: { url: text("url").notNull() } });
+    const b = new TableDefinition("b", { columns: { url: text("url") } });
+
+    expect(() => new UnionDefinition({ a, b }, { url: text("url").notNull() })).toThrow(
+      /member "b" allows NULL in it, and the union declares it NOT NULL/
+    );
+    expect(() => new UnionDefinition({ a, b }, { url: text("url") })).not.toThrow();
+  });
+
   it("rejects a union without members", () => {
-    expect(() => new UnionDefinition({})).toThrow(/at least one member/);
+    expect(() => new UnionDefinition({}, {})).toThrow(/at least one member/);
   });
 
   it("rejects a union as a member", () => {
-    const posts = new UnionDefinition({ photos, videos });
+    const posts = union();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => new UnionDefinition({ posts } as any)).toThrow(/cannot contain another union/);
+    expect(() => new UnionDefinition({ posts } as any, {})).toThrow(/cannot contain another union/);
   });
 
   it("serializes its members by table name, and produces no DDL", () => {
-    const posts = new UnionDefinition({ photos, videos });
-
-    expect(posts.toJSON()).toEqual({
+    expect(union().toJSON()).toEqual({
       kind: Kind.UNION,
       name: "union(photos|videos)",
       members: { photos: "photos", videos: "videos" },
@@ -92,7 +135,7 @@ describe("UnionDefinition", () => {
 
 describe("RelationsDefinition to a union", () => {
   it("serializes the union target, the per-member columns and the discriminator", () => {
-    const posts = new UnionDefinition({ photos, videos });
+    const posts = new UnionDefinition({ photos, videos }, { id: uuid("id") });
     const comments = new TableDefinition("comments", {
       columns: {
         id: uuid("id").primaryKey(),
@@ -121,7 +164,7 @@ describe("RelationsDefinition to a union", () => {
   });
 
   it("serializes a per-member to map", () => {
-    const posts = new UnionDefinition({ photos, videos });
+    const posts = new UnionDefinition({ photos, videos }, { id: uuid("id") });
 
     const json = new RelationsDefinition(users, {
       feed: {

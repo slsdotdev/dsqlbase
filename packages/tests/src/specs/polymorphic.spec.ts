@@ -213,7 +213,7 @@ describe("polymorphic relations", () => {
 
       // A video under the photo's own uuid, and a comment on it.
       await getClient().$query(sql`
-        INSERT INTO "videos" ("id", "owner_id", "created_at", "video_url")
+        INSERT INTO "videos" ("id", "author_id", "created_at", "video_url")
         VALUES (${photo.id}, ${author.id}, '2026-02-01T00:00:00Z', 'twin.mp4')
       `);
       await getClient().$query(sql`
@@ -340,6 +340,27 @@ describe("polymorphic relations", () => {
       }
 
       expect(backward).toEqual(expected);
+    });
+
+    it("resolves a union member by global id", async () => {
+      const [comment] = await getClient().postComments.findMany({
+        where: { subjectId: { exists: true } },
+        select: {
+          subjectId: true,
+          subject: {
+            id: true,
+          },
+        },
+        limit: 1,
+      });
+
+      expect(comment.subjectId).toBe(comment.subject?.id);
+
+      const subject = await getClient().posts.findOne({
+        where: { id: { eq: comment.subjectId as string } },
+      });
+
+      expect(subject?.id).toBe(comment.subjectId);
     });
   });
 

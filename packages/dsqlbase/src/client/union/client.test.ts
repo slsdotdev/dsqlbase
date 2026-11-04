@@ -3,7 +3,18 @@ import type { Session, SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { InvalidCursorError, keysetSignature } from "../pagination/cursor.js";
 import { UnionClient } from "./client.js";
-import { datetime, table, tenantScope, text, union, uuid } from "../../schema/index.js";
+import {
+  datetime,
+  guid,
+  hasMany,
+  relations,
+  table,
+  tenantScope,
+  text,
+  union,
+  uuid,
+} from "../../schema/index.js";
+import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const photos = table("photos", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -15,13 +26,21 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("owner_id").notNull(),
+  userId: uuid("user_id").notNull(),
   createdAt: datetime("created_at").notNull(),
   caption: text("caption"),
   videoUrl: text("video_url").notNull(),
 });
 
-const posts = union({ photos, videos });
+const posts = union(
+  { photos, videos },
+  {
+    id: uuid("id"),
+    userId: uuid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+    caption: text("caption"),
+  }
+);
 
 const schema = { photos, videos, posts };
 
@@ -68,7 +87,7 @@ describe("UnionClient", () => {
           data: {
             $$key: "videos",
             id: "v1",
-            owner_id: "u1",
+            user_id: "u1",
             created_at: "2026-01-02T00:00:00Z",
             caption: "c",
             video_url: "b",
@@ -84,7 +103,7 @@ describe("UnionClient", () => {
 
     expect(text_()).toMatch(/^SELECT row_to_json\("__j0"\.\*\) AS "data"/);
     expect(text_()).toContain(`WHERE "__t0"."user_id" = $1`);
-    expect(text_()).toContain(`WHERE "__t1"."owner_id" = $2`);
+    expect(text_()).toContain(`WHERE "__t1"."user_id" = $2`);
     expect(rows.map((row) => row.$$key)).toEqual(["photos", "videos"]);
     expect(rows[1]?.createdAt).toEqual(new Date("2026-01-02T00:00:00Z"));
   });
@@ -120,7 +139,6 @@ describe("UnionClient", () => {
         $$key: key,
         id,
         user_id: "u1",
-        owner_id: "u1",
         created_at: at,
         caption: null,
         photo_url: "a",
@@ -208,7 +226,7 @@ describe("UnionClient", () => {
     const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
     const notes = ws.table("notes", { id: uuid("id").primaryKey(), title: text("title") });
     const links = table("links", { id: uuid("id").primaryKey(), title: text("title") });
-    const items = union({ notes, links });
+    const items = union({ notes, links }, { id: uuid("id"), title: text("title") });
     const scoped = { notes, links, items };
 
     it("filters the scoped member's branch and refuses a claimless client", async () => {
@@ -227,5 +245,100 @@ describe("UnionClient", () => {
       expect(text_()).toContain(`FROM "notes" AS "__t0" WHERE "__t0"."workspace_id" = $1`);
       expect(text_()).toMatch(/FROM "links" AS "__t1"\) AS "__j1"$/);
     });
+  });
+});
+
+describe("UnionClient — global ids on a shared field", () => {
+  const authors = table("authors", { id: guid("id").primaryKey() });
+  const photos = table("photos", {
+    id: guid("id").primaryKey(),
+    authorId: guid("author_id"),
+    photoUrl: text("photo_url").notNull(),
+  });
+  const videos = table("videos", {
+    id: guid("id").primaryKey(),
+    authorId: guid("author_id"),
+    videoUrl: text("video_url").notNull(),
+  });
+  const posts = union({ photos, videos }, { id: guid("id"), authorId: guid("author_id") });
+  const authorRelations = relations(authors, {
+    posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
+  });
+  const schema = { authors, photos, videos, posts, authorRelations };
+
+  const PHOTO = "11111111-1111-4111-8111-111111111111";
+  const VIDEO = "22222222-2222-4222-8222-222222222222";
+  const AUTHOR = "33333333-3333-4333-8333-333333333333";
+  const photoId = encodeGlobalId("photos", { id: PHOTO });
+  const videoId = encodeGlobalId("videos", { id: VIDEO });
+  const authorId = encodeGlobalId("authors", { id: AUTHOR });
+
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<typeof schema>>;
+
+  beforeEach(() => {
+    calls = [];
+
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema, session });
+  });
+
+  const query = () => calls[0];
+
+  it("reads only the member an eq id names", async () => {
+    await dsql.posts.findOne({ where: { id: { eq: photoId } } });
+
+    expect(query()?.text).toContain('FROM "photos"');
+    expect(query()?.text).not.toContain('FROM "videos"');
+    expect(query()?.params).toContain(PHOTO);
+  });
+
+  it("splits an in list between the members its ids name", async () => {
+    await dsql.posts.findMany({ where: { id: { in: [photoId, videoId] } } });
+
+    expect(query()?.text).toContain('FROM "photos"');
+    expect(query()?.text).toContain('FROM "videos"');
+    expect(query()?.params).toEqual(expect.arrayContaining([PHOTO, VIDEO]));
+  });
+
+  it("reads a member a neq id cannot name as every row with a value", async () => {
+    await dsql.posts.findMany({ where: { id: { neq: photoId } } });
+
+    expect(query()?.text).toMatch(/FROM "photos" AS "__t\d+" WHERE "__t\d+"\."id" <> \$\d+/);
+    expect(query()?.text).toMatch(/FROM "videos" AS "__t\d+" WHERE "__t\d+"\."id" IS NOT NULL/);
+  });
+
+  it("keeps every member for a raw uuid", async () => {
+    await dsql.posts.findMany({ where: { id: { eq: PHOTO } } });
+
+    expect(query()?.text).toContain('FROM "photos"');
+    expect(query()?.text).toContain('FROM "videos"');
+  });
+
+  it("keeps every member for a field all of them key to one node", async () => {
+    await dsql.posts.findMany({ where: { authorId: { eq: authorId } } });
+
+    expect(query()?.text).toContain('FROM "photos"');
+    expect(query()?.text).toContain('FROM "videos"');
+    expect(query()?.params).toEqual([AUTHOR, AUTHOR]);
+  });
+
+  it("decides a condition inside or and not", async () => {
+    await dsql.posts.findMany({
+      where: { or: [{ id: { eq: photoId } }, { not: { id: { eq: videoId } } }] },
+    });
+
+    // photos: the first child may match, the second is true — no condition left.
+    expect(query()?.text).toMatch(/FROM "photos" AS "__t\d+"\)/);
+    // videos: the first child is false, the second stays.
+    expect(query()?.text).toMatch(
+      /FROM "videos" AS "__t\d+" WHERE \(NOT \("__t\d+"\."id" = \$1\)\)/
+    );
   });
 });

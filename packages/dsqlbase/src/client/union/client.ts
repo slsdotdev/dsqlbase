@@ -1,5 +1,5 @@
 import { DefinitionSchema } from "@dsqlbase/core";
-import { AnyUnionMembers } from "@dsqlbase/core/definition";
+import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import {
   CompositeQuery,
   Executable,
@@ -29,7 +29,7 @@ import { shapePage } from "../pagination/page.js";
  * table read does, so a tenant-scoped member is filtered, or refused, on its own terms.
  */
 export class UnionClient<
-  TMembers extends AnyUnionMembers,
+  TUnion extends AnyUnionDefinition,
   TDefinition extends DefinitionSchema,
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
@@ -54,9 +54,9 @@ export class UnionClient<
    * if (post?.$$key === "photos") post.photoUrl;
    * ```
    */
-  public findOne<TArgs extends UnionFindOneArgs<TMembers, this["__type"]>>(
+  public findOne<TArgs extends UnionFindOneArgs<TUnion, this["__type"]>>(
     args: TArgs
-  ): ExecutableQuery<UnionResultOf<TMembers, this["__type"], TArgs> | null> {
+  ): ExecutableQuery<UnionResultOf<TUnion, this["__type"], TArgs> | null> {
     const request = this._normalizer.normalizeUnionSelect(
       this._union,
       args as AnyUnionQuery,
@@ -82,9 +82,9 @@ export class UnionClient<
    * });
    * ```
    */
-  public findMany<TArgs extends UnionQueryArgs<TMembers, this["__type"]>>(
+  public findMany<TArgs extends UnionQueryArgs<TUnion, this["__type"]>>(
     args?: TArgs
-  ): ExecutableQuery<UnionResultOf<TMembers, this["__type"], TArgs>[]> {
+  ): ExecutableQuery<UnionResultOf<TUnion, this["__type"], TArgs>[]> {
     const request = this._normalizer.normalizeUnionSelect(
       this._union,
       (args ?? {}) as AnyUnionQuery,
@@ -104,13 +104,13 @@ export class UnionClient<
    *
    * @throws {InvalidCursorError} when `after` or `before` is not a cursor for this order.
    */
-  public paginate<TArgs extends UnionPaginateArgs<TMembers, this["__type"]>>(
+  public paginate<TArgs extends UnionPaginateArgs<TUnion, this["__type"]>>(
     args: TArgs
-  ): Executable<UnionPageOf<TMembers, this["__type"], TArgs>> {
+  ): Executable<UnionPageOf<TUnion, this["__type"], TArgs>> {
     const plan = this._normalizer.normalizeUnionPaginate(this._union, args as AnyUnionQuery);
     const select = this._ctx.operations.createUnionSelectOperation(this._union, plan.request);
 
-    const page = new ExecutableQuery<UnionPageOf<TMembers, this["__type"], TArgs>>(
+    const page = new ExecutableQuery<UnionPageOf<TUnion, this["__type"], TArgs>>(
       { ...select, resolve: (rows) => shapePage(rows, select.resolve, plan) as never },
       this._ctx.session
     );
@@ -127,12 +127,12 @@ export class UnionClient<
     return new CompositeQuery(
       [page, count] as const,
       ([result, totalCount]) =>
-        ({ ...result, totalCount }) as UnionPageOf<TMembers, this["__type"], TArgs>
+        ({ ...result, totalCount }) as UnionPageOf<TUnion, this["__type"], TArgs>
     );
   }
 
   /** Counts the rows `where` selects, across every member. */
-  public count(args?: UnionCountArgs<TMembers>): ExecutableQuery<number> {
+  public count(args?: UnionCountArgs<TUnion>): ExecutableQuery<number> {
     const request = this._normalizer.normalizeUnionCount(this._union, args as AnyUnionQuery);
 
     return new ExecutableQuery(

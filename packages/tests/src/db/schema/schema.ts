@@ -355,9 +355,9 @@ const revisionRelations = relations(revisions, {
  *
  * Additive, like the node tables: nothing above changes shape.
  *
- * - `posts` unions two nodes, `photos` and `videos`, written by `authors`. Their author key is
- *   one shared field stored under two column names (`author_id`, `owner_id`), and `caption` is
- *   nullable, so ordering and paging across members meet a per-member column and a null.
+ * - `posts` unions two nodes, `photos` and `videos`, written by `authors`, and declares the
+ *   fields they share. `id` names a different node on each member, so a global id selects its
+ *   own member; `caption` is nullable, so ordering and paging across members meet a null.
  * - `postComments` belongs to a post of either kind through a discriminator, with a `guid()`
  *   whose node is read row by row.
  * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
@@ -375,13 +375,21 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("owner_id").notNull(),
+  authorId: guid("author_id").notNull(),
   caption: text("caption"),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-const posts = union({ photos, videos });
+const posts = union(
+  { photos, videos },
+  {
+    id: guid("id"),
+    authorId: guid("author_id").notNull(),
+    caption: text("caption"),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 const postComments = table("post_comments", {
   id: guid("id").primaryKey().defaultRandom(),
@@ -403,7 +411,10 @@ const files = table("files", {
   size: bigint("size").notNull(),
 });
 
-const entries = union({ folders, files });
+const entries = union(
+  { folders, files },
+  { id: guid("id"), parentId: guid("parent_id"), name: text("name").notNull() }
+);
 
 const bookmarks = table("bookmarks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -412,7 +423,15 @@ const bookmarks = table("bookmarks", {
   createdAt: datetime("created_at").notNull().defaultNow(),
 });
 
-const userFeed = union({ documents, bookmarks });
+const userFeed = union(
+  { documents, bookmarks },
+  {
+    id: uuid("id"),
+    authorId: uuid("author_id"),
+    title: text("title").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 // A second block for `authors`, merged with `authorRelations`.
 const authorPostRelations = relations(authors, {

@@ -216,9 +216,13 @@ relations can point at it. The client reads it as one `UNION ALL`, ordered and l
 members in SQL, and `$$key` on every row says which member it came from:
 
 ```ts
-import { union, relations, hasMany } from "dsqlbase/schema";
+import { datetime, guid, union, relations, hasMany } from "dsqlbase/schema";
 
-export const posts = union({ photos, videos });
+// The second argument declares the fields every member shares — the ones that work across it.
+export const posts = union(
+  { photos, videos },
+  { id: guid("id"), authorId: guid("author_id").notNull(), createdAt: datetime("created_at") }
+);
 
 export const authorRelations = relations(authors, {
   posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),

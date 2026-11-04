@@ -152,7 +152,8 @@ name throws.
 ## Unions
 
 `union()` groups tables that can stand in for one another — what GraphQL calls a union or an
-interface. Key every member by the alias it is exported under:
+interface. Key every member by the alias it is exported under, and declare the fields they
+share:
 
 ```ts
 import { union } from "dsqlbase/schema";
@@ -169,13 +170,19 @@ export const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 });
 
-export const posts = union({ photos, videos });
+export const posts = union(
+  { photos, videos },
+  { id: guid("id"), userId: guid("user_id").notNull() }
+);
 // posts.columns: { id, userId } — the shared fields
 ```
 
-`posts.columns` holds the **shared fields**: the fields every member declares with the same
-type. A field whose type differs on one member is left out rather than refused. Relations use
-the shared fields to target a union (see [Relations](./relations.md#relations-to-a-union)).
+`posts.columns` holds the **shared fields**, exactly the ones declared. Each is resolved to the
+column every member stores under the same field, and `union()` throws unless that column has
+the same database name, data type and kind (a `guid()` is not a `uuid()`) on every member, and
+is `NOT NULL` on every member when the declaration is. A field only some members have is not
+shared, and `union()` refuses it — declaring it is also a type error. Relations use the shared
+fields to target a union (see [Relations](./relations.md#relations-to-a-union)).
 
 When the client is built, it throws if any of these hold:
 

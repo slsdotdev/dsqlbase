@@ -6,8 +6,8 @@ import type {
 } from "@dsqlbase/core/definition";
 import { AnyColumn, AnyTable, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
 import type { Prettify } from "@dsqlbase/core/utils";
-import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
-import { isGlobalId } from "../../schema/utils/global-id.js";
+import { decodeMemberId, getDynamicGuidBinding, getGuidBinding } from "../nodes.js";
+import { decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
 import type { ColumnTypeOf, FieldNamesOf, ValueTypeOf } from "./base.js";
 
 /**
@@ -664,6 +664,9 @@ export class WhereBuilder {
    * - `false` — no row of this member can match; the member produces no branch;
    * - otherwise the `where` that is left, with every decided condition removed. An `or` holding
    *   a true child is dropped whole; a `not` flips its child.
+   *
+   * A global id on a shared field is decided the same way, by {@link _foldGlobalIds}: an id
+   * naming another node can never equal this member's column.
    */
   public foldKey(
     union: Union,
@@ -735,10 +738,84 @@ export class WhereBuilder {
         continue;
       }
 
-      residual[fieldName] = condition;
+      const folded = union.isShared(fieldName)
+        ? this._foldGlobalIds(union.getMemberColumn(alias, fieldName), condition)
+        : condition;
+
+      if (folded === false) {
+        return false;
+      }
+
+      if (folded !== undefined) {
+        residual[fieldName] = folded;
+      }
     }
 
     return residual;
+  }
+
+  /**
+   * A condition on a shared guid field, seen from one member's column.
+   *
+   * Each member's column carries ids for one node — `photos.id` photos ids, `videos.id` videos
+   * ids — so an id naming another node cannot match it, and would be refused by its codec if it
+   * reached SQL. Here it is decided instead: `eq` it is `false`, `in` drops it (`false` once
+   * none is left), and `neq` it is true for every row with a value, so it becomes `exists`.
+   * `undefined` when nothing is left to constrain. A raw uuid, an id for this node, and any
+   * column that is not a statically bound guid pass through to the ordinary path.
+   */
+  private _foldGlobalIds(column: AnyColumn, condition: unknown): unknown {
+    const binding = getGuidBinding(column);
+
+    if (!binding) {
+      return condition;
+    }
+
+    const foreign = (value: unknown) => {
+      if (!isGlobalId(value)) {
+        return false;
+      }
+
+      try {
+        return decodeGlobalId(value).key !== binding.key;
+      } catch {
+        // Malformed: left to the codec, which says why.
+        return false;
+      }
+    };
+
+    if (!this._isOperatorObject(condition)) {
+      return foreign(condition) ? false : condition;
+    }
+
+    const folded: Record<string, unknown> = { ...condition };
+
+    if ("eq" in folded && foreign(folded.eq)) {
+      return false;
+    }
+
+    if (Array.isArray(folded.in)) {
+      const kept = (folded.in as unknown[]).filter((value) => !foreign(value));
+
+      if (kept.length === 0) {
+        return false;
+      }
+
+      folded.in = kept;
+    }
+
+    if ("neq" in folded && foreign(folded.neq)) {
+      delete folded.neq;
+
+      // `<>` is never true of NULL, so what is left of it is "has a value".
+      if (folded.exists === false) {
+        return false;
+      }
+
+      folded.exists = true;
+    }
+
+    return Object.keys(folded).length > 0 ? folded : undefined;
   }
 
   /**

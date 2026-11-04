@@ -88,7 +88,7 @@ export type Models<
         : never
       : never
     : K extends UnionAliases<T>
-      ? UnionClient<UnionMembersOf<Schema<T>["unions"][K]>, T>
+      ? UnionClient<Schema<T>["unions"][K], T>
       : never;
 };
 

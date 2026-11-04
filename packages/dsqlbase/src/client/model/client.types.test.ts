@@ -551,12 +551,19 @@ describe("selection", () => {
 
   const videos = table("videos", {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("owner_id").notNull(),
+    userId: uuid("user_id").notNull(),
     createdAt: datetime("created_at").notNull(),
     videoUrl: text("video_url").notNull(),
   });
 
-  const media = union({ photos, videos });
+  const media = union(
+    { photos, videos },
+    {
+      id: uuid("id"),
+      userId: uuid("user_id").notNull(),
+      createdAt: datetime("created_at").notNull(),
+    }
+  );
 
   const userRelations = relations(users, {
     posts: hasMany(posts, { from: [users.columns.id], to: [posts.columns.authorId] }),

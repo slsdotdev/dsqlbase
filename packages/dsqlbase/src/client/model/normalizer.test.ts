@@ -99,12 +99,19 @@ describe("selection", () => {
 
   const videos = table("videos", {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("owner_id").notNull(),
+    userId: uuid("user_id").notNull(),
     createdAt: datetime("created_at").notNull(),
     videoUrl: text("video_url").notNull(),
   });
 
-  const media = union({ photos, videos });
+  const media = union(
+    { photos, videos },
+    {
+      id: uuid("id"),
+      userId: uuid("user_id").notNull(),
+      createdAt: datetime("created_at").notNull(),
+    }
+  );
 
   const userRelations = relations(users, {
     posts: hasMany(posts, { from: [users.columns.id], to: [posts.columns.authorId] }),
@@ -399,13 +406,21 @@ describe("union joins", () => {
 
   const videos = table("videos", {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("owner_id").notNull(),
+    userId: uuid("user_id").notNull(),
     day: date("day"),
     createdAt: datetime("created_at").notNull(),
     videoUrl: text("video_url").notNull(),
   });
 
-  const posts = union({ photos, videos });
+  const posts = union(
+    { photos, videos },
+    {
+      id: uuid("id"),
+      userId: uuid("user_id").notNull(),
+      day: date("day"),
+      createdAt: datetime("created_at").notNull(),
+    }
+  );
 
   const userRelations = relations(users, {
     feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
@@ -445,7 +460,7 @@ describe("union joins", () => {
       await dsql.users.findOne({ where, join: { feed: true } });
 
       expect(text_()).toContain(`'photos' AS "$$key", "__t1"."id", "__t1"."user_id"`);
-      expect(text_()).toContain(`'videos' AS "$$key", "__t2"."id", "__t2"."owner_id"`);
+      expect(text_()).toContain(`'videos' AS "$$key", "__t2"."id", "__t2"."user_id"`);
     });
 
     it("maps a shared select onto each member's own columns and merges on.<alias>.select", async () => {
@@ -462,9 +477,7 @@ describe("union joins", () => {
       expect(text_()).toContain(
         `'photos' AS "$$key", "__t1"."id", "__t1"."user_id", "__t1"."photo_url" FROM "photos"`
       );
-      expect(text_()).toContain(
-        `'videos' AS "$$key", "__t2"."id", "__t2"."owner_id" FROM "videos"`
-      );
+      expect(text_()).toContain(`'videos' AS "$$key", "__t2"."id", "__t2"."user_id" FROM "videos"`);
     });
 
     it("drops a member excluded with false", async () => {
@@ -493,7 +506,7 @@ describe("union joins", () => {
       });
 
       expect(text_()).toContain(`WHERE "__t1"."user_id" = "__t0"."id" AND ("__t1"."day" = $1)`);
-      expect(text_()).toContain(`WHERE "__t2"."owner_id" = "__t0"."id" AND ("__t2"."day" = $2)`);
+      expect(text_()).toContain(`WHERE "__t2"."user_id" = "__t0"."id" AND ("__t2"."day" = $2)`);
       expect(params()?.slice(0, 2)).toEqual(["2026-05-01", "2026-05-01"]);
     });
 
@@ -558,7 +571,7 @@ describe("union joins", () => {
             {
               $$key: "videos",
               id: "v1",
-              owner_id: "u1",
+              user_id: "u1",
               day: null,
               created_at: "2026-01-02T00:00:00.000Z",
               video_url: "b.mp4",
@@ -616,7 +629,7 @@ describe("union joins", () => {
           `WHERE "__t1"."user_id" = "__t0"."id" AND (("__t1"."day" IS NOT NULL))`
         );
         // videos: the $$key branch is true, so the whole or is.
-        expect(text).toContain('WHERE "__t2"."owner_id" = "__t0"."id") AS "__j1"');
+        expect(text).toContain('WHERE "__t2"."user_id" = "__t0"."id") AS "__j1"');
       });
 
       it("prunes a member whose and holds a false $$key", async () => {
@@ -678,7 +691,10 @@ describe("polymorphic writes", () => {
     name: text("name").notNull(),
   });
 
-  const tradingEntities = union({ companies, persons });
+  const tradingEntities = union(
+    { companies, persons },
+    { id: guid("id"), name: text("name").notNull() }
+  );
 
   const ledgerEntries = table("ledger_entries", {
     id: guid("id").primaryKey().defaultRandom(),

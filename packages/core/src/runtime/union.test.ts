@@ -33,13 +33,20 @@ const photos = new TableDefinition("photos", {
 const videos = new TableDefinition("videos", {
   columns: {
     id: col("id", "uuid").primaryKey(),
-    userId: col("owner_id", "uuid"),
+    userId: col("user_id", "uuid"),
     createdAt: col("created_at", "timestamptz"),
     videoUrl: col("video_url"),
   },
 });
 
-const posts = new UnionDefinition({ photos, videos });
+const posts = new UnionDefinition(
+  { photos, videos },
+  {
+    id: col("id", "uuid"),
+    userId: col("user_id", "uuid"),
+    createdAt: col("created_at", "timestamptz"),
+  }
+);
 
 const userRelations = new RelationsDefinition(users, {
   feed: {
@@ -103,8 +110,8 @@ describe("union joins — SQL", () => {
         'FROM "photos" AS "__t1" WHERE "__t1"."user_id" = "__t0"."id") AS "__j0" ' +
         "UNION ALL " +
         'SELECT row_to_json("__j1".*) AS "data" FROM (' +
-        'SELECT \'videos\' AS "$$key", "__t2"."id", "__t2"."owner_id", "__t2"."created_at", "__t2"."video_url" ' +
-        'FROM "videos" AS "__t2" WHERE "__t2"."owner_id" = "__t0"."id") AS "__j1"' +
+        'SELECT \'videos\' AS "$$key", "__t2"."id", "__t2"."user_id", "__t2"."created_at", "__t2"."video_url" ' +
+        'FROM "videos" AS "__t2" WHERE "__t2"."user_id" = "__t0"."id") AS "__j1"' +
         ') AS "__u0") AS "__join_feed" ON true LIMIT $1'
     );
   });
@@ -145,7 +152,7 @@ describe("union joins — SQL", () => {
     ]);
 
     expect(query.text).toContain(
-      'WHERE "__t2"."owner_id" = "__t0"."id" ORDER BY "__t2"."created_at" DESC, "__t2"."id" ASC LIMIT $'
+      'WHERE "__t2"."user_id" = "__t0"."id" ORDER BY "__t2"."created_at" DESC, "__t2"."id" ASC LIMIT $'
     );
     expect(query.text).toMatch(
       /ORDER BY "__o0" DESC, "\$\$key" ASC, "__pk0" ASC LIMIT \$\d+ OFFSET \$\d+\) AS "__u0"/
@@ -390,7 +397,7 @@ describe("union joins — results", () => {
   const videoRow = {
     $$key: "videos",
     id: "v1",
-    owner_id: "u1",
+    user_id: "u1",
     created_at: "2026-01-02T00:00:00Z",
     video_url: "b.mp4",
   };
@@ -455,7 +462,10 @@ describe("union joins — tenancy", () => {
     columns: { id: col("id", "uuid").primaryKey(), userId: col("user_id", "uuid") },
   });
 
-  const items = new UnionDefinition({ notes, links });
+  const items = new UnionDefinition(
+    { notes, links },
+    { id: col("id", "uuid"), userId: col("user_id", "uuid") }
+  );
 
   const rels = new RelationsDefinition(users, {
     items: {
@@ -521,7 +531,7 @@ describe("top-level union select", () => {
   it("resolves each row's data by its member", () => {
     const { resolve } = run({});
     const rows = resolve([
-      { data: { $$key: "videos", id: "v1", owner_id: "u1", created_at: "t", video_url: "b" } },
+      { data: { $$key: "videos", id: "v1", user_id: "u1", created_at: "t", video_url: "b" } },
     ]) as Record<string, unknown>[];
 
     expect(rows[0]).toEqual({
@@ -605,7 +615,7 @@ describe("top-level union select", () => {
       });
       composite.primaryKey((c) => [c.a, c.b]);
 
-      const mixed = new UnionDefinition({ photos, composite });
+      const mixed = new UnionDefinition({ photos, composite }, { userId: col("user_id", "uuid") });
       const schema = new SchemaRegistry({ photos, composite, mixed });
       const mixedFactory = new OperationsFactory(
         new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })

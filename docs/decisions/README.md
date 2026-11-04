@@ -16,7 +16,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0006](./0006-client-tenancy.md) | Application-level tenancy | 2026-09-23 | accepted |
 | [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted; key resolution superseded by [0018](./0018-guid-keys-from-relations.md) |
 | [0008](./0008-client-pagination.md) | Keyset pagination | 2026-09-27 | accepted |
-| [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted |
+| [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted; shared fields superseded by [0019](./0019-declared-union-columns.md) |
 | [0010](./0010-relation-select.md) | Relations in `select` | 2026-09-30 | accepted |
 | [0011](./0011-json-columns.md) | JSON columns and operators by runtime type | 2026-10-01 | accepted |
 | [0012](./0012-json-array-record.md) | Column validators, `jsonb` operators, `array()` / `record()` on `jsonb` | 2026-10-02 | accepted |
@@ -26,6 +26,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0016](./0016-numeric-modes.md) | `numeric()` read modes | 2026-10-11 | accepted |
 | [0017](./0017-remove-embedded-objects.md) | Remove embedded objects | 2026-11-04 | accepted |
 | [0018](./0018-guid-keys-from-relations.md) | `guid()` keys from relations | 2026-11-04 | accepted |
+| [0019](./0019-declared-union-columns.md) | Declared union columns | 2026-11-04 | accepted |
 
 ## Template
 

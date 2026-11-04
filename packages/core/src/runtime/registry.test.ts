@@ -196,9 +196,9 @@ describe("SchemaRegistry", () => {
     });
 
     it("rejects an empty pair list", () => {
-      expect(
-        () => new SchemaRegistry({ assignments, memberships, rel: relate([], []) })
-      ).toThrow(/must declare at least one column pair/);
+      expect(() => new SchemaRegistry({ assignments, memberships, rel: relate([], []) })).toThrow(
+        /must declare at least one column pair/
+      );
     });
 
     // Identity, not name: `memberships.teamId` is a uuid called "team_id" just like
@@ -233,9 +233,7 @@ describe("SchemaRegistry", () => {
             memberships,
             rel: relate([assignments.columns.note], [memberships.columns.userId]),
           })
-      ).toThrow(
-        /"assignments"\."note" is "text" but "memberships"\."userId" is "uuid"/
-      );
+      ).toThrow(/"assignments"\."note" is "text" but "memberships"\."userId" is "uuid"/);
     });
 
     it("rejects a relation whose target is not in the schema", () => {
@@ -480,7 +478,13 @@ describe("SchemaRegistry unions", () => {
     },
   });
 
-  const posts = new UnionDefinition({ photos, videos });
+  const shared = () => ({
+    id: new ColumnDefinition("id", { dataType: "uuid" }),
+    userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+    createdAt: new ColumnDefinition("created_at", { dataType: "timestamptz" }),
+  });
+
+  const posts = new UnionDefinition({ photos, videos }, shared());
 
   const relate = (relation: Record<string, unknown>) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -529,7 +533,7 @@ describe("SchemaRegistry unions", () => {
   });
 
   it("rejects a member keyed by something other than its schema alias", () => {
-    const pictures = new UnionDefinition({ pictures: photos, videos });
+    const pictures = new UnionDefinition({ pictures: photos, videos }, shared());
 
     expect(() => new SchemaRegistry({ photos, videos, pictures })).toThrow(
       /does not export that table as "pictures"/

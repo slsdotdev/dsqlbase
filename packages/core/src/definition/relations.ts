@@ -1,6 +1,6 @@
 import { DefinitionNode, Kind, RelationType } from "./base.js";
 import { AnyTableDefinition } from "./table.js";
-import { AnyUnionDefinition, AnyUnionMembers, UnionDefinition } from "./union.js";
+import { AnyUnionDefinition, UnionDefinition } from "./union.js";
 
 export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
   [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K];
@@ -10,19 +10,19 @@ export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
 export type AnyRelationTarget = AnyTableDefinition | AnyUnionDefinition;
 
 /**
- * The `to` side of a relation to a union: either shared fields taken from `union.columns`,
- * which resolve to each member's own column, or one column list per member for members that
- * store the key under different fields.
+ * The `to` side of a relation to a union: either fields the union declares, taken from
+ * `union.columns`, which resolve to each member's own column, or one column list per member for
+ * members that store the key under different fields.
  */
-export type UnionTargetColumns<TMembers extends AnyUnionMembers> =
-  | UnionDefinition<TMembers>["columns"][keyof UnionDefinition<TMembers>["columns"]][]
-  | { [A in keyof TMembers]: TableDefinitionColumn<TMembers[A]>[] };
+export type UnionTargetColumns<TUnion extends AnyUnionDefinition> =
+  | TUnion["columns"][keyof TUnion["columns"]][]
+  | { [A in keyof TUnion["members"]]: TableDefinitionColumn<TUnion["members"][A]>[] };
 
 export type RelationTargetColumns<TTarget extends AnyRelationTarget> =
   TTarget extends AnyTableDefinition
     ? TableDefinitionColumn<TTarget>[]
-    : TTarget extends UnionDefinition<infer TMembers>
-      ? UnionTargetColumns<TMembers>
+    : TTarget extends AnyUnionDefinition
+      ? UnionTargetColumns<TTarget>
       : never;
 
 export type FieldRelation<

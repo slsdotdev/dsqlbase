@@ -9,7 +9,7 @@ import {
   SQLStatement,
   TenancyError,
 } from "@dsqlbase/core";
-import { AnyUnionMembers } from "@dsqlbase/core/definition";
+import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import {
@@ -295,7 +295,7 @@ export function attachModels<T extends DefinitionSchema>(
   // union named like a table, so the two cannot collide.
   for (const [alias, union] of ctx.schema.getUnions()) {
     Object.defineProperty(client, alias, {
-      value: new UnionClient<AnyUnionMembers, T>(ctx, union),
+      value: new UnionClient<AnyUnionDefinition, T>(ctx, union),
       writable: false,
       enumerable: true,
     });

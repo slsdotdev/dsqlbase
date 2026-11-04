@@ -58,7 +58,10 @@ const notes = table("notes", {
   settings: json("settings"),
 });
 
-const items = union({ docs, notes });
+const items = union(
+  { docs, notes },
+  { id: uuid("id"), title: text("title").notNull(), settings: json("settings") }
+);
 
 const schema = { docs, notes, items };
 
@@ -578,7 +581,10 @@ const persons = table("persons", {
   name: text("name").notNull(),
 });
 
-const tradingEntities = union({ companies, persons });
+const tradingEntities = union(
+  { companies, persons },
+  { id: guid("id"), name: text("name").notNull() }
+);
 
 const ledgerEntries = table("ledger_entries", {
   id: guid("id").primaryKey().defaultRandom(),

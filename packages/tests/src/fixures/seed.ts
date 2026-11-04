@@ -288,11 +288,11 @@ export async function seedPhotos(client: TestClient, authors: SeededData["author
 
 export async function seedVideos(client: TestClient, authors: SeededData["authors"]) {
   const rows = await client.$query<PostRow>(sql`
-    INSERT INTO "videos" ("owner_id", "caption", "created_at", "video_url") VALUES
+    INSERT INTO "videos" ("author_id", "caption", "created_at", "video_url") VALUES
       (${authors[0].id}, 'Clip', '2026-01-02T00:00:00Z', 'clip.mp4'),
       (${authors[0].id}, NULL, '2026-01-03T00:00:00Z', 'tie.mp4'),
       (${authors[1].id}, 'Talk', '2026-01-04T00:00:00Z', 'talk.mp4')
-    RETURNING "id", "owner_id" AS "author_id", "caption", "created_at"
+    RETURNING "id", "author_id", "caption", "created_at"
   `);
 
   return rows.map(toPost);

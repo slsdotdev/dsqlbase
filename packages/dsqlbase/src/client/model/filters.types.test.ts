@@ -41,7 +41,14 @@ const notes = table("notes", {
   settings: json("settings").$type<{ theme: string }>(),
 });
 
-const items = union({ docs, notes });
+const items = union(
+  { docs, notes },
+  {
+    id: uuid("id"),
+    title: text("title").notNull(),
+    settings: json("settings").$type<{ theme: string }>(),
+  }
+);
 const schema = { docs, notes, items };
 
 const session = { execute: vi.fn(async () => []) } as unknown as Session;

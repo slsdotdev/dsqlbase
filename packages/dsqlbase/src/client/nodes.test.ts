@@ -215,7 +215,7 @@ describe("registerNodes", () => {
     const users = table("users", { id: guid("id").primaryKey() });
     const photos = table("photos", { id: guid("id").primaryKey(), userId: guid("user_id") });
     const videos = table("videos", { id: guid("id").primaryKey(), userId: guid("user_id") });
-    const posts = union({ photos, videos });
+    const posts = union({ photos, videos }, { id: guid("id"), userId: guid("user_id") });
     const userRelations = relations(users, {
       posts: hasMany(posts, {
         from: [users.columns.id],
@@ -482,7 +482,7 @@ describe("guid relation pairs", () => {
       // Raw on one member only: `user.feed[n].userId` would read back raw for videos.
       userId: uuid("user_id"),
     });
-    const posts = union({ photos, videos });
+    const posts = union({ photos, videos }, { id: guid("id") });
 
     const userRelations = relations(users, {
       feed: hasMany(posts, {
@@ -522,7 +522,7 @@ describe("polymorphic guid columns", () => {
     name: text("name").notNull(),
   });
 
-  const tradingEntities = union({ companies, persons });
+  const tradingEntities = union({ companies, persons }, { id: guid("id") });
 
   const ledgerEntries = table("ledger_entries", {
     id: guid("id").primaryKey().defaultRandom(),
@@ -567,7 +567,8 @@ describe("polymorphic guid columns", () => {
 
     it("rejects a member that is not a node", () => {
       const shops = table("shops", { id: uuid("id").primaryKey(), name: text("name") });
-      const sellers = union({ companies, shops });
+      // `id` is a guid on one member and a uuid on the other, so the union cannot share it.
+      const sellers = union({ companies, shops }, {});
       const entries = table("entries", {
         id: guid("id").primaryKey(),
         kind: text("kind"),
@@ -576,7 +577,7 @@ describe("polymorphic guid columns", () => {
       const rels = relations(entries, {
         seller: belongsTo(sellers, {
           from: [entries.columns.sellerId],
-          to: [sellers.columns.id],
+          to: { companies: [companies.columns.id], shops: [shops.columns.id] },
           discriminator: entries.columns.kind,
         }),
       });
