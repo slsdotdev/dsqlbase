@@ -8,6 +8,7 @@ import {
   TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
+import type { ColumnHooks } from "../resolvers/index.js";
 import { sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
@@ -321,34 +322,61 @@ describe("union joins — belongs-to", () => {
   });
 });
 
-describe("row decoders", () => {
+describe("read hooks", () => {
+  // One hooks object on every side of the relation, as validation requires: the read hook
+  // reads the discriminator from the row it is handed.
+  const hooks: ColumnHooks<unknown> = {
+    read: (value, { row }) => `${String(row?.subject_type)}:${String(value)}`,
+  };
+  const hooked = (name: string) => new ColumnDefinition(name, { dataType: "uuid", hooks });
+
+  const pictures = new TableDefinition("pictures", {
+    columns: { id: hooked("id").primaryKey() },
+  });
+  const clips = new TableDefinition("clips", {
+    columns: { id: hooked("id").primaryKey() },
+  });
+  const media = new UnionDefinition({ pictures, clips }, { id: hooked("id") });
   const comments = new TableDefinition("comments", {
     columns: {
       id: col("id", "uuid").primaryKey(),
       subjectType: col("subject_type"),
-      subjectId: col("subject_id", "uuid"),
+      subjectId: hooked("subject_id"),
+      threadId: col("thread_id", "uuid"),
       body: col("body"),
     },
   });
-  // The dependency comes from the reference the relation sets, not from the decoder.
+  const threads = new TableDefinition("threads", {
+    columns: { id: col("id", "uuid").primaryKey() },
+  });
+  const threadRels = new RelationsDefinition(threads, {
+    comments: {
+      type: Relation.HAS_MANY,
+      target: comments,
+      from: [threads.columns.id],
+      to: [comments.columns.threadId],
+    },
+  });
+  // The dependency comes from the reference the relation sets, not from the hook.
   const rels = new RelationsDefinition(comments, {
     subject: {
       type: Relation.BELONGS_TO,
-      target: posts,
+      target: media,
       from: [comments.columns.subjectId],
-      to: [posts.columns.id],
+      to: [media.columns.id],
       discriminator: comments.columns.subjectType,
     },
   });
-  const schema = new SchemaRegistry({ photos, videos, posts, comments, rels });
-  const table = schema.getTable("comments");
-
-  Object.defineProperty(table.columns.subjectId, "rowDecoder", {
-    value: {
-      decode: (raw: unknown, row: Record<string, unknown>) =>
-        `${String(row.subject_type)}:${String(raw)}`,
-    },
+  const schema = new SchemaRegistry({
+    pictures,
+    clips,
+    media,
+    comments,
+    rels,
+    threads,
+    threadRels,
   });
+  const table = schema.getTable("comments");
 
   // Every column when `fields` is omitted.
   const select = (fields?: string[]) =>
@@ -361,14 +389,14 @@ describe("row decoders", () => {
       },
     });
 
-  it("projects the dependency without emitting it, and decodes from the whole row", () => {
+  it("projects the dependency without emitting it, and hands the hook the whole row", () => {
     const { query, resolve } = select(["subjectId"]);
 
     expect(query.text).toBe(
       'SELECT "__t0"."subject_id", "__t0"."subject_type" FROM "comments" AS "__t0"'
     );
-    expect(resolve([{ subject_id: "s1", subject_type: "photos" }])).toEqual([
-      { $$meta: table.meta, subjectId: "photos:s1" },
+    expect(resolve([{ subject_id: "s1", subject_type: "pictures" }])).toEqual([
+      { $$meta: table.meta, subjectId: "pictures:s1" },
     ]);
   });
 
@@ -378,16 +406,49 @@ describe("row decoders", () => {
     expect(query.text).toBe(
       'SELECT "__t0"."subject_type", "__t0"."subject_id" FROM "comments" AS "__t0"'
     );
-    expect(resolve([{ subject_id: "s1", subject_type: "photos" }])).toEqual([
-      { $$meta: table.meta, subjectType: "photos", subjectId: "photos:s1" },
+    expect(resolve([{ subject_id: "s1", subject_type: "pictures" }])).toEqual([
+      { $$meta: table.meta, subjectType: "pictures", subjectId: "pictures:s1" },
     ]);
   });
 
-  it("leaves a null value null without decoding", () => {
+  it("hands a joined level's hook that level's own row", () => {
+    const threadTable = schema.getTable("threads");
+    const { query, resolve } = new OperationsFactory(
+      new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+    ).createSelectOperation(threadTable, {
+      mode: "many",
+      args: {
+        select: [["id", threadTable.columns.id]],
+        join: [["comments", { select: [["subjectId", table.columns.subjectId]] }]],
+      } as SelectOperationArgs,
+    });
+
+    expect(query.text).toContain('"subject_type"');
+    expect(
+      resolve([{ id: "t1", comments: [{ subject_id: "s1", subject_type: "clips" }] }])
+    ).toEqual([
+      {
+        $$meta: threadTable.meta,
+        id: "t1",
+        comments: [{ $$meta: table.meta, subjectId: "clips:s1" }],
+      },
+    ]);
+  });
+
+  it("leaves a null value null without running the hook", () => {
     const { resolve } = select();
 
-    expect(resolve([{ id: "c1", subject_id: null, subject_type: null, body: null }])).toEqual([
-      { $$meta: table.meta, id: "c1", subjectType: null, subjectId: null, body: null },
+    expect(
+      resolve([{ id: "c1", subject_id: null, subject_type: null, thread_id: null, body: null }])
+    ).toEqual([
+      {
+        $$meta: table.meta,
+        id: "c1",
+        subjectType: null,
+        subjectId: null,
+        threadId: null,
+        body: null,
+      },
     ]);
   });
 });

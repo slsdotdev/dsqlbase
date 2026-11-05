@@ -9,7 +9,8 @@ import {
   type SQLStatement,
 } from "@dsqlbase/core";
 import { createClient } from "./create.js";
-import { getDynamicGuidBinding, getGuidBinding, getNodes, registerNodes } from "./nodes.js";
+import { getNodes, registerNodes } from "./nodes.js";
+import { getDynamicGuidBinding, getGuidBinding } from "../schema/utils/guid-hooks.js";
 import {
   belongsTo,
   guid,
@@ -502,12 +503,22 @@ describe("the bound codec", () => {
     expect(bound(articles.columns.id.param(wrapped))).toBe(UUID);
   });
 
-  it("should leave a column raw when the registry was never registered", () => {
-    // A `SchemaRegistry` built by hand has no bind pass, so a guid column behaves exactly
-    // like the uuid column it serializes as.
+  it("should wrap ids in a registry built without a client", () => {
+    // The hooks travel with the column, so nothing has to be bound when a client is built.
     const authors = table("authors", { id: guid("id").primaryKey() });
 
-    expect(new SchemaRegistry({ authors }).getTable("authors").columns.id.resolve(UUID)).toBe(UUID);
+    expect(new SchemaRegistry({ authors }).getTable("authors").columns.id.resolve(UUID)).toBe(
+      encodeGlobalId("authors", { id: UUID })
+    );
+  });
+
+  it("should keep the column's declared codec", () => {
+    // Nothing is swapped in: what a guid id names lives in the hooks, not in a replaced codec.
+    const authors = table("authors", { id: guid("id").primaryKey() });
+    const { registry } = register({ authors });
+    const column = registry.getTable("authors").columns.id;
+
+    expect(column.codec).toBe(authors.columns.id["_codec"]);
   });
 });
 
@@ -544,7 +555,7 @@ describe("guid relation pairs", () => {
     });
 
     expect(() => register({ authors: a, drafts, draftRelations })).toThrow(
-      /only one of them carries global ids/
+      /they carry different column hooks/
     );
   });
 
@@ -560,7 +571,7 @@ describe("guid relation pairs", () => {
     });
 
     expect(() => register({ authors: a, drafts, draftRelations })).toThrow(
-      /"drafts\.author_id" and "authors\.id"/
+      /"drafts"\."authorId" and "authors"\."id"/
     );
   });
 
@@ -585,7 +596,7 @@ describe("guid relation pairs", () => {
     });
 
     expect(() => register({ users, photos, videos, posts, userRelations })).toThrow(
-      /"users\.id" and "videos\.user_id", but only one of them carries global ids/
+      /"users"\."id" and "videos"\."userId", but they carry different column hooks/
     );
   });
 
@@ -729,7 +740,7 @@ describe("polymorphic guid columns", () => {
       });
 
       expect(() => register({ companies, shops, sellers, entries, rels })).toThrow(
-        /"code" is not a unique key of union member "shops"/
+        /"shops\.code" is not a unique key of union member "shops"/
       );
     });
 
@@ -754,7 +765,7 @@ describe("polymorphic guid columns", () => {
       });
 
       expect(() => register({ ...schema, shops, shopRelations })).toThrow(
-        /only one of them carries global ids/
+        /they carry different column hooks/
       );
     });
   });

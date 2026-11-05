@@ -13,6 +13,7 @@ import {
   UnionColumnDefinition,
   UnionDefinition,
 } from "../definition/index.js";
+import { validateReferences } from "./references.js";
 
 /**
  * Checks a schema definition, throwing on the first problem. Pure: it reads definitions only,
@@ -20,8 +21,11 @@ import {
  *
  * - every union is keyed by an alias no table uses, and lists each member under the alias the
  *   schema exports it as;
- * - every relation's pairs line up, its discriminator is where one belongs, and its field name
- *   is free on the table that gets it — including each member of a union it is declared on;
+ * - every relation's pairs line up, carry the same column hooks, its discriminator is where one
+ *   belongs, and its field name is free on the table that gets it — including each member of a
+ *   union it is declared on;
+ * - no column's references form a ring, and a column with hooks references one target, reached
+ *   in every union member through a unique key;
  * - a tenant claim name means one type across the schema.
  */
 export function validateSchema(schema: DefinitionSchema): void {
@@ -33,7 +37,30 @@ export function validateSchema(schema: DefinitionSchema): void {
     validateRelation(relation, index);
   }
 
+  validateReferences(index.relations, referenceIndex(index), (entry) => {
+    const union = entry.relation.target as AnyUnionDefinition;
+    const alias = [...index.unions].find(([, candidate]) => candidate === union)?.[0] ?? "";
+
+    return memberToColumns(entry.field, alias, union, entry.relation.to);
+  });
+
   validateClaims(index);
+}
+
+function referenceIndex(index: SchemaIndex) {
+  const owners = new Map<AnyColumnDefinition, AnyTableDefinition>();
+
+  for (const table of index.tables.values()) {
+    for (const column of Object.values<AnyColumnDefinition>(table.columns)) {
+      owners.set(column, table);
+    }
+  }
+
+  return {
+    aliases: new Map([...index.tables].map(([alias, table]) => [table, alias])),
+    unions: new Map([...index.unions].map(([alias, union]) => [union, alias])),
+    owners,
+  };
 }
 
 /** A relation as some table receives it: declared on that table, or on a union it is in. */
@@ -285,7 +312,7 @@ function validateRelation(entry: SourcedRelation, index: SchemaIndex): void {
   }
 }
 
-/** One pair: each column declared, and live, on its side; both of one type. */
+/** One pair: each column declared, and live, on its side; both of one type, with one set of hooks. */
 function validatePair(
   label: string,
   source: AnyTableDefinition,
@@ -326,6 +353,15 @@ function validatePair(
       `${label}: "${source.name}"."${fromAlias}" is "${fromType}" but ` +
         `"${target.name}"."${toAlias}" is "${toType}"; ` +
         `both columns of a pair must have the same type.`
+    );
+  }
+
+  // A value crosses the relation as it is read and written: through the same hooks on both sides.
+  if (fromColumn["_hooks"] !== toColumn["_hooks"]) {
+    throw new Error(
+      `${label} pairs "${source.name}"."${fromAlias}" and "${target.name}"."${toAlias}", but ` +
+        `they carry different column hooks — a guid() and a plain column, say. Both sides of ` +
+        `a pair must read and write their values the same way.`
     );
   }
 }

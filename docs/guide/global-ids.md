@@ -191,14 +191,14 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | A lookup for a table not in the schema, or with no key      | `GlobalIdError("unknown_node")`                          |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
-| A relation pairing a guid with a uuid                       | throws when the client is built                          |
-| A column whose relations end at different columns           | throws when the client is built                          |
+| A relation pairing a guid with a uuid                       | throws when the schema is validated (`createClient`)     |
+| A column whose relations end at different columns           | throws when the schema is validated (`createClient`)     |
 | `$query` with a wrapped id                                  | **not** unwrapped — see below                            |
 
 ## Raw SQL
 
 `$query` and `$execute` are raw by design, so nothing unwraps an id for them. Use the column's
-own `param`, which runs the codec:
+own `param`, which unwraps it as a filter would:
 
 ```ts
 await dsql.$query(sql`

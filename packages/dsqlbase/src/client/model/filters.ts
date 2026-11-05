@@ -6,7 +6,11 @@ import type {
 } from "@dsqlbase/core/definition";
 import { AnyColumn, AnyTable, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
 import type { Prettify } from "@dsqlbase/core/utils";
-import { decodeMemberId, getDynamicGuidBinding, getGuidBinding } from "../nodes.js";
+import {
+  decodeMemberId,
+  getDynamicGuidBinding,
+  getGuidBinding,
+} from "../../schema/utils/guid-hooks.js";
 import { decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
 import type { ColumnTypeOf, FieldNamesOf, ValueTypeOf } from "./base.js";
 

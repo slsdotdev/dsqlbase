@@ -1,7 +1,8 @@
 import { SQLNode, SQLParam, SQLQuery, SQLRaw } from "../sql/nodes.js";
 import { escapeIdentifier } from "../sql/utils.js";
 import { HasDefault, NotNull, WithDomain, ValueType } from "../utils/index.js";
-import { ColumnCodec, defaultCodec, DefinitionNode, Kind, NodeRef } from "./base.js";
+import { ColumnCodec, defaultCodec } from "../resolvers/index.js";
+import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "./column.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyNamespaceDefinition } from "./namespace.js";

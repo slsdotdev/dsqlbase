@@ -1,7 +1,7 @@
 # 0020 — Column references
 
 - **Date:** 2026-11-05
-- **Status:** accepted
+- **Status:** accepted; the out-of-scope codec, and the guid checks left in the client, are settled by [0022](./0022-column-hooks.md)
 - **Supersedes:** how [0018](./0018-guid-keys-from-relations.md) resolves bindings (the client's
   own walk over every relation); the required discriminator on a belongs-to a union in
   [0009](./0009-polymorphic-relations.md)

@@ -3,6 +3,7 @@ import type { Session } from "@dsqlbase/core";
 import type { UnionFieldsOf } from "./base.js";
 import { createClient } from "../create.js";
 import {
+  belongsTo,
   datetime,
   hasMany,
   hasOne,
@@ -48,7 +49,7 @@ const userRelations = relations(users, {
 });
 
 const photoRelations = relations(photos, {
-  owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
+  owner: belongsTo(users, { from: [photos.columns.userId], to: [users.columns.id] }),
 });
 
 const schema = { users, photos, videos, posts, userRelations, photoRelations };

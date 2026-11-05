@@ -1,7 +1,7 @@
 # 0007 — Global ids
 
 - **Date:** 2026-09-27
-- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md); the lookups take only ids, and ids resolve by any unique key, since 2026-11-04 (see below)
+- **Status:** accepted; how a column's key is resolved is superseded by [0018](./0018-guid-keys-from-relations.md), and how it is applied — a codec bound when the client is built — by [0022](./0022-column-hooks.md); the lookups take only ids, and ids resolve by any unique key, since 2026-11-04 (see below)
 - **Proposal:** `schema-guid.md` (local working artifact, not tracked)
 
 ## Context

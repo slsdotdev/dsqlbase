@@ -1,5 +1,6 @@
 import { ColumnConfig } from "@dsqlbase/core";
 import { TypedObject } from "@dsqlbase/core/utils";
+import { guidHooks } from "../utils/guid-hooks.js";
 import { UUIDColumnDefinition } from "./uuid.js";
 
 /**
@@ -23,7 +24,8 @@ export class GuidColumnDefinition<
  * schema alias, so `dsql.members` produces ids keyed `members` even though the table is
  * `team_members`. An id resolves by any of the table's unique keys, not only this one.
  *
- * What a column's ids name is resolved when the client is built, from the relations:
+ * What a column's ids name comes from the relations, through the column's hooks
+ * (`../utils/guid-hooks.ts`):
  *
  * - a relation key column — the `from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` —
  *   names the column it is paired with, so `article.authorId === article.author.id` holds
@@ -58,5 +60,6 @@ export function guid<const TName extends string>(name: TName) {
     dataType: "uuid",
     runtimeType: "uuid",
     codec: { encode: (value) => value, decode: (value) => value },
+    hooks: guidHooks,
   }) as Guid<GuidColumnDefinition<TName, ColumnConfig<string, string, "uuid">>>;
 }

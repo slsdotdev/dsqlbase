@@ -9,14 +9,8 @@ import {
   Unique,
   ValueType,
 } from "../utils/index.js";
-import {
-  ColumnCodec,
-  ColumnValidator,
-  defaultCodec,
-  DefinitionNode,
-  Kind,
-  NodeRef,
-} from "./base.js";
+import { ColumnCodec, ColumnHooks, defaultCodec } from "../resolvers/index.js";
+import { ColumnValidator, DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
 import { SequenceOptions } from "./sequence.js";
@@ -94,6 +88,8 @@ export type ColumnConfig<
   tenantKey: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
   validator?: ColumnValidator<TValueType, TInputType>;
+  /** Transforms around the codec that need the runtime column or row; see `ColumnHooks`. */
+  hooks?: ColumnHooks<TValueType>;
   defaultValue?: SQLNode;
   domain?: NodeRef<AnyDomainDefinition>;
   generated?: ColumnGeneratedConfig;
@@ -125,6 +121,7 @@ export class ColumnDefinition<
 
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
+  protected _hooks?: ColumnHooks<this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["inputType"];
   protected _onUpdate?: () => this["__type"]["inputType"];
 
@@ -141,6 +138,7 @@ export class ColumnDefinition<
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._validator = config.validator;
+    this._hooks = config.hooks;
     this._domain = config.domain;
     this._generated = config.generated;
     this._identity = config.identity;

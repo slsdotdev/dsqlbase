@@ -6,10 +6,8 @@ export {
   KEY_FIELD,
   RESERVED_FIELD_NAMES,
   Relation,
-  defaultCodec,
   type NodeKind,
   type RelationType,
-  type ColumnCodec,
   type ColumnValidator,
   type DefinitionSchema,
 } from "./base.js";

@@ -338,8 +338,8 @@ export class OperationsFactory<
     resolvers.push([META_FIELD, () => table.meta]);
 
     // A column's dependencies — the discriminator of a union reference — are projected with it,
-    // once however many columns need them. A column with a row decoder is resolved from the
-    // whole row, which is how such a decoder reads them.
+    // once however many columns need them. A column's `read` hook finds them in the row it is
+    // handed.
     const add = (fieldName: string, column: AnyColumn) => {
       for (const projected of [column, ...column.dependsOn]) {
         if (seen.has(projected)) {
@@ -352,12 +352,7 @@ export class OperationsFactory<
         );
       }
 
-      if (!column.rowDecoder) {
-        resolvers.push([fieldName, column]);
-        return;
-      }
-
-      resolvers.push([fieldName, (row) => column.resolveRow(row)]);
+      resolvers.push([fieldName, column]);
     };
 
     if (!selection) {
@@ -910,7 +905,7 @@ export class OperationsFactory<
             continue;
           }
 
-          result[fieldName] = resolver.resolve(row[resolver.name]);
+          result[fieldName] = resolver.resolve(row[resolver.name], row);
         }
 
         results.push(result as TResult);

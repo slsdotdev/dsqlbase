@@ -62,6 +62,10 @@
       "types": "./dist/sql/*.d.ts",
       "default": "./dist/sql/*.js"
     },
+    "./resolvers": {
+      "types": "./dist/resolvers/index.d.ts",
+      "default": "./dist/resolvers/index.js"
+    },
     "./validation": {
       "types": "./dist/validation/index.d.ts",
       "default": "./dist/validation/index.js"

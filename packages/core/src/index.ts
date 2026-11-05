@@ -1,7 +1,6 @@
 export {
   Kind,
   Relation,
-  defaultCodec,
   ColumnDefinition,
   DomainDefinition,
   IndexDefinition,
@@ -30,7 +29,6 @@ export {
   type AnyUnionMembers,
   type CommonFieldsOf,
   type UnionColumnsConfig,
-  type ColumnCodec,
   type ColumnValidator,
   type ColumnConfig,
   type ColumnRuntimeType,
@@ -59,7 +57,6 @@ export {
   Union,
   UnionResolver,
   type AnyColumn,
-  type ColumnRowDecoder,
   ComputedDiscriminator,
   type ColumnReference,
   type ReferenceEnd,
@@ -140,4 +137,10 @@ export {
   type KeysetKey,
   type KeysetBound,
 } from "./sql/index.js";
+export {
+  defaultCodec,
+  type ColumnCodec,
+  type ColumnHooks,
+  type ColumnHookContext,
+} from "./resolvers/index.js";
 export { validateSchema } from "./validation/index.js";
