@@ -322,9 +322,9 @@ describe("SchemaRegistry", () => {
   it("should check if relations exist for a table", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 
-    expect(registry.hasRelations("users")).toBe(true);
-    expect(registry.hasRelations("posts")).toBe(true);
-    expect(registry.hasRelations("nonexistent")).toBe(false);
+    expect(Object.keys(registry.getRelations("users"))).toEqual(["posts"]);
+    expect(Object.keys(registry.getRelations("posts"))).toEqual(["author"]);
+    expect(() => registry.getRelations("nonexistent")).toThrow("Table not found: nonexistent");
   });
 
   it("should retrieve relations for a table", () => {
@@ -347,11 +347,16 @@ describe("SchemaRegistry", () => {
   it("should retrieve relation target fields", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 
-    const userPostsTarget = registry.getRelationTarget("users", "posts");
-    const postAuthorTarget = registry.getRelationTarget("posts", "author");
+    const userPosts = registry.getRelation("users", "posts");
+    const postAuthor = registry.getRelation("posts", "author");
 
-    expect(userPostsTarget).toEqual(registry.getTable("posts"));
-    expect(postAuthorTarget).toEqual(registry.getTable("users"));
+    expect(userPosts?.target).toBe(registry.getTable("posts"));
+    expect(postAuthor?.target).toBe(registry.getTable("users"));
+    // Resolved to runtime columns on both sides.
+    expect(postAuthor?.kind === "table" && postAuthor.to).toEqual([
+      registry.getTable("users").columns.id,
+    ]);
+    expect(registry.getRelation("posts", "nope")).toBeUndefined();
   });
 });
 
@@ -566,8 +571,10 @@ describe("SchemaRegistry unions", () => {
       rels: feed([posts.columns.userId]),
     });
 
-    expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
-    expect(registry.getUnionRelationColumns("people", "rel")).toEqual({
+    expect(registry.getRelation("people", "rel")?.target).toBe(registry.getUnion("posts"));
+    const relation = registry.getRelation("people", "rel");
+
+    expect(relation?.kind === "union" && relation.members).toEqual({
       photos: [registry.getTable("photos").columns.userId],
       videos: [registry.getTable("videos").columns.userId],
     });
@@ -582,7 +589,9 @@ describe("SchemaRegistry unions", () => {
       rels: feed({ photos: [photos.columns.ownerId], videos: [videos.columns.userId] }),
     });
 
-    expect(registry.getUnionRelationColumns("people", "rel").photos).toEqual([
+    const relation = registry.getRelation("people", "rel");
+
+    expect(relation?.kind === "union" && relation.members.photos).toEqual([
       registry.getTable("photos").columns.ownerId,
     ]);
   });
@@ -649,13 +658,14 @@ describe("SchemaRegistry unions", () => {
         rels: belongsTo(people.columns.postType),
       });
 
-      expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
+      expect(registry.getRelation("people", "rel")?.target).toBe(registry.getUnion("posts"));
     });
 
     // Without one, the member is computed when the query runs: the first holding the key.
     it("computes one for a belongs-to a union that declares none", () => {
       const registry = new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() });
-      const discriminator = registry.getRelationDiscriminator("people", "rel");
+      const relation = registry.getRelation("people", "rel");
+      const discriminator = relation?.kind === "union" ? relation.discriminator : undefined;
 
       expect(discriminator).toBeInstanceOf(ComputedDiscriminator);
       expect((discriminator as ComputedDiscriminator).union).toBe(registry.getUnion("posts"));

@@ -48,10 +48,11 @@ export {
   UnionResolver,
 } from "./operation.js";
 export { ComputedDiscriminator } from "./reference.js";
+export type { RuntimeRelation, TableRelation, UnionRelation } from "./relation.js";
+export { buildSchema, type BuiltSchema } from "./build.js";
 export type {
   ColumnReference,
   ReferenceEnd,
-  RelationRef,
   ResolvedReferences,
   TableReference,
   UnionReference,

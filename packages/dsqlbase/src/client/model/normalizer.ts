@@ -197,11 +197,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   }
 
   private _isRelation(table: AnyTable, fieldName: string): boolean {
-    const { schema } = this._ctx;
-
-    return (
-      schema.hasRelations(table.name) && Object.hasOwn(schema.getRelations(table.name), fieldName)
-    );
+    return this._ctx.schema.getRelation(table, fieldName) !== undefined;
   }
 
   /** `orderBy` as resolved keys, in the order the caller wrote them. */
@@ -327,13 +323,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      const targetTable = this._ctx.schema.getRelationTarget(table.name, fieldName);
+      const relation = this._ctx.schema.getRelation(table, fieldName);
 
-      if (!targetTable) {
-        throw new Error(
-          `Relation "${fieldName}" in table "${table.name}" does not have a valid target table.`
-        );
+      if (!relation) {
+        throw new Error(`Relation not found for field: ${fieldName} on table: ${table.name}`);
       }
+
+      const targetTable = relation.target;
 
       if (targetTable instanceof Union) {
         entries.push([
@@ -381,7 +377,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     // A relation every member has — one declared on the union — joins across it.
     const isUnionRelation = (field: string) =>
-      union.memberAliases.every((alias) => union.getMember(alias).getRelation(field));
+      union.memberAliases.every((alias) =>
+        this._ctx.schema.getRelation(union.getMember(alias), field)
+      );
 
     const selected = Object.entries(args.select ?? {})
       .filter(([, value]) => value)

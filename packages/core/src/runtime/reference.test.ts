@@ -51,7 +51,7 @@ const belongsToAuthor = {
   target: authors,
   from: [articles.columns.authorId],
   to: [authors.columns.id],
-} as const;
+};
 
 describe("column references", () => {
   it("sets a belongs-to's reference on its `from` column", () => {
@@ -66,7 +66,7 @@ describe("column references", () => {
       {
         kind: "table",
         column: schema.getTable("authors").columns.id,
-        via: { table: schema.getTable("articles"), field: "author" },
+        via: schema.getRelation("articles", "author"),
       },
     ]);
     expect(schema.getTable("authors").columns.id.references).toEqual([]);
@@ -164,7 +164,7 @@ describe("column references", () => {
           union: schema.getUnion("posts"),
           members: { photos: photoId, videos: videoId },
           discriminator: table.columns.targetType,
-          via: { table, field: "target" },
+          via: schema.getRelation(table, "target"),
         },
       ]);
       expect(targetId.dependsOn).toEqual([table.columns.targetType]);
@@ -320,7 +320,7 @@ describe("column references", () => {
       id._addReference({
         kind: "table",
         column: id,
-        via: { table: schema.getTable("authors"), field: "x" },
+        via: schema.getRelation("authors", "x") as never,
       })
     ).toThrow(/already built; its references are fixed/);
   });
@@ -422,8 +422,12 @@ describe("column references", () => {
     );
 
     it("gives every member the relation, from its own column", () => {
-      expect(schema.getTable("photos").getRelation("notes")?.from).toEqual([photos.columns.id]);
-      expect(schema.getTable("videos").getRelation("notes")?.from).toEqual([videos.columns.id]);
+      const photo = schema.getRelation("photos", "notes");
+      const video = schema.getRelation("videos", "notes");
+
+      expect(photo?.from).toEqual([schema.getTable("photos").columns.id]);
+      expect(video?.from).toEqual([schema.getTable("videos").columns.id]);
+      expect(photo?.declaredOn).toBe(schema.getUnion("posts"));
     });
 
     it("sets one union reference on the foreign key", () => {
@@ -437,7 +441,7 @@ describe("column references", () => {
           photos: schema.getTable("photos").columns.id,
           videos: schema.getTable("videos").columns.id,
         },
-        via: { table: schema.getUnion("posts"), field: "notes" },
+        via: { field: "notes", declaredOn: schema.getUnion("posts") },
       });
       expect(postId.dependsOn[0]).toBeInstanceOf(ComputedDiscriminator);
     });
@@ -463,7 +467,9 @@ describe("column references", () => {
 
       expect(postId.references).toHaveLength(1);
       expect(postId.dependsOn).toHaveLength(1);
-      expect(both.getRelationDiscriminator("notes", "post")).toBe(postId.dependsOn[0]);
+      const post = both.getRelation("notes", "post");
+
+      expect(post?.kind === "union" && post.discriminator).toBe(postId.dependsOn[0]);
     });
 
     // A stored discriminator on the belongs-to back is honoured: no second, computed one.

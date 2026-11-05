@@ -157,8 +157,12 @@ function label(column: AnyColumn): string {
 
 /** How a reference's relation is named in an error: `relation "author" on table "articles"`. */
 function describeVia(reference: ColumnReference): string {
-  const { table, field } = reference.via;
-  return `relation "${field}" on ${table instanceof Union ? "union" : "table"} "${table.alias}"`;
+  return `relation "${reference.via.field}" on ${describeOwner(reference.via.declaredOn)}`;
+}
+
+/** Where a relation was declared: `table "articles"`, or `union "posts"`. */
+function describeOwner(owner: AnyTable | Union): string {
+  return `${owner instanceof Union ? "union" : "table"} "${owner.alias}"`;
 }
 
 /** How a chain end is named in an error. */
@@ -281,17 +285,13 @@ function assertGuidPairs(
             continue;
           }
 
-          // Named as the relation declares the pair: its `from` side first. A union source's
-          // reference is a has-many / has-one's, so its `from` is the member column.
-          const { table: source, field } = reference.via;
-          const relation = source instanceof Union ? undefined : source.getRelation(field);
+          // Named as the relation declares the pair: its `from` side first.
+          const relation = reference.via;
           const [from, to] =
-            relation?.type === Relation.BELONGS_TO ? [column, target] : [target, column];
-          const owner =
-            source instanceof Union ? `union "${source.alias}"` : `table "${source.alias}"`;
+            relation.type === Relation.BELONGS_TO ? [column, target] : [target, column];
 
           throw new Error(
-            `Relation "${field}" on ${owner} pairs ` +
+            `Relation "${relation.field}" on ${describeOwner(relation.declaredOn)} pairs ` +
               `"${from.table.alias}.${from.name}" and "${to.table.name}.${to.name}", but only ` +
               `one of them carries global ids. Both sides of a pair must be guid() columns, or ` +
               `neither.`

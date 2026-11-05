@@ -1,17 +1,8 @@
 import { SQLContext, SQLNode, SQLParam, SQLScope, SQLStatement } from "../sql/nodes.js";
 import { sql } from "../sql/tag.js";
 import type { AnyColumn } from "./column.js";
-import type { AnyTable } from "./table.js";
+import type { RuntimeRelation } from "./relation.js";
 import type { Union } from "./union.js";
-
-/**
- * The relation that set a reference: what it is declared on — a table, or a union for a
- * relation whose source is one — and its field name.
- */
-export type RelationRef = {
-  readonly table: AnyTable | Union;
-  readonly field: string;
-};
 
 /**
  * Which member of a union a row's key points at, computed when the query runs: the first
@@ -86,7 +77,8 @@ export class ComputedDiscriminator implements SQLNode {
 export type TableReference = {
   readonly kind: "table";
   readonly column: AnyColumn;
-  readonly via: RelationRef;
+  /** The relation that set the reference. */
+  readonly via: RuntimeRelation;
 };
 
 /**
@@ -103,7 +95,8 @@ export type UnionReference = {
    * {@link ComputedDiscriminator} when the relation declares none.
    */
   readonly discriminator: AnyColumn | ComputedDiscriminator;
-  readonly via: RelationRef;
+  /** The relation that set the reference. */
+  readonly via: RuntimeRelation;
 };
 
 /**

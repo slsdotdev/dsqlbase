@@ -298,10 +298,13 @@ describe("union joins — belongs-to", () => {
     });
 
   it("resolves the discriminator column from the registry", () => {
-    expect(schema.getRelationDiscriminator("comments", "subject")).toBe(
+    const subject = schema.getRelation("comments", "subject");
+    const feed = registry.getRelation("users", "feed");
+
+    expect(subject?.kind === "union" && subject.discriminator).toBe(
       schema.getTable("comments").columns.subjectType
     );
-    expect(registry.getRelationDiscriminator("users", "feed")).toBeUndefined();
+    expect(feed?.kind === "union" && feed.discriminator).toBeUndefined();
   });
 
   // The ids of two members may collide; only the member the discriminator names may match.
