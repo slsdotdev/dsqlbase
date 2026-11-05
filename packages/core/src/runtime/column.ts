@@ -131,8 +131,9 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    * is only known per row — given the `row`, it resolves to the member column its discriminator
    * names, or to nothing when the discriminator is null or names no member.
    *
-   * Never throws: two ends, or a ring, can be legitimate for a plain key, so it is the caller
-   * who decides whether they are a conflict.
+   * Never throws: two ends can be legitimate for a plain key, so it is the caller who decides
+   * whether they are a conflict. `validateSchema` refuses a ring, so a built schema has none;
+   * one is still reported rather than looped on.
    */
   public resolveReferences(row?: Record<string, unknown>): ResolvedReferences {
     const ends: ReferenceEnd[] = [];
