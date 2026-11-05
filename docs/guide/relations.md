@@ -76,7 +76,7 @@ export const userRelations = relations(users, {
   // A shared field: resolves to each member's own column.
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
 
-  // One list per member, for members that store the key under different fields.
+  // One list per member, for a key the union does not share — stored under different fields.
   owned: hasMany(posts, {
     from: [users.columns.id],
     to: { photos: [photos.columns.ownerId], videos: [videos.columns.userId] },
@@ -84,16 +84,18 @@ export const userRelations = relations(users, {
 });
 ```
 
-A **belongs-to a union** also names a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
-which member each row points at, as that member's schema alias. It is required there, and
-`createClient` refuses it anywhere else. A has-many or has-one to a union needs none, because
-the key lives on the members.
+A **belongs-to a union** may also name a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
+which member each row points at, as that member's schema alias. Without one, the member is the
+first holding the key, computed when the query runs
+([without a discriminator](./polymorphic-relations.md#without-a-discriminator)).
+`createClient` refuses a discriminator anywhere else. A has-many or has-one to a union needs
+none, because the key lives on the members.
 
 ```ts
 export const comments = table("comments", {
   id: guid("id").primaryKey().defaultRandom(),
   subjectType: text("subject_type"), // "photos" or "videos"
-  subjectId: uuid("subject_id"),
+  subjectId: guid("subject_id"), // the members' ids are guid(), so this is too
 });
 
 export const commentRelations = relations(comments, {
@@ -107,23 +109,36 @@ export const commentRelations = relations(comments, {
 
 `createClient` checks every member: the columns must be declared on that member and pair with
 `from` by type, and a per-member map must name each member exactly once. A list given in
-the first form may only hold the union's shared fields.
+the first form may only hold fields the union declares.
 
 Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
 every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
 
+## Relations declared on a union
+
+`relations()` also takes a union as its source, which gives every member the relation from its
+own column: `relations(posts, { reactions: hasMany(reactions, { from: [posts.columns.id], to:
+[reactions.columns.postId] }) })`. `from` names the union's declared fields and the target must
+be a table. See [Polymorphic relations](./polymorphic-relations.md#relations-declared-on-a-union).
+
 ## Relations between global-id columns
 
 Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
-columns naming the same node, or neither. `createClient` throws otherwise, naming both columns.
+columns, or neither. `createClient` throws otherwise, naming both columns.
+
+The relation is also what decides what a key column's ids name: the key side of a pair — the
+`from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` — reads as the column it is paired
+with, followed to where that chain ends, so `article.authorId === article.author.id` holds. Two
+relations whose chains end at the same column agree (`orders.customerId` → `customers.id`, and
+→ `customerStats.customerId` → `customers.id`). A column whose relations end at different
+columns has no single answer, and `createClient` throws, as it does for columns that reference
+each other in a ring.
 
 Neither failure shows up in SQL — a join correlates on the raw columns, so the query works
-either way. What breaks is quieter. A `guid()` paired with a plain `uuid()` leaves
+either way. What breaks is quieter: a `guid()` paired with a plain `uuid()` leaves
 `article.authorId` raw while `article.author.id` comes back wrapped, so the two never compare
-equal; two `guid()` columns naming different nodes produce two different strings for one row.
-
-The usual mistake is the first one: adding a relation to a node table and leaving the foreign
-key as `uuid()`.
+equal. The usual mistake is adding a relation to a node table and leaving the foreign key as
+`uuid()`.
 
 ## Relations across a tenant boundary
 

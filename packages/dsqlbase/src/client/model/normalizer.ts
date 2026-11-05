@@ -4,18 +4,14 @@ import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
 import { GlobalIdError } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
-  AnyColumnGroup,
-  AnyField,
   AnyTable,
   Column,
-  ColumnGroup,
   CountOperationArgs,
   DefinitionSchema,
   DeleteOperationArgs,
   ExecutionContext,
   FieldMutation,
   FieldSelection,
-  GroupSelection,
   InsertOperationArgs,
   KeysetBound,
   OperationMode,
@@ -36,7 +32,6 @@ import {
   AnyUnionQuery,
   CountArgs,
   CreateArgs,
-  CreateValuesOf,
   DeleteArgs,
   FieldSelectionOf,
   JoinExpressionOf,
@@ -124,84 +119,17 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     for (const [fieldName, isSelected] of Object.entries(selection)) {
       if (isSelected) {
-        const field = table.getColumn(fieldName);
+        const column = table.getColumn(fieldName);
 
-        if (!field) {
+        if (!column) {
           throw new Error(`Invalid field "${fieldName}" in selection for table "${table.name}".`);
         }
 
-        entries.push(this._getFieldSelection(table, fieldName, field, isSelected));
+        entries.push([fieldName, column]);
       }
     }
 
     return entries.length > 0 ? entries : undefined;
-  }
-
-  /**
-   * One selected field: a column takes `true`; a group takes `true` — every member — or a map
-   * naming some, each a member column or a nested group read the same way.
-   */
-  private _getFieldSelection(
-    table: AnyTable,
-    path: string,
-    field: AnyField,
-    selected: unknown
-  ): FieldSelection {
-    if (field instanceof Column) {
-      if (selected !== true) {
-        throw new Error(
-          `Invalid selection for column "${path}" of "${table.name}": a column takes true.`
-        );
-      }
-
-      return [path.split(".").at(-1) as string, field];
-    }
-
-    return [
-      path.split(".").at(-1) as string,
-      field,
-      this._getGroupSelection(table, path, field, selected),
-    ];
-  }
-
-  private _getGroupSelection(
-    table: AnyTable,
-    path: string,
-    group: AnyColumnGroup,
-    selected: unknown
-  ): GroupSelection | undefined {
-    if (selected === true) {
-      return undefined;
-    }
-
-    if (typeof selected !== "object" || selected === null || Array.isArray(selected)) {
-      throw new Error(
-        `Invalid selection for group "${path}" of "${table.name}": a group takes true or a ` +
-          `map of its members.`
-      );
-    }
-
-    const entries: GroupSelection = [];
-
-    for (const [member, value] of Object.entries(selected)) {
-      if (value === false || value === null || value === undefined) {
-        continue;
-      }
-
-      const field = group.getColumn(member);
-
-      if (!field) {
-        throw new Error(
-          `Invalid field "${path}.${member}" in selection for table "${table.name}".`
-        );
-      }
-
-      entries.push(
-        this._getFieldSelection(table, `${path}.${member}`, field, value) as GroupSelection[number]
-      );
-    }
-
-    return entries;
   }
 
   /**
@@ -229,9 +157,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
       const column = table.getColumn(fieldName);
 
-      if (column && (value === true || column instanceof ColumnGroup)) {
+      if (column && value === true) {
         if (!columns.some(([name]) => name === fieldName)) {
-          columns.push(this._getFieldSelection(table, fieldName, column, value));
+          columns.push([fieldName, column]);
         }
 
         continue;
@@ -269,11 +197,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   }
 
   private _isRelation(table: AnyTable, fieldName: string): boolean {
-    const { schema } = this._ctx;
-
-    return (
-      schema.hasRelations(table.name) && Object.hasOwn(schema.getRelations(table.name), fieldName)
-    );
+    return this._ctx.schema.getRelation(table, fieldName) !== undefined;
   }
 
   /** `orderBy` as resolved keys, in the order the caller wrote them. */
@@ -281,39 +205,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     table: TTable,
     orderBy: OrderByExpressionOf<TTable> | null | undefined
   ): OrderKey[] {
-    return this._getFieldOrderKeys(table, undefined, orderBy ?? {}, []);
-  }
-
-  /**
-   * Order keys over a table's fields, or a group's members: a group takes a nested order object
-   * — never a direction of its own — and each member key is its column, named by its field path
-   * (`netValue.amount`), which is also what a cursor's signature records.
-   */
-  private _getFieldOrderKeys(
-    table: AnyTable,
-    group: AnyColumnGroup | undefined,
-    orderBy: object,
-    path: string[]
-  ): OrderKey[] {
     const keys: OrderKey[] = [];
 
-    for (const [name, direction] of Object.entries(orderBy)) {
-      const column = group ? group.getColumn(name) : table.getColumn(name);
-      const field = [...path, name].join(".");
+    for (const [field, direction] of Object.entries(orderBy ?? {})) {
+      const column = table.getColumn(field);
 
-      if (column instanceof ColumnGroup) {
-        if (typeof direction !== "object" || direction === null) {
-          throw new Error(
-            `Cannot order by the group "${field}" of "${table.name}"; order by its members: ` +
-              `{ ${name}: { member: "asc" } }.`
-          );
-        }
-
-        keys.push(...this._getFieldOrderKeys(table, column, direction, [...path, name]));
-        continue;
-      }
-
-      if (!(column instanceof Column)) {
+      if (!column) {
         throw new Error(`Invalid field "${field}" in orderBy for table "${table.name}".`);
       }
 
@@ -426,13 +323,13 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      const targetTable = this._ctx.schema.getRelationTarget(table.name, fieldName);
+      const relation = this._ctx.schema.getRelation(table, fieldName);
 
-      if (!targetTable) {
-        throw new Error(
-          `Relation "${fieldName}" in table "${table.name}" does not have a valid target table.`
-        );
+      if (!relation) {
+        throw new Error(`Relation not found for field: ${fieldName} on table: ${table.name}`);
       }
+
+      const targetTable = relation.target;
 
       if (targetTable instanceof Union) {
         entries.push([
@@ -442,7 +339,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      const params = this._getSelectArgs(targetTable, query === true ? {} : query);
+      const params = this._getSelectArgs(
+        targetTable,
+        query === true ? {} : (query as QueryArgs<AnyTable, this["__type"]>)
+      );
       entries.push([fieldName, params]);
     }
 
@@ -455,7 +355,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * The shared `select` / `where` apply to every member, written against that member's own
    * columns; `on.<alias>` then adds to them — its `select` is merged in, its `where` AND-ed
    * with the shared one, its `join` walks the member's own relations — or, as `false`, drops
-   * the member entirely. Omitted, a member runs with the shared arguments alone.
+   * the member entirely. Omitted, a member runs with the shared arguments alone. A relation
+   * declared on the union, which every member has, joins from every member through the shared
+   * `join` or `select`.
    */
   private _getUnionArgs(union: Union, args: AnyUnionQuery): UnionSelectOperationArgs {
     if (args.distinct) {
@@ -473,9 +375,46 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
-    const sharedSelect = Object.entries(args.select ?? {})
-      .filter(([, selected]) => selected)
+    // A relation every member has — one declared on the union — joins across it.
+    const isUnionRelation = (field: string) =>
+      union.memberAliases.every((alias) =>
+        this._ctx.schema.getRelation(union.getMember(alias), field)
+      );
+
+    const selected = Object.entries(args.select ?? {})
+      .filter(([, value]) => value)
       .map(([field]) => field);
+    const sharedSelect = selected.filter(
+      (field) => union.isShared(field) || !isUnionRelation(field)
+    );
+    const sharedJoin: Record<string, unknown> = {};
+
+    // Read as `join: { r: true }`, as a table's `select` reads a relation.
+    for (const field of selected.filter((field) => !sharedSelect.includes(field))) {
+      sharedJoin[field] = true;
+    }
+
+    for (const [field, entry] of Object.entries(args.join ?? {})) {
+      if (entry === undefined || entry === null || entry === false) {
+        continue;
+      }
+
+      if (!isUnionRelation(field)) {
+        throw new Error(
+          `Invalid relation "${field}" in join for union "${union.alias}": only relations every ` +
+            `member has join across a union. Join it for one member through \`on\`.`
+        );
+      }
+
+      if (sharedJoin[field] !== undefined) {
+        throw new Error(
+          `Relation "${field}" appears in both select and join on union "${union.alias}"; ` +
+            `name it in one of them.`
+        );
+      }
+
+      sharedJoin[field] = entry;
+    }
 
     for (const field of sharedSelect) {
       if (!union.isShared(field)) {
@@ -516,11 +455,25 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         field,
         union.getMemberColumn(alias, field),
       ]);
-      // The member's own select adds to the shared one; a relation in it becomes a member join.
+      const ownJoin = (own.join ?? {}) as Record<string, unknown>;
+
+      for (const field of Object.keys(sharedJoin)) {
+        const entry = ownJoin[field];
+
+        if (entry !== undefined && entry !== null && entry !== false) {
+          throw new Error(
+            `Relation "${field}" is joined on union "${union.alias}" and again in ` +
+              `\`on.${alias}\`; name it in one of them.`
+          );
+        }
+      }
+
+      // The member's own select adds to the shared one; a relation in it becomes a member join,
+      // beside the relations joined across the union.
       const selection = this._getReadSelection(
         member,
         own.select as Record<string, unknown> | undefined,
-        own.join as Record<string, unknown> | undefined,
+        { ...sharedJoin, ...ownJoin },
         shared
       );
 
@@ -593,19 +546,14 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   private _getMutationEntries<TTable extends AnyTable>(
     table: TTable,
-    values: CreateValuesOf<TTable> | UpdateValuesOf<TTable>
+    values: UpdateValuesOf<TTable>
   ): FieldMutation[] {
     const entries: FieldMutation[] = [];
 
     for (const [fieldName, value] of Object.entries(values as Record<string, SQLValue>)) {
       const column = table.getColumn(fieldName);
 
-      if (column instanceof ColumnGroup) {
-        entries.push(...this._getGroupMutations(table, [fieldName], column, value));
-        continue;
-      }
-
-      if (!(column instanceof Column)) {
+      if (!column) {
         throw new Error(`Invalid field "${fieldName}" in update values for table "${table.name}".`);
       }
 
@@ -622,69 +570,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   }
 
   /**
-   * A group's value as writes to its members' columns. An object writes the members it names
-   * and leaves the rest alone — on insert they take their defaults, on update they keep their
-   * value — and `null` sets every column `NULL`, which only a group whose members are all
-   * nullable can take.
-   */
-  private _getGroupMutations(
-    table: AnyTable,
-    path: string[],
-    group: AnyColumnGroup,
-    value: unknown
-  ): FieldMutation[] {
-    const subject = `group "${path.join(".")}" of "${table.name}"`;
-
-    if (value === undefined) {
-      return [];
-    }
-
-    if (value === null) {
-      if (!group.nullable) {
-        throw new Error(
-          `Cannot set the ${subject} to null: it has a member that is not null, so it is ` +
-            `always present.`
-        );
-      }
-
-      return group.leafColumns().map((column): FieldMutation => [column, null]);
-    }
-
-    if (typeof value !== "object" || Array.isArray(value)) {
-      throw new Error(`Write the ${subject} as an object of its members, or null.`);
-    }
-
-    const entries: FieldMutation[] = [];
-
-    for (const [member, memberValue] of Object.entries(value)) {
-      const field = group.getColumn(member);
-
-      if (field instanceof ColumnGroup) {
-        entries.push(...this._getGroupMutations(table, [...path, member], field, memberValue));
-        continue;
-      }
-
-      if (!(field instanceof Column)) {
-        throw new Error(
-          `Invalid field "${[...path, member].join(".")}" in values for table "${table.name}".`
-        );
-      }
-
-      // Dropped as a plain read-only column is, for the same reason.
-      if (field.readOnly || memberValue === undefined) {
-        continue;
-      }
-
-      entries.push([field, memberValue as SQLValue]);
-    }
-
-    return entries;
-  }
-
-  /**
    * A polymorphic id written as a global id also says which member it names — so it fills the
    * discriminator when the caller left it out, and must agree with it when they did not. A raw
-   * uuid says nothing and leaves the discriminator alone.
+   * uuid says nothing and leaves the discriminator alone, as does a relation with no stored
+   * discriminator.
    */
   private _fillDiscriminators<TTable extends AnyTable>(
     table: TTable,
@@ -695,7 +584,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       const binding = getDynamicGuidBinding(table.getColumn(fieldName) as AnyColumn);
       const member = binding ? decodeMemberId(value, binding.members) : undefined;
 
-      if (!binding || !member) {
+      // A computed discriminator has nothing to fill: the id is only unwrapped.
+      if (!binding || !member || binding.discriminatorField === undefined) {
         continue;
       }
 
@@ -720,15 +610,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   /** `distinct` compares whole rows, so every column it reads needs an equality operator. */
   private _assertDistinct(table: AnyTable, select: FieldSelection[] | undefined): void {
-    // Every column the read projects is compared, a group's included — a nullable group
-    // projects all of its columns to tell whether it is present.
-    const fields: [string, unknown][] = select
-      ? select.flatMap(([field, column, members]): [string, unknown][] =>
-          column instanceof ColumnGroup
-            ? column.reader(members).columns.map((leaf) => [`${field} (${leaf.name})`, leaf])
-            : [[field, column]]
-        )
-      : table.getLeafEntries().map(([path, column]) => [path.join("."), column]);
+    const fields = select ?? table.getColumnEntries();
 
     for (const [field, column] of fields) {
       if (column instanceof Column && !rulesOf(column).distinct) {

@@ -170,11 +170,6 @@ Changes DSQL cannot express come back as refusals in `plan().errors` — and as 
 | `NO_ALTER_DOMAIN_CONSTRAINT` | making a domain `NOT NULL`, or adding or renaming its `CHECK` |
 | `KIND_MISMATCH` | an object whose kind changed under the same name |
 
-A [column group](./embeddable-objects.md) is plain columns to the migration module: changing an
-embedded object adds or drops its members' columns in every table that embeds it, and is planned
-— or refused — exactly as those column changes would be. A required member added to an existing
-shape needs a default, which fills the existing rows.
-
 ## Deployment
 
 The runner exposes primitives (`validate` / `introspect` / `reconcile` / `plan`) so that a durable host — a CloudFormation custom resource, a CI job — can drive them with its own retry and observability. A CDK construct and a CLI are planned, not shipped.

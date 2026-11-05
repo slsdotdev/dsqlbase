@@ -18,10 +18,9 @@ import {
   tenantScope,
   guid,
   union,
-  $enum,
   array,
   record,
-  embedded,
+  $enum,
   numeric,
 } from "dsqlbase/schema";
 import { Decimal } from "decimal.js";
@@ -268,11 +267,12 @@ const taskRelations = relations(tasks, {
  * Additive on purpose. Every table above keeps its `uuid()` key, so each existing spec runs
  * against raw ids exactly as it always has and nothing here has to be read twice.
  *
- * `authors` owns `articles`, which own `revisions`. `articles.authorId` is a *keyed* guid, so
- * `article.authorId` and `article.author.id` have to be the same string; `revisions` is keyed
- * under an alias that differs from its database name, so a node key follows the name the
- * client uses rather than the physical one. `tags` is deliberately **not** a node: a uuid key
- * is just a uuid key, and `articleTags` has a composite key, which `guid()` cannot name.
+ * `authors` owns `articles`, which own `revisions`. `articles.authorId` is paired with
+ * `authors.id` by a relation, so `article.authorId` and `article.author.id` have to be the same
+ * string; `revisions` is keyed under an alias that differs from its database name, so a node
+ * key follows the name the client uses rather than the physical one. `tags` has a plain uuid
+ * key, so its rows emit no ids, but a hand-built id over its key or its unique `label` still
+ * resolves; `articleTags` is addressed by both fields of its composite key.
  */
 const authors = table("authors", {
   id: guid("id").primaryKey().defaultRandom(),
@@ -281,7 +281,7 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
   body: varchar("body", 5000),
 }).meta({ __typename: "Article" });
@@ -289,7 +289,7 @@ const articles = table("articles", {
 // Keyed under an alias that differs from its database name, so its node key is "revisions".
 const revisions = table("article_revisions", {
   id: guid("id").primaryKey().defaultRandom(),
-  articleId: guid("article_id", "articles").notNull(),
+  articleId: guid("article_id").notNull(),
   note: text("note").notNull(),
 });
 
@@ -303,20 +303,28 @@ const drafts = ws.table("drafts", {
   title: text("title").notNull(),
 });
 
-// Not a node: a plain uuid key names nothing.
+// A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.
 const tags = table("tags", {
   id: uuid("id").primaryKey().defaultRandom(),
   label: text("label").notNull().unique(),
 });
 
-// Not a node either: a composite key cannot be carried by a single guid() column.
+// Addressable by both fields of its composite key; its rows emit no id of their own.
 const articleTags = table("article_tags", {
-  articleId: guid("article_id", "articles"),
+  articleId: guid("article_id"),
   tagId: uuid("tag_id"),
 });
 
 // Not chained: `primaryKey()` returns the constraint, not the table.
 articleTags.primaryKey((c) => [c.articleId, c.tagId]);
+
+// Its relation is what makes `articleId` read as an articles id rather than its own.
+const articleTagRelations = relations(articleTags, {
+  article: belongsTo(articles, {
+    from: [articleTags.columns.articleId],
+    to: [articles.columns.id],
+  }),
+});
 
 const authorRelations = relations(authors, {
   articles: hasMany(articles, {
@@ -348,11 +356,13 @@ const revisionRelations = relations(revisions, {
  *
  * Additive, like the node tables: nothing above changes shape.
  *
- * - `posts` unions two nodes, `photos` and `videos`, written by `authors`. Their author key is
- *   one shared field stored under two column names (`author_id`, `owner_id`), and `caption` is
- *   nullable, so ordering and paging across members meet a per-member column and a null.
- * - `postComments` belongs to a post of either kind through a discriminator, with a keyless
- *   `guid()` whose node is read row by row.
+ * - `posts` unions two nodes, `photos` and `videos`, written by `authors`, and declares the
+ *   fields they share. `id` names a different node on each member, so a global id selects its
+ *   own member; `caption` is nullable, so ordering and paging across members meet a null.
+ * - `postComments` belongs to a post of either kind through a discriminator, with a `guid()`
+ *   whose node is read row by row.
+ * - `postReactions` has no discriminator: `posts` itself has many of them (a relation declared
+ *   on the union), and each belongs to whichever member holds its `postId`, computed when read.
  * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
  *   one of whose members is the table the join starts from.
  * - `userFeed` unions tenant-scoped `documents` with global `bookmarks`, so a union join and the
@@ -360,7 +370,7 @@ const revisionRelations = relations(revisions, {
  */
 const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   caption: text("caption"),
   createdAt: datetime("created_at").notNull(),
   photoUrl: text("photo_url").notNull(),
@@ -368,13 +378,21 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("owner_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   caption: text("caption"),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-const posts = union({ photos, videos });
+const posts = union(
+  { photos, videos },
+  {
+    id: guid("id"),
+    authorId: guid("author_id").notNull(),
+    caption: text("caption"),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 const postComments = table("post_comments", {
   id: guid("id").primaryKey().defaultRandom(),
@@ -383,20 +401,29 @@ const postComments = table("post_comments", {
   body: text("body").notNull(),
 });
 
+const postReactions = table("post_reactions", {
+  id: guid("id").primaryKey().defaultRandom(),
+  postId: guid("post_id").notNull(),
+  emoji: text("emoji").notNull(),
+});
+
 const folders = table("folders", {
   id: guid("id").primaryKey().defaultRandom(),
-  parentId: guid("parent_id", "folders"),
+  parentId: guid("parent_id"),
   name: text("name").notNull(),
 });
 
 const files = table("files", {
   id: guid("id").primaryKey().defaultRandom(),
-  parentId: guid("parent_id", "folders"),
+  parentId: guid("parent_id"),
   name: text("name").notNull(),
   size: bigint("size").notNull(),
 });
 
-const entries = union({ folders, files });
+const entries = union(
+  { folders, files },
+  { id: guid("id"), parentId: guid("parent_id"), name: text("name").notNull() }
+);
 
 const bookmarks = table("bookmarks", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -405,7 +432,15 @@ const bookmarks = table("bookmarks", {
   createdAt: datetime("created_at").notNull().defaultNow(),
 });
 
-const userFeed = union({ documents, bookmarks });
+const userFeed = union(
+  { documents, bookmarks },
+  {
+    id: uuid("id"),
+    authorId: uuid("author_id"),
+    title: text("title").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 // A second block for `authors`, merged with `authorRelations`.
 const authorPostRelations = relations(authors, {
@@ -423,6 +458,23 @@ const postCommentRelations = relations(postComments, {
     to: [posts.columns.id],
     discriminator: postComments.columns.subjectType,
   }),
+});
+
+// Declared on the union: every member has `reactions`, from its own `id`. `comments` points at
+// the key `postComments.subject` stores with a discriminator, which it keeps.
+const postRelations = relations(posts, {
+  reactions: hasMany(postReactions, {
+    from: [posts.columns.id],
+    to: [postReactions.columns.postId],
+  }),
+  comments: hasMany(postComments, {
+    from: [posts.columns.id],
+    to: [postComments.columns.subjectId],
+  }),
+});
+
+const postReactionRelations = relations(postReactions, {
+  post: belongsTo(posts, { from: [postReactions.columns.postId], to: [posts.columns.id] }),
 });
 
 const folderRelations = relations(folders, {
@@ -488,39 +540,6 @@ const projectLedgerRelations = relations(projects, {
   }),
 });
 
-/**
- * Column groups. `money` has required members, so `netValue` is never null, and `discount`
- * can be left out of a create because its group default fills the one required member without
- * one. `address` has only nullable members and a nested `geo`, so `billing` can be absent.
- * `review.by` is a `guid()` member pointing at authors; `review.at` has an `$onUpdate` hook.
- */
-const currency = $enum("currency", ["EUR", "USD", "RON"]);
-
-const money = embedded({
-  amount: numeric("amount").notNull(),
-  currency: currency.column("currency").notNull().default("EUR"),
-});
-
-const geo = embedded({ lat: numeric("lat"), lng: numeric("lng") });
-
-const address = embedded({ city: text("city"), zip: text("zip"), geo: geo.column("geo") });
-
-const review = embedded({
-  by: guid("by", "authors"),
-  at: text("at").$onUpdate(() => "updated"),
-});
-
-const invoices = table("invoices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  number: text("number").notNull(),
-  netValue: money.column("net_value"),
-  discount: money.column("discount").default({ amount: 0 }),
-  billing: address.column("billing"),
-  review: review.column("review"),
-});
-
-invoices.index("invoices_net_value_amount_idx").columns((c) => [c.netValue.amount]);
-
 export {
   teams,
   members,
@@ -552,10 +571,12 @@ export {
   authorRelations,
   articleRelations,
   revisionRelations,
+  articleTagRelations,
   photos,
   videos,
   posts,
   postComments,
+  postReactions,
   folders,
   files,
   entries,
@@ -564,13 +585,13 @@ export {
   authorPostRelations,
   photoRelations,
   postCommentRelations,
+  postRelations,
+  postReactionRelations,
   folderRelations,
   userFeedRelations,
   boards,
   boardRelations,
   projectBoardRelations,
-  currency,
-  invoices,
   ledgerEntries,
   ledgerEntryRelations,
   projectLedgerRelations,

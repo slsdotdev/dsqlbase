@@ -1,7 +1,7 @@
 import {
   TableDefinition,
+  AnyColumnDefinition,
   AnyNamespaceDefinition,
-  TableColumnDefinitions,
 } from "@dsqlbase/core/definition";
 
 /**
@@ -22,7 +22,7 @@ import {
  * ```
  */
 
-export function table<TName extends string, TColumns extends TableColumnDefinitions>(
+export function table<TName extends string, TColumns extends Record<string, AnyColumnDefinition>>(
   name: TName,
   columns: TColumns
 ): TableDefinition<TName, TColumns, AnyNamespaceDefinition> {

@@ -14,13 +14,6 @@ export type {
 } from "./base.js";
 export { Column, type AnyColumn, type ColumnRowDecoder } from "./column.js";
 export {
-  ColumnGroup,
-  type AnyColumnGroup,
-  type AnyField,
-  type GroupReader,
-  type GroupSelection,
-} from "./group.js";
-export {
   ExecutionContext,
   type ExecutionContextOptions,
   type PaginationOptions,
@@ -54,6 +47,16 @@ export {
   type UnionCountOperationArgs,
   UnionResolver,
 } from "./operation.js";
+export { ComputedDiscriminator } from "./reference.js";
+export type { RuntimeRelation, TableRelation, UnionRelation } from "./relation.js";
+export { buildSchema, type BuiltSchema } from "./build.js";
+export type {
+  ColumnReference,
+  ReferenceEnd,
+  ResolvedReferences,
+  TableReference,
+  UnionReference,
+} from "./reference.js";
 export {
   QueryBuilder,
   type DeleteParams,

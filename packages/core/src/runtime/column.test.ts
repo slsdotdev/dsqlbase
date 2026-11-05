@@ -214,7 +214,7 @@ describe("Column.validator", () => {
 
   it("validates a value read through a row decoder", () => {
     const decoded = Object.assign(Object.create(Object.getPrototypeOf(column) as object), column, {
-      rowDecoder: { dependsOn: [], decode: (raw: unknown) => `row(${String(raw)})` },
+      rowDecoder: { decode: (raw: unknown) => `row(${String(raw)})` },
     }) as typeof column;
 
     expect(decoded.resolveRow({ label: "x" })).toBe("ROW(X)");

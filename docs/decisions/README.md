@@ -14,16 +14,21 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0004](./0004-record-meta.md) | `$$meta` on every result row | 2026-09-22 | accepted |
 | [0005](./0005-tenant-client-visibility.md) | Tenant table visibility on the client | 2026-09-23 | accepted provisionally |
 | [0006](./0006-client-tenancy.md) | Application-level tenancy | 2026-09-23 | accepted |
-| [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted |
+| [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted; key resolution superseded by [0018](./0018-guid-keys-from-relations.md) |
 | [0008](./0008-client-pagination.md) | Keyset pagination | 2026-09-27 | accepted |
-| [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted |
+| [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted; shared fields superseded by [0019](./0019-declared-union-columns.md) |
 | [0010](./0010-relation-select.md) | Relations in `select` | 2026-09-30 | accepted |
 | [0011](./0011-json-columns.md) | JSON columns and operators by runtime type | 2026-10-01 | accepted |
 | [0012](./0012-json-array-record.md) | Column validators, `jsonb` operators, `array()` / `record()` on `jsonb` | 2026-10-02 | accepted |
-| [0013](./0013-embeddable-objects.md) | Embedded objects as column groups | 2026-10-02 | accepted |
+| [0013](./0013-embeddable-objects.md) | Embedded objects as column groups | 2026-10-02 | superseded by [0017](./0017-remove-embedded-objects.md) |
 | [0014](./0014-migration-dsql-catchup.md) | Migrations: DSQL catch-up, changes and steps, risk gates | 2026-10-03 | accepted |
 | [0015](./0015-release-readiness.md) | Release readiness for 0.2.0 | 2026-10-03 | accepted |
 | [0016](./0016-numeric-modes.md) | `numeric()` read modes | 2026-10-11 | accepted |
+| [0017](./0017-remove-embedded-objects.md) | Remove embedded objects | 2026-11-04 | accepted |
+| [0018](./0018-guid-keys-from-relations.md) | `guid()` keys from relations | 2026-11-04 | accepted |
+| [0019](./0019-declared-union-columns.md) | Declared union columns | 2026-11-04 | accepted |
+| [0020](./0020-column-references.md) | Column references | 2026-11-05 | accepted |
+| [0021](./0021-schema-registry-phases.md) | Schema registry phases | 2026-11-05 | accepted |
 
 ## Template
 

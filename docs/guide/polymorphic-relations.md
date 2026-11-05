@@ -13,37 +13,50 @@ Source: `packages/dsqlbase/src/schema/union.ts`, `packages/core/src/runtime/quer
 
 ## In GraphQL terms
 
-| GraphQL                       | dsqlbase                                                          |
-| ----------------------------- | ----------------------------------------------------------------- |
-| `union Post = Photo \| Video` | `union({ photos, videos })` — members keyed by schema alias       |
-| `interface Post { id }`       | the same `union()`; the interface's fields are **shared fields**  |
-| `... on Photo { photoUrl }`   | `on: { photos: { select: { photoUrl: true } } }`                  |
-| `__typename`                  | `$$key` (the member alias), or `$$meta.__typename` from `.meta()` |
+| GraphQL                       | dsqlbase                                                            |
+| ----------------------------- | ------------------------------------------------------------------- |
+| `union Post = Photo \| Video` | `union({ photos, videos }, {})` — members keyed by schema alias     |
+| `interface Post { id }`       | `union({ photos, videos }, { id: guid("id") })` — **shared fields** |
+| `... on Photo { photoUrl }`   | `on: { photos: { select: { photoUrl: true } } }`                    |
+| `__typename`                  | `$$key` (the member alias), or `$$meta.__typename` from `.meta()`   |
 
 ## Declaring one
 
 ```ts
 export const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
   photoUrl: text("photo_url").notNull(),
 }).meta({ __typename: "Photo" });
 
 export const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-export const posts = union({ photos, videos }); // shared: id, userId, createdAt
+export const posts = union(
+  { photos, videos },
+  {
+    id: guid("id"),
+    userId: guid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 export const userRelations = relations(users, {
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
   latestPost: hasOne(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
 });
 ```
+
+The second argument declares the **shared fields** — what `posts.columns` holds, and what
+selects, filters and orders across the union. Each must be the same column on every member:
+same field, database name, type and kind, and `NOT NULL` on every member if declared so
+([Schema → Unions](./schema.md#unions)). A field on one member only is not declared; it is
+reached through `on`.
 
 See [Relations to a union](./relations.md#relations-to-a-union) for the per-member `to` form and
 for the checks `createClient` runs.
@@ -129,6 +142,22 @@ await dsql.users.findOne({
 - **Ordering by `$$key`** sorts by member alias. Not naming it still uses it as the first
   tiebreaker.
 
+### Filtering by global id
+
+A shared `guid()` field is decided per member the same way when its value is a
+[global id](./global-ids.md). Each member's `id` holds ids for that member only, so a photos id
+cannot match a video:
+
+```ts
+const post = await dsql.posts.findOne({ where: { id: { eq: postId } } }); // reads one member
+```
+
+- `eq` with an id for another member produces no branch for that member, and `in` hands each
+  member only the ids that name it.
+- `neq` with an id for another member is true of every row of it that has a value.
+- A field whose ids name one node on every member, such as `userId` above, keeps every branch.
+  A raw uuid keeps every branch too, since it could be in any member.
+
 ## Ordering and pages
 
 With an `orderBy`, rows are sorted by the shared fields first. Ties are then broken by `$$key`,
@@ -150,13 +179,13 @@ refused with a `TenancyError`, exactly as a join to that member alone would be.
 
 A row that points at one of several tables stores the pair a global id is made of: which
 member, in a text **discriminator** column holding the member's alias, and which row, in the
-`from` column. Declare the `from` column as a keyless `guid()`:
+`from` column. Declare the `from` column as a `guid()`:
 
 ```ts
 export const ledgerEntries = table("ledger_entries", {
   id: guid("id").primaryKey().defaultRandom(),
   counterpartyType: text("counterparty_type"), // "companies" or "persons"
-  counterpartyId: guid("counterparty_id"), // no key: the discriminator names it, row by row
+  counterpartyId: guid("counterparty_id"), // the discriminator names its node, row by row
   amount: numeric("amount").notNull(),
 });
 
@@ -189,13 +218,66 @@ export const ledgerEntryRelations = relations(ledgerEntries, {
 
   A raw uuid compares the id alone.
 
-- **Pairs must agree.** The `from` column must be a keyless `guid()` and every member a
-  [node](./global-ids.md#nodes) related through its own key, or `from` and every member key
-  must be plain `uuid()`. A mix throws when the client is built, as for any relation. A static
-  key on the `from` column throws too: only one of it and the discriminator can decide.
+- **Pairs must agree.** The `from` column must be a `guid()` and every member
+  related through a single-column unique key of its own ([nodes](./global-ids.md#nodes)), or
+  `from` and every member key must be plain `uuid()`. A mix throws when the client is built, as for any relation.
 - **Reverse relations.** A member may declare a has-many back onto the polymorphic column, such
   as `companies.entries`. That relation correlates on the id alone; the discriminator is not
   applied to it.
+
+### Without a discriminator
+
+The discriminator is optional. Without one, the member is the first, in declaration order,
+holding a row with the key. It is computed when the query runs:
+
+```ts
+export const reactionRelations = relations(reactions, {
+  post: belongsTo(posts, { from: [reactions.columns.postId], to: [posts.columns.id] }),
+});
+```
+
+```sql
+CASE WHEN EXISTS (SELECT 1 FROM "photos" AS "__d0" WHERE "__d0"."id" = "__t0"."post_id")
+     THEN 'photos'
+     WHEN EXISTS (SELECT 1 FROM "videos" AS "__d1" WHERE "__d1"."id" = "__t0"."post_id")
+     THEN 'videos' END AS "post_id$key"
+```
+
+- **Reading.** `postId` comes back wrapped with the member holding it, so
+  `reaction.postId === reaction.post?.id` holds. A key no member holds reads raw.
+- **Joining.** Each branch matches only the member the expression picks, so a key two members
+  hold joins the first one, as the id reads.
+- **Writing.** A member's global id is unwrapped to its key; there is nothing to fill.
+- **Filtering.** `{ postId: { eq: photoId } }` matches the key, held by `photos`.
+- **Cost.** One key lookup per member for every row read, whether or not the id is selected
+  with its relation. It suits a few members; a stored discriminator costs nothing.
+- **Tenancy.** The lookup only says which member holds a key the row already carries, so it
+  reads the members without their tenant predicate. The join itself applies it, as always.
+
+## Relations declared on a union
+
+`relations()` also takes a union. Every member then has the relation from its own column, so
+`posts` has many `reactions` means `photos` and `videos` each have many reactions:
+
+```ts
+export const postRelations = relations(posts, {
+  reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }),
+});
+
+const feed = await dsql.posts.findMany({ join: { reactions: true } }); // or select: { reactions: true }
+const photo = await dsql.photos.findOne({ where, select: { reactions: true } });
+```
+
+- `from` names the union's declared fields, and the target must be a table.
+- The name must be free on every member.
+- `reactions.postId` holds a key of whichever member the row points at, with nothing stored to
+  say which. It reads as that member's id, computed as above, and the relation pairs with a
+  belongs-to back to the union without a discriminator.
+- When a belongs-to back to the union stores a discriminator over the same key, that is used
+  instead: `relations(posts, { comments: hasMany(comments, { from: [posts.columns.id], to:
+  [comments.columns.subjectId] }) })` reads `subjectId` by `subjectType`, with no probe.
+- A union's shared `join` and `select` take these relations; `on.<alias>.join` takes the
+  member's own as well.
 
 ## Reading a union directly
 
@@ -258,7 +340,8 @@ transaction client inside one, it is present again.
 
 - No foreign key can be emitted for a union target, and a polymorphic `from` column cannot
   carry one in the database; relations emit none anyway.
-- Only shared fields filter, select or order across a union.
+- Only declared shared fields filter, select or order across a union; only relations declared
+  on the union join across it.
 - `paginate` needs members whose primary keys line up.
 
 ## Related
@@ -267,4 +350,4 @@ transaction client inside one, it is present again.
 - [Schema](./schema.md#unions)
 - [Querying](./querying.md)
 - [Pagination](./pagination.md)
-- [Global ids](./global-ids.md) — the same `on` map
+- [Global ids](./global-ids.md)

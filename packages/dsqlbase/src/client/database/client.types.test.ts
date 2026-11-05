@@ -133,21 +133,24 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
-// Not a node: a uuid primary key is just a uuid primary key.
+// Its rows emit no ids, but a hand-built one over its key resolves.
 const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
 });
 
-// Not a node either: `guid()` can only name one column, so a composite key has no id.
+// Addressed by both fields of its key.
 const memberships = table("memberships", {
-  authorId: guid("author_id", "authors"),
+  authorId: guid("author_id"),
   teamId: uuid("team_id"),
-}).primaryKey((c) => [c.authorId, c.teamId]);
+});
+
+// Not chained: `primaryKey()` returns the constraint, not the table.
+memberships.primaryKey((c) => [c.authorId, c.teamId]);
 
 const nodeSchema = { authors, articles, teams, memberships };
 type NodeSchema = CoreSchema<typeof nodeSchema>;
@@ -160,16 +163,20 @@ const nodes = createClient({ schema: nodeSchema, session: nodeSession });
 const someAuthorId = encodeGlobalId("authors", { id: "3f1c0e3e-0a3f-4a1e-9c2e-8b5f1d2a7c44" });
 
 describe("NodeAliasesOf", () => {
-  it("is every table whose primary key is a single guid column", () => {
-    expectTypeOf<NodeAliasesOf<NodeSchema>>().toEqualTypeOf<"authors" | "articles">();
+  it("is every table, since keys beyond the column flags are invisible to the types", () => {
+    expectTypeOf<NodeAliasesOf<NodeSchema>>().toEqualTypeOf<
+      "authors" | "articles" | "teams" | "memberships"
+    >();
   });
 });
 
 describe("$findByGlobalId", () => {
   it("returns a union over every node, discriminated by $$meta.key", async () => {
-    const record = await nodes.$findByGlobalId({ id: someAuthorId });
+    const record = await nodes.$findByGlobalId(someAuthorId);
 
-    expectTypeOf(record).toExtend<{ $$key: "authors" | "articles" } | null>();
+    expectTypeOf(record).toExtend<{
+      $$key: "authors" | "articles" | "teams" | "memberships";
+    } | null>();
 
     if (record?.$$key === "authors") {
       expectTypeOf(record.name).toEqualTypeOf<string>();
@@ -178,76 +185,30 @@ describe("$findByGlobalId", () => {
     if (record?.$$key === "articles") {
       expectTypeOf(record.title).toEqualTypeOf<string>();
     }
-  });
 
-  it("applies a per-alias select to that branch alone", async () => {
-    const record = await nodes.$findByGlobalId({
-      id: someAuthorId,
-      on: { authors: { select: { name: true } } },
-    });
-
-    if (record?.$$key === "authors") {
-      expectTypeOf(record.name).toEqualTypeOf<string>();
-      // Deselected, so it is gone from this branch.
-      expectTypeOf(record).not.toHaveProperty("id");
-    }
-
-    if (record?.$$key === "articles") {
-      // Untouched by the other branch's select.
-      expectTypeOf(record.title).toEqualTypeOf<string>();
-      expectTypeOf(record.authorId).toEqualTypeOf<string>();
+    if (record?.$$key === "memberships") {
+      expectTypeOf(record.teamId).toEqualTypeOf<string | null>();
     }
   });
 
-  it("drops a member the `on` map excluded", async () => {
-    const record = await nodes.$findByGlobalId({ id: someAuthorId, on: { articles: false } });
-
-    expectTypeOf(record).toExtend<{ $$key: "authors" } | null>();
-  });
-
-  // The rejected calls sit in arrows that are never invoked: this file also runs, and a real
-  // call would reach the normalizer and reject with nothing awaiting it.
-  it("does not accept a table that is not a node", () => {
+  it("takes only an id", () => {
     expectTypeOf(() => {
-      // @ts-expect-error `teams` has a uuid key, so no id can name it.
-      void nodes.$findByGlobalId({ id: someAuthorId, on: { teams: true } });
-      // @ts-expect-error a composite key cannot be a node.
-      void nodes.$findByGlobalId({ id: someAuthorId, on: { memberships: true } });
-    }).toBeFunction();
-  });
-
-  it("does not accept a field the branch does not have", () => {
-    expectTypeOf(() => {
-      void nodes.$findByGlobalId({
-        id: someAuthorId,
-        // @ts-expect-error `title` is on articles, not authors.
-        on: { authors: { select: { title: true } } },
-      });
+      // @ts-expect-error the lookup reads the whole row; a narrower read is the model's findOne.
+      void nodes.$findByGlobalId({ id: someAuthorId });
+      // @ts-expect-error there is no `on` map.
+      void nodes.$findByGlobalId(someAuthorId, { on: { authors: true } });
     }).toBeFunction();
   });
 });
 
 describe("$listByGlobalId", () => {
   it("returns one entry per id, each nullable", async () => {
-    const records = await nodes.$listByGlobalId({ ids: [someAuthorId] });
+    const records = await nodes.$listByGlobalId([someAuthorId]);
 
     expectTypeOf(records).toExtend<unknown[]>();
-    expectTypeOf(records[0]).toExtend<{ $$key: "authors" | "articles" } | null | undefined>();
-  });
-
-  it("keeps the node key in the result even when select leaves it out", async () => {
-    const records = await nodes.$listByGlobalId({
-      ids: [someAuthorId],
-      on: { authors: { select: { name: true } } },
-    });
-
-    const record = records[0];
-
-    if (record?.$$key === "authors") {
-      expectTypeOf(record.name).toEqualTypeOf<string>();
-      // Always projected — it is what puts a row back against the id that asked for it.
-      expectTypeOf(record.id).toEqualTypeOf<string>();
-    }
+    expectTypeOf(records[0]).toExtend<
+      { $$key: "authors" | "articles" | "teams" | "memberships" } | null | undefined
+    >();
   });
 });
 
@@ -275,59 +236,5 @@ describe("$transaction batching", () => {
     results.toHaveProperty(0).toHaveProperty("totalCount").toEqualTypeOf<number>();
     results.toHaveProperty(0).toHaveProperty("items").items.toHaveProperty("name").toBeString();
     results.toHaveProperty(1).toEqualTypeOf<number>();
-  });
-});
-
-describe("the widened on map on global-id lookups", () => {
-  const authors = table("authors", {
-    id: guid("id").primaryKey(),
-    name: text("name").notNull(),
-  });
-  const books = table("books", {
-    id: guid("id").primaryKey(),
-    authorId: guid("author_id", "authors").notNull(),
-    title: text("title").notNull(),
-  });
-  const authorRelations = relations(authors, {
-    books: hasMany(books, { from: [authors.columns.id], to: [books.columns.authorId] }),
-  });
-
-  const nodes = createClient({ schema: { authors, books, authorRelations }, session });
-
-  // Type-checked only: "guid:x" is not a real id.
-  it("takes where and join per member and types the joined field", () => {
-    const check = async () => {
-      const record = await nodes.$findByGlobalId({
-        id: "guid:x",
-        on: {
-          authors: { where: { name: { beginsWith: "A" } }, join: { books: true } },
-          books: false,
-        },
-      });
-
-      expectTypeOf(record?.$$key).toEqualTypeOf<"authors" | undefined>();
-
-      if (record?.$$key === "authors") {
-        expectTypeOf(record.books[0]?.title).toEqualTypeOf<string>();
-      }
-    };
-
-    expectTypeOf(check).toBeFunction();
-  });
-
-  it("keeps the joined field on a list lookup that forces the key into select", () => {
-    const check = async () => {
-      const [record] = await nodes.$listByGlobalId({
-        ids: ["guid:x"],
-        on: { authors: { select: { name: true }, join: { books: true } } },
-      });
-
-      if (record?.$$key === "authors") {
-        expectTypeOf(record.id).toEqualTypeOf<string>();
-        expectTypeOf(record.books[0]?.title).toEqualTypeOf<string>();
-      }
-    };
-
-    expectTypeOf(check).toBeFunction();
   });
 });

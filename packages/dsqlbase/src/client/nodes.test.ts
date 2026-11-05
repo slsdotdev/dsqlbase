@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ComputedDiscriminator,
   type DefinitionSchema,
   SchemaRegistry,
   type Session,
@@ -30,7 +31,7 @@ function register<TSchema extends DefinitionSchema>(schema: TSchema) {
 }
 
 describe("registerNodes", () => {
-  it("should make a table with a single guid primary key a node, keyed by its alias", () => {
+  it("should make a table with a primary key a node, keyed by its alias", () => {
     const authors = table("authors", {
       id: guid("id").primaryKey().defaultRandom(),
       name: text("name").notNull(),
@@ -40,8 +41,7 @@ describe("registerNodes", () => {
     const node = nodes.get("authors");
 
     expect(node?.alias).toBe("authors");
-    expect(node?.keyField).toBe("id");
-    expect(node?.keyColumn.name).toBe("id");
+    expect(node?.keys).toEqual([["id"]]);
   });
 
   it("should key a node by its alias, not its database name", () => {
@@ -57,38 +57,76 @@ describe("registerNodes", () => {
     expect(nodes.get("revisions")?.table.name).toBe("article_revisions");
   });
 
-  it("should let a key column override the node key", () => {
-    // The override doubles as a stable label: re-keying the schema object would otherwise
-    // change every id already handed out.
-    const people = table("users", {
-      id: guid("id", "users").primaryKey().defaultRandom(),
-    });
-
-    const { nodes } = register({ people });
-
-    expect([...nodes.keys()]).toEqual(["users"]);
-    expect(nodes.get("users")?.alias).toBe("people");
-  });
-
-  it("should not make a uuid-keyed table a node", () => {
+  it("should make a uuid-keyed table a node", () => {
+    // Its rows emit no ids, but one built with `encodeGlobalId` still names exactly one row.
     const teams = table("teams", { id: uuid("id").primaryKey().defaultRandom() });
 
-    expect(register({ teams }).nodes.size).toBe(0);
+    expect(register({ teams }).nodes.get("teams")?.keys).toEqual([["id"]]);
   });
 
-  it("should not make a composite-key table a node", () => {
-    // `guid()` can only name one column, so nothing could produce an id for this table.
+  it("should key a composite-key table by every field of its key", () => {
     const memberships = table("memberships", {
-      teamId: guid("team_id", "teams"),
-      userId: guid("user_id", "users"),
-    }).primaryKey((c) => [c.teamId, c.userId]);
+      userId: guid("user_id"),
+      teamId: guid("team_id"),
+    });
 
-    const teams = table("teams", { id: guid("id").primaryKey() });
-    const users = table("users", { id: guid("id").primaryKey() });
+    // Not chained: `primaryKey()` returns the constraint, not the table.
+    memberships.primaryKey((c) => [c.userId, c.teamId]);
 
-    const { nodes } = register({ teams, users, memberships });
+    expect(register({ memberships }).nodes.get("memberships")?.keys).toEqual([
+      ["teamId", "userId"],
+    ]);
+  });
 
-    expect([...nodes.keys()].sort()).toEqual(["teams", "users"]);
+  it("should key a table by its unique columns, constraints and indexes too", () => {
+    const users = table("users", {
+      id: guid("id").primaryKey(),
+      email: text("email").unique(),
+      workspaceId: uuid("workspace_id"),
+      handle: text("handle"),
+      slug: text("slug"),
+    });
+
+    users.unique((c) => [c.workspaceId, c.handle]);
+    users
+      .index("users_slug")
+      .unique()
+      .columns((c) => [c.slug]);
+
+    expect(register({ users }).nodes.get("users")?.keys).toEqual([
+      ["id"],
+      ["email"],
+      ["handle", "workspaceId"],
+      ["slug"],
+    ]);
+  });
+
+  it("should not key a table by a partial or expression unique index", () => {
+    // Neither names one row by its fields: a partial index is unique only where its predicate
+    // holds, and no payload field can name an expression.
+    const users = table("users", {
+      id: guid("id").primaryKey(),
+      email: text("email"),
+      deletedAt: text("deleted_at"),
+    });
+
+    users
+      .index("users_email_live")
+      .unique()
+      .columns((c) => [c.email])
+      .where((c) => sql`${c.deletedAt} IS NULL`);
+    users
+      .index("users_email_lower")
+      .unique()
+      .columns((c) => [sql`lower(${c.email})`]);
+
+    expect(register({ users }).nodes.get("users")?.keys).toEqual([["id"]]);
+  });
+
+  it("should not make a table without a unique key a node", () => {
+    const events = table("events", { at: text("at"), kind: text("kind") });
+
+    expect(register({ events }).nodes.size).toBe(0);
   });
 
   it("should bind a key column to its own node", () => {
@@ -102,34 +140,147 @@ describe("registerNodes", () => {
     });
   });
 
-  it("should bind a reference column to the node it points at", () => {
-    // The whole point of the key argument: `article.authorId` and `article.author.id` wrap
-    // with the same node, so the two strings are identical without the caller unwrapping.
+  it("should bind a belongs-to key column to the column it references", () => {
+    // `article.authorId` and `article.author.id` wrap with the same node, so the two strings
+    // are identical without the caller unwrapping either.
     const authors = table("authors", { id: guid("id").primaryKey() });
     const articles = table("articles", {
       id: guid("id").primaryKey(),
-      authorId: guid("author_id", "authors").notNull(),
+      authorId: guid("author_id").notNull(),
+    });
+    const articleRelations = relations(articles, {
+      author: belongsTo(authors, { from: [articles.columns.authorId], to: [authors.columns.id] }),
     });
 
-    const { registry } = register({ authors, articles });
+    const { registry } = register({ authors, articles, articleRelations });
     const columns = registry.getTable("articles").columns;
 
     expect(getGuidBinding(columns.authorId)).toEqual({ key: "authors", keyField: "id" });
     expect(getGuidBinding(columns.id)).toEqual({ key: "articles", keyField: "id" });
   });
 
-  it("should bind a keyless non-key column to its own table, as a self reference", () => {
+  it("should bind a has-many key column, on the target, to the column it references", () => {
+    const authors = table("authors", { id: guid("id").primaryKey() });
+    const articles = table("articles", {
+      id: guid("id").primaryKey(),
+      authorId: guid("author_id").notNull(),
+    });
+    const authorRelations = relations(authors, {
+      articles: hasMany(articles, { from: [authors.columns.id], to: [articles.columns.authorId] }),
+    });
+
+    const { registry } = register({ authors, articles, authorRelations });
+
+    expect(getGuidBinding(registry.getTable("articles").columns.authorId)).toEqual({
+      key: "authors",
+      keyField: "id",
+    });
+  });
+
+  it("should bind a self reference through its relation", () => {
     const articles = table("articles", {
       id: guid("id").primaryKey(),
       parentId: guid("parent_id"),
     });
+    const articleRelations = relations(articles, {
+      parent: belongsTo(articles, { from: [articles.columns.parentId], to: [articles.columns.id] }),
+    });
 
-    const { registry } = register({ articles });
+    const { registry } = register({ articles, articleRelations });
 
     expect(getGuidBinding(registry.getTable("articles").columns.parentId)).toEqual({
       key: "articles",
       keyField: "id",
     });
+  });
+
+  it("should bind a column no relation names to its own table and field", () => {
+    const photos = table("photos", {
+      id: guid("id").primaryKey(),
+      ownerId: guid("owner_id"),
+    });
+
+    const { registry, nodes } = register({ photos });
+
+    expect(getGuidBinding(registry.getTable("photos").columns.ownerId)).toEqual({
+      key: "photos",
+      keyField: "ownerId",
+    });
+    // Not a key, so an ownerId id is not the address of a photo.
+    expect(nodes.get("photos")?.keys).toEqual([["id"]]);
+  });
+
+  it("should follow a reference to a column that is itself a reference", () => {
+    // `comments.articleAuthorId` → `articles.authorId` → `authors.id`.
+    const authors = table("authors", { id: guid("id").primaryKey() });
+    const articles = table("articles", {
+      id: guid("id").primaryKey(),
+      authorId: guid("author_id").notNull(),
+    });
+    const comments = table("comments", {
+      id: guid("id").primaryKey(),
+      articleAuthorId: guid("article_author_id"),
+    });
+    const articleRelations = relations(articles, {
+      author: belongsTo(authors, { from: [articles.columns.authorId], to: [authors.columns.id] }),
+    });
+    const commentRelations = relations(comments, {
+      articleAuthor: belongsTo(articles, {
+        from: [comments.columns.articleAuthorId],
+        to: [articles.columns.authorId],
+      }),
+    });
+
+    const { registry } = register({
+      authors,
+      articles,
+      comments,
+      articleRelations,
+      commentRelations,
+    });
+
+    expect(getGuidBinding(registry.getTable("comments").columns.articleAuthorId)).toEqual({
+      key: "authors",
+      keyField: "id",
+    });
+  });
+
+  it("should read a primary key that references another table as that table's id", () => {
+    // A shared-key one-to-one: a profile's id is its user's id, so it reads as one. The profile
+    // is still addressable by a hand-built id over its own key.
+    const users = table("users", { id: guid("id").primaryKey() });
+    const profiles = table("profiles", { userId: guid("user_id").primaryKey() });
+    const profileRelations = relations(profiles, {
+      user: belongsTo(users, { from: [profiles.columns.userId], to: [users.columns.id] }),
+    });
+
+    const { registry, nodes } = register({ users, profiles, profileRelations });
+
+    expect([...nodes.keys()]).toEqual(["users", "profiles"]);
+    expect(getGuidBinding(registry.getTable("profiles").columns.userId)).toEqual({
+      key: "users",
+      keyField: "id",
+    });
+  });
+
+  it("should bind every member's column of a relation to a union", () => {
+    const users = table("users", { id: guid("id").primaryKey() });
+    const photos = table("photos", { id: guid("id").primaryKey(), userId: guid("user_id") });
+    const videos = table("videos", { id: guid("id").primaryKey(), userId: guid("user_id") });
+    const posts = union({ photos, videos }, { id: guid("id"), userId: guid("user_id") });
+    const userRelations = relations(users, {
+      posts: hasMany(posts, {
+        from: [users.columns.id],
+        to: { photos: [photos.columns.userId], videos: [videos.columns.userId] },
+      }),
+    });
+
+    const { registry } = register({ users, photos, videos, posts, userRelations });
+
+    const users_ = { key: "users", keyField: "id" };
+
+    expect(getGuidBinding(registry.getTable("photos").columns.userId)).toEqual(users_);
+    expect(getGuidBinding(registry.getTable("videos").columns.userId)).toEqual(users_);
   });
 
   it("should bind to the target's key field name, not to `id`", () => {
@@ -139,10 +290,16 @@ describe("registerNodes", () => {
 
     const teams = table("teams", {
       id: guid("id").primaryKey(),
-      leadMembership: guid("lead_membership", "memberships"),
+      leadMembership: guid("lead_membership"),
+    });
+    const teamRelations = relations(teams, {
+      lead: belongsTo(memberships, {
+        from: [teams.columns.leadMembership],
+        to: [memberships.columns.membershipId],
+      }),
     });
 
-    const { registry } = register({ memberships, teams });
+    const { registry } = register({ memberships, teams, teamRelations });
 
     expect(getGuidBinding(registry.getTable("teams").columns.leadMembership)).toEqual({
       key: "memberships",
@@ -161,49 +318,75 @@ describe("registerNodes", () => {
     expect(getGuidBinding(registry.getTable("authors").columns.name)).toBeUndefined();
   });
 
-  it("should reject two tables claiming one node key", () => {
-    const users = table("users", { id: guid("id", "people").primaryKey() });
-    const people = table("people", { id: guid("id").primaryKey() });
-
-    expect(() => register({ users, people })).toThrow(/both claim the node key "people"/);
-  });
-
-  it("should reject a column pointing at a table that is not a node", () => {
-    const teams = table("teams", { id: uuid("id").primaryKey() });
-    const users = table("users", {
-      id: guid("id").primaryKey(),
-      teamId: guid("team_id", "teams").notNull(),
-    });
-
-    expect(() => register({ teams, users })).toThrow(
-      /"users\.teamId" carries global ids for "teams", which is not a node/
-    );
-  });
-
-  it("should reject a column pointing at a composite-key table", () => {
-    const memberships = table("memberships", {
-      teamId: guid("team_id", "teams"),
-      userId: guid("user_id", "teams"),
-    }).primaryKey((c) => [c.teamId, c.userId]);
-
-    const teams = table("teams", {
-      id: guid("id").primaryKey(),
-      pinned: guid("pinned", "memberships"),
-    });
-
-    expect(() => register({ teams, memberships })).toThrow(
-      /"teams\.pinned" carries global ids for "memberships", which is not a node/
-    );
-  });
-
-  it("should name the nodes a schema does have when a key does not resolve", () => {
+  it("should reject a column that two relations pair with different columns", () => {
     const authors = table("authors", { id: guid("id").primaryKey() });
+    const editors = table("editors", { id: guid("id").primaryKey() });
     const articles = table("articles", {
       id: guid("id").primaryKey(),
-      authorId: guid("author_id", "author").notNull(),
+      ownerId: guid("owner_id"),
+    });
+    const articleRelations = relations(articles, {
+      author: belongsTo(authors, { from: [articles.columns.ownerId], to: [authors.columns.id] }),
+      editor: belongsTo(editors, { from: [articles.columns.ownerId], to: [editors.columns.id] }),
     });
 
-    expect(() => register({ authors, articles })).toThrow(/this schema has "authors", "articles"/);
+    expect(() => register({ authors, editors, articles, articleRelations })).toThrow(
+      /"articles\.ownerId" is paired by relation "author" on table "articles" with "authors\.id" and by relation "editor" on table "articles" with "editors\.id"/
+    );
+  });
+
+  // orders.customerId → customers.id, and → customerStats.customerId → customers.id
+  it("should accept two relations whose chains end at the same column", () => {
+    const customers = table("customers", { id: guid("id").primaryKey() });
+    const customerStats = table("customer_stats", { customerId: guid("customer_id").primaryKey() });
+    const orders = table("orders", {
+      id: guid("id").primaryKey(),
+      customerId: guid("customer_id"),
+    });
+    const orderRelations = relations(orders, {
+      customer: belongsTo(customers, {
+        from: [orders.columns.customerId],
+        to: [customers.columns.id],
+      }),
+      stats: belongsTo(customerStats, {
+        from: [orders.columns.customerId],
+        to: [customerStats.columns.customerId],
+      }),
+    });
+    const statsRelations = relations(customerStats, {
+      customer: belongsTo(customers, {
+        from: [customerStats.columns.customerId],
+        to: [customers.columns.id],
+      }),
+    });
+
+    const { registry } = register({
+      customers,
+      customerStats,
+      orders,
+      orderRelations,
+      statsRelations,
+    });
+
+    expect(getGuidBinding(registry.getTable("orders").columns.customerId)).toEqual({
+      key: "customers",
+      keyField: "id",
+    });
+  });
+
+  it("should reject columns referencing each other in a ring", () => {
+    const a = table("a", { id: guid("id").primaryKey(), bId: guid("b_id") });
+    const b = table("b", { id: guid("id").primaryKey(), aId: guid("a_id") });
+    const aRelations = relations(a, {
+      b: belongsTo(b, { from: [a.columns.bId], to: [b.columns.aId] }),
+    });
+    const bRelations = relations(b, {
+      a: belongsTo(a, { from: [b.columns.aId], to: [a.columns.bId] }),
+    });
+
+    expect(() => register({ a, b, aRelations, bRelations })).toThrow(
+      /reference each other in a ring/
+    );
   });
 });
 
@@ -232,11 +415,14 @@ describe("the bound codec", () => {
     const authors = table("authors", { id: guid("id").primaryKey() });
     const articles = table("articles", {
       id: guid("id").primaryKey(),
-      authorId: guid("author_id", "authors").notNull(),
+      authorId: guid("author_id").notNull(),
       slug: text("slug").notNull(),
     });
+    const articleRelations = relations(articles, {
+      author: belongsTo(authors, { from: [articles.columns.authorId], to: [authors.columns.id] }),
+    });
 
-    const { registry } = register({ authors, articles });
+    const { registry } = register({ authors, articles, articleRelations });
 
     return { authors: registry.getTable("authors"), articles: registry.getTable("articles") };
   }
@@ -329,11 +515,11 @@ describe("guid relation pairs", () => {
   const authors = () => table("authors", { id: guid("id").primaryKey() });
   const teams = () => table("teams", { id: uuid("id").primaryKey() });
 
-  it("accepts a pair that names the same node", () => {
+  it("accepts a pair of guid columns", () => {
     const a = authors();
     const articles = table("articles", {
       id: guid("id").primaryKey(),
-      authorId: guid("author_id", "authors").notNull(),
+      authorId: guid("author_id").notNull(),
     });
 
     const articleRelations = relations(articles, {
@@ -362,23 +548,6 @@ describe("guid relation pairs", () => {
     );
   });
 
-  it("rejects a guid paired with a guid for another node", () => {
-    const a = authors();
-    const articles = table("articles", {
-      id: guid("id").primaryKey(),
-      // Points at the wrong node: two different strings for one row.
-      authorId: guid("author_id", "articles").notNull(),
-    });
-
-    const articleRelations = relations(articles, {
-      author: belongsTo(a, { from: [articles.columns.authorId], to: [a.columns.id] }),
-    });
-
-    expect(() => register({ authors: a, articles, articleRelations })).toThrow(
-      /carry global ids for "articles" and "authors"/
-    );
-  });
-
   it("names both sides of the offending pair", () => {
     const a = authors();
     const drafts = table("drafts", {
@@ -399,14 +568,14 @@ describe("guid relation pairs", () => {
     const users = table("users", { id: guid("id").primaryKey() });
     const photos = table("photos", {
       id: guid("id").primaryKey(),
-      userId: guid("user_id", "users"),
+      userId: guid("user_id"),
     });
     const videos = table("videos", {
       id: guid("id").primaryKey(),
       // Raw on one member only: `user.feed[n].userId` would read back raw for videos.
       userId: uuid("user_id"),
     });
-    const posts = union({ photos, videos });
+    const posts = union({ photos, videos }, { id: guid("id") });
 
     const userRelations = relations(users, {
       feed: hasMany(posts, {
@@ -446,7 +615,7 @@ describe("polymorphic guid columns", () => {
     name: text("name").notNull(),
   });
 
-  const tradingEntities = union({ companies, persons });
+  const tradingEntities = union({ companies, persons }, { id: guid("id") });
 
   const ledgerEntries = table("ledger_entries", {
     id: guid("id").primaryKey().defaultRandom(),
@@ -477,6 +646,60 @@ describe("polymorphic guid columns", () => {
   }
 
   describe("binding a polymorphic guid column", () => {
+    it("keeps the stored discriminator when the union also declares the has-many", () => {
+      const fromUnion = relations(tradingEntities, {
+        entries: hasMany(ledgerEntries, {
+          from: [tradingEntities.columns.id],
+          to: [ledgerEntries.columns.counterpartyId],
+        }),
+      });
+
+      const registry = register({ ...schema, fromUnion });
+      const column = registry.getTable("ledgerEntries").columns.counterpartyId;
+
+      expect(getDynamicGuidBinding(column)).toEqual({
+        discriminator: registry.getTable("ledgerEntries").columns.counterpartyType,
+        discriminatorField: "counterpartyType",
+        members: { companies: "id", persons: "id" },
+      });
+    });
+
+    // No stored discriminator: the member is computed when the query runs.
+    it("binds a key with no discriminator to the computed one, with nothing to fill", () => {
+      const reactions = table("reactions", {
+        id: guid("id").primaryKey(),
+        targetId: guid("target_id").notNull(),
+      });
+      const fromUnion = relations(tradingEntities, {
+        reactions: hasMany(reactions, {
+          from: [tradingEntities.columns.id],
+          to: [reactions.columns.targetId],
+        }),
+      });
+      const back = relations(reactions, {
+        target: belongsTo(tradingEntities, {
+          from: [reactions.columns.targetId],
+          to: [tradingEntities.columns.id],
+        }),
+      });
+
+      const registry = register({
+        companies,
+        persons,
+        tradingEntities,
+        reactions,
+        fromUnion,
+        back,
+      });
+      const column = registry.getTable("reactions").columns.targetId;
+      const binding = getDynamicGuidBinding(column);
+
+      expect(binding?.discriminator).toBeInstanceOf(ComputedDiscriminator);
+      expect(binding?.discriminator).toBe(column.dependsOn[0]);
+      expect(binding?.discriminatorField).toBeUndefined();
+      expect(binding?.members).toEqual({ companies: "id", persons: "id" });
+    });
+
     it("binds the from column to the discriminator instead of a fixed node", () => {
       const registry = register(schema);
       const column = registry.getTable("ledgerEntries").columns.counterpartyId;
@@ -489,28 +712,9 @@ describe("polymorphic guid columns", () => {
       });
     });
 
-    it("rejects a static key on the discriminated column", () => {
-      const entries = table("entries", {
-        id: guid("id").primaryKey(),
-        kind: text("kind"),
-        targetId: guid("target_id", "companies"),
-      });
-      const rels = relations(entries, {
-        target: belongsTo(tradingEntities, {
-          from: [entries.columns.targetId],
-          to: [tradingEntities.columns.id],
-          discriminator: entries.columns.kind,
-        }),
-      });
-
-      expect(() => register({ companies, persons, tradingEntities, entries, rels })).toThrow(
-        /names node "companies", but relation "target" reads its node from discriminator "kind"/
-      );
-    });
-
-    it("rejects a member that is not a node", () => {
-      const shops = table("shops", { id: uuid("id").primaryKey(), name: text("name") });
-      const sellers = union({ companies, shops });
+    it("rejects a member related through a field that is not its unique key", () => {
+      const shops = table("shops", { id: guid("id").primaryKey(), code: guid("code") });
+      const sellers = union({ companies, shops }, {});
       const entries = table("entries", {
         id: guid("id").primaryKey(),
         kind: text("kind"),
@@ -519,13 +723,13 @@ describe("polymorphic guid columns", () => {
       const rels = relations(entries, {
         seller: belongsTo(sellers, {
           from: [entries.columns.sellerId],
-          to: [sellers.columns.id],
+          to: { companies: [companies.columns.id], shops: [shops.columns.code] },
           discriminator: entries.columns.kind,
         }),
       });
 
       expect(() => register({ companies, shops, sellers, entries, rels })).toThrow(
-        /union member "shops" is not a node keyed by "id"/
+        /"code" is not a unique key of union member "shops"/
       );
     });
 

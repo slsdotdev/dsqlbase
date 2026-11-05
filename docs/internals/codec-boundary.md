@@ -2,7 +2,7 @@
 
 _Audience: contributors and agents._
 
-Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values; a future embeddable type would too. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
+Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
 
 A codec **translates** and nothing else. Checking a value is the column's optional `ColumnConfig.validator { write, read }`, which runs on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters).
 
@@ -109,12 +109,16 @@ The tenant rows are the one place a value is encoded inside `core` rather than b
 ## A codec bound when the client is built
 
 Most codecs are fixed where the column is declared. `guid()` cannot be: wrapping a value needs
-the node key — which defaults to the table's schema alias — and the _target_ node's key field
-name, and neither exists until the whole schema does. So `registerNodes`
-(`packages/dsqlbase/src/client/nodes.ts`) resolves both when `createClient` runs and installs
-the bound codec on the built `Column`, not on the definition. A definition is the user's object
-and may be shared by two clients, while a binding depends on the alias the table was exported
-under.
+the `(alias, field)` its ids name, and that comes from the relations, which do not exist until
+the whole schema does. Core records what each foreign key points at as it builds relations
+(`Column.references`, see [Column references](./runtime-pipeline.md#column-references)), and
+`registerNodes` (`packages/dsqlbase/src/client/nodes.ts`) reads them when `createClient` runs:
+a guid column follows `Column.resolveReferences()` to where its chains end and takes that
+column's `(alias, field)`, or its own table and field when nothing references through it. Two
+chains ending at different columns, a ring, or a guid paired with a plain column are refused
+there — core keeps every reference and never decides. The bound codec is installed on the
+built `Column`, not on the definition. A definition is the user's object and may be shared by
+two clients, while a binding depends on the alias the table was exported under.
 
 Because reads, writes and filters all funnel through the one `codec`, that single swap covers
 every direction and no call site changed. A `SchemaRegistry` built outside `createClient` has no
@@ -131,27 +135,22 @@ and the discriminator naming which member, and so which node key, the id belongs
 cannot see that sibling, so the read side is a **row decoder** instead:
 
 - **Core** (`Column.rowDecoder` / `Column.resolveRow` in `packages/core/src/runtime/column.ts`)
-  is the guid-agnostic seam. A built column may declare `dependsOn` columns and
-  `decode(raw, row)`. `_resolveFields` then projects the dependencies whenever the column is
-  selected, without emitting them as fields, and resolves the field through a `MetaResolver`
-  over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
+  is the guid-agnostic seam. A built column may carry `decode(raw, row)`. Which siblings
+  the row holds is core's decision, not the decoder's: `Column.dependsOn` is the discriminator
+  of each union reference, and `_resolveFields` projects it whenever the column is selected —
+  decoder or not — without emitting it as a field. A column with a decoder is resolved through
+  a `MetaResolver` over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
   aside for a value computed from the row.
 - **Client** (`bindDynamicGuid` in `packages/dsqlbase/src/client/nodes.ts`) sets it on the built
-  column when `createClient` runs, next to a codec whose `encode` accepts an id for any member.
+  column when `createClient` runs, from the column's union reference — reading the
+  discriminator, stored or computed, from the row by its `name` — next to a codec whose `encode` accepts an id for any member.
   A `NULL` discriminator, or one naming no member, reads the id raw.
 - **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
   `(discriminator = key AND id = pk)` or a write filling the discriminator, are the client's
   job: `WhereBuilder._getPolymorphicFilter` (`filters.ts`) and the normalizer's
   `_fillDiscriminators`. Only they see the whole filter or the whole row.
 
-**Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper, a future embeddable — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
-
-## Column groups
-
-A column group's members are ordinary columns, each with its own codec and validator, so every
-boundary above applies per member: a group is decoded member by member when it is read, and each
-member value is validated and encoded on its own when it is written or filtered. A group has no
-codec or validator of its own; a check across members is not supported yet.
+**Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
 ## Rules for new work
 

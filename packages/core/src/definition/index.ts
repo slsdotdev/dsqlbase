@@ -32,7 +32,6 @@ export {
   type AnyIndexDefinition,
   type ColumnConfigRefs,
   type ColumnConfigType,
-  type IndexColumnRefs,
 } from "./indexes.js";
 export { NamespaceDefinition, type AnyNamespaceDefinition } from "./namespace.js";
 export { SequenceDefinition, type SequenceConfig, type AnySequenceDefinition } from "./sequence.js";
@@ -49,18 +48,6 @@ export {
   type AnyTableDefinition,
   type ColumnRefs,
 } from "./table.js";
-export {
-  EmbeddedObjectDefinition,
-  ColumnGroupDefinition,
-  columnEntries,
-  type AnyColumnGroupDefinition,
-  type AnyEmbeddedObjectDefinition,
-  type AnyTableColumnDefinition,
-  type ColumnGroupConfig,
-  type ColumnRefOf,
-  type GroupDefaultOf,
-  type TableColumnDefinitions,
-} from "./embedded.js";
 export { ViewDefinition } from "./view.js";
 export {
   CheckConstraintDefinition,
@@ -81,6 +68,8 @@ export {
   type AnyRelationDefinition,
   type AnyTableRelations,
   type AnyRelationTarget,
+  type AnyRelationSource,
+  type RelationSourceColumn,
   type FieldRelation,
   type RelationTargetColumns,
   type TableDefinitionColumn,
@@ -92,7 +81,8 @@ export {
   type AnyUnionColumnDefinition,
   type AnyUnionDefinition,
   type AnyUnionMembers,
-  type SharedFieldsOf,
+  type CommonFieldsOf,
+  type UnionColumnsConfig,
   type UnionColumns,
   type UnionConfig,
 } from "./union.js";

@@ -1,7 +1,7 @@
 # 0009 — Polymorphic relations
 
 - **Date:** 2026-09-29
-- **Status:** accepted
+- **Status:** accepted; how shared fields are defined is superseded by [0019](./0019-declared-union-columns.md); the required discriminator on a belongs-to a union is superseded by [0020](./0020-column-references.md)
 - **Proposal:** `schema-polymorphic-relations.md` (local working artifact, not tracked)
 
 ## Context
@@ -52,8 +52,9 @@ and has no way to express "belongs to one of".
   - The shared level takes `select` / `where` / `orderBy` / `limit` / `offset`, over shared
     fields only.
   - `on: { [alias]: true | false | { select, where, join } }` is the per-member fragment. The
-    same `OnSelectionOf` is widened from `select` only and taken by
-    `$findByGlobalId` / `$listByGlobalId`, which forward `where` and `join`.
+    same `OnSelectionOf` is widened from `select` only and was taken by
+    `$findByGlobalId` / `$listByGlobalId` too, until [0007](./0007-global-ids.md)'s 2026-11-04
+    amendment removed it there.
 - **`$$key` as a pseudo-field** in the shared `where` (`eq` / `neq` / `in` / bare value) and
   `orderBy`. The normalizer folds it per member, where the alias is a constant, so a member that
   cannot match produces no branch and a decided condition never reaches SQL. It narrows the

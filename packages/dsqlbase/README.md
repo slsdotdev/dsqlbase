@@ -122,7 +122,7 @@ export const authors = table("authors", {
 
 export const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),   // points at the authors node
+  authorId: guid("author_id").notNull(),   // an authors id, through a relation to authors.id
 });
 ```
 
@@ -132,7 +132,7 @@ const article = await dsql.articles.findOne({ where: { id }, join: { author: tru
 article?.id;                                 // "guid:WyJhcnRpY2xlcyIs…"
 article?.authorId === article?.author?.id;   // true
 
-const record = await dsql.$findByGlobalId({ id });
+const record = await dsql.$findByGlobalId(id);
 if (record?.$$key === "articles") record.title;
 ```
 
@@ -209,36 +209,6 @@ await dsql.boards.findMany({ where: { limits: { hasKey: "cpu" } } });
 See the
 [schema guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/schema.md#json-columns).
 
-## Embedded objects
-
-`embedded()` declares a reusable value object; `.column(name)` places it in a table as real
-columns, `<name>_<member>`, read and written as one nested object:
-
-```ts
-import { embedded, numeric, table, text, uuid } from "dsqlbase/schema";
-
-export const money = embedded({
-  amount: numeric("amount").notNull(),
-  currency: text("currency").notNull().default("EUR"),
-});
-
-export const invoices = table("invoices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  netValue: money.column("net_value"), // net_value_amount, net_value_currency
-});
-
-invoices.index("invoices_net_value_idx").columns((c) => [c.netValue.amount]);
-
-await dsql.invoices.create({ data: { netValue: { amount: 120 } } });
-await dsql.invoices.findMany({
-  where: { netValue: { where: { amount: { gt: 100 } } } },
-  orderBy: { netValue: { amount: "desc" } },
-});
-```
-
-A group whose members are all nullable reads `null` when all of them are. See the
-[embedded objects guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/embeddable-objects.md).
-
 ## Polymorphic relations
 
 `union()` groups tables that stand in for one another — a GraphQL union or interface — and
@@ -246,9 +216,13 @@ relations can point at it. The client reads it as one `UNION ALL`, ordered and l
 members in SQL, and `$$key` on every row says which member it came from:
 
 ```ts
-import { union, relations, hasMany } from "dsqlbase/schema";
+import { datetime, guid, union, relations, hasMany } from "dsqlbase/schema";
 
-export const posts = union({ photos, videos });
+// The second argument declares the fields every member shares — the ones that work across it.
+export const posts = union(
+  { photos, videos },
+  { id: guid("id"), authorId: guid("author_id").notNull(), createdAt: datetime("created_at") }
+);
 
 export const authorRelations = relations(authors, {
   posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
@@ -273,7 +247,9 @@ const page = await dsql.posts.paginate({ where: { $$key: { in: types } }, limit:
 ```
 
 A `belongsTo(union, { ..., discriminator })` points one row at one of several tables. Its
-`guid()` reads back keyed by whichever member the discriminator names. See the
+`guid()` reads back keyed by whichever member the discriminator names; without a discriminator,
+by the first member holding the key. `relations()` also takes a union, giving every member the
+relation. See the
 [polymorphic relations guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/polymorphic-relations.md).
 
 ## Links

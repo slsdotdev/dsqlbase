@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   ColumnDefinition,
-  EmbeddedObjectDefinition,
   Relation,
   RelationsDefinition,
   TableDefinition,
   TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { SchemaRegistry } from "./registry.js";
 import { Table } from "./table.js";
 import { Union } from "./union.js";
@@ -197,9 +197,9 @@ describe("SchemaRegistry", () => {
     });
 
     it("rejects an empty pair list", () => {
-      expect(
-        () => new SchemaRegistry({ assignments, memberships, rel: relate([], []) })
-      ).toThrow(/must declare at least one column pair/);
+      expect(() => new SchemaRegistry({ assignments, memberships, rel: relate([], []) })).toThrow(
+        /must declare at least one column pair/
+      );
     });
 
     // Identity, not name: `memberships.teamId` is a uuid called "team_id" just like
@@ -234,9 +234,7 @@ describe("SchemaRegistry", () => {
             memberships,
             rel: relate([assignments.columns.note], [memberships.columns.userId]),
           })
-      ).toThrow(
-        /"assignments"\."note" is "text" but "memberships"\."userId" is "uuid"/
-      );
+      ).toThrow(/"assignments"\."note" is "text" but "memberships"\."userId" is "uuid"/);
     });
 
     it("rejects a relation whose target is not in the schema", () => {
@@ -247,57 +245,6 @@ describe("SchemaRegistry", () => {
             rel: relate([assignments.columns.teamId], [memberships.columns.teamId]),
           })
       ).toThrow(/targets table "memberships", which is not in the schema/);
-    });
-  });
-
-  describe("column groups", () => {
-    const money = new EmbeddedObjectDefinition({
-      currency: new ColumnDefinition("currency", { dataType: "text" }),
-    });
-    const prices = new TableDefinition("prices", {
-      columns: {
-        id: new ColumnDefinition("id", { primaryKey: true }),
-        amount: money.column("amount"),
-      },
-    });
-    const currencies = new TableDefinition("currencies", {
-      columns: { code: new ColumnDefinition("code", { dataType: "text", primaryKey: true }) },
-    });
-
-    it("rejects a relation keyed on a group member", () => {
-      expect(
-        () =>
-          new SchemaRegistry({
-            prices,
-            currencies,
-            rel: new RelationsDefinition(prices, {
-              currency: {
-                type: Relation.BELONGS_TO,
-                target: currencies,
-                from: [prices.columns.amount.columns.currency],
-                to: [currencies.columns.code],
-              },
-            }),
-          })
-      ).toThrow(/member of the column group "amount" on table "prices"/);
-    });
-
-    it("rejects a relation named like a group", () => {
-      expect(
-        () =>
-          new SchemaRegistry({
-            prices,
-            currencies,
-            rel: new RelationsDefinition(prices, {
-              amount: {
-                type: Relation.BELONGS_TO,
-                target: currencies,
-                from: [prices.columns.id],
-                to: [currencies.columns.code],
-              },
-            }),
-          })
-      ).toThrow(/collides with a column of the same name/);
     });
   });
 
@@ -375,9 +322,9 @@ describe("SchemaRegistry", () => {
   it("should check if relations exist for a table", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 
-    expect(registry.hasRelations("users")).toBe(true);
-    expect(registry.hasRelations("posts")).toBe(true);
-    expect(registry.hasRelations("nonexistent")).toBe(false);
+    expect(Object.keys(registry.getRelations("users"))).toEqual(["posts"]);
+    expect(Object.keys(registry.getRelations("posts"))).toEqual(["author"]);
+    expect(() => registry.getRelations("nonexistent")).toThrow("Table not found: nonexistent");
   });
 
   it("should retrieve relations for a table", () => {
@@ -400,11 +347,16 @@ describe("SchemaRegistry", () => {
   it("should retrieve relation target fields", () => {
     const registry = new SchemaRegistry({ users, posts, usersRelations, postsRelations });
 
-    const userPostsTarget = registry.getRelationTarget("users", "posts");
-    const postAuthorTarget = registry.getRelationTarget("posts", "author");
+    const userPosts = registry.getRelation("users", "posts");
+    const postAuthor = registry.getRelation("posts", "author");
 
-    expect(userPostsTarget).toEqual(registry.getTable("posts"));
-    expect(postAuthorTarget).toEqual(registry.getTable("users"));
+    expect(userPosts?.target).toBe(registry.getTable("posts"));
+    expect(postAuthor?.target).toBe(registry.getTable("users"));
+    // Resolved to runtime columns on both sides.
+    expect(postAuthor?.kind === "table" && postAuthor.to).toEqual([
+      registry.getTable("users").columns.id,
+    ]);
+    expect(registry.getRelation("posts", "nope")).toBeUndefined();
   });
 });
 
@@ -532,7 +484,13 @@ describe("SchemaRegistry unions", () => {
     },
   });
 
-  const posts = new UnionDefinition({ photos, videos });
+  const shared = () => ({
+    id: new ColumnDefinition("id", { dataType: "uuid" }),
+    userId: new ColumnDefinition("user_id", { dataType: "uuid" }),
+    createdAt: new ColumnDefinition("created_at", { dataType: "timestamptz" }),
+  });
+
+  const posts = new UnionDefinition({ photos, videos }, shared());
 
   const relate = (relation: Record<string, unknown>) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -581,7 +539,7 @@ describe("SchemaRegistry unions", () => {
   });
 
   it("rejects a member keyed by something other than its schema alias", () => {
-    const pictures = new UnionDefinition({ pictures: photos, videos });
+    const pictures = new UnionDefinition({ pictures: photos, videos }, shared());
 
     expect(() => new SchemaRegistry({ photos, videos, pictures })).toThrow(
       /does not export that table as "pictures"/
@@ -613,8 +571,10 @@ describe("SchemaRegistry unions", () => {
       rels: feed([posts.columns.userId]),
     });
 
-    expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
-    expect(registry.getUnionRelationColumns("people", "rel")).toEqual({
+    expect(registry.getRelation("people", "rel")?.target).toBe(registry.getUnion("posts"));
+    const relation = registry.getRelation("people", "rel");
+
+    expect(relation?.kind === "union" && relation.members).toEqual({
       photos: [registry.getTable("photos").columns.userId],
       videos: [registry.getTable("videos").columns.userId],
     });
@@ -629,7 +589,9 @@ describe("SchemaRegistry unions", () => {
       rels: feed({ photos: [photos.columns.ownerId], videos: [videos.columns.userId] }),
     });
 
-    expect(registry.getUnionRelationColumns("people", "rel").photos).toEqual([
+    const relation = registry.getRelation("people", "rel");
+
+    expect(relation?.kind === "union" && relation.members.photos).toEqual([
       registry.getTable("photos").columns.ownerId,
     ]);
   });
@@ -696,13 +658,17 @@ describe("SchemaRegistry unions", () => {
         rels: belongsTo(people.columns.postType),
       });
 
-      expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
+      expect(registry.getRelation("people", "rel")?.target).toBe(registry.getUnion("posts"));
     });
 
-    it("requires one on a belongs-to a union", () => {
-      expect(
-        () => new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() })
-      ).toThrow(/must declare a discriminator/);
+    // Without one, the member is computed when the query runs: the first holding the key.
+    it("computes one for a belongs-to a union that declares none", () => {
+      const registry = new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() });
+      const relation = registry.getRelation("people", "rel");
+      const discriminator = relation?.kind === "union" ? relation.discriminator : undefined;
+
+      expect(discriminator).toBeInstanceOf(ComputedDiscriminator);
+      expect((discriminator as ComputedDiscriminator).union).toBe(registry.getUnion("posts"));
     });
 
     it("rejects one that is not text-like", () => {

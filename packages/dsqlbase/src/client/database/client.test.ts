@@ -198,13 +198,25 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
-const teams = table("teams", { id: uuid("id").primaryKey(), name: text("name").notNull() });
+const teams = table("teams", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").unique(),
+});
 
-const nodeSchema = { authors, articles, teams };
+const articleTags = table("article_tags", {
+  articleId: guid("article_id"),
+  tagId: uuid("tag_id"),
+});
+
+// Not chained: `primaryKey()` returns the constraint, not the table.
+articleTags.primaryKey((c) => [c.articleId, c.tagId]);
+
+const nodeSchema = { authors, articles, teams, articleTags };
 
 const AUTHOR_UUID = "3f1c0e3e-0a3f-4a1e-9c2e-8b5f1d2a7c44";
 const ARTICLE_UUID = "9d2b7a51-6c34-4f80-b1aa-2e7c5d9f0013";
@@ -214,6 +226,9 @@ const AUTHOR_ROW = { id: AUTHOR_UUID, name: "Ada" };
 
 const authorId = encodeGlobalId("authors", { id: AUTHOR_UUID });
 const articleId = encodeGlobalId("articles", { id: ARTICLE_UUID });
+
+const TAG_UUID = "5a8e2c1f-7b3d-4e90-a6c4-1d2f3e4a5b6c";
+const articleTagId = encodeGlobalId("articleTags", { articleId: ARTICLE_UUID, tagId: TAG_UUID });
 
 /** A node client whose session replays rows keyed by the table being read. */
 const nodeSetup = (rows: Record<string, Record<string, unknown>[]> = {}) => {
@@ -246,7 +261,7 @@ describe("BaseClient.$findByGlobalId", () => {
       authors: [AUTHOR_ROW],
     });
 
-    const record = await dsql.$findByGlobalId({ id: authorId });
+    const record = await dsql.$findByGlobalId(authorId);
 
     expect(record?.$$key).toBe("authors");
     expect(statements[0]?.text).toContain('FROM "authors"');
@@ -256,7 +271,7 @@ describe("BaseClient.$findByGlobalId", () => {
 
   it("returns the row's own id wrapped", async () => {
     const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
-    const record = await dsql.$findByGlobalId({ id: authorId });
+    const record = await dsql.$findByGlobalId(authorId);
 
     expect(record?.$$key === "authors" ? record.id : undefined).toBe(authorId);
   });
@@ -264,68 +279,90 @@ describe("BaseClient.$findByGlobalId", () => {
   it("returns null when the row is gone", async () => {
     const { dsql } = nodeSetup();
 
-    expect(await dsql.$findByGlobalId({ id: authorId })).toBeNull();
+    expect(await dsql.$findByGlobalId(authorId)).toBeNull();
   });
 
-  it("applies a per-alias select", async () => {
-    const { dsql, statements } = nodeSetup({ authors: [{ name: "Ada" }] });
-
-    await dsql.$findByGlobalId({ id: authorId, on: { authors: { select: { name: true } } } });
-
-    // The projection only — `id` still appears in the WHERE, which is not what is at issue.
-    expect(statements[0]?.text.split(" FROM ")[0]).toBe('SELECT "__t0"."name"');
-  });
-
-  it("ignores the entry for a table the id did not name", async () => {
+  it("reads every column of the row", async () => {
     const { dsql, statements } = nodeSetup({ authors: [AUTHOR_ROW] });
 
-    await dsql.$findByGlobalId({
-      id: authorId,
-      on: { articles: { select: { title: true } }, authors: true },
-    });
+    await dsql.$findByGlobalId(authorId);
 
-    expect(statements[0]?.text).toContain('FROM "authors"');
-    expect(statements[0]?.text).toContain('"__t0"."name"');
+    expect(statements[0]?.text.split(" FROM ")[0]).toBe('SELECT "__t0"."id", "__t0"."name"');
   });
 
-  it("refuses an id whose table is not a node", async () => {
+  it("reads a composite key on every field", async () => {
+    const { dsql, statements } = nodeSetup({
+      article_tags: [{ article_id: ARTICLE_UUID, tag_id: TAG_UUID }],
+    });
+
+    const record = await dsql.$findByGlobalId(articleTagId);
+
+    expect(record?.$$key).toBe("articleTags");
+    expect(statements[0]?.text).toContain(
+      'WHERE "__t0"."article_id" = $1 AND "__t0"."tag_id" = $2 LIMIT'
+    );
+    expect(statements[0]?.params?.slice(0, 2)).toEqual([ARTICLE_UUID, TAG_UUID]);
+  });
+
+  it("reads by a unique column, on a table whose rows emit no ids", async () => {
+    const { dsql, statements } = nodeSetup({
+      teams: [{ id: AUTHOR_UUID, name: "Core", slug: "core" }],
+    });
+
+    const record = await dsql.$findByGlobalId(encodeGlobalId("teams", { slug: "core" }));
+
+    expect(record?.$$key === "teams" ? record.name : null).toBe("Core");
+    expect(statements[0]?.text).toContain('WHERE "__t0"."slug" = $1');
+  });
+
+  it("refuses an id whose table is not in the schema", async () => {
     const { dsql } = nodeSetup();
 
     await expect(
-      dsql.$findByGlobalId({ id: encodeGlobalId("teams", { id: AUTHOR_UUID }) })
+      dsql.$findByGlobalId(encodeGlobalId("nowhere", { id: AUTHOR_UUID }))
     ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
   });
 
-  it("refuses an id whose payload is not the node's key", async () => {
+  it("refuses an id whose payload is not a unique key", async () => {
+    const { dsql } = nodeSetup();
+
+    await expect(dsql.$findByGlobalId(encodeGlobalId("authors", { name: "Ada" }))).rejects.toThrow(
+      /carries \(name\), which is not a unique key of it. Its keys are \(id\)/
+    );
+  });
+
+  it("refuses part of a composite key", async () => {
     const { dsql } = nodeSetup();
 
     await expect(
-      dsql.$findByGlobalId({ id: encodeGlobalId("authors", { name: "Ada" }) })
-    ).rejects.toThrow(/carries "name" rather than its key "id"/);
+      dsql.$findByGlobalId(encodeGlobalId("articleTags", { articleId: ARTICLE_UUID }))
+    ).rejects.toThrow(/carries \(articleId\), which is not a unique key of it/);
+  });
+
+  it("refuses an id read off a column no relation names", async () => {
+    // `articles.authorId` has no relation here, so it reads as an articles id carrying
+    // `authorId` — a valid value for the column, but not the address of an article.
+    const { dsql } = nodeSetup({ articles: [{ id: ARTICLE_UUID, author_id: AUTHOR_UUID }] });
+    const [article] = await dsql.articles.findMany({ select: { authorId: true } });
+
+    expect(article?.authorId).toBe(encodeGlobalId("articles", { authorId: AUTHOR_UUID }));
+    await expect(dsql.$findByGlobalId(article?.authorId ?? "")).rejects.toThrow(
+      /carries \(authorId\), which is not a unique key of it/
+    );
   });
 
   it("refuses a malformed id", async () => {
     const { dsql } = nodeSetup();
 
-    await expect(dsql.$findByGlobalId({ id: AUTHOR_UUID })).rejects.toThrow(
+    await expect(dsql.$findByGlobalId(AUTHOR_UUID)).rejects.toThrow(
       expect.objectContaining({ code: "format" })
-    );
-  });
-
-  it("refuses a member the `on` map excluded", async () => {
-    // `false` removes the branch from the result union, so reaching it is a caller bug rather
-    // than a miss — a `null` here would be a row that exists and was silently withheld.
-    const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
-
-    await expect(dsql.$findByGlobalId({ id: authorId, on: { authors: false } })).rejects.toThrow(
-      /excluded from this lookup/
     );
   });
 
   it("refuses everything before building a query", async () => {
     const { dsql, statements } = nodeSetup();
 
-    await expect(dsql.$findByGlobalId({ id: "nonsense" })).rejects.toThrow();
+    await expect(dsql.$findByGlobalId("nonsense")).rejects.toThrow();
     expect(statements).toHaveLength(0);
   });
 });
@@ -337,7 +374,7 @@ describe("BaseClient.$listByGlobalId", () => {
       articles: [{ id: ARTICLE_UUID, author_id: AUTHOR_UUID, title: "On ids" }],
     });
 
-    const records = await dsql.$listByGlobalId({ ids: [articleId, authorId] });
+    const records = await dsql.$listByGlobalId([articleId, authorId]);
 
     expect(records.map((record) => record?.$$key)).toEqual(["articles", "authors"]);
   });
@@ -349,7 +386,7 @@ describe("BaseClient.$listByGlobalId", () => {
     const secondId = encodeGlobalId("authors", { id: ARTICLE_UUID });
     const { dsql } = nodeSetup({ authors: [second, AUTHOR_ROW] });
 
-    const records = await dsql.$listByGlobalId({ ids: [authorId, secondId] });
+    const records = await dsql.$listByGlobalId([authorId, secondId]);
 
     expect(records.map((record) => (record?.$$key === "authors" ? record.name : null))).toEqual([
       "Ada",
@@ -361,7 +398,7 @@ describe("BaseClient.$listByGlobalId", () => {
     const { dsql, statements } = nodeSetup({ authors: [AUTHOR_ROW] });
     const other = encodeGlobalId("authors", { id: ARTICLE_UUID });
 
-    await dsql.$listByGlobalId({ ids: [authorId, other, authorId] });
+    await dsql.$listByGlobalId([authorId, other, authorId]);
 
     expect(statements).toHaveLength(1);
     expect(statements[0]?.params?.slice(0, 2)).toEqual([AUTHOR_UUID, ARTICLE_UUID]);
@@ -371,36 +408,62 @@ describe("BaseClient.$listByGlobalId", () => {
     const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
     const missing = encodeGlobalId("authors", { id: ARTICLE_UUID });
 
-    const records = await dsql.$listByGlobalId({ ids: [missing, authorId, missing] });
+    const records = await dsql.$listByGlobalId([missing, authorId, missing]);
 
     expect(records.map((record) => record?.$$key ?? null)).toEqual([null, "authors", null]);
   });
 
-  it("projects the node key even when select leaves it out", async () => {
-    // Without the key there is nothing to match a row back to the id that asked for it, so
-    // the whole ordering guarantee would collapse to "whatever Postgres returned".
-    const { dsql, statements } = nodeSetup({ authors: [AUTHOR_ROW] });
-
-    const records = await dsql.$listByGlobalId({
-      ids: [authorId],
-      on: { authors: { select: { name: true } } },
+  it("reads composite and single keys in one batch, matching each back in place", async () => {
+    const { dsql, statements } = nodeSetup({
+      authors: [AUTHOR_ROW],
+      article_tags: [{ article_id: ARTICLE_UUID, tag_id: TAG_UUID }],
+    });
+    const missingTag = encodeGlobalId("articleTags", {
+      articleId: ARTICLE_UUID,
+      tagId: AUTHOR_UUID,
     });
 
-    expect(statements[0]?.text.split(" FROM ")[0]).toContain('"__t0"."id"');
-    expect(records[0]?.$$key).toBe("authors");
+    const records = await dsql.$listByGlobalId([articleTagId, missingTag, authorId]);
+
+    expect(records.map((record) => record?.$$key ?? null)).toEqual([
+      "articleTags",
+      null,
+      "authors",
+    ]);
+    expect(statements.map((statement) => statement.text).join("\n")).toContain(
+      'WHERE ("__t0"."article_id" = $1 AND "__t0"."tag_id" = $2 OR ' +
+        '"__t0"."article_id" = $3 AND "__t0"."tag_id" = $4)'
+    );
+  });
+
+  it("queries a table once per key it is asked for under", async () => {
+    const { dsql, statements } = nodeSetup({
+      teams: [{ id: AUTHOR_UUID, name: "Core", slug: "core" }],
+    });
+
+    const records = await dsql.$listByGlobalId([
+      encodeGlobalId("teams", { slug: "core" }),
+      encodeGlobalId("teams", { id: AUTHOR_UUID.toUpperCase() }),
+    ]);
+
+    expect(statements).toHaveLength(2);
+    expect(records.map((record) => (record?.$$key === "teams" ? record.slug : null))).toEqual([
+      "core",
+      "core",
+    ]);
   });
 
   it("returns an empty list for no ids, without querying", async () => {
     const { dsql, statements } = nodeSetup();
 
-    expect(await dsql.$listByGlobalId({ ids: [] })).toEqual([]);
+    expect(await dsql.$listByGlobalId([])).toEqual([]);
     expect(statements).toHaveLength(0);
   });
 
   it("throws on the first unusable id rather than dropping it", async () => {
     const { dsql } = nodeSetup();
 
-    await expect(dsql.$listByGlobalId({ ids: [authorId, "nonsense"] })).rejects.toThrow(
+    await expect(dsql.$listByGlobalId([authorId, "nonsense"])).rejects.toThrow(
       expect.objectContaining({ code: "format" })
     );
   });
@@ -410,45 +473,8 @@ describe("global id lookups on a derived client", () => {
   it("are available inside a transaction", async () => {
     const { dsql } = nodeSetup({ authors: [AUTHOR_ROW] });
 
-    const record = await dsql.$transaction(async (tx) => tx.$findByGlobalId({ id: authorId }));
+    const record = await dsql.$transaction(async (tx) => tx.$findByGlobalId(authorId));
 
     expect(record?.$$key).toBe("authors");
-  });
-});
-
-describe("global-id lookups with a widened on map", () => {
-  const authors = table("authors", {
-    id: guid("id").primaryKey(),
-    name: text("name").notNull(),
-  });
-  const books = table("books", {
-    id: guid("id").primaryKey(),
-    authorId: guid("author_id", "authors").notNull(),
-    title: text("title").notNull(),
-  });
-  const authorRelations = relations(authors, {
-    books: hasMany(books, { from: [authors.columns.id], to: [books.columns.authorId] }),
-  });
-  const nodeSchema = { authors, books, authorRelations };
-
-  it("ANDs on.<alias>.where with the key filter and forwards on.<alias>.join", async () => {
-    const calls: SQLStatement[] = [];
-    const session = {
-      execute: vi.fn(async (query: SQLStatement) => {
-        calls.push(query);
-        return [];
-      }),
-    } as unknown as Session;
-
-    const dsql = createClient({ schema: nodeSchema, session });
-    const id = encodeGlobalId("authors", { id: "7b3c3a52-3c0a-4a57-9d6b-3b8f1ffb1b0a" });
-
-    await dsql.$findByGlobalId({
-      id,
-      on: { authors: { where: { name: { beginsWith: "A" } }, join: { books: true } } },
-    });
-
-    expect(calls[0]?.text).toContain(`WHERE ("__t0"."id" = $1 AND "__t0"."name" LIKE $2)`);
-    expect(calls[0]?.text).toContain('AS "__join_books" ON true');
   });
 });

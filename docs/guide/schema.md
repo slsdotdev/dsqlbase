@@ -46,13 +46,13 @@ data. Once the database has the new name the hint does nothing; remove it in a l
    planned, **lossy** step, which runs without `allow.destructive`. Dropping a column that was
    never deprecated stays destructive.
 
-A primary-key column, or a member of an embedded object, can't be deprecated.
+A primary-key column can't be deprecated.
 
 ### Global ids
 
-`guid(name, key?)` is a `uuid` column whose values leave the ORM as opaque strings naming both
-the row and its table. A table whose primary key is exactly one `guid()` column is a **node**,
-addressable by [`$findByGlobalId`](./global-ids.md):
+`guid(name)` is a `uuid` column whose values leave the ORM as opaque strings naming both
+the row and its table. Any table with a unique key is a **node**, addressable by
+[`$findByGlobalId`](./global-ids.md); a guid primary key is what makes its rows emit their ids:
 
 ```ts
 const authors = table("authors", {
@@ -62,12 +62,14 @@ const authors = table("authors", {
 
 const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(), // points at the authors node
+  authorId: guid("author_id").notNull(), // an authors id, once a relation pairs it with authors.id
 });
 ```
 
-It serializes exactly as `uuid()`, so adopting it on an existing column produces no DDL. Full
-rules — node keys, relation pairs, what is and is not accepted as input — are in
+A column's ids name the column a relation pairs it with, or its own table when none does — the
+target is never written on the column. It serializes exactly as `uuid()`, so adopting it on an
+existing column produces no DDL. Full rules — node keys, relation pairs, what is and is not
+accepted as input — are in
 [Global ids](./global-ids.md).
 
 ### Tenant scopes
@@ -147,77 +149,40 @@ The built-in keys `key`, `table` and `schema` are set from the schema itself and
 redeclared. `$$meta` and `$$key` are reserved field names: a column or a relation of either
 name throws.
 
-## Embedded objects
-
-`embedded()` declares a reusable value object — `Money`, `Address` — and `.column(name)`
-places it in a table as a **column group**: one real column per member, named
-`<name>_<member>`.
-
-```ts
-export const money = embedded({
-  amount: bigint("amount").notNull(),
-  currency: currency.column("currency").notNull().default("EUR"),
-});
-
-export const geo = embedded({ lat: numeric("lat"), lng: numeric("lng") });
-export const address = embedded({ city: text("city"), geo: geo.column("geo") });
-
-export const invoices = table("invoices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  netValue: money.column("net_value"), // net_value_amount, net_value_currency
-  billing: address.column("billing").default({ city: "-" }), // billing_city, billing_geo_lat, billing_geo_lng
-});
-
-invoices.columns.netValue.columns.amount; // the member's column definition
-invoices.index("invoices_net_value_idx").columns((c) => [c.netValue.amount]);
-invoices.check((c) => sql`${c.netValue.amount} >= 0`);
-```
-
-- **Members are ordinary columns.** Each keeps its own type, codec, validator, `.notNull()`,
-  `.unique()`, default and hooks, and can be indexed and constrained through nested refs
-  (`c.billing.geo.lat`). A member may be another group; the prefix chains.
-- **Each placement gets its own copies**, so one object placed twice — on one table or several —
-  never shares a column. A member's own `.check()` is rebuilt against its prefixed name, and an
-  explicit check name is prefixed with the group's (`net_fee_cap`).
-- **A group has no nullability of its own.** A member's `.notNull()` is its column's
-  `NOT NULL`; a group whose members are all nullable can be `null`, which it is when all of them
-  are.
-- **`.default(obj)`** on a group sets its members' defaults; members it does not name keep their
-  own.
-- **Not allowed:** a primary-key or tenant-claim member, a table primary key naming a member, or
-  a reserved field name (`$$meta`, `$$key`) as a member. Two members — or a member and a column
-  — with one database name throw like any duplicate column.
-- A union does not share a group field across its members.
-
-Reading and writing groups: [Embedded objects](./embeddable-objects.md).
-
 ## Unions
 
 `union()` groups tables that can stand in for one another — what GraphQL calls a union or an
-interface. Key every member by the alias it is exported under:
+interface. Key every member by the alias it is exported under, and declare the fields they
+share:
 
 ```ts
 import { union } from "dsqlbase/schema";
 
 export const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   photoUrl: text("photo_url").notNull(),
 });
 
 export const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
-  userId: guid("user_id", "users").notNull(),
+  userId: guid("user_id").notNull(),
   videoUrl: text("video_url").notNull(),
 });
 
-export const posts = union({ photos, videos });
+export const posts = union(
+  { photos, videos },
+  { id: guid("id"), userId: guid("user_id").notNull() }
+);
 // posts.columns: { id, userId } — the shared fields
 ```
 
-`posts.columns` holds the **shared fields**: the fields every member declares with the same
-type. A field whose type differs on one member is left out rather than refused. Relations use
-the shared fields to target a union (see [Relations](./relations.md#relations-to-a-union)).
+`posts.columns` holds the **shared fields**, exactly the ones declared. Each is resolved to the
+column every member stores under the same field, and `union()` throws unless that column has
+the same database name, data type and kind (a `guid()` is not a `uuid()`) on every member, and
+is `NOT NULL` on every member when the declaration is. A field only some members have is not
+shared, and `union()` refuses it — declaring it is also a type error. Relations use the shared
+fields to target a union (see [Relations](./relations.md#relations-to-a-union)).
 
 When the client is built, it throws if any of these hold:
 
@@ -400,6 +365,5 @@ Export every table, relation, union, domain, and sequence from one module and pa
 ## Related
 
 - [Relations](./relations.md)
-- [Embedded objects](./embeddable-objects.md)
 - [DSQL notes](./dsql-notes.md) — what you can and cannot change after a table exists
 - [Migrations](./migrations.md)

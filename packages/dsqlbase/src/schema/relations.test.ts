@@ -37,7 +37,7 @@ describe("relations to a union", () => {
     userId: uuid("user_id"),
   });
 
-  const posts = union({ photos, videos });
+  const posts = union({ photos, videos }, { id: uuid("id"), userId: uuid("user_id") });
 
   const comments = table("comments", {
     id: uuid("id").primaryKey(),
@@ -79,9 +79,9 @@ describe("relations to a union", () => {
     expect(rels.relations.subject.discriminator).toBe(comments.columns.subjectType);
   });
 
-  it("types the discriminator as required on a union and absent on a table", () => {
+  it("types the discriminator as optional on a union and absent on a table", () => {
+    // Without one, the member is computed when the query runs.
     relations(comments, {
-      // @ts-expect-error a belongs-to a union must name its discriminator
       subject: belongsTo(posts, { from: [comments.columns.subjectId], to: [posts.columns.id] }),
     });
 

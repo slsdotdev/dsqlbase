@@ -123,6 +123,7 @@ The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0
 | Item | How to verify | If different |
 |---|---|---|
 | Row-value comparison `(a, b) < ($1, $2)` | `SELECT … WHERE (a, b) < (1, 2)` | nothing: `sql.keyset` expands key by key; if supported, it may become an optimisation |
+| Correlated `CASE WHEN EXISTS (SELECT 1 FROM …)` in a select list, a lateral join's correlation, and `RETURNING` | read a belongs-to a union with no discriminator, joined and not; `create` a row with one | the computed discriminator (`ComputedDiscriminator`, [0020](../decisions/0020-column-references.md)) needs another form, or a stored discriminator becomes required on DSQL; verified on PGlite only |
 | Whether a session can change `DateStyle` | `SET DateStyle = 'SQL, DMY'`, then read a `date` as text | keyset cursors carry `::text` values; if it can change, cast order keys to a fixed format |
 
 ## Related

@@ -3,12 +3,9 @@ import {
   AnyNamespaceDefinition,
   AnyFieldRelation,
   AnyTableRelations,
-  AnyUnionMembers,
+  AnyUnionDefinition,
   ColumnConfig,
-  SharedFieldsOf,
-  TableColumnDefinitions,
   TableDefinition,
-  UnionDefinition,
 } from "@dsqlbase/core/definition";
 import {
   AnySchema,
@@ -20,9 +17,8 @@ import {
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { FilterOf, OrderableRuntimeType, WhereExpressionOf } from "./filters.js";
 
-/** A table's plain columns, by field. A column group is not one: {@link GroupFieldNamesOf}. */
-/** A table's column fields — not its groups, and not its deprecated columns. */
-export type ColumnFieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
+/** A table's column fields — not its deprecated columns. */
+export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
   ? K extends string
     ? T["__type"]["columns"][K] extends AnyColumnDefinition
       ? T["__type"]["columns"][K] extends { __type: { deprecated: true } }
@@ -31,86 +27,6 @@ export type ColumnFieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"
       : never
     : never
   : never;
-
-/** A table's column groups, by field. */
-export type GroupFieldNamesOf<T extends AnyTable> = GroupKeysOf<T["__type"]["columns"]>;
-
-/** Every field a table stores: its plain columns and its column groups. */
-export type FieldNamesOf<T extends AnyTable> = ColumnFieldNamesOf<T> | GroupFieldNamesOf<T>;
-
-/**
- * Matches a column group by `kind`: comparing a column against the group class structurally is
- * costly enough, across a schema, to exhaust the checker.
- */
-export type GroupOf<C> = { readonly kind: "COLUMN_GROUP"; readonly columns: C };
-
-type GroupKeysOf<C> = {
-  [K in keyof C & string]: C[K] extends GroupOf<unknown> ? K : never;
-}[keyof C & string];
-
-/**
- * Whether a group can be absent: every member, nested groups included, is nullable. Mirrors
- * `ColumnGroup.nullable` (`packages/core/src/runtime/group.ts`).
- */
-type IsNullableGroup<C> = {
-  [K in keyof C]-?: C[K] extends GroupOf<infer GC>
-    ? IsNullableGroup<GC>
-    : C[K] extends { __type: { notNull: true } }
-      ? false
-      : true;
-}[keyof C] extends true
-  ? true
-  : false;
-
-/** What a member reads as: a column's value, or a group's object. */
-type MemberValueOf<M> =
-  M extends GroupOf<infer GC>
-    ? GroupValueOf<GC>
-    : M extends { __type: infer TConfig extends ColumnConfig }
-      ? ValueTypeOf<TConfig>
-      : never;
-
-/** What a group reads as: an object of its members — `null` too when it can be absent. */
-export type GroupValueOf<C> =
-  | Prettify<{ -readonly [K in keyof C]: MemberValueOf<C[K]> }>
-  | (IsNullableGroup<C> extends true ? null : never);
-
-/** Field `K` of a table as a read returns it: a column's value, or a group's object. */
-export type FieldValueOf<T extends AnyTable, K extends FieldNamesOf<T>> = MemberValueOf<
-  T["__type"]["columns"][K]
->;
-
-/**
- * Which of `C` a selection names: a column takes `true`; a group `true` — every member — or a
- * map of its members, the same shape again.
- */
-export type ColumnsSelectionOf<C> = {
-  -readonly [K in keyof C]?: C[K] extends GroupOf<infer GC>
-    ? boolean | ColumnsSelectionOf<GC>
-    : boolean;
-};
-
-/** What member `M` reads as under selection `S`: all of it for `true`, a group's named members for a map. */
-type SelectedMemberValueOf<M, S> = S extends true
-  ? MemberValueOf<M>
-  : M extends GroupOf<infer GC>
-    ? S extends object
-      ? SelectedGroupValueOf<GC, S>
-      : never
-    : never;
-
-/** The keys a selection map names: `true`, or a group's member map. */
-type SelectedKeysOf<S> = {
-  [K in keyof S]-?: S[K] extends true | object ? K : never;
-}[keyof S];
-
-type SelectedGroupValueOf<C, S> = [SelectedKeysOf<S>] extends [never]
-  ? GroupValueOf<C>
-  :
-      | Prettify<{
-          -readonly [K in SelectedKeysOf<S> & keyof C]: SelectedMemberValueOf<C[K], S[K]>;
-        }>
-      | (IsNullableGroup<C> extends true ? null : never);
 
 export type RelationFieldNamesOf<T extends AnyTable> =
   T["__type"]["relations"] extends AnyTableRelations
@@ -123,7 +39,7 @@ export type RelationFieldNamesOf<T extends AnyTable> =
       : never
     : never;
 
-export type ColumnTypeOf<T extends AnyTable, K extends ColumnFieldNamesOf<T>> =
+export type ColumnTypeOf<T extends AnyTable, K extends FieldNamesOf<T>> =
   T["__type"]["columns"] extends Record<K, infer TColumn>
     ? TColumn extends AnyColumnDefinition
       ? TColumn["__type"]
@@ -215,43 +131,20 @@ export type RecordMetaOf<T, TAlias extends string = string> = Prettify<
   { key: TAlias; table: string; schema?: string } & DeclaredMetaOf<T>
 >;
 
-/**
- * The fields a `return` may name: columns as `true`, groups as `true` or a member map. A read's
- * `select` also takes relations: {@link SelectionOf}.
- */
-export type FieldSelectionOf<T extends AnyTable> = Partial<Record<ColumnFieldNamesOf<T>, boolean>> &
-  // Only when there are groups: an empty object type in the intersection would accept `true`
-  // and switch off excess-property checks.
-  ([GroupFieldNamesOf<T>] extends [never]
-    ? unknown
-    : {
-        [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer GC>
-          ? boolean | ColumnsSelectionOf<GC>
-          : never;
-      });
+/** The columns a `return` may name. A read's `select` also takes relations: {@link SelectionOf}. */
+export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
 
-/** The fields a selection names — a column as `true`, a group as `true` or a map; never a relation. */
+/** The columns a selection names as `true` — never its relations. */
 export type SelectedFieldsOf<
   TTable extends AnyTable,
   TSelection extends FieldSelectionOf<TTable>,
 > = {
-  [K in keyof TSelection]: K extends ColumnFieldNamesOf<TTable>
+  [K in keyof TSelection]: K extends FieldNamesOf<TTable>
     ? TSelection[K] extends true
       ? K
       : never
-    : K extends GroupFieldNamesOf<TTable>
-      ? TSelection[K] extends true | object
-        ? K
-        : never
-      : never;
+    : never;
 }[keyof TSelection];
-
-/** Field `K` of a table as selection `S` reads it. */
-export type SelectedFieldValueOf<
-  T extends AnyTable,
-  K extends FieldNamesOf<T>,
-  S,
-> = SelectedMemberValueOf<T["__type"]["columns"][K], S>;
 
 /**
  * Every key a selection names: a column as `true`, a relation as `true` or a field map. None
@@ -291,8 +184,8 @@ export type RelationSelectionOf<
 > =
   RelationTargetOf<T, R> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
     ? SelectionOf<Table<TName, TCols, TNamespace, SchemaTableRelations<S, TName>>, S>
-    : RelationTargetOf<T, R> extends UnionDefinition<infer TMembers>
-      ? Partial<Record<SharedFieldsOf<TMembers>, boolean>>
+    : RelationTargetOf<T, R> extends AnyUnionDefinition
+      ? Partial<Record<UnionFieldsOf<RelationTargetOf<T, R>>, boolean>>
       : never;
 
 /** The relations a selection names, as `true` or a field map. */
@@ -315,12 +208,12 @@ export type NoSelectJoinOverlap<TArgs> = TArgs extends {
 type OverlapOf<TSelect, TJoin> = Extract<NamedKeysOf<TSelect>, NamedKeysOf<TJoin>> & string;
 
 export type RequiredFieldsOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
     ? ColumnTypeOf<T, K> extends { hasDefault: true }
       ? never
       : K
     : never;
-}[ColumnFieldNamesOf<T>];
+}[FieldNamesOf<T>];
 
 export type RelationTypeOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> = FieldRelationOf<
   T,
@@ -333,113 +226,34 @@ export type RelationTargetOf<
 > = FieldRelationOf<T, K>["target"];
 
 export type OptionalFieldsOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
     ? ColumnTypeOf<T, K> extends { hasDefault: true }
       ? K
       : never
     : K;
-}[ColumnFieldNamesOf<T>];
+}[FieldNamesOf<T>];
 
 /**
  * Fields the caller may not write. They stay fully readable — selectable, filterable and
  * orderable — and are only removed from the two mutation inputs.
  */
 export type ReadOnlyFieldsOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
-}[ColumnFieldNamesOf<T>];
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
+}[FieldNamesOf<T>];
 
 /**
  * The claim fields a table is scoped by — the keys an identity must carry for it to be
  * readable. Empty for a global table.
  */
 export type TenantKeysOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { tenantKey: true } ? K : never;
-}[ColumnFieldNamesOf<T>];
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { tenantKey: true } ? K : never;
+}[FieldNamesOf<T>];
 
 export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
 } & {
   [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-} & ([GroupFieldNamesOf<T>] extends [never]
-    ? unknown
-    : {
-        -readonly [K in GroupFieldNamesOf<T> &
-          RequiredMembersOf<T["__type"]["columns"]>]: MemberInputOf<T["__type"]["columns"][K]>;
-      } & {
-        -readonly [K in Exclude<
-          GroupFieldNamesOf<T>,
-          RequiredMembersOf<T["__type"]["columns"]>
-        >]?: MemberInputOf<T["__type"]["columns"][K]>;
-      });
-
-/**
- * Whether a member must be given on `create`: a column that is not null and has no default, or
- * a group with such a member and no default of its own. A read-only member never is.
- */
-type IsRequiredMember<M> =
-  M extends GroupOf<infer GC>
-    ? M extends { __type: { hasDefault: true } }
-      ? false
-      : true extends { [K in keyof GC]-?: IsRequiredMember<GC[K]> }[keyof GC]
-        ? true
-        : false
-    : M extends { __type: { notNull: true } }
-      ? M extends { __type: { hasDefault: true } }
-        ? false
-        : M extends { __type: { readOnly: true } }
-          ? false
-          : true
-      : false;
-
-/** The members a write may set: every one but a read-only column. */
-type WritableMembersOf<C> = {
-  [K in keyof C]-?: C[K] extends GroupOf<unknown>
-    ? K
-    : C[K] extends { __type: { readOnly: true } }
-      ? never
-      : K;
-}[keyof C];
-
-type RequiredMembersOf<C> = {
-  [K in keyof C]-?: IsRequiredMember<C[K]> extends true ? K : never;
-}[keyof C];
-
-/** What a member takes on `create`: a column's input, or a group's object. */
-type MemberInputOf<M> =
-  M extends GroupOf<infer GC>
-    ? GroupInputOf<GC>
-    : M extends { __type: infer TConfig extends ColumnConfig }
-      ? InputTypeOf<TConfig>
-      : never;
-
-/**
- * A group's value on `create`: its required members, the rest optional — an omitted member
- * takes its default. `null` too when every member is nullable.
- */
-export type GroupInputOf<C> =
-  | Prettify<
-      {
-        -readonly [K in Extract<
-          keyof C,
-          WritableMembersOf<C> & RequiredMembersOf<C>
-        >]: MemberInputOf<C[K]>;
-      } & {
-        -readonly [K in Exclude<WritableMembersOf<C>, RequiredMembersOf<C>>]?: MemberInputOf<C[K]>;
-      }
-    >
-  | (IsNullableGroup<C> extends true ? null : never);
-
-/**
- * A group's value on `update`: any of its members, nested groups likewise — the ones named are
- * written and the rest keep their value. `null` too when every member is nullable.
- */
-export type GroupUpdateOf<C> =
-  | Prettify<{
-      -readonly [K in WritableMembersOf<C>]?: C[K] extends GroupOf<infer GC>
-        ? GroupUpdateOf<GC>
-        : MemberInputOf<C[K]>;
-    }>
-  | (IsNullableGroup<C> extends true ? null : never);
+};
 
 export type ReturningResultOf<
   T extends AnyTable,
@@ -451,10 +265,10 @@ export type ReturningResultOf<
   ? R extends FieldSelectionOf<T>
     ? Prettify<
         ([SelectedFieldsOf<T, R>] extends [never]
-          ? { [K in FieldNamesOf<T>]: FieldValueOf<T, K> }
+          ? { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> }
           : {
               [K in SelectedFieldsOf<T, R>]: K extends FieldNamesOf<T>
-                ? SelectedFieldValueOf<T, K, R[K]>
+                ? ValueTypeOf<ColumnTypeOf<T, K>>
                 : never;
             }) & {
           $$meta: RecordMetaOf<T, TAlias>;
@@ -462,7 +276,7 @@ export type ReturningResultOf<
       >
     : R extends true
       ? Prettify<
-          { [K in FieldNamesOf<T>]: FieldValueOf<T, K> } & {
+          { [K in FieldNamesOf<T>]: ValueTypeOf<ColumnTypeOf<T, K>> } & {
             $$meta: RecordMetaOf<T, TAlias>;
           }
         >
@@ -475,14 +289,8 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
 }>;
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<ColumnFieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-} & ([GroupFieldNamesOf<T>] extends [never]
-  ? unknown
-  : {
-      -readonly [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer C>
-        ? GroupUpdateOf<C>
-        : never;
-    });
+  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
+};
 
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
   set: UpdateValuesOf<TTable>;
@@ -733,10 +541,10 @@ export type RelationQueryOf<
           QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>,
           "select" | "join"
         >
-    : RelationTargetOf<T, K> extends UnionDefinition<infer TMembers>
+    : RelationTargetOf<T, K> extends AnyUnionDefinition
       ? RelationTypeOf<T, K> extends "has_many"
-        ? UnionQueryArgs<TMembers, S>
-        : Pick<UnionQueryArgs<TMembers, S>, "select" | "orderBy" | "on">
+        ? UnionQueryArgs<RelationTargetOf<T, K>, S>
+        : Pick<UnionQueryArgs<RelationTargetOf<T, K>, S>, "select" | "join" | "orderBy" | "on">
       : never;
 
 export type SelectionResultOf<
@@ -748,13 +556,13 @@ export type SelectionResultOf<
   // column map, so it would not extend it.
   TArgs["select"] extends object
     ? [NamedKeysOf<TArgs["select"]>] extends [never]
-      ? { [K in FieldNamesOf<TTable>]: FieldValueOf<TTable, K> }
+      ? { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }
       : {
           [K in SelectedFieldsOf<TTable, TArgs["select"]>]: K extends FieldNamesOf<TTable>
-            ? SelectedFieldValueOf<TTable, K, TArgs["select"][K]>
+            ? ValueTypeOf<ColumnTypeOf<TTable, K>>
             : never;
         }
-    : { [K in FieldNamesOf<TTable>]: FieldValueOf<TTable, K> };
+    : { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> };
 
 export type RelationJoinResultOf<
   TTable extends AnyTable,
@@ -762,7 +570,7 @@ export type RelationJoinResultOf<
   TArgs extends QueryArgs<TTable, TSchema>,
   TRelationField extends RelationFieldNamesOf<TTable>,
   TTargetName extends string,
-  TTargetCols extends TableColumnDefinitions,
+  TTargetCols extends Record<string, AnyColumnDefinition>,
   TTargetSchema extends AnyNamespaceDefinition,
   TTargetMeta = object,
 > =
@@ -833,25 +641,29 @@ type JoinFieldResultOf<TTable extends AnyTable, TSchema extends AnySchema, K, TE
               >
             : never
           : never
-      : RelationTargetOf<TTable, K> extends UnionDefinition<infer TMembers>
+      : RelationTargetOf<TTable, K> extends AnyUnionDefinition
         ? UnionJoinResultOf<
-            TMembers,
+            RelationTargetOf<TTable, K>,
             TSchema,
-            TEntry extends UnionQueryArgs<TMembers, TSchema> ? TEntry : object,
+            TEntry extends UnionQueryArgs<RelationTargetOf<TTable, K>, TSchema> ? TEntry : object,
             RelationTypeOf<TTable, K>
           >
         : never
     : never;
 
 /** The relations named in `select`, each shaped as the `join` entry it is read as. */
-type SelectedRelationsResultOf<TTable extends AnyTable, TSchema extends AnySchema, TSelection> = {
+type SelectedRelationsResultOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TSelection,
+> = Prettify<{
   [K in SelectedRelationsOf<TTable, TSelection>]: JoinFieldResultOf<
     TTable,
     TSchema,
     K,
     TSelection[K] extends true ? true : { select: TSelection[K] }
   >;
-};
+}>;
 
 export type QueryResultOf<
   TTable extends AnyTable,
@@ -869,26 +681,63 @@ export type QueryResultOf<
  * Unions
  * ---------------------------------------------------------------------------------------- */
 
-/** The value a shared field holds, across every member of a union. */
-type SharedValueOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
-  [A in keyof TMembers]: TMembers[A]["__type"]["columns"][K] extends AnyColumnDefinition
-    ? ValueTypeOf<TMembers[A]["__type"]["columns"][K]["__type"]>
-    : never;
-}[keyof TMembers];
+/** The fields a union declares — the only ones that select, filter and order across it. */
+export type UnionFieldsOf<TUnion extends AnyUnionDefinition> = keyof TUnion["columns"] & string;
 
-/** The runtime type a shared field has, across every member of a union. */
-type SharedRuntimeTypeOf<TMembers extends AnyUnionMembers, K extends PropertyKey> = {
-  [A in keyof TMembers]: TMembers[A]["__type"]["columns"][K] extends AnyColumnDefinition
-    ? TMembers[A]["__type"]["columns"][K]["__type"]["runtimeType"]
-    : never;
-}[keyof TMembers];
+/** The member aliases of a union. */
+type MemberAliasesOf<TUnion extends AnyUnionDefinition> = keyof TUnion["members"] & string;
+
+/**
+ * The relations every member of a union has — those declared on the union itself, which each
+ * member has from its own columns. They join across the union, through `join` or `select`.
+ */
+export type UnionRelationNamesOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  [A in MemberAliasesOf<TUnion>]: RelationFieldNamesOf<TableByAlias<TSchema, A>>;
+}[MemberAliasesOf<TUnion>] extends infer TNames
+  ? TNames extends string
+    ? false extends {
+        [A in MemberAliasesOf<TUnion>]: TNames extends RelationFieldNamesOf<
+          TableByAlias<TSchema, A>
+        >
+          ? true
+          : false;
+      }[MemberAliasesOf<TUnion>]
+      ? never
+      : TNames
+    : never
+  : never;
+
+/** A `join` across a union: a relation of every member, read the same way from each. */
+export type UnionJoinExpressionOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  [K in UnionRelationNamesOf<TUnion, TSchema>]?:
+    | {
+        [A in MemberAliasesOf<TUnion>]: K extends RelationFieldNamesOf<TableByAlias<TSchema, A>>
+          ? RelationQueryOf<TableByAlias<TSchema, A>, TSchema, K>
+          : never;
+      }[MemberAliasesOf<TUnion>]
+    | boolean
+    | null
+    | undefined;
+};
+
+/** The value a shared field holds, as the union declares it. */
+type SharedValueOf<
+  TUnion extends AnyUnionDefinition,
+  K extends UnionFieldsOf<TUnion>,
+> = ValueTypeOf<TUnion["columns"][K]["__type"]>;
+
+/** The runtime type a shared field has, as the union declares it. */
+type SharedRuntimeTypeOf<
+  TUnion extends AnyUnionDefinition,
+  K extends UnionFieldsOf<TUnion>,
+> = TUnion["columns"][K]["__type"]["runtimeType"];
 
 /** The shared fields of a union that can be ordered by. */
-type OrderableSharedFieldsOf<TMembers extends AnyUnionMembers> = {
-  [K in SharedFieldsOf<TMembers>]: IsOrderable<SharedRuntimeTypeOf<TMembers, K>> extends true
+type OrderableUnionFieldsOf<TUnion extends AnyUnionDefinition> = {
+  [K in UnionFieldsOf<TUnion>]: IsOrderable<SharedRuntimeTypeOf<TUnion, K>> extends true
     ? K
     : never;
-}[SharedFieldsOf<TMembers>];
+}[UnionFieldsOf<TUnion>];
 
 /**
  * A filter on which member a row comes from. Decided while the query is built, member by
@@ -905,44 +754,46 @@ export type KeyFilterOf<TAlias extends string> =
  * resolver argument), so the members it rules out stay in the type. Use `on: { alias: false }`
  * to remove a member from both.
  */
-export type UnionWhereExpressionOf<TMembers extends AnyUnionMembers> = {
-  [K in SharedFieldsOf<TMembers>]?: FilterOf<
-    SharedRuntimeTypeOf<TMembers, K>,
-    SharedValueOf<TMembers, K>
-  >;
+export type UnionWhereExpressionOf<TUnion extends AnyUnionDefinition> = {
+  [K in UnionFieldsOf<TUnion>]?: FilterOf<SharedRuntimeTypeOf<TUnion, K>, SharedValueOf<TUnion, K>>;
 } & {
-  $$key?: KeyFilterOf<keyof TMembers & string>;
-  and?: UnionWhereExpressionOf<TMembers>[];
-  or?: UnionWhereExpressionOf<TMembers>[];
-  not?: UnionWhereExpressionOf<TMembers>;
+  $$key?: KeyFilterOf<MemberAliasesOf<TUnion>>;
+  and?: UnionWhereExpressionOf<TUnion>[];
+  or?: UnionWhereExpressionOf<TUnion>[];
+  not?: UnionWhereExpressionOf<TUnion>;
 };
 
 /**
  * A select over a union: shared-level `select` / `where` / `orderBy` / `limit` / `offset`, which
  * every member runs, plus `on` for what differs per member — GraphQL's `... on Photo { }`.
  */
-export type UnionQueryArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
-  /** Shared fields to return from every member; merged with each member's `on.<alias>.select`. */
-  select?: Partial<Record<SharedFieldsOf<TMembers>, boolean>>;
+export type UnionQueryArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  /**
+   * Shared fields to return from every member, and relations declared on the union to join
+   * from every member; merged with each member's `on.<alias>.select`.
+   */
+  select?: Partial<Record<UnionFieldsOf<TUnion> | UnionRelationNamesOf<TUnion, TSchema>, boolean>>;
+  /** Relations declared on the union, joined from every member alongside `on.<alias>.join`. */
+  join?: UnionJoinExpressionOf<TUnion, TSchema>;
   /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
-  where?: UnionWhereExpressionOf<TMembers>;
+  where?: UnionWhereExpressionOf<TUnion>;
   /**
    * Orders the combined rows, by shared fields and by `$$key` (member alias). Ties are broken
    * by member alias and then the primary key, so the order is total whenever the members' keys
    * line up.
    */
-  orderBy?: Partial<Record<OrderableSharedFieldsOf<TMembers> | "$$key", "asc" | "desc">>;
+  orderBy?: Partial<Record<OrderableUnionFieldsOf<TUnion> | "$$key", "asc" | "desc">>;
   limit?: number;
   offset?: number;
   /**
    * Per member: `false` drops it, `true` (or leaving it out) runs it with the shared arguments,
    * and an object adds a member-only `select`, `where` and `join`.
    */
-  on?: OnSelectionOf<keyof TMembers & string, TSchema>;
+  on?: OnSelectionOf<MemberAliasesOf<TUnion>, TSchema>;
 };
 
-/** The query args one member of a union runs with: shared `select` merged with its own. */
-type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn> = {
+/** The query args one member of a union runs with: shared `select` / `join` merged with its own. */
+type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn, TSharedJoin> = {
   select: TShared extends object
     ? TOn extends { select: infer TOwn }
       ? TShared & TOwn
@@ -950,7 +801,13 @@ type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn
     : TOn extends { select: infer TOwn }
       ? TOwn
       : undefined;
-  join: TOn extends { join: infer TJoin } ? TJoin : undefined;
+  join: TSharedJoin extends object
+    ? TOn extends { join: infer TJoin }
+      ? TSharedJoin & TJoin
+      : TSharedJoin
+    : TOn extends { join: infer TJoin }
+      ? TJoin
+      : undefined;
 } extends infer TArgs
   ? TArgs extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
     ? TArgs
@@ -965,41 +822,46 @@ type OnEntryOf<TArgs, TAlias extends string> = TArgs extends { on: infer TOn }
 
 type SharedSelectOf<TArgs> = TArgs extends { select: infer TSelect } ? TSelect : undefined;
 
+type SharedJoinOf<TArgs> = TArgs extends { join: infer TJoin } ? TJoin : undefined;
+
 /**
  * One row of a union result: a union over the members `on` did not exclude, each tagged with
  * its alias in `$$key` — which is what narrows it — and shaped by that member's own selection.
  */
-export type UnionResultOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> = {
-  [A in keyof TMembers & string]: IsExcluded<A, TArgs extends { on: infer TOn } ? TOn : undefined> extends true
+export type UnionResultOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema, TArgs> = {
+  [A in MemberAliasesOf<TUnion>]: IsExcluded<
+    A,
+    TArgs extends { on: infer TOn } ? TOn : undefined
+  > extends true
     ? never
     : Prettify<
         { $$key: A } & QueryResultOf<
           TableByAlias<TSchema, A>,
           TSchema,
-          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>>
+          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>, SharedJoinOf<TArgs>>
         >
       >;
-}[keyof TMembers & string];
+}[MemberAliasesOf<TUnion>];
 
 export type UnionJoinResultOf<
-  TMembers extends AnyUnionMembers,
+  TUnion extends AnyUnionDefinition,
   TSchema extends AnySchema,
   TArgs,
   TType,
 > = TType extends "has_many"
-  ? UnionResultOf<TMembers, TSchema, TArgs>[]
-  : UnionResultOf<TMembers, TSchema, TArgs> | null;
+  ? UnionResultOf<TUnion, TSchema, TArgs>[]
+  : UnionResultOf<TUnion, TSchema, TArgs> | null;
 
 /** The members of a union definition, as a record of member alias → table definition. */
-export type UnionMembersOf<TUnion> = TUnion extends UnionDefinition<infer TMembers> ? TMembers : never;
+export type UnionMembersOf<TUnion> = TUnion extends AnyUnionDefinition ? TUnion["members"] : never;
 
 /** A union's `findOne`: like `findMany`, but a `where` must name the row. */
-export type UnionFindOneArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
-  where: UnionWhereExpressionOf<TMembers>;
-} & Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "orderBy" | "on">;
+export type UnionFindOneArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  where: UnionWhereExpressionOf<TUnion>;
+} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "join" | "orderBy" | "on">;
 
 /** A union's `paginate` — the table form, with the union's shared-field arguments and `on`. */
-export type UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends AnySchema> = {
+export type UnionPaginateArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
   /** The number of records on the page, under the client's `pagination` limits. */
   limit?: number;
   /** Read the page that follows this cursor, taken from this union under the same `orderBy`. */
@@ -1008,23 +870,23 @@ export type UnionPaginateArgs<TMembers extends AnyUnionMembers, TSchema extends 
   before?: string | null;
   /** Also count every record `where` selects, across every member, as `totalCount`. */
   count?: boolean;
-} & Pick<UnionQueryArgs<TMembers, TSchema>, "select" | "where" | "orderBy" | "on">;
+} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "join" | "where" | "orderBy" | "on">;
 
 /** One record of a union page: each member's row, its `$$meta` also carrying its cursor. */
-export type UnionPageItemOf<TMembers extends AnyUnionMembers, TSchema extends AnySchema, TArgs> =
-  UnionResultOf<TMembers, TSchema, TArgs> extends infer TRow
+export type UnionPageItemOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema, TArgs> =
+  UnionResultOf<TUnion, TSchema, TArgs> extends infer TRow
     ? TRow extends { $$meta: infer TMeta }
       ? Prettify<Omit<TRow, "$$meta"> & { $$meta: Prettify<TMeta & { cursor: string }> }>
       : never
     : never;
 
 export type UnionPageOf<
-  TMembers extends AnyUnionMembers,
+  TUnion extends AnyUnionDefinition,
   TSchema extends AnySchema,
-  TArgs extends UnionPaginateArgs<TMembers, TSchema>,
+  TArgs extends UnionPaginateArgs<TUnion, TSchema>,
 > = Prettify<
   {
-    items: UnionPageItemOf<TMembers, TSchema, TArgs>[];
+    items: UnionPageItemOf<TUnion, TSchema, TArgs>[];
     hasNextPage: boolean;
     hasPreviousPage: boolean;
     startCursor: string | null;
@@ -1032,14 +894,15 @@ export type UnionPageOf<
   } & TotalCountOf<TArgs>
 >;
 
-export type UnionCountArgs<TMembers extends AnyUnionMembers> = {
-  where?: UnionWhereExpressionOf<TMembers>;
+export type UnionCountArgs<TUnion extends AnyUnionDefinition> = {
+  where?: UnionWhereExpressionOf<TUnion>;
 };
 
 /** What the normalizer receives for a union level, before any type narrowing. */
 export type AnyUnionQuery = {
   select?: Record<string, boolean | undefined> | null;
   where?: Record<string, unknown> | null;
+  join?: Record<string, unknown> | null;
   orderBy?: Record<string, "asc" | "desc" | undefined> | null;
   limit?: number | null;
   offset?: number | null;
@@ -1052,32 +915,12 @@ type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false
 
 /** The fields of a table that can be ordered by: not documents, arrays or binary. */
 export type OrderableFieldNamesOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true
-    ? K
-    : never;
-}[ColumnFieldNamesOf<T>];
+  [K in FieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true ? K : never;
+}[FieldNamesOf<T>];
 
 export type OrderByExpressionOf<T extends AnyTable> = Partial<
   Record<OrderableFieldNamesOf<T>, "asc" | "desc">
-> &
-  ([GroupFieldNamesOf<T>] extends [never]
-    ? unknown
-    : {
-        [K in GroupFieldNamesOf<T>]?: T["__type"]["columns"][K] extends GroupOf<infer C>
-          ? MembersOrderByOf<C>
-          : never;
-      });
-
-/** An order over a group's members: a direction per orderable member, a nested object per group. */
-export type MembersOrderByOf<C> = {
-  -readonly [K in keyof C as C[K] extends GroupOf<unknown>
-    ? K
-    : C[K] extends { __type: { runtimeType: infer R } }
-      ? IsOrderable<R> extends true
-        ? K
-        : never
-      : never]?: C[K] extends GroupOf<infer GC> ? MembersOrderByOf<GC> : "asc" | "desc";
-};
+>;
 
 export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {
   [K in RelationFieldNamesOf<T>]?: RelationQueryOf<T, S, K> | boolean | null | undefined;
@@ -1092,26 +935,14 @@ export type AnyRelationQuery =
  * ---------------------------------------------------------------------------------------- */
 
 /**
- * The field a table's primary key is a single `guid()` column under, or `never`.
+ * The aliases of a schema that can be addressed by global id: every table.
  *
- * Mirrors the runtime rule in `packages/dsqlbase/src/client/nodes.ts`. A composite key is
- * declared with `table.primaryKey((c) => [...])`, which sets no column-level flag, so such a
- * table yields `never` here exactly as it fails to become a node there.
+ * At runtime a table is addressable when it has a unique key — a primary key of any arity, a
+ * unique column, constraint or index (`packages/dsqlbase/src/client/nodes.ts`). Composite keys,
+ * constraints and indexes leave no trace in a table's column types, so the types cannot tell;
+ * a table with no unique key at all is listed here and refused at runtime.
  */
-export type NodeKeyFieldOf<T extends AnyTable> = {
-  [K in ColumnFieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true; guid: true }
-    ? K
-    : never;
-}[ColumnFieldNamesOf<T>];
-
-/** The aliases of a schema that can be addressed by global id. */
-export type NodeAliasesOf<TSchema extends AnySchema> = {
-  [K in keyof TSchema["tables"] & string]: [NodeKeyFieldOf<TableByAlias<TSchema, K>>] extends [
-    never,
-  ]
-    ? never
-    : K;
-}[keyof TSchema["tables"] & string];
+export type NodeAliasesOf<TSchema extends AnySchema> = keyof TSchema["tables"] & string;
 
 /**
  * What to do with each member of a set of tables a single call may resolve to — the members
@@ -1126,23 +957,6 @@ export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = 
     | Pick<QueryArgs<TableByAlias<TSchema, K>, TSchema>, "select" | "where" | "join">
     | boolean;
 };
-
-/** The `on` map `$findByGlobalId` and `$listByGlobalId` take. */
-export type GlobalIdOptionsOf<TSchema extends AnySchema> = OnSelectionOf<
-  NodeAliasesOf<TSchema>,
-  TSchema
->;
-
-/** The query args one member of an `on` map resolves to. */
-type NodeArgsOf<
-  TSchema extends AnySchema,
-  TAlias extends NodeAliasesOf<TSchema>,
-  TOn,
-> = TAlias extends keyof TOn
-  ? TOn[TAlias] extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
-    ? TOn[TAlias]
-    : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
-  : QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>;
 
 /** Whether an `on` map excluded a member outright. */
 type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn
@@ -1163,47 +977,18 @@ type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn
  * It is added by the lookup methods, not by the resolver, so an ordinary `findOne` row is
  * unchanged — a single-table read has nothing to discriminate.
  */
-type TaggedNodeOf<TSchema extends AnySchema, TAlias extends NodeAliasesOf<TSchema>, TOn> = Prettify<
+type TaggedNodeOf<TSchema extends AnySchema, TAlias extends NodeAliasesOf<TSchema>> = Prettify<
   { $$key: TAlias } & QueryResultOf<
     TableByAlias<TSchema, TAlias>,
     TSchema,
-    NodeArgsOf<TSchema, TAlias, TOn>
+    QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
   >
 >;
 
 /**
- * The row a global id resolves to: a union over every node the schema declares, narrowed by
- * the caller's `on` map, discriminated by `$$key`.
+ * The row a global id resolves to, with every column: a union over every node the schema
+ * declares, discriminated by `$$key`, or `null` when the row no longer exists.
  */
-export type GlobalIdResultOf<TSchema extends AnySchema, TOn = undefined> =
-  | {
-      [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
-        ? never
-        : TaggedNodeOf<TSchema, K, TOn>;
-    }[NodeAliasesOf<TSchema>]
+export type GlobalIdResultOf<TSchema extends AnySchema> =
+  | { [K in NodeAliasesOf<TSchema>]: TaggedNodeOf<TSchema, K> }[NodeAliasesOf<TSchema>]
   | null;
-
-/**
- * As {@link GlobalIdResultOf}, with the node's key field forced into every selection.
- *
- * `$listByGlobalId` returns rows in the order the ids were given, which means matching each
- * row back to the id that asked for it — and the only thing that can do that is the key
- * itself. So it is always projected, even when `select` leaves it out.
- */
-export type GlobalIdListResultOf<TSchema extends AnySchema, TOn = undefined> = {
-  [K in NodeAliasesOf<TSchema>]: IsExcluded<K, TOn> extends true
-    ? never
-    : Prettify<
-        { $$key: K } & QueryResultOf<
-          TableByAlias<TSchema, K>,
-          TSchema,
-          NodeArgsOf<TSchema, K, TOn> extends { select: infer TSelect }
-            ? Omit<NodeArgsOf<TSchema, K, TOn>, "select"> & {
-                select: TSelect &
-                  Record<NodeKeyFieldOf<TableByAlias<TSchema, K>>, true> &
-                  FieldSelectionOf<TableByAlias<TSchema, K>>;
-              }
-            : NodeArgsOf<TSchema, K, TOn>
-        >
-      >;
-}[NodeAliasesOf<TSchema>];

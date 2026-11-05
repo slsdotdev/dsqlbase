@@ -1,7 +1,7 @@
 # 0013 — Embedded objects as column groups
 
 - **Date:** 2026-10-02
-- **Status:** accepted
+- **Status:** superseded by [0017](./0017-remove-embedded-objects.md)
 - **Proposal:** `schema-embeddable-objects.md` (local working artifact, not tracked)
 - **Builds on:** [0011](./0011-json-columns.md) — its "Embeddable objects" review notes and the
   reserved nested `where`

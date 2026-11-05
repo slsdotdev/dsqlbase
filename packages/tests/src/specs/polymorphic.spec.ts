@@ -213,7 +213,7 @@ describe("polymorphic relations", () => {
 
       // A video under the photo's own uuid, and a comment on it.
       await getClient().$query(sql`
-        INSERT INTO "videos" ("id", "owner_id", "created_at", "video_url")
+        INSERT INTO "videos" ("id", "author_id", "created_at", "video_url")
         VALUES (${photo.id}, ${author.id}, '2026-02-01T00:00:00Z', 'twin.mp4')
       `);
       await getClient().$query(sql`
@@ -271,6 +271,142 @@ describe("polymorphic relations", () => {
       });
 
       expect(matched.map((comment) => comment.body)).toEqual(["Lovely light"]);
+      expect(missed).toEqual([]);
+    });
+  });
+
+  describe("a relation declared on the union, with no discriminator", () => {
+    /** One reaction per post given, by raw uuid — nothing stored says which member. */
+    const react = async (...postIds: string[]) => {
+      for (const [index, postId] of postIds.entries()) {
+        await getClient().$query(sql`
+          INSERT INTO "post_reactions" ("post_id", "emoji") VALUES (${postId}, ${`r${index}`})
+        `);
+      }
+    };
+
+    it("joins from every member, and from a member read on its own", async () => {
+      const photo = getData().photos[0];
+      const video = getData().videos[0];
+      await react(photo.id, video.id);
+
+      const posts = await getClient().posts.findMany({
+        select: { id: true },
+        join: { reactions: { select: { emoji: true } } },
+        where: { id: { in: [wrap("photos", photo.id), wrap("videos", video.id)] } },
+      });
+      // Named in `select`, it reads as `join: { reactions: true }`.
+      const selected = await getClient().posts.findMany({
+        select: { id: true, reactions: true },
+        where: { id: { eq: wrap("videos", video.id) } },
+      });
+      const fromPhoto = await getClient().photos.findOne({
+        where: { id: { eq: wrap("photos", photo.id) } },
+        select: { reactions: true },
+      });
+
+      expect(
+        Object.fromEntries(posts.map((post) => [post.$$key, post.reactions.map((r) => r.emoji)]))
+      ).toEqual({ photos: ["r0"], videos: ["r1"] });
+      expect(selected.map((post) => post.reactions.map((r) => r.emoji))).toEqual([["r1"]]);
+      expect(fromPhoto?.reactions.map((reaction) => reaction.emoji)).toEqual(["r0"]);
+    });
+
+    // `postComments.subject` stores a discriminator; the relation from the union keeps it.
+    it("joins a relation from the union onto a key with a stored discriminator", async () => {
+      const photo = getData().photos[0];
+      const video = getData().videos[0];
+
+      const posts = await getClient().posts.findMany({
+        select: { id: true, comments: true },
+        where: { id: { in: [wrap("photos", photo.id), wrap("videos", video.id)] } },
+      });
+
+      expect(
+        Object.fromEntries(posts.map((post) => [post.$$key, post.comments.map((c) => c.body)]))
+      ).toEqual({ photos: ["Lovely light"], videos: ["Great clip"] });
+
+      for (const post of posts) {
+        for (const comment of post.comments) {
+          expect(comment.subjectId).toBe(post.id);
+        }
+      }
+    });
+
+    it("reads the key as the id of the member holding it, so postId === post.id", async () => {
+      const photo = getData().photos[0];
+      const video = getData().videos[0];
+      await react(photo.id, video.id);
+
+      const reactions = await getClient().postReactions.findMany({
+        join: { post: true },
+        orderBy: { emoji: "asc" },
+      });
+
+      expect(reactions.map((reaction) => reaction.postId)).toEqual([
+        wrap("photos", photo.id),
+        wrap("videos", video.id),
+      ]);
+      expect(reactions.map((reaction) => reaction.post?.$$key)).toEqual(["photos", "videos"]);
+
+      for (const reaction of reactions) {
+        expect(reaction.postId).toBe(reaction.post?.id);
+      }
+    });
+
+    it("reads a key no member holds raw", async () => {
+      const orphan = "00000000-0000-4000-8000-000000000000";
+      await react(orphan);
+
+      const [reaction] = await getClient().postReactions.findMany({ join: { post: true } });
+
+      expect(reaction?.postId).toBe(orphan);
+      expect(reaction?.post).toBeNull();
+    });
+
+    it("picks the first member when two members hold the key", async () => {
+      const photo = getData().photos[0];
+      const author = getData().authors[0];
+
+      await getClient().$query(sql`
+        INSERT INTO "videos" ("id", "author_id", "created_at", "video_url")
+        VALUES (${photo.id}, ${author.id}, '2026-02-01T00:00:00Z', 'twin.mp4')
+      `);
+      await react(photo.id);
+
+      const [reaction] = await getClient().postReactions.findMany({ join: { post: true } });
+
+      expect(reaction?.postId).toBe(wrap("photos", photo.id));
+      expect(reaction?.post?.$$key).toBe("photos");
+    });
+
+    it("writes a member's global id as its raw key", async () => {
+      const video = getData().videos[1];
+
+      await getClient().postReactions.create({
+        data: { postId: wrap("videos", video.id), emoji: "w" },
+      });
+
+      const [row] = await getClient().$query<{ post_id: string }>(
+        sql`SELECT "post_id" FROM "post_reactions" WHERE "emoji" = 'w'`
+      );
+
+      expect(row?.post_id).toBe(video.id);
+    });
+
+    it("filters by a member's global id on the member holding the key", async () => {
+      const photo = getData().photos[0];
+      await react(photo.id);
+
+      const matched = await getClient().postReactions.findMany({
+        where: { postId: { eq: wrap("photos", photo.id) } },
+      });
+      // The right uuid under a member that does not hold it matches nothing.
+      const missed = await getClient().postReactions.findMany({
+        where: { postId: { eq: wrap("videos", photo.id) } },
+      });
+
+      expect(matched.map((reaction) => reaction.emoji)).toEqual(["r0"]);
       expect(missed).toEqual([]);
     });
   });
@@ -341,25 +477,26 @@ describe("polymorphic relations", () => {
 
       expect(backward).toEqual(expected);
     });
-  });
 
-  describe("global-id lookups with a widened on map", () => {
-    it("forwards where and join per node", async () => {
-      const author = getData().authors[0];
-
-      const found = await getClient().$findByGlobalId({
-        id: wrap("authors", author.id),
-        on: { authors: { join: { posts: { where: { $$key: "photos" } } } } },
-      });
-      const missed = await getClient().$findByGlobalId({
-        id: wrap("authors", author.id),
-        on: { authors: { where: { name: { eq: "Someone else" } } } },
+    it("resolves a union member by global id", async () => {
+      const [comment] = await getClient().postComments.findMany({
+        where: { subjectId: { exists: true } },
+        select: {
+          subjectId: true,
+          subject: {
+            id: true,
+          },
+        },
+        limit: 1,
       });
 
-      expect(
-        found?.$$key === "authors" && found.posts.every((post) => post.$$key === "photos")
-      ).toBe(true);
-      expect(missed).toBeNull();
+      expect(comment.subjectId).toBe(comment.subject?.id);
+
+      const subject = await getClient().posts.findOne({
+        where: { id: { eq: comment.subjectId as string } },
+      });
+
+      expect(subject?.id).toBe(comment.subjectId);
     });
   });
 

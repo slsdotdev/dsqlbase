@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Session } from "@dsqlbase/core";
-import type { SharedFieldsOf } from "@dsqlbase/core/definition";
+import type { UnionFieldsOf } from "./base.js";
 import { createClient } from "../create.js";
 import {
   datetime,
@@ -27,13 +27,20 @@ const photos = table("photos", {
 
 const videos = table("videos", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("owner_id").notNull(),
+  userId: uuid("user_id").notNull(),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
   caption: text("caption"),
 });
 
-const posts = union({ photos, videos });
+const posts = union(
+  { photos, videos },
+  {
+    id: uuid("id"),
+    userId: uuid("user_id").notNull(),
+    createdAt: datetime("created_at").notNull(),
+  }
+);
 
 const userRelations = relations(users, {
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
@@ -52,10 +59,14 @@ const dsql = createClient({ schema, session });
 const where = { id: { eq: "u1" } };
 
 describe("union types", () => {
-  it("shares the fields every member declares with one value type", () => {
-    expectTypeOf<SharedFieldsOf<{ photos: typeof photos; videos: typeof videos }>>().toEqualTypeOf<
-      "id" | "userId" | "createdAt"
-    >();
+  it("shares exactly the fields the union declares", () => {
+    expectTypeOf<UnionFieldsOf<typeof posts>>().toEqualTypeOf<"id" | "userId" | "createdAt">();
+  });
+
+  it("refuses to declare a field some member does not have", () => {
+    // Type-checked only: at runtime the definition throws.
+    // @ts-expect-error `photoUrl` is on photos only
+    expectTypeOf(() => union({ photos, videos }, { photoUrl: text("photo_url") })).toBeFunction();
   });
 
   it("types a has-many to a union as an array of member rows tagged by $$key", async () => {

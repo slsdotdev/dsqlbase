@@ -17,7 +17,7 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy, pagination? }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
 - The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or identity, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$identityClaims` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
 - **Every table is attached to every client.** Which tables a client may address is decided by its _type_ (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
-- **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — the tenant predicate above all. See [0007](../decisions/0007-global-ids.md).
+- **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and the unique key its payload matches (the primary key, a unique column, constraint or non-partial index), and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — the tenant predicate above all. See [0007](../decisions/0007-global-ids.md).
 - Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
@@ -31,30 +31,69 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
-- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. `SchemaRegistry._buildRelations` validates each relation when the client is built: non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected); both columns of a pair of the same `dataType`.
+- **Building a schema is three steps** that know nothing of each other. `validateSchema` (`packages/core/src/validation/validate.ts`) checks the definition and keeps nothing: per relation, non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected) and not deprecated; both columns of a pair of the same `dataType`; field-name collisions; discriminator rules; union aliases; one type per claim. `buildSchema` (`packages/core/src/runtime/build.ts`) then builds tables, unions and one **`RuntimeRelation`** per table and field (`relation.ts`): runtime columns on both sides, the runtime target, per-member columns and the discriminator for a union target — and links every reference from those relations. `SchemaRegistry` only holds the result and looks things up.
+- A relation is read through `SchemaRegistry.getRelation(table, field)` / `getRelations(table)`; nothing downstream resolves a relation definition again. A runtime `Table` holds no relations; its `TRelations` type parameter only carries their types for the client.
+- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair.
 - A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - A read's `select` takes columns and relations. `RequestNormalizer._getReadSelection` splits it before anything else: a relation named there (`true` or a field map) is merged into `join` as `true` or `{ select: map }`, ahead of the caller's own `join` entries, so everything downstream — `_getJoinEntries`, union args, core — sees one join form. The same relation truthy in both is refused. `on.<alias>.select` is split the same way. A write's `return` takes columns only.
 - Which columns a level projects is carried by `SelectOperationArgs.select`: omitted means every column, `[]` means none. The normalizer sends `undefined` when the caller named nothing as `true`, and `[]` only when it named relations and no column — so `select: {}` still reads every column, and a relation-only select reads only its joins. `_resolveFields` is where the difference is made.
-- Selection accepts no computed values. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual fields are close in the resolver but absent in the normalizer and the types.
-- A column group is selected as `[field, ColumnGroup, GroupSelection?]`: the group and the members chosen within it, none meaning all. See [Column groups](#column-groups).
+- Selection accepts no computed values. The `FieldSelection` type allows `SQLIdentifier` and nested arrays, and the result resolver already walks nested resolver trees, so virtual or nested fields are close in the resolver but absent in the normalizer and the types.
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
 - A relation may target a `union()` — see [Union joins](#union-joins).
+
+## Column references
+
+A runtime `Column` records what it points at, as `Column.references`
+(`packages/core/src/runtime/column.ts`, types in `reference.ts`). `buildSchema`'s `linkReferences`
+sets them from the runtime relations, for every column type, and freezes them once built; each
+reference's `via` is the `RuntimeRelation` that set it.
+Built columns belong to one registry, so a reference never leaks into another client.
+
+- **On the foreign key, as in SQL.** A belongs-to sets one on each `from` column, pointing at the
+  paired `to` column. A has-many / has-one sets one on each `to` column, pointing back at `from`
+  — so a relation declared on `authors` writes onto `articles.authorId`. Both sides of one
+  relation declared give the same reference, recorded once.
+- **Two kinds.** `table` points at one column. `union` is set by a belongs-to a union, and by a
+  has-many / has-one whose source is a union: `members` maps each member alias to the column the
+  key points at there, and `discriminator` names the member per row. A has-many / has-one to a
+  union sets a `table` reference on every member's column.
+- **Computed discriminator.** Where a relation declares no discriminator column — a belongs-to a
+  union without one, or the foreign key of a relation declared on a union — it is a
+  `ComputedDiscriminator` (`reference.ts`): `CASE WHEN EXISTS (SELECT 1 FROM <member> AS "__d<i>"
+  WHERE <key pairs>) THEN '<alias>' … END`, in member order. It is an `SQLNode`, so it compares
+  like a column (a join's `correlate`, a filter's `discriminator = $1`), and is projected as
+  `<expr> AS "<key>$key"`, the name a row decoder reads it by. The member is aliased inside its
+  probe only, so the key columns keep their outer alias. The registry makes one per union and key
+  columns, so a has-many from a union and a belongs-to back to it share one reference and one
+  probe. The probe skips the members' tenant predicate: it only names which member holds a key
+  the row already carries.
+- **`dependsOn`** is the discriminator of each union reference — a column, or a computed one.
+  `_resolveFields` projects it with the column whenever the column is selected, ungated by type.
+- **`resolveReferences(row?)`** follows table references to where each chain ends (a column with
+  no references ends at itself) and reports a ring instead of looping. A union reference is an
+  end of its own; given the row, it resolves to the member its discriminator names. It never
+  throws: a plain key may legitimately point at two tables, so whether two ends or a ring is a
+  conflict is the reader's decision — `client/nodes.ts` refuses both for a `guid()` column.
+- Joins do not read references: `_resolveJoins` stays relation-driven, since a has-many join
+  starts on the source table while its reference sits on the target.
 
 ## Union joins
 
 A relation to a union (`packages/core/src/definition/union.ts`) is a lateral join over a
 `UNION ALL`, one branch per member that runs. The registry resolves each member's `to` columns
-when the client is built (`SchemaRegistry.getUnionRelationColumns`), whichever form `to` was
-written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/src/runtime/union.ts`).
+when the client is built — the relation's `members` — whichever form `to` was written in, and
+its `target` is the runtime `Union` (`packages/core/src/runtime/union.ts`).
 
 - **Normalizer.** `_getUnionArgs` (`packages/dsqlbase/src/client/model/normalizer.ts`) produces
   `UnionSelectOperationArgs`, with one `SelectOperationArgs` per member that runs. It maps the
   shared `select` / `where` onto each member's columns, merges `on.<alias>`, drops members set
-  to `false`, and refuses non-shared fields and `distinct`. `$$key` conditions in the shared
-  `where` are folded per member by `WhereBuilder.foldKey`. The alias is a constant inside a branch, so
-  each condition is decided before any SQL exists: a member whose `where` folds to `false`
-  produces no branch, and a decided condition leaves no trace in SQL. `orderBy` stays structured
+  to `false`, and refuses undeclared fields and `distinct`. `$$key` conditions in the shared
+  `where` are folded per member by `WhereBuilder.foldKey`, and so are global ids on a shared
+  guid field (`_foldGlobalIds`): an id naming another node than the member's column can never
+  match it. The alias is a constant inside a branch, so each condition is decided before any
+  SQL exists: a member whose `where` folds to `false` produces no branch, and a decided
+  condition leaves no trace in SQL. `orderBy` stays structured
   (`UnionOrderKey[]`), because each member resolves the field to its own column.
 - **Operations factory.** `_resolveUnionParams` builds every branch through
   `_resolveSelectParams(member, …)`, so each branch passes [the `WHERE` seam](#the-where-seam),
@@ -73,10 +112,19 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
   branch, and the lateral aggregates `"data"` with `json_agg(… ORDER BY …)` for has-many, or
   takes the one row for has-one.
 - **All members pruned.** No join is emitted. The resolver answers `[]` or `null`.
-- **Belongs-to a union.** `SchemaRegistry.getRelationDiscriminator` gives its discriminator
-  column. Each branch then carries `correlate: [discriminator = '<alias>']`, which the builder
-  renders in the parent's scope next to the correlation, so only the named member's branch can
-  match.
+- **Belongs-to a union.** The relation's `discriminator` is its discriminator column, or the
+  computed one when it declares none. Each branch then carries
+  `correlate: [discriminator = '<alias>']`, which the builder renders in the parent's scope next
+  to the correlation, so only the named member's branch can match — with a computed one, the
+  first member holding the key.
+- **A union as the source.** `relations(union, …)` gives every member a `RuntimeRelation` of its
+  own (`collectRelations` in `validate.ts`, built by `buildSchema`), with `from` resolved to its
+  own column and `declaredOn` the union. A join from a union branch, or from a
+  member read alone, is then an ordinary table join. The normalizer's `_getUnionArgs` takes the
+  union's relations in the shared `join` / `select` and merges them into every member's join.
+  A has-many / has-one declared on a union sets no per-member reference; `linkReferences` sets
+  one `union` reference on the foreign key instead, after every other relation, so a
+  belongs-to back over the same key shares its discriminator.
 
 
 ## The `WHERE` seam
@@ -140,18 +188,15 @@ level passes through `_resolveSelectParams`.
 
 ### Insert fill
 
-`_resolveInsertEntries` writes every real column — `Table.getLeafEntries()`, a group's members
-included — so one the caller did not write takes its `$onCreate` or `DEFAULT`. A `FieldMutation`
-names its column by field, or carries the column itself: that is how the normalizer writes a
-group's member, flattening a group's value (`_getGroupMutations`) — `null` to every column, an
-object to the members it names. A column carried directly must belong to the table. `update`
-runs `$onUpdate` over the same leaf columns, so a member's hook fires on every update too.
-
 `_resolveInsertEntries` fills each `tenantKeys` column from the identity, ahead of the generic
 `getInsertValue` fallback, so `onCreate` and `DEFAULT` never apply to one. It throws in **both**
 modes when there are no claims: the column is `notNull` and nothing else can fill it, so the
 alternative is a row in no tenant. A caller-supplied value is already refused by the read-only
 rule below — the claim wins.
+
+`_resolveInsertEntries` writes every column, so one the caller did not write takes its
+`$onCreate` or `DEFAULT`. `_resolveUpdateEntries` likewise runs `$onUpdate` for every column the
+update does not name, so a hook fires on every update, not only when its column is set.
 
 ## Result resolution and `$$meta`
 
@@ -170,10 +215,13 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 — the same row the column branch reads from. A resolver that needs the database's own text
 representation of a value rather than the decoded one therefore has it.
 
-Three things produce a `MetaResolver`. One is a column group (below). Another is a column with a row decoder
-(`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
-its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
-The third is `$$meta`, which `_resolveFields` pushes first for every level it
+Two things produce a `MetaResolver`. One is a column with a row decoder
+(`Column.rowDecoder`), whose field is read from the whole row (see
+[Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)). Separately, `_resolveFields`
+projects every selected column's `dependsOn` — the discriminator of a union reference, see
+[Column references](#column-references) — whether or not it has a decoder, so a plain-`uuid`
+belongs-to a union also selects its discriminator.
+The other is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:
 
@@ -198,27 +246,6 @@ runs that member's list, `$$meta` included, and puts `$$key` on the record ahead
 naming a member that did not run throws, because this builder cannot produce one. Dispatch
 decides _which_ resolvers run, so it happens before any field is read, not in a post-processing
 step ([0004](../decisions/0004-record-meta.md)).
-
-## Column groups
-
-A column group (`ColumnGroup`, `packages/core/src/runtime/group.ts`) is a table field whose
-members are built columns and nested groups. `Table.columns` holds it beside the plain columns;
-`getColumn(field)` returns either, and a member is reached through its group
-(`group.getColumn("amount")`) — there are no dotted paths. `getColumnEntries()` lists plain
-columns only, `getGroupEntries()` the groups, and `getLeafEntries()` every real column with its
-field path.
-
-The group owns how it is read. `ColumnGroup.reader(selection)` returns the columns to project and
-a `resolve(row)` that builds the object; `_resolveFields` projects the columns and pushes the
-resolve as a `MetaResolver`, so no resolver kind was added. A group is `nullable` when every
-member, nested groups included, is nullable, and resolves to `null` when every one of its columns
-is `NULL` — so a nullable group projects all of its columns whatever the selection names, and
-emits only the selected members. Nested groups resolve inside out. A join level reads a group
-the same way, since its rows are keyed by column name too.
-
-Relation keys, discriminators, primary keys and tenant claims are plain columns: the registry
-refuses a relation or discriminator naming a member, the table definition a primary key on one,
-and the embedded object a primary-key or claim member.
 
 ## Pagination and count
 
@@ -298,9 +325,8 @@ The client gives it one: `packages/dsqlbase/src/client/model/filters.ts` holds a
 (`RUNTIME_TYPE_RULES`) of runtime type → operators, value shorthand, orderable, and whether
 `distinct` can compare it. Both sides read that table:
 
-- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` / `WhereExpressionOf` (with `GroupFilterOf` /
-  `MembersWhereOf` for a column group) in `filters.ts`, and `OrderableFieldNamesOf` /
-  `MembersOrderByOf` in `base.ts`, are written from it (`OperatorsOf`,
+- **Types** — `FilterOf<R, V>` / `ColumnFilterOf` / `WhereExpressionOf` in `filters.ts`, and
+  `OrderableFieldNamesOf` in `base.ts`, are written from it (`OperatorsOf`,
   `ShorthandRuntimeType`, `OrderableRuntimeType`), for tables and for a union's shared fields.
 - **Runtime** — `WhereBuilder._getColumnFilter` checks every operator of a field's filter
   against the column's set and AND-s the ones present; a bare value is accepted only where the
@@ -319,18 +345,8 @@ through the codec, since it is not a value of the column. `json` and `jsonb`
 are separate runtime types because only `jsonb` has equality and containment.
 
 A plain object counts as operators only when it names one, since a value can itself be a plain
-object (an `interval` read as a `Duration`). `where` inside a field's filter is the nested
-filter. On a column group it is built: `WhereBuilder._getGroupFilter` takes `exists` —
-`ColumnGroup.exists`, any column `IS NOT NULL` or every one `IS NULL`, the rule the group is read
-`null` by — and `where`, which recurses into `_build` with the group as the scope, so a nested
-`where` has fields and `and` / `or` / `not` like a table's. Members are named only inside it, so a
-member called `exists` is never read as the operator, and anything else on a group throws. Inside
-a column's filter `where` is still reserved — for a `jsonb` document's keys — and throws until it
-is built.
-
-`orderBy` on a group takes a nested object, never a direction: `_getFieldOrderKeys` recurses with
-the group and names each member key by its field path (`netValue.amount`), which is also what a
-keyset cursor's signature records.
+object (an `interval` read as a `Duration`). `where` inside a field's filter is reserved for a
+nested filter into the value and throws until it is built.
 
 ## Read-only columns
 

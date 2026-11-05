@@ -19,7 +19,7 @@ export const authors = table("authors", {
 
 export const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
-  authorId: guid("author_id", "authors").notNull(),
+  authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
 });
 
@@ -47,9 +47,10 @@ serializes exactly as `uuid()`, so switching an existing column over produces no
 
 ## Nodes
 
-A table is a **node** when its primary key is exactly one `guid()` column. Only a node can be
-named by an id, and the name it is known by is its **schema alias** — the key it is exported
-under, which is how the client addresses it:
+A table is a **node** — addressable by id — when it has a **unique key**: its primary key, of
+any arity, a `.unique()` column, a `table.unique(...)` constraint, or a unique index over plain
+columns. An id names a node by its **schema alias** — the key it is exported under, which is how
+the client addresses it:
 
 ```ts
 export const revisions = table("article_revisions", { id: guid("id").primaryKey() /* … */ });
@@ -57,35 +58,66 @@ export const revisions = table("article_revisions", { id: guid("id").primaryKey(
 ```
 
 So ids follow the identity your callers see. Renaming the database table does not invalidate
-ids already handed out; re-keying the schema object does. If you need a key that outlives both,
-pass it explicitly — `guid("id", "Article")` — and it becomes a stable label you control.
+ids already handed out; re-keying the schema object does.
 
-A table whose primary key is a plain `uuid()`, or is composite, is **not** a node. It works
-normally; it just has no id of its own, and nothing can point at it with `guid(col, key)`.
-
-## Pointing at another node
-
-The second argument names the node a column's values belong to:
+An id resolves only when its payload's fields are **exactly one** of the table's unique keys, so
+one id names at most one row:
 
 ```ts
-authorId: guid("author_id", "authors"); // wraps as an authors id
-parentId: guid("parent_id"); // no key → this column's own table (self reference)
+encodeGlobalId("articles", { id }); // the primary key
+encodeGlobalId("articleTags", { articleId, tagId }); // a composite key: both fields
+encodeGlobalId("tags", { label: "news" }); // a unique column
+encodeGlobalId("articleTags", { articleId }); // ✗ part of a key: GlobalIdError("key_mismatch")
 ```
 
-This is what makes `article.authorId === article.author.id` hold. Without it the application
-has to unwrap one side before it can compare them.
+Only `guid()` columns _emit_ ids. A table keyed by a plain `uuid()`, or by a composite key, is
+still addressable, but its rows hand out no id of their own; build one with `encodeGlobalId`. A
+table whose guid key is also a relation key — a profile sharing its user's id — emits its
+user's id, and is addressable by `["profiles", { userId }]` built by hand.
 
-Both sides of a relation pair must agree. A `guid()` paired with a plain `uuid()`, or with a
-`guid()` naming a different node, throws when the client is built. Neither would break the SQL
-— a join correlates on the raw columns — which is exactly why it is caught early.
+Not keys: a partial unique index (unique only where its predicate holds), an expression index
+(no payload field names an expression), and a nullable unique column's `NULL`s (a payload cannot
+carry `null`). A table with none of the above is not a node.
+
+## What a column's ids name
+
+`guid()` takes only a column name. What its values name is worked out from the relations when
+the client is built, in this order:
+
+1. **A key pointing at a union** — the `from` of a belongs-to a union, or the foreign key of a
+   relation [declared on a union](./polymorphic-relations.md#relations-declared-on-a-union) —
+   names whichever member the row points at — see
+   [below](#a-column-that-points-at-one-of-several-nodes).
+2. **A relation key column** names the column it is paired with: the `from` of a `belongsTo`, or
+   the `to` of a `hasMany` / `hasOne`, followed to where that chain ends. `articles.authorId`
+   above reads as an authors id because `articles.author` pairs it with `authors.id`. A self
+   reference works the same way, through its own relation.
+3. **Any other column** names its own table and field. A primary key is the table's node id; an
+   unrelated `photos.ownerId` reads as a photos id carrying `ownerId`, which is a stable,
+   self-describing value. It is the address of a photo only if `ownerId` is unique; otherwise
+   `$findByGlobalId` refuses it.
+
+Rule 2 is what makes `article.authorId === article.author.id` hold without the application
+unwrapping either side. Since the target comes from the relation, it cannot drift from it.
+Adding a relation to a column that had none changes what its ids name; treat it as the schema
+change it is.
+
+Both sides of a relation pair must be `guid()` columns, or neither. A `guid()` paired with a
+plain `uuid()` throws when the client is built, and so does a column whose relations end at
+different columns, or that references another in a ring. Neither would break the SQL — a join correlates on the raw columns —
+which is exactly why it is caught early.
 
 ### A column that points at one of several nodes
 
 The `from` column of a [belongs-to a union](./polymorphic-relations.md#a-belongs-to-a-union) is
-a keyless `guid()` whose node is named row by row by the relation's discriminator. It reads back
-wrapped with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for
-any member of the union on writes and filters, and throws `key_mismatch` for any other. Declaring it
-with a static key throws, since only one of the key and the discriminator can decide.
+a `guid()` whose node is named row by row by the relation's discriminator. It reads back wrapped
+with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for any
+member of the union on writes and filters, and throws `key_mismatch` for any other.
+
+With no discriminator — a belongs-to a union without one, or the foreign key of a relation
+declared on a union — the member is the first holding the key, computed when the query runs
+([without a discriminator](./polymorphic-relations.md#without-a-discriminator)). A key no member
+holds reads raw.
 
 ## Reading and writing
 
@@ -98,9 +130,6 @@ await dsql.articles.findOne({ where: { id: { eq: "3f1c0e3e-…" } } }); // ✓ r
 await dsql.articles.create({ data: { authorId: someAuthorId, title: "…" } }); // ✓ either
 ```
 
-A `guid()` member of an [embedded object](./embeddable-objects.md) carries ids the same way,
-read and written through its group.
-
 An id naming the **wrong** node throws `GlobalIdError` with `code: "key_mismatch"`, when the
 query is built rather than when it runs. That is the safety net a bare uuid cannot provide: the
 same mistake with plain uuids is a query that quietly matches nothing.
@@ -110,49 +139,39 @@ same mistake with plain uuids is a query that quietly matches nothing.
 ```ts
 import { decodeGlobalId, encodeGlobalId, isGlobalId, GlobalIdError } from "dsqlbase";
 
-const record = await dsql.$findByGlobalId({ id });
+const record = await dsql.$findByGlobalId(id);
 
 if (record?.$$key === "authors") record.name;
 if (record?.$$key === "articles") record.title;
 ```
 
-`$findByGlobalId({ id, on? })` returns the row, or `null` if it no longer exists. The result is
-a union over every node in the schema, and **`$$key` is what narrows it** — the literal alias,
-on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
+`$findByGlobalId(id)` returns the row with every column, or `null` if it no longer exists. The
+result is a union over every node in the schema, and **`$$key` is what narrows it** — the
+literal alias, on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
 on a nested property, so `record.$$meta.key === "authors"` compiles and narrows nothing.
 
-`on` says what to read per node — the same map a [union join](./polymorphic-relations.md)
-takes:
+Neither lookup takes anything else. A narrower read — some columns, a join, an extra filter — is
+the table's own `findOne` or `findMany`, which accept the same ids:
 
 ```ts
-const record = await dsql.$findByGlobalId({
-  id,
-  on: {
-    authors: { select: { id: true, name: true }, join: { articles: true } },
-    articles: { where: { publishedAt: { exists: true } } }, // a draft reads as a miss
-    revisions: false, // excluded: gone from the union, and refused at runtime
-  },
-});
+const { key } = decodeGlobalId(id);
+
+if (key === "authors") {
+  await dsql.authors.findOne({ where: { id: { eq: id } }, select: { name: true } });
+}
 ```
 
-An entry is `true` (the whole row, also the default), `false`, or an object with a `select`, a
-`join` over that node's relations, and a `where` AND-ed with the id — a row that fails it is
-`null`, exactly as a missing one.
-
-`$listByGlobalId({ ids, on? })` resolves many at once — one query per table rather than one per
-id — and returns them **in the order you asked**, with `null` wherever a row is missing. That is
-the shape a batch resolver wants:
+`$listByGlobalId(ids)` resolves many at once — one query per table rather than one per id — and
+returns them **in the order you asked**, each with every column, and `null` wherever a row is
+missing. That is the shape a batch resolver wants:
 
 ```ts
-const records = await dsql.$listByGlobalId({ ids }); // records[i] ↔ ids[i], or null
+const [a, b, c] = await dsql.$listByGlobalId([id1, id2, id3]); // [{ … }, null, { … }] if id2 is gone
 ```
 
 A row is matched back to its id by node and key, not by the id's text: an id whose uuid is
 spelled differently — upper case, braces, no hyphens — resolves here as it does in
 `$findByGlobalId`.
-
-It always returns the node's key field, even when `select` leaves it out: matching a row back to
-the id that asked for it is what the key is for.
 
 ## Tenancy
 
@@ -168,13 +187,12 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | Raw uuid to a guid column                                   | accepted                                                 |
 | Malformed `guid:` string                                    | `GlobalIdError("format")`                                |
 | Wrapped id naming another node                              | `GlobalIdError("key_mismatch")`, when the query is built |
-| Wrapped id whose payload is not that node's key             | `GlobalIdError("key_mismatch")`                          |
-| `$findByGlobalId` for a table that is not a node            | `GlobalIdError("unknown_node")`                          |
-| `$findByGlobalId` for a node `on` set to `false`            | `GlobalIdError("unknown_node")`                          |
+| Lookup fields that are not one of the table's unique keys   | `GlobalIdError("key_mismatch")`                          |
+| A lookup for a table not in the schema, or with no key      | `GlobalIdError("unknown_node")`                          |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
-| Two tables claiming one node key, or a key naming no node   | throws when the client is built                          |
-| A relation pairing a guid with a uuid, or with another node | throws when the client is built                          |
+| A relation pairing a guid with a uuid                       | throws when the client is built                          |
+| A column whose relations end at different columns           | throws when the client is built                          |
 | `$query` with a wrapped id                                  | **not** unwrapped — see below                            |
 
 ## Raw SQL
@@ -196,13 +214,13 @@ const { key, pk } = decodeGlobalId(id); // { key: "articles", pk: { id: "3f1c0e3
 
 ## The format
 
-`guid:` followed by base64url of `[tableKey, { [keyField]: value }]`. Treat it as opaque — the
+`guid:` followed by base64url of `[tableKey, { [keyField]: value, … }]`. Treat it as opaque — the
 helpers are the contract, not the encoding — but two properties are worth knowing:
 
 - **The prefix makes "is this wrapped?" exact**, since a uuid never starts with `guid:`. That is
   what lets a column accept both forms without guessing.
-- **The payload names its key field** rather than assuming `id`, so a node keyed `membershipId`
-  works and the format will not have to change if composite keys ever become declarable.
+- **The payload names its key fields** rather than assuming `id`, so a node keyed `membershipId`
+  works, and a composite key is one object with every field of it.
 
 Both the table key and the field names are **aliases** — the names the client uses — so an id
 follows your API's identity rather than the physical schema.
