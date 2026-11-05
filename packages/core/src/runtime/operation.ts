@@ -1,10 +1,11 @@
 import { TypedObject } from "../utils/index.js";
-import { AnyColumnDefinition, KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
+import { KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
 import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
-import { AnyColumn } from "./column.js";
+import { AnyColumn, Column } from "./column.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -328,28 +329,32 @@ export class OperationsFactory<
    * No selection projects every column; an empty one projects none.
    */
   private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
-    const columns: AnyColumn[] = [];
+    // A computed discriminator is projected as its aliased expression.
+    const columns: (AnyColumn | SQLNode)[] = [];
+    const seen = new Set<unknown>();
     const resolvers: ResolverEntry[] = [];
 
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
     resolvers.push([META_FIELD, () => table.meta]);
 
-    // A column with a row decoder reads siblings of its row: they are projected with it — once,
-    // however many columns need them — and the field is resolved from the whole row.
+    // A column's dependencies — the discriminator of a union reference — are projected with it,
+    // once however many columns need them. A column with a row decoder is resolved from the
+    // whole row, which is how such a decoder reads them.
     const add = (fieldName: string, column: AnyColumn) => {
-      if (!columns.includes(column)) {
-        columns.push(column);
+      for (const projected of [column, ...column.dependsOn]) {
+        if (seen.has(projected)) {
+          continue;
+        }
+
+        seen.add(projected);
+        columns.push(
+          projected instanceof ComputedDiscriminator ? projected.projection() : projected
+        );
       }
 
       if (!column.rowDecoder) {
         resolvers.push([fieldName, column]);
         return;
-      }
-
-      for (const dependency of column.rowDecoder.dependsOn) {
-        if (!columns.includes(dependency)) {
-          columns.push(dependency);
-        }
       }
 
       resolvers.push([fieldName, (row) => column.resolveRow(row)]);
@@ -500,7 +505,9 @@ export class OperationsFactory<
 
     const columns = json
       ? fields.columns.map((column) =>
-          column.textInJson ? sql`${column}::text AS ${sql.identifier(column.name)}` : column
+          column instanceof Column && column.textInJson
+            ? sql`${column}::text AS ${sql.identifier(column.name)}`
+            : column
         )
       : fields.columns;
 
@@ -531,31 +538,33 @@ export class OperationsFactory<
     for (const [key, value] of join) {
       const fieldName = typeof key === "string" ? key : key.name;
 
-      const relation = table.getRelation(fieldName);
+      const relation = this._ctx.schema.getRelation(table, fieldName);
 
       if (!relation) {
         throw new Error(`Relation "${fieldName}" does not exist on table "${table.name}"`);
       }
 
-      const target = this._ctx.schema.getRelationTarget(table.name, fieldName);
       const isUnionArgs = "members" in value;
 
-      if (target instanceof Union !== isUnionArgs) {
+      if ((relation.kind === "union") !== isUnionArgs) {
         throw new Error(
           `Relation "${fieldName}" on table "${table.name}" targets ` +
-            (target instanceof Union ? `union "${target.alias}"` : `table "${target.name}"`) +
+            (relation.kind === "union"
+              ? `union "${relation.target.alias}"`
+              : `table "${relation.target.name}"`) +
             `, but was joined with arguments for ${isUnionArgs ? "a union" : "a table"}.`
         );
       }
 
-      if (target instanceof Union) {
-        const mode = relation.type === Relation.HAS_MANY ? "many" : "one";
+      const mode = relation.type === Relation.HAS_MANY ? "many" : "one";
+
+      if (relation.kind === "union") {
         const union = this._resolveUnionParams(
-          target,
+          relation.target,
           value as UnionSelectOperationArgs,
           mode,
-          this._ctx.schema.getUnionRelationColumns(table.name, fieldName),
-          this._ctx.schema.getRelationDiscriminator(table.name, fieldName)
+          relation.members,
+          relation.discriminator
         );
 
         resolvers.push([fieldName, union.resolver]);
@@ -569,7 +578,7 @@ export class OperationsFactory<
         joins.push({
           alias: fieldName,
           type: mode,
-          from: this._resolveFromColumns(table, fieldName, relation.from),
+          from: [...relation.from],
           union: union.params,
         });
 
@@ -585,34 +594,11 @@ export class OperationsFactory<
         );
       }
 
-      const targetTable = target;
-
-      if (relation.from.length === 0 || relation.from.length !== relation.to.length) {
-        throw new Error(
-          `Relation "${fieldName}" on table "${table.name}" must pair an equal, non-zero ` +
-            `number of columns (got ${relation.from.length} from, ${relation.to.length} to)`
-        );
-      }
-
-      const fromColumns = this._resolveFromColumns(table, fieldName, relation.from);
-
-      const toColumns = (relation.to as AnyColumnDefinition[]).map((ref) => {
-        const column = targetTable.getColumn(ref.name);
-
-        if (!column) {
-          throw new Error(
-            `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}" on target table "${targetTable.name}"`
-          );
-        }
-
-        return column;
-      });
-
       const joinResolvers: ResolverEntry[] = [];
       const params: SelectParams = this._resolveSelectParams(
-        targetTable,
+        relation.target,
         tableArgs,
-        relation.type === Relation.HAS_MANY ? "many" : "one",
+        mode,
         joinResolvers,
         true
       );
@@ -621,9 +607,9 @@ export class OperationsFactory<
       // level renders under, and a self-join needs the two sides aliased differently.
       joins.push({
         alias: fieldName,
-        type: relation.type === "has_many" ? "many" : "one",
-        from: fromColumns,
-        to: toColumns,
+        type: mode,
+        from: [...relation.from],
+        to: [...relation.to],
         params,
       });
 
@@ -631,24 +617,6 @@ export class OperationsFactory<
     }
 
     return joins;
-  }
-
-  private _resolveFromColumns<T extends AnyTable>(
-    table: T,
-    fieldName: string,
-    from: AnyColumnDefinition[]
-  ): AnyColumn[] {
-    return from.map((ref) => {
-      const column = table.getColumn(ref.name);
-
-      if (!column) {
-        throw new Error(
-          `Invalid relation "${fieldName}" on table "${table.name}": missing column "${ref.name}"`
-        );
-      }
-
-      return column;
-    });
   }
 
   /**
@@ -674,8 +642,8 @@ export class OperationsFactory<
     union: Union,
     args: UnionSelectOperationArgs,
     mode: OperationMode,
-    pairs?: Record<string, AnyColumn[]>,
-    discriminator?: AnyColumn
+    pairs?: Readonly<Record<string, readonly AnyColumn[]>>,
+    discriminator?: AnyColumn | ComputedDiscriminator
   ): { params: UnionSelectParams; resolver: UnionResolver } {
     const orderBy = args.orderBy ?? [];
     const paged = args.keys === true || args.keyset !== undefined;
@@ -787,7 +755,7 @@ export class OperationsFactory<
 
       branches.push({
         params: select,
-        to: pairs?.[alias],
+        to: pairs?.[alias] ? [...pairs[alias]] : undefined,
         // A belongs-to row names its member in the discriminator; only that member's branch may
         // match it, whatever ids the other members hold.
         correlate: discriminator ? [sql.eq(discriminator, sql.literal(alias))] : undefined,

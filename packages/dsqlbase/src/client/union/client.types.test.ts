@@ -2,6 +2,7 @@ import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Session } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import {
+  belongsTo,
   datetime,
   hasMany,
   hasOne,
@@ -51,7 +52,33 @@ const photoRelations = relations(photos, {
   owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
 });
 
-const schema = { users, photos, videos, posts, userRelations, photoRelations };
+const reactions = table("reactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  postId: uuid("post_id").notNull(),
+  emoji: text("emoji").notNull(),
+});
+
+// Declared on the union: every member has `reactions`.
+const postRelations = relations(posts, {
+  reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }),
+});
+
+// A belongs-to a union without a discriminator.
+const reactionRelations = relations(reactions, {
+  post: belongsTo(posts, { from: [reactions.columns.postId], to: [posts.columns.id] }),
+});
+
+const schema = {
+  users,
+  photos,
+  videos,
+  posts,
+  reactions,
+  userRelations,
+  photoRelations,
+  postRelations,
+  reactionRelations,
+};
 
 const session = { execute: vi.fn(async () => []) } as unknown as Session;
 const dsql = createClient({ schema, session });
@@ -83,6 +110,36 @@ describe("the union client", () => {
     if (item?.$$key === "photos") {
       expectTypeOf(item.$$meta.__typename).toEqualTypeOf<"Photo">();
     }
+  });
+
+  it("joins a relation declared on the union from every member", async () => {
+    const [joined] = await dsql.posts.findMany({
+      join: { reactions: { select: { emoji: true } } },
+    });
+    const [selected] = await dsql.posts.findMany({ select: { id: true, reactions: true } });
+
+    type Joined = NonNullable<typeof joined>["reactions"][number];
+    type Selected = NonNullable<typeof selected>["reactions"][number];
+
+    expectTypeOf(joined).not.toBeNever();
+    expectTypeOf(selected).not.toBeNever();
+    expectTypeOf<Joined["emoji"]>().toEqualTypeOf<string>();
+    expectTypeOf<Selected["postId"]>().toEqualTypeOf<string>();
+  });
+
+  it("gives each member the union's relations", async () => {
+    const photo = await dsql.photos.findOne({
+      where: { id: { eq: "x" } },
+      select: { reactions: true },
+    });
+
+    expectTypeOf(photo?.reactions[0]?.emoji).toEqualTypeOf<string | undefined>();
+  });
+
+  it("joins a belongs-to a union that declares no discriminator", async () => {
+    const [reaction] = await dsql.reactions.findMany({ join: { post: true } });
+
+    expectTypeOf(reaction?.post?.$$key).toEqualTypeOf<"photos" | "videos" | undefined>();
   });
 
   it("counts to a number", async () => {

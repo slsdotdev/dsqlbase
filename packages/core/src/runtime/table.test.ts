@@ -4,8 +4,6 @@ import { Column } from "./column.js";
 import { sql } from "../sql/index.js";
 import {
   ColumnDefinition,
-  Relation,
-  RelationsDefinition,
   NamespaceDefinition,
   TableDefinition,
   NodeRef,
@@ -180,57 +178,13 @@ describe("Table", () => {
       expect(text).toBe('"test"."users"');
     });
   });
-
-  describe("with relations", () => {
-    const posts = new TableDefinition("posts", {
-      columns: {
-        id: new ColumnDefinition("id").primaryKey(),
-        userId: new ColumnDefinition("user_id").notNull(),
-        authorId: new ColumnDefinition("author_id").notNull(),
-      },
-    });
-
-    const users = new TableDefinition("users", {
-      columns: {
-        id: new ColumnDefinition("id").primaryKey(),
-      },
-    });
-
-    const userRelations = new RelationsDefinition(users, {
-      posts: {
-        target: posts,
-        type: Relation.HAS_MANY,
-        from: [users.columns.id],
-        to: [posts.columns.userId],
-      },
-    });
-
-    const secondUserRelations = new RelationsDefinition(users, {
-      authored: {
-        target: posts,
-        type: Relation.HAS_MANY,
-        from: [users.columns.id],
-        to: [posts.columns.authorId],
-      },
-    });
-
-    it("should create a Table object with the correct relations", () => {
-      const table = new Table(definition, {
-        ...userRelations.relations,
-        ...secondUserRelations.relations,
-      });
-
-      expect(table.name).toBe("users");
-      expect(table.relations).toHaveProperty("posts");
-    });
-  });
 });
 
 describe("Table meta", () => {
   const columns = { id: new ColumnDefinition("id").primaryKey() };
 
   it("reports the schema alias as `key` and the database name as `table`", () => {
-    const table = new Table(new TableDefinition("team_members", { columns }), undefined, "members");
+    const table = new Table(new TableDefinition("team_members", { columns }), "members");
 
     expect(table.meta).toEqual({ key: "members", table: "team_members" });
   });

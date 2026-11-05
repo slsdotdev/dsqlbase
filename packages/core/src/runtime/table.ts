@@ -117,7 +117,6 @@ export class Table<
 
   readonly schema: TableSchemaName<this>;
   readonly columns: TableColumns<this>;
-  readonly relations: TRelations;
 
   /**
    * The columns of the table's primary key, in key order. Empty when the table declares none.
@@ -151,11 +150,11 @@ export class Table<
 
   private readonly _ref: SQLNode = new TableRef(this);
 
-  constructor(
-    definition: TableDefinition<TName, TColumns, TNamespace>,
-    relations?: TRelations,
-    alias?: string
-  ) {
+  /**
+   * A table's relations are not held here: `SchemaRegistry` resolves them against the whole
+   * schema (`getRelation`). `TRelations` only carries their types, for the client.
+   */
+  constructor(definition: TableDefinition<TName, TColumns, TNamespace>, alias?: string) {
     this.schema = definition["_namespace"]?.name as TableSchemaName<this>;
     this.name = definition.name;
     this.alias = alias ?? definition.name;
@@ -164,7 +163,6 @@ export class Table<
     this.isCompositeKey = this.primaryKey.length > 1;
     this.tenantKeys = this.getColumnEntries().filter(([, column]) => column.tenantKey);
     this.meta = this._buildMeta(definition);
-    this.relations = relations as TRelations;
   }
 
   private _buildColumns(
@@ -257,18 +255,6 @@ export class Table<
 
   public getColumnEntries(): [string, Column<string, ColumnConfig, this>][] {
     return Object.entries(this.columns);
-  }
-
-  public hasRelation(fieldName: string): boolean {
-    return this.relations ? Object.hasOwn(this.relations, fieldName) : false;
-  }
-
-  public getRelation(fieldName: string) {
-    if (!this.relations || !this.relations[fieldName]) {
-      return undefined;
-    }
-
-    return this.relations[fieldName];
   }
 
   /**

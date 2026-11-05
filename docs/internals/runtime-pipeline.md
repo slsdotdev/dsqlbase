@@ -31,7 +31,9 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
-- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair. `SchemaRegistry._buildRelations` validates each relation when the client is built: non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected); both columns of a pair of the same `dataType`.
+- **Building a schema is three steps** that know nothing of each other. `validateSchema` (`packages/core/src/validation/validate.ts`) checks the definition and keeps nothing: per relation, non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected) and not deprecated; both columns of a pair of the same `dataType`; field-name collisions; discriminator rules; union aliases; one type per claim. `buildSchema` (`packages/core/src/runtime/build.ts`) then builds tables, unions and one **`RuntimeRelation`** per table and field (`relation.ts`): runtime columns on both sides, the runtime target, per-member columns and the discriminator for a union target — and links every reference from those relations. `SchemaRegistry` only holds the result and looks things up.
+- A relation is read through `SchemaRegistry.getRelation(table, field)` / `getRelations(table)`; nothing downstream resolves a relation definition again. A runtime `Table` holds no relations; its `TRelations` type parameter only carries their types for the client.
+- `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair.
 - A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
 - Joins are only allowed on declared relations. Every select level renders under its own `"__t<n>"` alias, so levels whose correlation names would otherwise collide — a join to the same table as an ancestor, or two tables sharing a name across schemas — stay distinct. Sibling joins to one table at a single level were never a problem; each lateral has its own scope. See [Select-tree aliasing](./select-tree-aliasing.md).
 - A read's `select` takes columns and relations. `RequestNormalizer._getReadSelection` splits it before anything else: a relation named there (`true` or a field map) is merged into `join` as `true` or `{ select: map }`, ahead of the caller's own `join` entries, so everything downstream — `_getJoinEntries`, union args, core — sees one join form. The same relation truthy in both is refused. `on.<alias>.select` is split the same way. A write's `return` takes columns only.
@@ -40,12 +42,48 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
 - A relation may target a `union()` — see [Union joins](#union-joins).
 
+## Column references
+
+A runtime `Column` records what it points at, as `Column.references`
+(`packages/core/src/runtime/column.ts`, types in `reference.ts`). `buildSchema`'s `linkReferences`
+sets them from the runtime relations, for every column type, and freezes them once built; each
+reference's `via` is the `RuntimeRelation` that set it.
+Built columns belong to one registry, so a reference never leaks into another client.
+
+- **On the foreign key, as in SQL.** A belongs-to sets one on each `from` column, pointing at the
+  paired `to` column. A has-many / has-one sets one on each `to` column, pointing back at `from`
+  — so a relation declared on `authors` writes onto `articles.authorId`. Both sides of one
+  relation declared give the same reference, recorded once.
+- **Two kinds.** `table` points at one column. `union` is set by a belongs-to a union, and by a
+  has-many / has-one whose source is a union: `members` maps each member alias to the column the
+  key points at there, and `discriminator` names the member per row. A has-many / has-one to a
+  union sets a `table` reference on every member's column.
+- **Computed discriminator.** Where a relation declares no discriminator column — a belongs-to a
+  union without one, or the foreign key of a relation declared on a union — it is a
+  `ComputedDiscriminator` (`reference.ts`): `CASE WHEN EXISTS (SELECT 1 FROM <member> AS "__d<i>"
+  WHERE <key pairs>) THEN '<alias>' … END`, in member order. It is an `SQLNode`, so it compares
+  like a column (a join's `correlate`, a filter's `discriminator = $1`), and is projected as
+  `<expr> AS "<key>$key"`, the name a row decoder reads it by. The member is aliased inside its
+  probe only, so the key columns keep their outer alias. The registry makes one per union and key
+  columns, so a has-many from a union and a belongs-to back to it share one reference and one
+  probe. The probe skips the members' tenant predicate: it only names which member holds a key
+  the row already carries.
+- **`dependsOn`** is the discriminator of each union reference — a column, or a computed one.
+  `_resolveFields` projects it with the column whenever the column is selected, ungated by type.
+- **`resolveReferences(row?)`** follows table references to where each chain ends (a column with
+  no references ends at itself) and reports a ring instead of looping. A union reference is an
+  end of its own; given the row, it resolves to the member its discriminator names. It never
+  throws: a plain key may legitimately point at two tables, so whether two ends or a ring is a
+  conflict is the reader's decision — `client/nodes.ts` refuses both for a `guid()` column.
+- Joins do not read references: `_resolveJoins` stays relation-driven, since a has-many join
+  starts on the source table while its reference sits on the target.
+
 ## Union joins
 
 A relation to a union (`packages/core/src/definition/union.ts`) is a lateral join over a
 `UNION ALL`, one branch per member that runs. The registry resolves each member's `to` columns
-when the client is built (`SchemaRegistry.getUnionRelationColumns`), whichever form `to` was
-written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/src/runtime/union.ts`).
+when the client is built — the relation's `members` — whichever form `to` was written in, and
+its `target` is the runtime `Union` (`packages/core/src/runtime/union.ts`).
 
 - **Normalizer.** `_getUnionArgs` (`packages/dsqlbase/src/client/model/normalizer.ts`) produces
   `UnionSelectOperationArgs`, with one `SelectOperationArgs` per member that runs. It maps the
@@ -74,10 +112,19 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
   branch, and the lateral aggregates `"data"` with `json_agg(… ORDER BY …)` for has-many, or
   takes the one row for has-one.
 - **All members pruned.** No join is emitted. The resolver answers `[]` or `null`.
-- **Belongs-to a union.** `SchemaRegistry.getRelationDiscriminator` gives its discriminator
-  column. Each branch then carries `correlate: [discriminator = '<alias>']`, which the builder
-  renders in the parent's scope next to the correlation, so only the named member's branch can
-  match.
+- **Belongs-to a union.** The relation's `discriminator` is its discriminator column, or the
+  computed one when it declares none. Each branch then carries
+  `correlate: [discriminator = '<alias>']`, which the builder renders in the parent's scope next
+  to the correlation, so only the named member's branch can match — with a computed one, the
+  first member holding the key.
+- **A union as the source.** `relations(union, …)` gives every member a `RuntimeRelation` of its
+  own (`collectRelations` in `validate.ts`, built by `buildSchema`), with `from` resolved to its
+  own column and `declaredOn` the union. A join from a union branch, or from a
+  member read alone, is then an ordinary table join. The normalizer's `_getUnionArgs` takes the
+  union's relations in the shared `join` / `select` and merges them into every member's join.
+  A has-many / has-one declared on a union sets no per-member reference; `linkReferences` sets
+  one `union` reference on the foreign key instead, after every other relation, so a
+  belongs-to back over the same key shares its discriminator.
 
 
 ## The `WHERE` seam
@@ -169,8 +216,11 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 representation of a value rather than the decoded one therefore has it.
 
 Two things produce a `MetaResolver`. One is a column with a row decoder
-(`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
-its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
+(`Column.rowDecoder`), whose field is read from the whole row (see
+[Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)). Separately, `_resolveFields`
+projects every selected column's `dependsOn` — the discriminator of a union reference, see
+[Column references](#column-references) — whether or not it has a decoder, so a plain-`uuid`
+belongs-to a union also selects its discriminator.
 The other is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:

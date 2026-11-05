@@ -298,10 +298,13 @@ describe("union joins — belongs-to", () => {
     });
 
   it("resolves the discriminator column from the registry", () => {
-    expect(schema.getRelationDiscriminator("comments", "subject")).toBe(
+    const subject = schema.getRelation("comments", "subject");
+    const feed = registry.getRelation("users", "feed");
+
+    expect(subject?.kind === "union" && subject.discriminator).toBe(
       schema.getTable("comments").columns.subjectType
     );
-    expect(registry.getRelationDiscriminator("users", "feed")).toBeUndefined();
+    expect(feed?.kind === "union" && feed.discriminator).toBeUndefined();
   });
 
   // The ids of two members may collide; only the member the discriminator names may match.
@@ -327,12 +330,21 @@ describe("row decoders", () => {
       body: col("body"),
     },
   });
-  const schema = new SchemaRegistry({ comments });
+  // The dependency comes from the reference the relation sets, not from the decoder.
+  const rels = new RelationsDefinition(comments, {
+    subject: {
+      type: Relation.BELONGS_TO,
+      target: posts,
+      from: [comments.columns.subjectId],
+      to: [posts.columns.id],
+      discriminator: comments.columns.subjectType,
+    },
+  });
+  const schema = new SchemaRegistry({ photos, videos, posts, comments, rels });
   const table = schema.getTable("comments");
 
   Object.defineProperty(table.columns.subjectId, "rowDecoder", {
     value: {
-      dependsOn: [table.columns.subjectType],
       decode: (raw: unknown, row: Record<string, unknown>) =>
         `${String(row.subject_type)}:${String(raw)}`,
     },

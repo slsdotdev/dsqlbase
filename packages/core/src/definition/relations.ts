@@ -10,6 +10,20 @@ export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
 export type AnyRelationTarget = AnyTableDefinition | AnyUnionDefinition;
 
 /**
+ * What a relation can be declared on: one table, or a union — whose relations every member
+ * then has, from its own columns. A union source targets a table only.
+ */
+export type AnyRelationSource = AnyTableDefinition | AnyUnionDefinition;
+
+/** The columns a relation's `from` names on its source: a table's, or a union's declared fields. */
+export type RelationSourceColumn<TSource extends AnyRelationSource> =
+  TSource extends AnyTableDefinition
+    ? TableDefinitionColumn<TSource>
+    : TSource extends AnyUnionDefinition
+      ? TSource["columns"][keyof TSource["columns"]]
+      : never;
+
+/**
  * The `to` side of a relation to a union: either fields the union declares, taken from
  * `union.columns`, which resolve to each member's own column, or one column list per member for
  * members that store the key under different fields.
@@ -26,22 +40,23 @@ export type RelationTargetColumns<TTarget extends AnyRelationTarget> =
       : never;
 
 export type FieldRelation<
-  TSource extends AnyTableDefinition,
+  TSource extends AnyRelationSource,
   TTarget extends AnyRelationTarget = AnyRelationTarget,
   TType extends RelationType = RelationType,
 > = {
   target: TTarget;
   type: TType;
-  from: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource>[] : never;
+  from: RelationSourceColumn<TSource>[];
   to: RelationTargetColumns<TTarget>;
   /**
-   * The source column naming which member of a union a belongs-to row points at. Required on
-   * a belongs-to whose target is a union, refused everywhere else — see the registry.
+   * The source column naming which member of a union a belongs-to row points at. Optional on
+   * a belongs-to whose target is a union — without one, the member is computed when the query
+   * runs — and refused everywhere else; see the registry.
    */
   discriminator?: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource> : never;
 };
 
-export type RelationsConfig<TTable extends AnyTableDefinition = AnyTableDefinition> = {
+export type RelationsConfig<TTable extends AnyRelationSource = AnyTableDefinition> = {
   table: TTable;
   relations: Record<string, FieldRelation<TTable, AnyRelationTarget, RelationType>>;
 };
@@ -51,7 +66,7 @@ export type AnyTableRelations = Record<string, AnyFieldRelation>;
 export type AnyRelationDefinition = RelationsDefinition<AnyTableDefinition, AnyTableRelations>;
 
 export class RelationsDefinition<
-  TTable extends AnyTableDefinition,
+  TTable extends AnyRelationSource,
   TRelations extends Record<string, FieldRelation<TTable, AnyRelationTarget, RelationType>>,
 > extends DefinitionNode<`${TTable["name"]}_relations`, { table: TTable; relations: TRelations }> {
   public readonly kind = Kind.RELATIONS;

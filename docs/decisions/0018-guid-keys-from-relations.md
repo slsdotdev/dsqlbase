@@ -1,7 +1,7 @@
 # 0018 — `guid()` keys from relations
 
 - **Date:** 2026-11-04
-- **Status:** accepted
+- **Status:** accepted; how bindings are resolved is superseded by [0020](./0020-column-references.md)
 - **Supersedes:** the key argument of `guid()`, and the rejection of "Inferring the key from
   relations", in [0007](./0007-global-ids.md)
 - **Proposal:** `schema-definition-cleanup.md` (local working artifact, not tracked)
