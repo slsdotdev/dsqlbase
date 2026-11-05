@@ -10,7 +10,7 @@ export default defineConfig({
     typecheck: {
       enabled: true,
       include: ["src/**/*.types.test.ts"],
-      tsconfig: "./tsconfig.test.json",
+      tsconfig: "./tsconfig.json",
     },
     coverage: {
       reportsDirectory: "../../coverage/dsqlbase",

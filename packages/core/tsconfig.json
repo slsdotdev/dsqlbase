@@ -1,20 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "noEmit": false,
-    "outDir": "dist",
-    "inlineSources": true,
-    "incremental": true,
-    "isolatedModules": true,
-    "composite": true,
-    "sourceMap": true
+    "noEmit": true
   },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "src/**/*.spec.ts",
-    "src/**/*.test.ts"
-  ]
+  "include": ["src"]
 }

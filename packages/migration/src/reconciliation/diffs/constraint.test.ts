@@ -22,6 +22,7 @@ const check: SerializedObject<AnyConstraintDefinition> = {
   kind: "CHECK_CONSTRAINT",
   name: "qty_positive",
   expression: "qty > 0",
+  validated: true,
 };
 
 describe("diffConstraint", () => {
@@ -88,7 +89,7 @@ describe("diffConstraint", () => {
   describe("CHECK_CONSTRAINT (name-only equality)", () => {
     it("emits no diff when names match but expressions differ", () => {
       const remote: SerializedObject<AnyConstraintDefinition> = {
-        ...check,
+        ...(check as Extract<typeof check, { kind: "CHECK_CONSTRAINT" }>),
         expression: "(qty > (0)::integer)",
       };
       expect(diffConstraint(check, remote)).toEqual([]);

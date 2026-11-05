@@ -50,6 +50,7 @@ const baseTable: Table = {
   columns: [idColumn, emailColumn],
   indexes: [],
   constraints: [],
+  renamedFrom: null,
 } as Table;
 
 describe("diffTableOperations — new table", () => {

@@ -15,10 +15,22 @@ const baseColumn: Column = {
   domain: null,
   generated: null,
   identity: null,
+  deprecated: false,
+  renamedFrom: null,
 };
 
-const checkA = { kind: "CHECK_CONSTRAINT", name: "qty_positive", expression: "qty > 0" } as const;
-const checkB = { kind: "CHECK_CONSTRAINT", name: "qty_nonzero", expression: "qty <> 0" } as const;
+const checkA = {
+  kind: "CHECK_CONSTRAINT",
+  name: "qty_positive",
+  expression: "qty > 0",
+  validated: true,
+} as const;
+const checkB = {
+  kind: "CHECK_CONSTRAINT",
+  name: "qty_nonzero",
+  expression: "qty <> 0",
+  validated: true,
+} as const;
 
 describe("diffColumn", () => {
   it("emits a single add when no remote exists", () => {

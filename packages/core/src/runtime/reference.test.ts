@@ -305,8 +305,8 @@ describe("column references", () => {
           },
         }),
       });
-      const customerId = tables.get("orders")?.columns.customerId as AnyColumn;
-      const statsId = tables.get("customer_stats")?.columns.customerId as AnyColumn;
+      const customerId = tables.get("orders")?.columns.customerId as unknown as AnyColumn;
+      const statsId = tables.get("customer_stats")?.columns.customerId as unknown as AnyColumn;
 
       expect(customerId.resolveReferences()).toEqual({
         ends: [],

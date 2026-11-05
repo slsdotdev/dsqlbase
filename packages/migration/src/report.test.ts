@@ -6,7 +6,9 @@ import { formatPlan, planRows } from "./report.js";
 
 const print = createPrinter();
 
-const users = (columns: Record<string, ColumnDefinition<string, never>>) =>
+const users = <TColumns extends Record<string, ColumnDefinition<string, never>>>(
+  columns: TColumns
+) =>
   new TableDefinition("users", {
     columns: { id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(), ...columns },
   });

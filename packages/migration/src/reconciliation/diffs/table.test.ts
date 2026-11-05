@@ -13,12 +13,13 @@ const table = (constraints: Table["constraints"]): Table =>
     columns: [],
     indexes: [],
     constraints,
+    renamedFrom: null,
   }) as Table;
 
 describe("diffTable", () => {
   it("removes and adds a constraint whose kind changed under the same name", () => {
     const local = table([
-      { kind: "CHECK_CONSTRAINT", name: "widgets_slug", expression: "slug <> ''" },
+      { kind: "CHECK_CONSTRAINT", name: "widgets_slug", expression: "slug <> ''", validated: true },
     ]);
     const remote = table([
       {

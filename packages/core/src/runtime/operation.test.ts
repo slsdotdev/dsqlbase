@@ -11,7 +11,7 @@ import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { FieldMutation, OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
-import { QueryBuilder } from "./query.js";
+import { QueryBuilder, TableJoinParams } from "./query.js";
 
 const users = new TableDefinition("users", {
   columns: {
@@ -511,7 +511,7 @@ describe("OperationFactory / where seam", () => {
     });
 
     const join = mockDialect.buildSelectQuery.mock.calls.at(-1)?.[0]?.join;
-    const nested = join?.[0]?.params.where;
+    const nested = (join?.[0] as TableJoinParams | undefined)?.params.where;
 
     expect(nested && new SQLQuery(nested).toQuery().text).toBe(
       `("posts"."title" = $1) AND ("posts"."content" = $2)`
@@ -828,8 +828,8 @@ describe("OperationFactory / tenant predicate", () => {
     // The root is global, so only the two nested levels carry a predicate — a tenant table is
     // guarded wherever it is reached, and a join is exactly where the types cannot help.
     const params = mockDialect.buildSelectQuery.mock.calls.at(-1)?.[0];
-    const invoiceLevel = params?.join?.[0]?.params;
-    const lineItemLevel = invoiceLevel?.join?.[0]?.params;
+    const invoiceLevel = (params?.join?.[0] as TableJoinParams | undefined)?.params;
+    const lineItemLevel = (invoiceLevel?.join?.[0] as TableJoinParams | undefined)?.params;
 
     expect(new SQLQuery(invoiceLevel?.where).toQuery().text).toBe(`"invoices"."workspace_id" = $1`);
     expect(new SQLQuery(lineItemLevel?.where).toQuery().text).toBe(

@@ -41,6 +41,7 @@ const baseTable = (overrides: Partial<Table>): Table =>
     columns: [],
     indexes: [],
     constraints: [],
+    renamedFrom: null,
     ...overrides,
   }) as Table;
 
@@ -217,6 +218,8 @@ describe("unknownColumnReference", () => {
             },
           ],
           include: null,
+          where: null,
+          valid: true,
         },
       ],
     } as Partial<Table>);
@@ -262,6 +265,8 @@ describe("unknownColumnReference", () => {
             },
           ],
           include: null,
+          where: null,
+          valid: true,
         },
       ],
     } as Partial<Table>);
@@ -347,6 +352,8 @@ describe("redundantUniqueOnPk", () => {
             },
           ],
           include: null,
+          where: null,
+          valid: true,
         },
       ],
     } as Partial<Table>);

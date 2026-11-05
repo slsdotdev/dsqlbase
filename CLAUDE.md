@@ -16,12 +16,12 @@ Run from the repo root (Turbo fans them out across workspaces):
 
 | Command | Purpose |
 |---|---|
-| `npm run build` | `tsc` build all packages (respects `^build` deps). |
-| `npm run dev` | `tsc --watch` across packages. |
+| `npm run build` | `tsc -p tsconfig.build.json` in each package, emitting `dist/` without test files (respects `^build` deps). |
+| `npm run dev` | `tsc -p tsconfig.build.json --watch` across packages. |
 | `npm test` | Vitest in every package. |
 | `npm run e2e` | PGlite end-to-end specs in `packages/tests`. |
 | `npm run lint` | ESLint across packages. Runs automatically via Husky pre-commit. |
-| `npm run typecheck` | `tsc --noEmit` over `packages/tests` (its specs are otherwise never type-checked). Runs in CI. |
+| `npm run typecheck` | `tsc -p tsconfig.json` in every package — source **and** test files (builds dependencies first). Runs in CI. |
 | `npm run check:packages` | `publint` + `attw` on each published package (after `build`). Runs in CI. |
 | `npm run coverage` | Vitest with `--coverage` (v8). |
 | `npm run changeset` / `npm run publish` | Versioning + publishing via Changesets. |

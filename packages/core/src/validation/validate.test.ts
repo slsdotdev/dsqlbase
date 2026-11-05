@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AnyColumnDefinition,
+  AnyTableDefinition,
   ColumnDefinition,
   Relation,
   RelationsDefinition,
@@ -114,10 +116,9 @@ describe("validateSchema — references", () => {
   const hooks = { read: (value: unknown) => value };
   const hooked = (name: string) => new ColumnDefinition(name, { dataType: "uuid", hooks });
   const belongsTo = (
-    source: TableDefinition<string, Record<string, ColumnDefinition<string, never>>>,
-    target: TableDefinition<string, Record<string, ColumnDefinition<string, never>>>,
-    from: ColumnDefinition<string, never>,
-    to: ColumnDefinition<string, never>
+    target: AnyTableDefinition,
+    from: AnyColumnDefinition,
+    to: AnyColumnDefinition
   ) => ({ type: Relation.BELONGS_TO, target, from: [from], to: [to] }) as never;
 
   it("refuses a ring of references, for any column", () => {
@@ -128,10 +129,10 @@ describe("validateSchema — references", () => {
       columns: { customerId: col("customer_id") },
     });
     const a = new RelationsDefinition(orders, {
-      stats: belongsTo(orders, stats, orders.columns.customerId, stats.columns.customerId),
+      stats: belongsTo(stats, orders.columns.customerId, stats.columns.customerId),
     });
     const b = new RelationsDefinition(stats, {
-      order: belongsTo(stats, orders, stats.columns.customerId, orders.columns.customerId),
+      order: belongsTo(orders, stats.columns.customerId, orders.columns.customerId),
     });
 
     expect(() => validateSchema({ orders, stats, a, b })).toThrow(
@@ -146,7 +147,7 @@ describe("validateSchema — references", () => {
       columns: { id: hooked("id").primaryKey(), personId: col("person_id") },
     });
     const rels = new RelationsDefinition(posts, {
-      person: belongsTo(posts, people, posts.columns.personId, people.columns.id),
+      person: belongsTo(people, posts.columns.personId, people.columns.id),
     });
 
     expect(() => validateSchema({ people, posts, rels })).toThrow(
@@ -155,29 +156,29 @@ describe("validateSchema — references", () => {
   });
 
   it("lets a plain column reference two targets, but not a column with hooks", () => {
-    const build = (column: (name: string) => ColumnDefinition<string, never>) => {
+    const build = (column: (name: string) => AnyColumnDefinition) => {
       const users = new TableDefinition("users", { columns: { id: column("id").primaryKey() } });
       const teams = new TableDefinition("teams", { columns: { id: column("id").primaryKey() } });
       const notes = new TableDefinition("notes", {
         columns: { id: column("id").primaryKey(), ownerId: column("owner_id") },
       });
       const rels = new RelationsDefinition(notes, {
-        user: belongsTo(notes, users, notes.columns.ownerId, users.columns.id),
-        team: belongsTo(notes, teams, notes.columns.ownerId, teams.columns.id),
+        user: belongsTo(users, notes.columns.ownerId, users.columns.id),
+        team: belongsTo(teams, notes.columns.ownerId, teams.columns.id),
       });
 
       return () => validateSchema({ users, teams, notes, rels });
     };
 
-    expect(build((name) => col(name) as ColumnDefinition<string, never>)).not.toThrow();
-    expect(build((name) => hooked(name) as ColumnDefinition<string, never>)).toThrow(
+    expect(build((name) => col(name) as AnyColumnDefinition)).not.toThrow();
+    expect(build((name) => hooked(name) as AnyColumnDefinition)).toThrow(
       'Column "notes.ownerId" is paired by relation "user" on table "notes" with "users.id" ' +
         'and by relation "team" on table "notes" with "teams.id".'
     );
   });
 
   describe("a column with hooks pointing at a union", () => {
-    const fixture = (memberKey: (name: string) => ColumnDefinition<string, never>) => {
+    const fixture = (memberKey: (name: string) => AnyColumnDefinition) => {
       const photos = new TableDefinition("photos", {
         columns: { id: hooked("id").primaryKey(), ref: memberKey("ref") },
       });
@@ -216,12 +217,12 @@ describe("validateSchema — references", () => {
 
     it("accepts members reached through a unique key, and a member's relation agreeing", () => {
       expect(
-        fixture((name) => hooked(name).unique() as unknown as ColumnDefinition<string, never>)
+        fixture((name) => hooked(name).unique() as unknown as AnyColumnDefinition)
       ).not.toThrow();
     });
 
     it("refuses a member reached through a column that is not a unique key", () => {
-      expect(fixture((name) => hooked(name) as ColumnDefinition<string, never>)).toThrow(
+      expect(fixture((name) => hooked(name) as AnyColumnDefinition)).toThrow(
         /"photos.ref" is not a unique key of union member "photos"/
       );
     });
