@@ -477,7 +477,8 @@ export class SchemaRegistry<
   /**
    * The union half of {@link _validateRelation}: the union must be registered, `to` must name
    * a column on every member — through a shared field or a per-member list — paired with
-   * `from` by type, and only a belongs-to carries a discriminator, which it must.
+   * `from` by type, and only a belongs-to may carry a discriminator. Without one, the member is
+   * computed when the query runs.
    */
   private _validateUnionRelation(
     label: string,
@@ -643,10 +644,10 @@ export class SchemaRegistry<
   }
 
   /**
-   * A belongs-to a union stores which member it points at in a column of its own — the
-   * discriminator, holding a member alias. Nothing else can tell the members apart: their keys
-   * share one column. Has-many and has-one to a union need none, since the key lives on each
-   * member, so one there is a mistake.
+   * A belongs-to a union may store which member it points at in a column of its own — the
+   * discriminator, holding a member alias. Without one, the member is the first holding the
+   * key, computed when the query runs. Has-many and has-one to a union need none, since the key
+   * lives on each member, so one there is a mistake.
    */
   private _validateDiscriminator(
     label: string,
@@ -818,7 +819,19 @@ export class SchemaRegistry<
           ),
         ])
       );
-      const discriminator = this._getComputedDiscriminator(union, keys, pairs);
+      // A belongs-to back to the union over the same key already says which member — its
+      // stored discriminator, or a computed one — so the has-many shares it rather than
+      // computing a second.
+      const back = keys[0].references.find(
+        (reference) =>
+          reference.kind === "union" &&
+          reference.union === union &&
+          union.memberAliases.every((alias) => reference.members[alias] === pairs[alias][0])
+      );
+      const discriminator =
+        back?.kind === "union"
+          ? back.discriminator
+          : this._getComputedDiscriminator(union, keys, pairs);
 
       for (const [index, key] of keys.entries()) {
         key._addReference({

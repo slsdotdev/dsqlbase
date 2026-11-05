@@ -752,3 +752,64 @@ describe("polymorphic writes", () => {
     });
   });
 });
+
+describe("relations declared on a union", () => {
+  const photos = table("photos", { id: uuid("id").primaryKey(), userId: uuid("user_id") });
+  const videos = table("videos", { id: uuid("id").primaryKey(), userId: uuid("user_id") });
+  const users = table("users", { id: uuid("id").primaryKey() });
+  const posts = union({ photos, videos }, { id: uuid("id") });
+  const reactions = table("reactions", { id: uuid("id").primaryKey(), postId: uuid("post_id") });
+  const postRelations = relations(posts, {
+    reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }),
+  });
+  // A relation one member has, which does not join across the union.
+  const photoRelations = relations(photos, {
+    owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
+  });
+  const schema = { photos, videos, users, posts, reactions, postRelations, photoRelations };
+
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<typeof schema>>;
+
+  beforeEach(() => {
+    calls = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema, session });
+  });
+
+  it("joins the union's relation from every member, through join or select", async () => {
+    await dsql.posts.findMany({ join: { reactions: true } });
+    await dsql.posts.findMany({ select: { reactions: true } });
+
+    for (const call of calls) {
+      expect(call.text.match(/FROM "reactions"/g)).toHaveLength(2);
+    }
+  });
+
+  it("refuses a relation only some members have", () => {
+    expect(() => dsql.posts.findMany({ join: { owner: true } } as never)).toThrow(
+      'Invalid relation "owner" in join for union "posts"'
+    );
+  });
+
+  it("refuses a relation in both the shared select and join", () => {
+    expect(() =>
+      dsql.posts.findMany({ select: { reactions: true }, join: { reactions: true } })
+    ).toThrow('Relation "reactions" appears in both select and join on union "posts"');
+  });
+
+  it("refuses a relation joined on the union and again for a member", () => {
+    expect(() =>
+      dsql.posts.findMany({
+        join: { reactions: true },
+        on: { photos: { join: { reactions: true } } },
+      })
+    ).toThrow('Relation "reactions" is joined on union "posts" and again in `on.photos`');
+  });
+});

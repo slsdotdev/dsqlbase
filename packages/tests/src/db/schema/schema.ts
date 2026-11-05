@@ -460,11 +460,16 @@ const postCommentRelations = relations(postComments, {
   }),
 });
 
-// Declared on the union: every member has `reactions`, from its own `id`.
+// Declared on the union: every member has `reactions`, from its own `id`. `comments` points at
+// the key `postComments.subject` stores with a discriminator, which it keeps.
 const postRelations = relations(posts, {
   reactions: hasMany(postReactions, {
     from: [posts.columns.id],
     to: [postReactions.columns.postId],
+  }),
+  comments: hasMany(postComments, {
+    from: [posts.columns.id],
+    to: [postComments.columns.subjectId],
   }),
 });
 

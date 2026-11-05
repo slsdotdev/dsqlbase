@@ -247,7 +247,9 @@ const page = await dsql.posts.paginate({ where: { $$key: { in: types } }, limit:
 ```
 
 A `belongsTo(union, { ..., discriminator })` points one row at one of several tables. Its
-`guid()` reads back keyed by whichever member the discriminator names. See the
+`guid()` reads back keyed by whichever member the discriminator names; without a discriminator,
+by the first member holding the key. `relations()` also takes a union, giving every member the
+relation. See the
 [polymorphic relations guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/polymorphic-relations.md).
 
 ## Links

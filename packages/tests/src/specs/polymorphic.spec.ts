@@ -312,6 +312,27 @@ describe("polymorphic relations", () => {
       expect(fromPhoto?.reactions.map((reaction) => reaction.emoji)).toEqual(["r0"]);
     });
 
+    // `postComments.subject` stores a discriminator; the relation from the union keeps it.
+    it("joins a relation from the union onto a key with a stored discriminator", async () => {
+      const photo = getData().photos[0];
+      const video = getData().videos[0];
+
+      const posts = await getClient().posts.findMany({
+        select: { id: true, comments: true },
+        where: { id: { in: [wrap("photos", photo.id), wrap("videos", video.id)] } },
+      });
+
+      expect(
+        Object.fromEntries(posts.map((post) => [post.$$key, post.comments.map((c) => c.body)]))
+      ).toEqual({ photos: ["Lovely light"], videos: ["Great clip"] });
+
+      for (const post of posts) {
+        for (const comment of post.comments) {
+          expect(comment.subjectId).toBe(post.id);
+        }
+      }
+    });
+
     it("reads the key as the id of the member holding it, so postId === post.id", async () => {
       const photo = getData().photos[0];
       const video = getData().videos[0];

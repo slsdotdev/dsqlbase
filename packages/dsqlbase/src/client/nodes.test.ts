@@ -646,6 +646,24 @@ describe("polymorphic guid columns", () => {
   }
 
   describe("binding a polymorphic guid column", () => {
+    it("keeps the stored discriminator when the union also declares the has-many", () => {
+      const fromUnion = relations(tradingEntities, {
+        entries: hasMany(ledgerEntries, {
+          from: [tradingEntities.columns.id],
+          to: [ledgerEntries.columns.counterpartyId],
+        }),
+      });
+
+      const registry = register({ ...schema, fromUnion });
+      const column = registry.getTable("ledgerEntries").columns.counterpartyId;
+
+      expect(getDynamicGuidBinding(column)).toEqual({
+        discriminator: registry.getTable("ledgerEntries").columns.counterpartyType,
+        discriminatorField: "counterpartyType",
+        members: { companies: "id", persons: "id" },
+      });
+    });
+
     // No stored discriminator: the member is computed when the query runs.
     it("binds a key with no discriminator to the computed one, with nothing to fill", () => {
       const reactions = table("reactions", {

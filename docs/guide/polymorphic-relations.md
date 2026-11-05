@@ -273,6 +273,9 @@ const photo = await dsql.photos.findOne({ where, select: { reactions: true } });
 - `reactions.postId` holds a key of whichever member the row points at, with nothing stored to
   say which. It reads as that member's id, computed as above, and the relation pairs with a
   belongs-to back to the union without a discriminator.
+- When a belongs-to back to the union stores a discriminator over the same key, that is used
+  instead: `relations(posts, { comments: hasMany(comments, { from: [posts.columns.id], to:
+  [comments.columns.subjectId] }) })` reads `subjectId` by `subjectType`, with no probe.
 - A union's shared `join` and `select` take these relations; `on.<alias>.join` takes the
   member's own as well.
 

@@ -466,6 +466,44 @@ describe("column references", () => {
       expect(both.getRelationDiscriminator("notes", "post")).toBe(postId.dependsOn[0]);
     });
 
+    // A stored discriminator on the belongs-to back is honoured: no second, computed one.
+    it("shares a stored discriminator declared on the belongs-to back", () => {
+      const tagged = new TableDefinition("tagged_notes", {
+        columns: {
+          id: col("id", "uuid").primaryKey(),
+          postType: col("post_type"),
+          postId: col("post_id", "uuid"),
+        },
+      });
+      const both = new SchemaRegistry({
+        photos,
+        videos,
+        posts,
+        tagged,
+        rels: new RelationsDefinition(posts, {
+          notes: {
+            type: Relation.HAS_MANY,
+            target: tagged,
+            from: [posts.columns.id],
+            to: [tagged.columns.postId],
+          },
+        } as never),
+        back: new RelationsDefinition(tagged, {
+          post: {
+            type: Relation.BELONGS_TO,
+            target: posts,
+            from: [tagged.columns.postId],
+            to: [posts.columns.id],
+            discriminator: tagged.columns.postType,
+          },
+        }),
+      });
+      const table = both.getTable("tagged_notes");
+
+      expect(table.columns.postId.references).toHaveLength(1);
+      expect(table.columns.postId.dependsOn).toEqual([table.columns.postType]);
+    });
+
     it("joins from each union branch through its member", () => {
       const { query } = factory.createUnionSelectOperation(schema.getUnion("posts"), {
         mode: "many",
