@@ -142,7 +142,8 @@ cannot see that sibling, so the read side is a **row decoder** instead:
   a `MetaResolver` over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
   aside for a value computed from the row.
 - **Client** (`bindDynamicGuid` in `packages/dsqlbase/src/client/nodes.ts`) sets it on the built
-  column when `createClient` runs, from the column's union reference, next to a codec whose `encode` accepts an id for any member.
+  column when `createClient` runs, from the column's union reference — reading the
+  discriminator, stored or computed, from the row by its `name` — next to a codec whose `encode` accepts an id for any member.
   A `NULL` discriminator, or one naming no member, reads the id raw.
 - **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
   `(discriminator = key AND id = pk)` or a write filling the discriminator, are the client's

@@ -68,6 +68,8 @@ export {
   type AnyRelationDefinition,
   type AnyTableRelations,
   type AnyRelationTarget,
+  type AnyRelationSource,
+  type RelationSourceColumn,
   type FieldRelation,
   type RelationTargetColumns,
   type TableDefinitionColumn,

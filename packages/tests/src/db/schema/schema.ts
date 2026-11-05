@@ -361,6 +361,8 @@ const revisionRelations = relations(revisions, {
  *   own member; `caption` is nullable, so ordering and paging across members meet a null.
  * - `postComments` belongs to a post of either kind through a discriminator, with a `guid()`
  *   whose node is read row by row.
+ * - `postReactions` has no discriminator: `posts` itself has many of them (a relation declared
+ *   on the union), and each belongs to whichever member holds its `postId`, computed when read.
  * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
  *   one of whose members is the table the join starts from.
  * - `userFeed` unions tenant-scoped `documents` with global `bookmarks`, so a union join and the
@@ -397,6 +399,12 @@ const postComments = table("post_comments", {
   subjectType: text("subject_type"),
   subjectId: guid("subject_id"),
   body: text("body").notNull(),
+});
+
+const postReactions = table("post_reactions", {
+  id: guid("id").primaryKey().defaultRandom(),
+  postId: guid("post_id").notNull(),
+  emoji: text("emoji").notNull(),
 });
 
 const folders = table("folders", {
@@ -450,6 +458,18 @@ const postCommentRelations = relations(postComments, {
     to: [posts.columns.id],
     discriminator: postComments.columns.subjectType,
   }),
+});
+
+// Declared on the union: every member has `reactions`, from its own `id`.
+const postRelations = relations(posts, {
+  reactions: hasMany(postReactions, {
+    from: [posts.columns.id],
+    to: [postReactions.columns.postId],
+  }),
+});
+
+const postReactionRelations = relations(postReactions, {
+  post: belongsTo(posts, { from: [postReactions.columns.postId], to: [posts.columns.id] }),
 });
 
 const folderRelations = relations(folders, {
@@ -551,6 +571,7 @@ export {
   videos,
   posts,
   postComments,
+  postReactions,
   folders,
   files,
   entries,
@@ -559,6 +580,8 @@ export {
   authorPostRelations,
   photoRelations,
   postCommentRelations,
+  postRelations,
+  postReactionRelations,
   folderRelations,
   userFeedRelations,
   boards,

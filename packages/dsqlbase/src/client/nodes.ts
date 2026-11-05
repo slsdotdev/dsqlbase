@@ -5,11 +5,13 @@ import {
   AnyTableDefinition,
   ColumnCodec,
   ColumnReference,
+  ComputedDiscriminator,
   DefinitionSchema,
   ReferenceEnd,
   Relation,
   SchemaRegistry,
   TableDefinition,
+  Union,
   UnionReference,
 } from "@dsqlbase/core";
 import { IndexColumnDefinition, UniqueConstraintDefinition } from "@dsqlbase/core/definition";
@@ -31,15 +33,22 @@ export type GuidBinding = {
 };
 
 /**
- * What a `guid()` column whose node is named per row names: the `from` side of a belongs-to a
- * union, whose discriminator holds each row's member alias — the node key.
+ * What a `guid()` column whose node is named per row names: a key pointing at a union's member
+ * — the `from` of a belongs-to a union, or the foreign key of a relation whose source is one.
+ * The discriminator names each row's member alias, which is the node key.
  */
 export type DynamicGuidBinding = {
-  /** The source column holding the member alias — the node key — of each row. */
-  readonly discriminator: AnyColumn;
+  /**
+   * What names each row's member: a stored column, or a discriminator core computes when the
+   * query runs, when the relation declares none. Either is read from the row by its `name`.
+   */
+  readonly discriminator: AnyColumn | ComputedDiscriminator;
 
-  /** The discriminator's field name, as `create` / `update` data names it. */
-  readonly discriminatorField: string;
+  /**
+   * The stored discriminator's field name, as `create` / `update` data names it; `undefined`
+   * for a computed one, which there is nothing to write to.
+   */
+  readonly discriminatorField: string | undefined;
 
   /** Member alias → the field its key is addressed by in a payload (`id`, …). */
   readonly members: Readonly<Record<string, string>>;
@@ -148,7 +157,8 @@ function label(column: AnyColumn): string {
 
 /** How a reference's relation is named in an error: `relation "author" on table "articles"`. */
 function describeVia(reference: ColumnReference): string {
-  return `relation "${reference.via.field}" on table "${reference.via.table.alias}"`;
+  const { table, field } = reference.via;
+  return `relation "${field}" on ${table instanceof Union ? "union" : "table"} "${table.alias}"`;
 }
 
 /** How a chain end is named in an error. */
@@ -158,7 +168,9 @@ function describeEnd(end: ReferenceEnd): string {
   }
 
   const { union, discriminator } = end.reference;
-  return `union "${union.alias}" (per "${label(discriminator)}")`;
+  return discriminator instanceof ComputedDiscriminator
+    ? `union "${union.alias}"`
+    : `union "${union.alias}" (per "${label(discriminator)}")`;
 }
 
 /**
@@ -226,7 +238,10 @@ function resolveBinding(column: AnyColumn): GuidBinding | DynamicGuidBinding {
 
   return {
     discriminator,
-    discriminatorField: fieldOf(discriminator.table, discriminator),
+    discriminatorField:
+      discriminator instanceof ComputedDiscriminator
+        ? undefined
+        : fieldOf(discriminator.table, discriminator),
     members: Object.fromEntries(
       Object.entries(members).map(([member, target]) => [member, fieldOf(target.table, target)])
     ),
@@ -266,13 +281,17 @@ function assertGuidPairs(
             continue;
           }
 
-          // Named as the relation declares the pair: its `from` side first.
-          const relation = reference.via.table.getRelation(reference.via.field);
+          // Named as the relation declares the pair: its `from` side first. A union source's
+          // reference is a has-many / has-one's, so its `from` is the member column.
+          const { table: source, field } = reference.via;
+          const relation = source instanceof Union ? undefined : source.getRelation(field);
           const [from, to] =
             relation?.type === Relation.BELONGS_TO ? [column, target] : [target, column];
+          const owner =
+            source instanceof Union ? `union "${source.alias}"` : `table "${source.alias}"`;
 
           throw new Error(
-            `Relation "${reference.via.field}" on table "${reference.via.table.alias}" pairs ` +
+            `Relation "${field}" on ${owner} pairs ` +
               `"${from.table.alias}.${from.name}" and "${to.table.name}.${to.name}", but only ` +
               `one of them carries global ids. Both sides of a pair must be guid() columns, or ` +
               `neither.`

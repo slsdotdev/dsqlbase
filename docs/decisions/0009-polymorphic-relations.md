@@ -1,7 +1,7 @@
 # 0009 — Polymorphic relations
 
 - **Date:** 2026-09-29
-- **Status:** accepted; how shared fields are defined is superseded by [0019](./0019-declared-union-columns.md)
+- **Status:** accepted; how shared fields are defined is superseded by [0019](./0019-declared-union-columns.md); the required discriminator on a belongs-to a union is superseded by [0020](./0020-column-references.md)
 - **Proposal:** `schema-polymorphic-relations.md` (local working artifact, not tracked)
 
 ## Context

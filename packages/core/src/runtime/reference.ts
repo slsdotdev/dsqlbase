@@ -1,12 +1,86 @@
+import { SQLContext, SQLNode, SQLParam, SQLScope, SQLStatement } from "../sql/nodes.js";
+import { sql } from "../sql/tag.js";
 import type { AnyColumn } from "./column.js";
 import type { AnyTable } from "./table.js";
 import type { Union } from "./union.js";
 
-/** The relation that set a reference: the table it is declared on and its field name. */
+/**
+ * The relation that set a reference: what it is declared on — a table, or a union for a
+ * relation whose source is one — and its field name.
+ */
 export type RelationRef = {
-  readonly table: AnyTable;
+  readonly table: AnyTable | Union;
   readonly field: string;
 };
+
+/**
+ * Which member of a union a row's key points at, computed when the query runs: the first
+ * member, in declaration order, holding a row with that key.
+ *
+ * ```sql
+ * CASE WHEN EXISTS (SELECT 1 FROM "photos" AS "__d0" WHERE "__d0"."id" = "__t0"."post_id")
+ *      THEN 'photos'
+ *      WHEN EXISTS (SELECT 1 FROM "videos" AS "__d1" WHERE "__d1"."id" = "__t0"."post_id")
+ *      THEN 'videos' END
+ * ```
+ *
+ * Stands in for a stored discriminator wherever a relation declares none: a belongs-to a union
+ * without one, and the foreign key of a relation whose source is a union. It renders as an
+ * expression, so it compares like a column (`= 'photos'` in a join's correlation or a filter),
+ * and is projected under {@link name} so a row decoder reads it from the row as it would a
+ * stored discriminator. Each probe is one key lookup per member per row, and it reads the
+ * members without their tenant predicate — it only says which member holds a key the row
+ * already carries.
+ */
+export class ComputedDiscriminator implements SQLNode {
+  /** The name it is projected under: the first key column's, suffixed `$key`. */
+  readonly name: string;
+
+  readonly union: Union;
+
+  /** The referencing row's key columns. */
+  readonly keys: readonly AnyColumn[];
+
+  /** Member alias → the member's columns, paired index by index with {@link keys}. */
+  readonly members: Readonly<Record<string, readonly AnyColumn[]>>;
+
+  constructor(
+    union: Union,
+    keys: readonly AnyColumn[],
+    members: Readonly<Record<string, readonly AnyColumn[]>>
+  ) {
+    this.union = union;
+    this.keys = keys;
+    this.members = members;
+    this.name = `${keys[0].name}$key`;
+  }
+
+  /** A member alias as a parameter to compare this with, as `Column.param` does for a column. */
+  public param(value: unknown): SQLNode {
+    return new SQLParam(value);
+  }
+
+  /** The expression aliased as {@link name}, for a select list. */
+  public projection(): SQLNode {
+    return sql`${this} AS ${sql.identifier(this.name)}`;
+  }
+
+  toSQL(ctx: SQLContext): SQLStatement {
+    const branches = this.union.memberAliases.map((alias, index) => {
+      const member = this.union.getMember(alias);
+      // The member is aliased inside its probe only, so the key columns — rendered outside the
+      // scope — keep their own alias even when the key's table is the member itself.
+      const scope = new Map<unknown, string>([[member, `__d${index}`]]);
+      const conditions = this.members[alias].map((column, position) =>
+        sql.eq(new SQLScope(scope, column), this.keys[position])
+      );
+
+      return sql`WHEN EXISTS (SELECT 1 FROM ${member} AS ${sql.identifier(`__d${index}`)} WHERE ${sql.and(conditions)}) THEN ${sql.literal(alias)}`;
+    });
+
+    return sql`CASE ${sql.join(branches, " ")} END`.toSQL(ctx);
+  }
+}
 
 /** A foreign key pointing at one column of one table. */
 export type TableReference = {
@@ -24,8 +98,11 @@ export type UnionReference = {
   readonly union: Union;
   /** Member alias → the member's column this key points at. */
   readonly members: Readonly<Record<string, AnyColumn>>;
-  /** The column of the referencing row that holds a member alias. */
-  readonly discriminator: AnyColumn;
+  /**
+   * What names the member per row: the referencing row's stored discriminator column, or a
+   * {@link ComputedDiscriminator} when the relation declares none.
+   */
+  readonly discriminator: AnyColumn | ComputedDiscriminator;
   readonly via: RelationRef;
 };
 

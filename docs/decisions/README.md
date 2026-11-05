@@ -27,6 +27,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0017](./0017-remove-embedded-objects.md) | Remove embedded objects | 2026-11-04 | accepted |
 | [0018](./0018-guid-keys-from-relations.md) | `guid()` keys from relations | 2026-11-04 | accepted |
 | [0019](./0019-declared-union-columns.md) | Declared union columns | 2026-11-04 | accepted |
+| [0020](./0020-column-references.md) | Column references | 2026-11-05 | accepted |
 
 ## Template
 

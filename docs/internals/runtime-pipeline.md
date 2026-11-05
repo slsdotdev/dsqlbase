@@ -51,12 +51,22 @@ Built columns belong to one registry, so a reference never leaks into another cl
   paired `to` column. A has-many / has-one sets one on each `to` column, pointing back at `from`
   — so a relation declared on `authors` writes onto `articles.authorId`. Both sides of one
   relation declared give the same reference, recorded once.
-- **Two kinds.** `table` points at one column. `union` is set by a belongs-to a union: `members`
-  maps each member alias to the column the key points at there, and `discriminator` is the
-  source column naming the member per row. A has-many / has-one to a union sets a `table`
-  reference on every member's column.
-- **`dependsOn`** is the discriminator of each union reference. `_resolveFields` projects it with
-  the column whenever the column is selected, ungated by type.
+- **Two kinds.** `table` points at one column. `union` is set by a belongs-to a union, and by a
+  has-many / has-one whose source is a union: `members` maps each member alias to the column the
+  key points at there, and `discriminator` names the member per row. A has-many / has-one to a
+  union sets a `table` reference on every member's column.
+- **Computed discriminator.** Where a relation declares no discriminator column — a belongs-to a
+  union without one, or the foreign key of a relation declared on a union — it is a
+  `ComputedDiscriminator` (`reference.ts`): `CASE WHEN EXISTS (SELECT 1 FROM <member> AS "__d<i>"
+  WHERE <key pairs>) THEN '<alias>' … END`, in member order. It is an `SQLNode`, so it compares
+  like a column (a join's `correlate`, a filter's `discriminator = $1`), and is projected as
+  `<expr> AS "<key>$key"`, the name a row decoder reads it by. The member is aliased inside its
+  probe only, so the key columns keep their outer alias. The registry makes one per union and key
+  columns, so a has-many from a union and a belongs-to back to it share one reference and one
+  probe. The probe skips the members' tenant predicate: it only names which member holds a key
+  the row already carries.
+- **`dependsOn`** is the discriminator of each union reference — a column, or a computed one.
+  `_resolveFields` projects it with the column whenever the column is selected, ungated by type.
 - **`resolveReferences(row?)`** follows table references to where each chain ends (a column with
   no references ends at itself) and reports a ring instead of looping. A union reference is an
   end of its own; given the row, it resolves to the member its discriminator names. It never
@@ -100,9 +110,17 @@ written in, and `getRelationTarget` returns the runtime `Union` (`packages/core/
   takes the one row for has-one.
 - **All members pruned.** No join is emitted. The resolver answers `[]` or `null`.
 - **Belongs-to a union.** `SchemaRegistry.getRelationDiscriminator` gives its discriminator
-  column. Each branch then carries `correlate: [discriminator = '<alias>']`, which the builder
-  renders in the parent's scope next to the correlation, so only the named member's branch can
-  match.
+  column, or the computed one when it declares none. Each branch then carries
+  `correlate: [discriminator = '<alias>']`, which the builder renders in the parent's scope next
+  to the correlation, so only the named member's branch can match — with a computed one, the
+  first member holding the key.
+- **A union as the source.** `relations(union, …)` is expanded by
+  `SchemaRegistry._addUnionSourceRelations` before tables are built: every member gets a copy of
+  each relation with `from` resolved to its own column. A join from a union branch, or from a
+  member read alone, is then an ordinary table join. The normalizer's `_getUnionArgs` takes the
+  union's relations in the shared `join` / `select` and merges them into every member's join.
+  A has-many / has-one copy sets no per-member reference; `_setUnionSourceReferences` sets one
+  `union` reference on the foreign key instead.
 
 
 ## The `WHERE` seam

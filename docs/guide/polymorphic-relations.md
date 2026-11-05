@@ -225,6 +225,57 @@ export const ledgerEntryRelations = relations(ledgerEntries, {
   as `companies.entries`. That relation correlates on the id alone; the discriminator is not
   applied to it.
 
+### Without a discriminator
+
+The discriminator is optional. Without one, the member is the first, in declaration order,
+holding a row with the key. It is computed when the query runs:
+
+```ts
+export const reactionRelations = relations(reactions, {
+  post: belongsTo(posts, { from: [reactions.columns.postId], to: [posts.columns.id] }),
+});
+```
+
+```sql
+CASE WHEN EXISTS (SELECT 1 FROM "photos" AS "__d0" WHERE "__d0"."id" = "__t0"."post_id")
+     THEN 'photos'
+     WHEN EXISTS (SELECT 1 FROM "videos" AS "__d1" WHERE "__d1"."id" = "__t0"."post_id")
+     THEN 'videos' END AS "post_id$key"
+```
+
+- **Reading.** `postId` comes back wrapped with the member holding it, so
+  `reaction.postId === reaction.post?.id` holds. A key no member holds reads raw.
+- **Joining.** Each branch matches only the member the expression picks, so a key two members
+  hold joins the first one, as the id reads.
+- **Writing.** A member's global id is unwrapped to its key; there is nothing to fill.
+- **Filtering.** `{ postId: { eq: photoId } }` matches the key, held by `photos`.
+- **Cost.** One key lookup per member for every row read, whether or not the id is selected
+  with its relation. It suits a few members; a stored discriminator costs nothing.
+- **Tenancy.** The lookup only says which member holds a key the row already carries, so it
+  reads the members without their tenant predicate. The join itself applies it, as always.
+
+## Relations declared on a union
+
+`relations()` also takes a union. Every member then has the relation from its own column, so
+`posts` has many `reactions` means `photos` and `videos` each have many reactions:
+
+```ts
+export const postRelations = relations(posts, {
+  reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }),
+});
+
+const feed = await dsql.posts.findMany({ join: { reactions: true } }); // or select: { reactions: true }
+const photo = await dsql.photos.findOne({ where, select: { reactions: true } });
+```
+
+- `from` names the union's declared fields, and the target must be a table.
+- The name must be free on every member.
+- `reactions.postId` holds a key of whichever member the row points at, with nothing stored to
+  say which. It reads as that member's id, computed as above, and the relation pairs with a
+  belongs-to back to the union without a discriminator.
+- A union's shared `join` and `select` take these relations; `on.<alias>.join` takes the
+  member's own as well.
+
 ## Reading a union directly
 
 Every union in the schema is also a read-only client under its own alias — `dsql.posts`, next
@@ -286,7 +337,8 @@ transaction client inside one, it is present again.
 
 - No foreign key can be emitted for a union target, and a polymorphic `from` column cannot
   carry one in the database; relations emit none anyway.
-- Only declared shared fields filter, select or order across a union.
+- Only declared shared fields filter, select or order across a union; only relations declared
+  on the union join across it.
 - `paginate` needs members whose primary keys line up.
 
 ## Related

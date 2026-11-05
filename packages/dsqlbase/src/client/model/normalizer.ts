@@ -343,7 +343,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      const params = this._getSelectArgs(targetTable, query === true ? {} : query);
+      const params = this._getSelectArgs(
+        targetTable,
+        query === true ? {} : (query as QueryArgs<AnyTable, this["__type"]>)
+      );
       entries.push([fieldName, params]);
     }
 
@@ -356,7 +359,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * The shared `select` / `where` apply to every member, written against that member's own
    * columns; `on.<alias>` then adds to them — its `select` is merged in, its `where` AND-ed
    * with the shared one, its `join` walks the member's own relations — or, as `false`, drops
-   * the member entirely. Omitted, a member runs with the shared arguments alone.
+   * the member entirely. Omitted, a member runs with the shared arguments alone. A relation
+   * declared on the union, which every member has, joins from every member through the shared
+   * `join` or `select`.
    */
   private _getUnionArgs(union: Union, args: AnyUnionQuery): UnionSelectOperationArgs {
     if (args.distinct) {
@@ -374,9 +379,44 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
-    const sharedSelect = Object.entries(args.select ?? {})
-      .filter(([, selected]) => selected)
+    // A relation every member has — one declared on the union — joins across it.
+    const isUnionRelation = (field: string) =>
+      union.memberAliases.every((alias) => union.getMember(alias).getRelation(field));
+
+    const selected = Object.entries(args.select ?? {})
+      .filter(([, value]) => value)
       .map(([field]) => field);
+    const sharedSelect = selected.filter(
+      (field) => union.isShared(field) || !isUnionRelation(field)
+    );
+    const sharedJoin: Record<string, unknown> = {};
+
+    // Read as `join: { r: true }`, as a table's `select` reads a relation.
+    for (const field of selected.filter((field) => !sharedSelect.includes(field))) {
+      sharedJoin[field] = true;
+    }
+
+    for (const [field, entry] of Object.entries(args.join ?? {})) {
+      if (entry === undefined || entry === null || entry === false) {
+        continue;
+      }
+
+      if (!isUnionRelation(field)) {
+        throw new Error(
+          `Invalid relation "${field}" in join for union "${union.alias}": only relations every ` +
+            `member has join across a union. Join it for one member through \`on\`.`
+        );
+      }
+
+      if (sharedJoin[field] !== undefined) {
+        throw new Error(
+          `Relation "${field}" appears in both select and join on union "${union.alias}"; ` +
+            `name it in one of them.`
+        );
+      }
+
+      sharedJoin[field] = entry;
+    }
 
     for (const field of sharedSelect) {
       if (!union.isShared(field)) {
@@ -417,11 +457,25 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         field,
         union.getMemberColumn(alias, field),
       ]);
-      // The member's own select adds to the shared one; a relation in it becomes a member join.
+      const ownJoin = (own.join ?? {}) as Record<string, unknown>;
+
+      for (const field of Object.keys(sharedJoin)) {
+        const entry = ownJoin[field];
+
+        if (entry !== undefined && entry !== null && entry !== false) {
+          throw new Error(
+            `Relation "${field}" is joined on union "${union.alias}" and again in ` +
+              `\`on.${alias}\`; name it in one of them.`
+          );
+        }
+      }
+
+      // The member's own select adds to the shared one; a relation in it becomes a member join,
+      // beside the relations joined across the union.
       const selection = this._getReadSelection(
         member,
         own.select as Record<string, unknown> | undefined,
-        own.join as Record<string, unknown> | undefined,
+        { ...sharedJoin, ...ownJoin },
         shared
       );
 
@@ -520,7 +574,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   /**
    * A polymorphic id written as a global id also says which member it names — so it fills the
    * discriminator when the caller left it out, and must agree with it when they did not. A raw
-   * uuid says nothing and leaves the discriminator alone.
+   * uuid says nothing and leaves the discriminator alone, as does a relation with no stored
+   * discriminator.
    */
   private _fillDiscriminators<TTable extends AnyTable>(
     table: TTable,
@@ -531,7 +586,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       const binding = getDynamicGuidBinding(table.getColumn(fieldName) as AnyColumn);
       const member = binding ? decodeMemberId(value, binding.members) : undefined;
 
-      if (!binding || !member) {
+      // A computed discriminator has nothing to fill: the id is only unwrapped.
+      if (!binding || !member || binding.discriminatorField === undefined) {
         continue;
       }
 

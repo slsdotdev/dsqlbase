@@ -84,10 +84,12 @@ export const userRelations = relations(users, {
 });
 ```
 
-A **belongs-to a union** also names a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
-which member each row points at, as that member's schema alias. It is required there, and
-`createClient` refuses it anywhere else. A has-many or has-one to a union needs none, because
-the key lives on the members.
+A **belongs-to a union** may also name a `discriminator` ([details](./polymorphic-relations.md#a-belongs-to-a-union)): a text column on the source that holds
+which member each row points at, as that member's schema alias. Without one, the member is the
+first holding the key, computed when the query runs
+([without a discriminator](./polymorphic-relations.md#without-a-discriminator)).
+`createClient` refuses a discriminator anywhere else. A has-many or has-one to a union needs
+none, because the key lives on the members.
 
 ```ts
 export const comments = table("comments", {
@@ -112,6 +114,13 @@ the first form may only hold fields the union declares.
 Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
 every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
 
+## Relations declared on a union
+
+`relations()` also takes a union as its source, which gives every member the relation from its
+own column: `relations(posts, { reactions: hasMany(reactions, { from: [posts.columns.id], to:
+[reactions.columns.postId] }) })`. `from` names the union's declared fields and the target must
+be a table. See [Polymorphic relations](./polymorphic-relations.md#relations-declared-on-a-union).
+
 ## Relations between global-id columns
 
 Both sides of every column pair must agree about global ids: both [`guid()`](./global-ids.md)
@@ -119,8 +128,11 @@ columns, or neither. `createClient` throws otherwise, naming both columns.
 
 The relation is also what decides what a key column's ids name: the key side of a pair — the
 `from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` — reads as the column it is paired
-with, so `article.authorId === article.author.id` holds. A column two relations pair with
-different targets has no single answer, and `createClient` throws.
+with, followed to where that chain ends, so `article.authorId === article.author.id` holds. Two
+relations whose chains end at the same column agree (`orders.customerId` → `customers.id`, and
+→ `customerStats.customerId` → `customers.id`). A column whose relations end at different
+columns has no single answer, and `createClient` throws, as it does for columns that reference
+each other in a ring.
 
 Neither failure shows up in SQL — a join correlates on the raw columns, so the query works
 either way. What breaks is quieter: a `guid()` paired with a plain `uuid()` leaves

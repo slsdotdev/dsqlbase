@@ -5,6 +5,7 @@ import {
   AnyRelationDefinition,
   AnyTableDefinition,
   AnyTableRelations,
+  AnyUnionColumnDefinition,
   AnyUnionDefinition,
   DefinitionSchema,
   RESERVED_FIELD_NAMES,
@@ -25,6 +26,7 @@ import {
   SchemaUnionDefinitions,
 } from "./base.js";
 import { AnyColumn } from "./column.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { AnyTable, Table } from "./table.js";
 import { Union } from "./union.js";
 
@@ -92,8 +94,27 @@ export class SchemaRegistry<
    */
   private readonly _unionPairs = new Map<string, Map<string, Record<string, AnyColumn[]>>>();
 
-  /** For every belongs-to a union: source table name → field → its discriminator column. */
-  private readonly _discriminators = new Map<string, Map<string, AnyColumn>>();
+  /**
+   * For every belongs-to a union: source table name → field → what names the member per row —
+   * its discriminator column, or a computed one when it declares none.
+   */
+  private readonly _discriminators = new Map<
+    string,
+    Map<string, AnyColumn | ComputedDiscriminator>
+  >();
+
+  /** Every computed discriminator, so one union and key columns share one. */
+  private readonly _computed: ComputedDiscriminator[] = [];
+
+  /**
+   * Relations whose source is a union, as declared: each is also given to every member as a
+   * relation of its own (see {@link _addUnionSourceRelations}), keyed here by those copies so
+   * validation knows where they came from.
+   */
+  private readonly _unionSourceCopies = new Map<
+    AnyFieldRelation,
+    { union: AnyUnionDefinition; field: string; relation: AnyFieldRelation }
+  >();
 
   /**
    * Every tenant claim declared anywhere in this schema, mapped to the data type it is
@@ -149,6 +170,15 @@ export class SchemaRegistry<
     const unions = {} as SchemaUnionDefinitions<TDefinition>;
 
     for (const [name, node] of Object.entries(schema)) {
+      if (node instanceof RelationsDefinition && node.table instanceof UnionDefinition) {
+        this._addUnionSourceRelations(
+          node.table,
+          node.relations as AnyTableRelations,
+          relations as Record<string, AnyTableRelations>
+        );
+        continue;
+      }
+
       if (node instanceof RelationsDefinition) {
         const tableName = node.table.name as DefinitionRelationsTableName<TDefinition>;
 
@@ -181,6 +211,67 @@ export class SchemaRegistry<
     }
 
     return { tables, relations, unions };
+  }
+
+  /**
+   * Gives every member of a union the relations declared with the union as their source, each
+   * with `from` resolved to the member's own columns — so `posts` hasMany `comments` is
+   * `photos` hasMany `comments` and `videos` hasMany `comments`. A join from a union branch,
+   * or from a member read on its own, is then an ordinary table join.
+   *
+   * A has-many / has-one sets one union reference on the foreign key instead of one per member
+   * (see `_buildRelations`): the key holds an id of whichever member the row points at.
+   */
+  private _addUnionSourceRelations(
+    union: AnyUnionDefinition,
+    declared: AnyTableRelations,
+    relations: Record<string, AnyTableRelations>
+  ): void {
+    for (const [field, relation] of Object.entries(declared)) {
+      const label = `Relation "${field}" on ${union.name}`;
+
+      if (!(relation.target instanceof TableDefinition)) {
+        throw new Error(
+          `${label} targets a union. A relation whose source is a union must target a table.`
+        );
+      }
+
+      if (relation.discriminator) {
+        throw new Error(
+          `${label} declares a discriminator, but only a belongs-to a union needs one.`
+        );
+      }
+
+      for (const column of relation.from as unknown[]) {
+        if (!(column instanceof UnionColumnDefinition) || union.columns[column.name] !== column) {
+          throw new Error(
+            `${label}: a "from" column must be a field the union declares ` +
+              `(\`union.columns.<field>\`).`
+          );
+        }
+      }
+
+      for (const [alias, member] of Object.entries<AnyTableDefinition>(union.members)) {
+        const copy = {
+          ...relation,
+          from: (relation.from as unknown as AnyUnionColumnDefinition[]).map(
+            (column) => column.members[alias]
+          ),
+        } as AnyFieldRelation;
+
+        this._unionSourceCopies.set(copy, { union, field, relation });
+
+        const existing = relations[member.name];
+
+        if (existing?.[field]) {
+          throw new Error(
+            `${label} has the same name as relation "${field}" on its member "${alias}".`
+          );
+        }
+
+        relations[member.name] = { ...existing, [field]: copy };
+      }
+    }
   }
 
   private _buildTables(schema: Schema<TDefinition>) {
@@ -292,7 +383,10 @@ export class SchemaRegistry<
     relation: AnyFieldRelation,
     definitions: Map<string, AnyTableDefinition>
   ): void {
-    const label = `Relation "${field}" on table "${sourceName}"`;
+    const copied = this._unionSourceCopies.get(relation);
+    const label = copied
+      ? `Relation "${field}" on ${copied.union.name} (member table "${sourceName}")`
+      : `Relation "${field}" on table "${sourceName}"`;
     const { from } = relation;
     const source = definitions.get(sourceName);
 
@@ -374,7 +468,7 @@ export class SchemaRegistry<
 
       if (relation.type === Relation.BELONGS_TO) {
         fromRuntime._addReference({ kind: "table", column: toRuntime, via });
-      } else {
+      } else if (!copied) {
         toRuntime._addReference({ kind: "table", column: fromRuntime, via });
       }
     }
@@ -448,24 +542,32 @@ export class SchemaRegistry<
 
     const sourceTable = this.getTable(sourceName);
     const via = { table: sourceTable, field };
-    let discriminator: AnyColumn | undefined;
+    let discriminator: AnyColumn | ComputedDiscriminator | undefined;
 
-    if (relation.discriminator) {
-      const byField = this._discriminators.get(sourceName) ?? new Map<string, AnyColumn>();
-      const alias = this._findColumnAlias(source, relation.discriminator) as string;
+    const fromColumns = from.map(
+      (definition) =>
+        sourceTable.getColumn(this._findColumnAlias(source, definition) as string) as AnyColumn
+    );
 
-      discriminator = sourceTable.getColumn(alias) as AnyColumn;
+    if (relation.type === Relation.BELONGS_TO) {
+      const byField =
+        this._discriminators.get(sourceName) ??
+        new Map<string, AnyColumn | ComputedDiscriminator>();
+
+      // Without a stored discriminator, the member is the first one holding the key.
+      discriminator = relation.discriminator
+        ? (sourceTable.getColumn(
+            this._findColumnAlias(source, relation.discriminator) as string
+          ) as AnyColumn)
+        : this._getComputedDiscriminator(union, fromColumns, pairs);
+
       byField.set(field, discriminator);
       this._discriminators.set(sourceName, byField);
     }
 
     // On the foreign key, as for a table target: a belongs-to's `from` points at whichever
     // member its discriminator names; a has-many / has-one sets one on every member's `to`.
-    for (const [index, fromDefinition] of from.entries()) {
-      const fromColumn = sourceTable.getColumn(
-        this._findColumnAlias(source, fromDefinition) as string
-      ) as AnyColumn;
-
+    for (const [index, fromColumn] of fromColumns.entries()) {
       if (relation.type === Relation.BELONGS_TO) {
         fromColumn._addReference({
           kind: "union",
@@ -473,7 +575,7 @@ export class SchemaRegistry<
           members: Object.fromEntries(
             Object.entries(pairs).map(([alias, to]) => [alias, to[index]])
           ),
-          discriminator: discriminator as AnyColumn,
+          discriminator: discriminator as AnyColumn | ComputedDiscriminator,
           via,
         });
         continue;
@@ -565,11 +667,9 @@ export class SchemaRegistry<
       return;
     }
 
+    // Optional: without one, the member is computed when the query runs.
     if (!discriminator) {
-      throw new Error(
-        `${label} belongs to union "${union.alias}" and must declare a discriminator: the ` +
-          `source column holding which member each row points at.`
-      );
+      return;
     }
 
     const alias = this._findColumnAlias(source, discriminator);
@@ -639,7 +739,99 @@ export class SchemaRegistry<
       map.set(tableName, relations);
     }
 
+    this._setUnionSourceReferences();
+
     return map;
+  }
+
+  /**
+   * The computed discriminator of `keys` over `union`, made once: a belongs-to a union and a
+   * has-many from it over the same key are one reference, so they must share it.
+   */
+  private _getComputedDiscriminator(
+    union: Union,
+    keys: AnyColumn[],
+    members: Record<string, AnyColumn[]>
+  ): ComputedDiscriminator {
+    const known = this._computed.find(
+      (candidate) =>
+        candidate.union === union &&
+        candidate.keys.length === keys.length &&
+        candidate.keys.every((key, index) => key === keys[index]) &&
+        union.memberAliases.every((alias) =>
+          candidate.members[alias].every((column, index) => column === members[alias][index])
+        )
+    );
+
+    if (known) {
+      return known;
+    }
+
+    const discriminator = new ComputedDiscriminator(union, keys, members);
+    this._computed.push(discriminator);
+
+    return discriminator;
+  }
+
+  /**
+   * The foreign key of a has-many / has-one whose source is a union holds an id of whichever
+   * member its row points at, and nothing stored says which: one union reference per key
+   * column, its discriminator computed when the query runs. A belongs-to from a union needs
+   * nothing here — its key is on each member, and each member's copy set an ordinary reference.
+   */
+  private _setUnionSourceReferences(): void {
+    const declared = new Map<
+      AnyFieldRelation,
+      { union: AnyUnionDefinition; field: string; relation: AnyFieldRelation }
+    >();
+
+    for (const source of this._unionSourceCopies.values()) {
+      declared.set(source.relation, source);
+    }
+
+    for (const { union: definition, field, relation } of declared.values()) {
+      if (relation.type === Relation.BELONGS_TO) {
+        continue;
+      }
+
+      const union = [...this._unions.values()].find(
+        (candidate) => candidate.definition === definition
+      );
+
+      if (!union) {
+        throw new Error(
+          `Relation "${field}" on ${definition.name}: the union is not in the schema.`
+        );
+      }
+
+      const target = this.getTable(relation.target.name);
+      const targetDefinition = relation.target as AnyTableDefinition;
+      const keys = (relation.to as AnyColumnDefinition[]).map(
+        (column) =>
+          target.getColumn(this._findColumnAlias(targetDefinition, column) as string) as AnyColumn
+      );
+      const pairs = Object.fromEntries(
+        union.memberAliases.map((alias) => [
+          alias,
+          (relation.from as unknown as AnyUnionColumnDefinition[]).map((column) =>
+            union.getMemberColumn(alias, column.name)
+          ),
+        ])
+      );
+      const discriminator = this._getComputedDiscriminator(union, keys, pairs);
+
+      for (const [index, key] of keys.entries()) {
+        key._addReference({
+          kind: "union",
+          union,
+          members: Object.fromEntries(
+            Object.entries(pairs).map(([alias, columns]) => [alias, columns[index]])
+          ),
+          discriminator,
+          via: { table: union, field },
+        });
+      }
+    }
   }
 
   public getTable<TName extends string>(
@@ -761,7 +953,10 @@ export class SchemaRegistry<
    * The discriminator column of a belongs-to a union — the source column naming which member
    * each row points at — or `undefined` for any other relation.
    */
-  public getRelationDiscriminator(tableNameOrAlias: string, field: string): AnyColumn | undefined {
+  public getRelationDiscriminator(
+    tableNameOrAlias: string,
+    field: string
+  ): AnyColumn | ComputedDiscriminator | undefined {
     const sourceTable = this.getTable(tableNameOrAlias);
 
     return this._discriminators.get(sourceTable.name)?.get(field);

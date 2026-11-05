@@ -9,6 +9,7 @@ import {
 import { ExecutionContext } from "./context.js";
 import { OperationsFactory } from "./operation.js";
 import { QueryBuilder } from "./query.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { SchemaRegistry } from "./registry.js";
 
 const col = (name: string, dataType = "text") => new ColumnDefinition(name, { dataType });
@@ -322,5 +323,228 @@ describe("column references", () => {
         via: { table: schema.getTable("authors"), field: "x" },
       })
     ).toThrow(/already built; its references are fixed/);
+  });
+
+  describe("belongs-to a union without a discriminator", () => {
+    const notes = new TableDefinition("notes", {
+      columns: { id: col("id", "uuid").primaryKey(), postId: col("post_id", "uuid") },
+    });
+    const schema = new SchemaRegistry({
+      photos,
+      videos,
+      posts,
+      notes,
+      rels: new RelationsDefinition(notes, {
+        post: {
+          type: Relation.BELONGS_TO,
+          target: posts,
+          from: [notes.columns.postId],
+          to: [posts.columns.id],
+        },
+      }),
+    });
+    const table = schema.getTable("notes");
+    const factory = new OperationsFactory(
+      new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+    );
+    const probe =
+      `CASE WHEN EXISTS (SELECT 1 FROM "photos" AS "__d0" WHERE "__d0"."id" = "__t0"."post_id") ` +
+      `THEN 'photos' WHEN EXISTS (SELECT 1 FROM "videos" AS "__d1" WHERE "__d1"."id" = ` +
+      `"__t0"."post_id") THEN 'videos' END`;
+
+    it("references the union through a computed discriminator", () => {
+      const [reference] = table.columns.postId.references;
+
+      expect(reference).toMatchObject({ kind: "union", union: schema.getUnion("posts") });
+      expect(reference.kind === "union" && reference.discriminator).toBeInstanceOf(
+        ComputedDiscriminator
+      );
+      expect(table.columns.postId.dependsOn).toEqual([
+        reference.kind === "union" && reference.discriminator,
+      ]);
+    });
+
+    it("projects the computed discriminator under the key's name", () => {
+      const { query } = factory.createSelectOperation(table, {
+        mode: "many",
+        args: { select: [["postId", table.columns.postId]] },
+      });
+
+      expect(query.text).toBe(
+        `SELECT "__t0"."post_id", ${probe} AS "post_id$key" FROM "notes" AS "__t0"`
+      );
+    });
+
+    // Each branch matches only the member the probe picks, so an id held by both members joins
+    // the first one, as the projected discriminator reads it.
+    it("correlates each branch on the member the probe picks", () => {
+      const { query } = factory.createSelectOperation(table, {
+        mode: "many",
+        args: {
+          select: [["id", table.columns.id]],
+          join: [
+            [
+              "post",
+              {
+                members: [
+                  ["photos", {}],
+                  ["videos", {}],
+                ],
+              },
+            ],
+          ],
+        },
+      });
+
+      expect(query.text).toContain(
+        `FROM "photos" AS "__t1" WHERE "__t1"."id" = "__t0"."post_id" AND ${probe} = 'photos'`
+      );
+    });
+  });
+
+  describe("a union as the source of a relation", () => {
+    const notes = new TableDefinition("notes", {
+      columns: { id: col("id", "uuid").primaryKey(), postId: col("post_id", "uuid") },
+    });
+    const postNotes = (relation: Partial<Record<string, unknown>> = {}) =>
+      new RelationsDefinition(posts, {
+        notes: {
+          type: Relation.HAS_MANY,
+          target: notes,
+          from: [posts.columns.id],
+          to: [notes.columns.postId],
+          ...relation,
+        },
+      } as never);
+    const schema = new SchemaRegistry({ photos, videos, posts, notes, rels: postNotes() });
+    const factory = new OperationsFactory(
+      new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+    );
+
+    it("gives every member the relation, from its own column", () => {
+      expect(schema.getTable("photos").getRelation("notes")?.from).toEqual([photos.columns.id]);
+      expect(schema.getTable("videos").getRelation("notes")?.from).toEqual([videos.columns.id]);
+    });
+
+    it("sets one union reference on the foreign key", () => {
+      const postId = schema.getTable("notes").columns.postId;
+
+      expect(postId.references).toHaveLength(1);
+      expect(postId.references[0]).toMatchObject({
+        kind: "union",
+        union: schema.getUnion("posts"),
+        members: {
+          photos: schema.getTable("photos").columns.id,
+          videos: schema.getTable("videos").columns.id,
+        },
+        via: { table: schema.getUnion("posts"), field: "notes" },
+      });
+      expect(postId.dependsOn[0]).toBeInstanceOf(ComputedDiscriminator);
+    });
+
+    // The has-many from the union and the belongs-to back are one reference, one probe.
+    it("shares one reference with a belongs-to back to the union", () => {
+      const both = new SchemaRegistry({
+        photos,
+        videos,
+        posts,
+        notes,
+        rels: postNotes(),
+        back: new RelationsDefinition(notes, {
+          post: {
+            type: Relation.BELONGS_TO,
+            target: posts,
+            from: [notes.columns.postId],
+            to: [posts.columns.id],
+          },
+        }),
+      });
+      const postId = both.getTable("notes").columns.postId;
+
+      expect(postId.references).toHaveLength(1);
+      expect(postId.dependsOn).toHaveLength(1);
+      expect(both.getRelationDiscriminator("notes", "post")).toBe(postId.dependsOn[0]);
+    });
+
+    it("joins from each union branch through its member", () => {
+      const { query } = factory.createUnionSelectOperation(schema.getUnion("posts"), {
+        mode: "many",
+        args: {
+          members: [
+            ["photos", { join: [["notes", { select: [] }]] }],
+            ["videos", { join: [["notes", { select: [] }]] }],
+          ],
+        },
+      });
+
+      expect(query.text).toContain(`FROM "notes" AS "__t1" WHERE "__t1"."post_id" = "__t0"."id"`);
+      expect(query.text).toContain(`FROM "notes" AS "__t3" WHERE "__t3"."post_id" = "__t2"."id"`);
+    });
+
+    it("refuses a union target", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            posts,
+            rels: new RelationsDefinition(posts, {
+              self: {
+                type: Relation.HAS_MANY,
+                target: posts,
+                from: [posts.columns.id],
+                to: [posts.columns.id],
+              },
+            } as never),
+          })
+      ).toThrow(/must target a table/);
+    });
+
+    it("refuses a discriminator", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            posts,
+            notes,
+            rels: postNotes({ discriminator: notes.columns.id }),
+          })
+      ).toThrow(/declares a discriminator/);
+    });
+
+    it("refuses a from column the union does not declare", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            posts,
+            notes,
+            rels: postNotes({ from: [photos.columns.id] }),
+          })
+      ).toThrow(/must be a field the union declares/);
+    });
+
+    it("refuses a name a member already uses for a relation", () => {
+      expect(
+        () =>
+          new SchemaRegistry({
+            photos,
+            videos,
+            posts,
+            notes,
+            own: new RelationsDefinition(photos, {
+              notes: {
+                type: Relation.HAS_MANY,
+                target: notes,
+                from: [photos.columns.id],
+                to: [notes.columns.postId],
+              },
+            }),
+            rels: postNotes(),
+          })
+      ).toThrow(/Duplicate relation name: notes|same name as relation "notes"/);
+    });
   });
 });

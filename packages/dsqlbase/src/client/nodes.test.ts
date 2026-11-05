@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ComputedDiscriminator,
   type DefinitionSchema,
   SchemaRegistry,
   type Session,
@@ -645,6 +646,42 @@ describe("polymorphic guid columns", () => {
   }
 
   describe("binding a polymorphic guid column", () => {
+    // No stored discriminator: the member is computed when the query runs.
+    it("binds a key with no discriminator to the computed one, with nothing to fill", () => {
+      const reactions = table("reactions", {
+        id: guid("id").primaryKey(),
+        targetId: guid("target_id").notNull(),
+      });
+      const fromUnion = relations(tradingEntities, {
+        reactions: hasMany(reactions, {
+          from: [tradingEntities.columns.id],
+          to: [reactions.columns.targetId],
+        }),
+      });
+      const back = relations(reactions, {
+        target: belongsTo(tradingEntities, {
+          from: [reactions.columns.targetId],
+          to: [tradingEntities.columns.id],
+        }),
+      });
+
+      const registry = register({
+        companies,
+        persons,
+        tradingEntities,
+        reactions,
+        fromUnion,
+        back,
+      });
+      const column = registry.getTable("reactions").columns.targetId;
+      const binding = getDynamicGuidBinding(column);
+
+      expect(binding?.discriminator).toBeInstanceOf(ComputedDiscriminator);
+      expect(binding?.discriminator).toBe(column.dependsOn[0]);
+      expect(binding?.discriminatorField).toBeUndefined();
+      expect(binding?.members).toEqual({ companies: "id", persons: "id" });
+    });
+
     it("binds the from column to the discriminator instead of a fixed node", () => {
       const registry = register(schema);
       const column = registry.getTable("ledgerEntries").columns.counterpartyId;

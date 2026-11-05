@@ -47,6 +47,7 @@ export {
   type UnionCountOperationArgs,
   UnionResolver,
 } from "./operation.js";
+export { ComputedDiscriminator } from "./reference.js";
 export type {
   ColumnReference,
   ReferenceEnd,

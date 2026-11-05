@@ -7,6 +7,7 @@ import {
   TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { SchemaRegistry } from "./registry.js";
 import { Table } from "./table.js";
 import { Union } from "./union.js";
@@ -651,10 +652,13 @@ describe("SchemaRegistry unions", () => {
       expect(registry.getRelationTarget("people", "rel")).toBe(registry.getUnion("posts"));
     });
 
-    it("requires one on a belongs-to a union", () => {
-      expect(
-        () => new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() })
-      ).toThrow(/must declare a discriminator/);
+    // Without one, the member is computed when the query runs: the first holding the key.
+    it("computes one for a belongs-to a union that declares none", () => {
+      const registry = new SchemaRegistry({ photos, videos, people, posts, rels: belongsTo() });
+      const discriminator = registry.getRelationDiscriminator("people", "rel");
+
+      expect(discriminator).toBeInstanceOf(ComputedDiscriminator);
+      expect((discriminator as ComputedDiscriminator).union).toBe(registry.getUnion("posts"));
     });
 
     it("rejects one that is not text-like", () => {

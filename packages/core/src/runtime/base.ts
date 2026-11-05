@@ -29,7 +29,10 @@ export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> =
   >
     ? TableDefinition extends AnyTableDefinition
       ? TableDefinition["name"]
-      : never
+      : // A union's relations belong to every member.
+        TableDefinition extends AnyUnionDefinition
+        ? TableDefinition["members"][keyof TableDefinition["members"]]["name"]
+        : never
     : never;
 }[keyof TDefinition];
 
@@ -53,7 +56,16 @@ export type DefinitionTableRelations<
         ? R extends AnyTableRelations
           ? R
           : never
-        : never
+        : // A union's relations, which each member has from its own columns.
+          TTable extends AnyUnionDefinition
+          ? TTable["members"][keyof TTable["members"]] extends infer TMember
+            ? TMember extends TableDefinition<TTableName, infer _, infer __>
+              ? R extends AnyTableRelations
+                ? R
+                : never
+              : never
+            : never
+          : never
       : never
     : never
 > extends infer TMerged extends AnyTableRelations

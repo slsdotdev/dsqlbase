@@ -84,12 +84,14 @@ carry `null`). A table with none of the above is not a node.
 `guid()` takes only a column name. What its values name is worked out from the relations when
 the client is built, in this order:
 
-1. **The `from` of a belongs-to a union** names whichever member its discriminator says, row by
-   row — see [below](#a-column-that-points-at-one-of-several-nodes).
+1. **A key pointing at a union** — the `from` of a belongs-to a union, or the foreign key of a
+   relation [declared on a union](./polymorphic-relations.md#relations-declared-on-a-union) —
+   names whichever member the row points at — see
+   [below](#a-column-that-points-at-one-of-several-nodes).
 2. **A relation key column** names the column it is paired with: the `from` of a `belongsTo`, or
-   the `to` of a `hasMany` / `hasOne`. `articles.authorId` above reads as an authors id because
-   `articles.author` pairs it with `authors.id`. A self reference works the same way, through
-   its own relation.
+   the `to` of a `hasMany` / `hasOne`, followed to where that chain ends. `articles.authorId`
+   above reads as an authors id because `articles.author` pairs it with `authors.id`. A self
+   reference works the same way, through its own relation.
 3. **Any other column** names its own table and field. A primary key is the table's node id; an
    unrelated `photos.ownerId` reads as a photos id carrying `ownerId`, which is a stable,
    self-describing value. It is the address of a photo only if `ownerId` is unique; otherwise
@@ -101,8 +103,8 @@ Adding a relation to a column that had none changes what its ids name; treat it 
 change it is.
 
 Both sides of a relation pair must be `guid()` columns, or neither. A `guid()` paired with a
-plain `uuid()` throws when the client is built, and so does a column that two relations pair
-with different targets. Neither would break the SQL — a join correlates on the raw columns —
+plain `uuid()` throws when the client is built, and so does a column whose relations end at
+different columns, or that references another in a ring. Neither would break the SQL — a join correlates on the raw columns —
 which is exactly why it is caught early.
 
 ### A column that points at one of several nodes
@@ -111,6 +113,11 @@ The `from` column of a [belongs-to a union](./polymorphic-relations.md#a-belongs
 a `guid()` whose node is named row by row by the relation's discriminator. It reads back wrapped
 with that member's key, a raw uuid when the discriminator is `NULL`. It accepts an id for any
 member of the union on writes and filters, and throws `key_mismatch` for any other.
+
+With no discriminator — a belongs-to a union without one, or the foreign key of a relation
+declared on a union — the member is the first holding the key, computed when the query runs
+([without a discriminator](./polymorphic-relations.md#without-a-discriminator)). A key no member
+holds reads raw.
 
 ## Reading and writing
 
@@ -185,7 +192,7 @@ tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
 | `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
 | A relation pairing a guid with a uuid                       | throws when the client is built                          |
-| A column two relations pair with different targets          | throws when the client is built                          |
+| A column whose relations end at different columns           | throws when the client is built                          |
 | `$query` with a wrapped id                                  | **not** unwrapped — see below                            |
 
 ## Raw SQL

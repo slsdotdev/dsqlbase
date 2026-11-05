@@ -4,7 +4,8 @@ import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from
 import { ExecutionContext } from "./context.js";
 import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
-import { AnyColumn } from "./column.js";
+import { AnyColumn, Column } from "./column.js";
+import { ComputedDiscriminator } from "./reference.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -328,7 +329,9 @@ export class OperationsFactory<
    * No selection projects every column; an empty one projects none.
    */
   private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
-    const columns: AnyColumn[] = [];
+    // A computed discriminator is projected as its aliased expression.
+    const columns: (AnyColumn | SQLNode)[] = [];
+    const seen = new Set<unknown>();
     const resolvers: ResolverEntry[] = [];
 
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
@@ -339,9 +342,14 @@ export class OperationsFactory<
     // whole row, which is how such a decoder reads them.
     const add = (fieldName: string, column: AnyColumn) => {
       for (const projected of [column, ...column.dependsOn]) {
-        if (!columns.includes(projected)) {
-          columns.push(projected);
+        if (seen.has(projected)) {
+          continue;
         }
+
+        seen.add(projected);
+        columns.push(
+          projected instanceof ComputedDiscriminator ? projected.projection() : projected
+        );
       }
 
       if (!column.rowDecoder) {
@@ -497,7 +505,9 @@ export class OperationsFactory<
 
     const columns = json
       ? fields.columns.map((column) =>
-          column.textInJson ? sql`${column}::text AS ${sql.identifier(column.name)}` : column
+          column instanceof Column && column.textInJson
+            ? sql`${column}::text AS ${sql.identifier(column.name)}`
+            : column
         )
       : fields.columns;
 
@@ -672,7 +682,7 @@ export class OperationsFactory<
     args: UnionSelectOperationArgs,
     mode: OperationMode,
     pairs?: Record<string, AnyColumn[]>,
-    discriminator?: AnyColumn
+    discriminator?: AnyColumn | ComputedDiscriminator
   ): { params: UnionSelectParams; resolver: UnionResolver } {
     const orderBy = args.orderBy ?? [];
     const paged = args.keys === true || args.keyset !== undefined;

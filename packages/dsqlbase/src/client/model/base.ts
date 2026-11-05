@@ -544,7 +544,7 @@ export type RelationQueryOf<
     : RelationTargetOf<T, K> extends AnyUnionDefinition
       ? RelationTypeOf<T, K> extends "has_many"
         ? UnionQueryArgs<RelationTargetOf<T, K>, S>
-        : Pick<UnionQueryArgs<RelationTargetOf<T, K>, S>, "select" | "orderBy" | "on">
+        : Pick<UnionQueryArgs<RelationTargetOf<T, K>, S>, "select" | "join" | "orderBy" | "on">
       : never;
 
 export type SelectionResultOf<
@@ -687,6 +687,39 @@ export type UnionFieldsOf<TUnion extends AnyUnionDefinition> = keyof TUnion["col
 /** The member aliases of a union. */
 type MemberAliasesOf<TUnion extends AnyUnionDefinition> = keyof TUnion["members"] & string;
 
+/**
+ * The relations every member of a union has — those declared on the union itself, which each
+ * member has from its own columns. They join across the union, through `join` or `select`.
+ */
+export type UnionRelationNamesOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  [A in MemberAliasesOf<TUnion>]: RelationFieldNamesOf<TableByAlias<TSchema, A>>;
+}[MemberAliasesOf<TUnion>] extends infer TNames
+  ? TNames extends string
+    ? false extends {
+        [A in MemberAliasesOf<TUnion>]: TNames extends RelationFieldNamesOf<
+          TableByAlias<TSchema, A>
+        >
+          ? true
+          : false;
+      }[MemberAliasesOf<TUnion>]
+      ? never
+      : TNames
+    : never
+  : never;
+
+/** A `join` across a union: a relation of every member, read the same way from each. */
+export type UnionJoinExpressionOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
+  [K in UnionRelationNamesOf<TUnion, TSchema>]?:
+    | {
+        [A in MemberAliasesOf<TUnion>]: K extends RelationFieldNamesOf<TableByAlias<TSchema, A>>
+          ? RelationQueryOf<TableByAlias<TSchema, A>, TSchema, K>
+          : never;
+      }[MemberAliasesOf<TUnion>]
+    | boolean
+    | null
+    | undefined;
+};
+
 /** The value a shared field holds, as the union declares it. */
 type SharedValueOf<
   TUnion extends AnyUnionDefinition,
@@ -735,8 +768,13 @@ export type UnionWhereExpressionOf<TUnion extends AnyUnionDefinition> = {
  * every member runs, plus `on` for what differs per member — GraphQL's `... on Photo { }`.
  */
 export type UnionQueryArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
-  /** Shared fields to return from every member; merged with each member's `on.<alias>.select`. */
-  select?: Partial<Record<UnionFieldsOf<TUnion>, boolean>>;
+  /**
+   * Shared fields to return from every member, and relations declared on the union to join
+   * from every member; merged with each member's `on.<alias>.select`.
+   */
+  select?: Partial<Record<UnionFieldsOf<TUnion> | UnionRelationNamesOf<TUnion, TSchema>, boolean>>;
+  /** Relations declared on the union, joined from every member alongside `on.<alias>.join`. */
+  join?: UnionJoinExpressionOf<TUnion, TSchema>;
   /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
   where?: UnionWhereExpressionOf<TUnion>;
   /**
@@ -754,8 +792,8 @@ export type UnionQueryArgs<TUnion extends AnyUnionDefinition, TSchema extends An
   on?: OnSelectionOf<MemberAliasesOf<TUnion>, TSchema>;
 };
 
-/** The query args one member of a union runs with: shared `select` merged with its own. */
-type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn> = {
+/** The query args one member of a union runs with: shared `select` / `join` merged with its own. */
+type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn, TSharedJoin> = {
   select: TShared extends object
     ? TOn extends { select: infer TOwn }
       ? TShared & TOwn
@@ -763,7 +801,13 @@ type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn
     : TOn extends { select: infer TOwn }
       ? TOwn
       : undefined;
-  join: TOn extends { join: infer TJoin } ? TJoin : undefined;
+  join: TSharedJoin extends object
+    ? TOn extends { join: infer TJoin }
+      ? TSharedJoin & TJoin
+      : TSharedJoin
+    : TOn extends { join: infer TJoin }
+      ? TJoin
+      : undefined;
 } extends infer TArgs
   ? TArgs extends QueryArgs<TableByAlias<TSchema, TAlias>, TSchema>
     ? TArgs
@@ -777,6 +821,8 @@ type OnEntryOf<TArgs, TAlias extends string> = TArgs extends { on: infer TOn }
   : undefined;
 
 type SharedSelectOf<TArgs> = TArgs extends { select: infer TSelect } ? TSelect : undefined;
+
+type SharedJoinOf<TArgs> = TArgs extends { join: infer TJoin } ? TJoin : undefined;
 
 /**
  * One row of a union result: a union over the members `on` did not exclude, each tagged with
@@ -792,7 +838,7 @@ export type UnionResultOf<TUnion extends AnyUnionDefinition, TSchema extends Any
         { $$key: A } & QueryResultOf<
           TableByAlias<TSchema, A>,
           TSchema,
-          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>>
+          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>, SharedJoinOf<TArgs>>
         >
       >;
 }[MemberAliasesOf<TUnion>];
@@ -812,7 +858,7 @@ export type UnionMembersOf<TUnion> = TUnion extends AnyUnionDefinition ? TUnion[
 /** A union's `findOne`: like `findMany`, but a `where` must name the row. */
 export type UnionFindOneArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
   where: UnionWhereExpressionOf<TUnion>;
-} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "orderBy" | "on">;
+} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "join" | "orderBy" | "on">;
 
 /** A union's `paginate` — the table form, with the union's shared-field arguments and `on`. */
 export type UnionPaginateArgs<TUnion extends AnyUnionDefinition, TSchema extends AnySchema> = {
@@ -824,7 +870,7 @@ export type UnionPaginateArgs<TUnion extends AnyUnionDefinition, TSchema extends
   before?: string | null;
   /** Also count every record `where` selects, across every member, as `totalCount`. */
   count?: boolean;
-} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "where" | "orderBy" | "on">;
+} & Pick<UnionQueryArgs<TUnion, TSchema>, "select" | "join" | "where" | "orderBy" | "on">;
 
 /** One record of a union page: each member's row, its `$$meta` also carrying its cursor. */
 export type UnionPageItemOf<TUnion extends AnyUnionDefinition, TSchema extends AnySchema, TArgs> =
@@ -856,6 +902,7 @@ export type UnionCountArgs<TUnion extends AnyUnionDefinition> = {
 export type AnyUnionQuery = {
   select?: Record<string, boolean | undefined> | null;
   where?: Record<string, unknown> | null;
+  join?: Record<string, unknown> | null;
   orderBy?: Record<string, "asc" | "desc" | undefined> | null;
   limit?: number | null;
   offset?: number | null;

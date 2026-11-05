@@ -2,7 +2,13 @@ import { TypedObject } from "../utils/index.js";
 import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLParam, SQLStatement, isSQLNode, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
-import { ColumnReference, ReferenceEnd, ResolvedReferences, isSameReference } from "./reference.js";
+import {
+  ColumnReference,
+  ComputedDiscriminator,
+  ReferenceEnd,
+  ResolvedReferences,
+  isSameReference,
+} from "./reference.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyColumn = Column<any, any, any>;
@@ -91,12 +97,12 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   }
 
   /**
-   * Sibling columns of the same row that give this column's value its meaning: the
-   * discriminator of each union reference. Projected alongside the column whenever it is
+   * What gives this column's value its meaning, read from the same row: the discriminator of
+   * each union reference — a sibling column, or a {@link ComputedDiscriminator}. Projected alongside the column whenever it is
    * selected.
    */
-  public get dependsOn(): readonly AnyColumn[] {
-    const dependencies: AnyColumn[] = [];
+  public get dependsOn(): readonly (AnyColumn | ComputedDiscriminator)[] {
+    const dependencies: (AnyColumn | ComputedDiscriminator)[] = [];
 
     for (const reference of this._references) {
       if (reference.kind === "union" && !dependencies.includes(reference.discriminator)) {
