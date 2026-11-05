@@ -47,6 +47,14 @@ export {
   type UnionCountOperationArgs,
   UnionResolver,
 } from "./operation.js";
+export type {
+  ColumnReference,
+  ReferenceEnd,
+  RelationRef,
+  ResolvedReferences,
+  TableReference,
+  UnionReference,
+} from "./reference.js";
 export {
   QueryBuilder,
   type DeleteParams,

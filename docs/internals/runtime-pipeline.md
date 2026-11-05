@@ -40,6 +40,31 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - Every level of a join resolves its own `$$meta`, so a nested row reports the table it came from rather than its parent's. See [Result resolution](#result-resolution-and-meta).
 - A relation may target a `union()` — see [Union joins](#union-joins).
 
+## Column references
+
+A runtime `Column` records what it points at, as `Column.references`
+(`packages/core/src/runtime/column.ts`, types in `reference.ts`). `SchemaRegistry` sets them while
+it validates relations, for every column type, and freezes them once the registry is built.
+Built columns belong to one registry, so a reference never leaks into another client.
+
+- **On the foreign key, as in SQL.** A belongs-to sets one on each `from` column, pointing at the
+  paired `to` column. A has-many / has-one sets one on each `to` column, pointing back at `from`
+  — so a relation declared on `authors` writes onto `articles.authorId`. Both sides of one
+  relation declared give the same reference, recorded once.
+- **Two kinds.** `table` points at one column. `union` is set by a belongs-to a union: `members`
+  maps each member alias to the column the key points at there, and `discriminator` is the
+  source column naming the member per row. A has-many / has-one to a union sets a `table`
+  reference on every member's column.
+- **`dependsOn`** is the discriminator of each union reference. `_resolveFields` projects it with
+  the column whenever the column is selected, ungated by type.
+- **`resolveReferences(row?)`** follows table references to where each chain ends (a column with
+  no references ends at itself) and reports a ring instead of looping. A union reference is an
+  end of its own; given the row, it resolves to the member its discriminator names. It never
+  throws: a plain key may legitimately point at two tables, so whether two ends or a ring is a
+  conflict is the reader's decision — `client/nodes.ts` refuses both for a `guid()` column.
+- Joins do not read references: `_resolveJoins` stays relation-driven, since a has-many join
+  starts on the source table while its reference sits on the target.
+
 ## Union joins
 
 A relation to a union (`packages/core/src/definition/union.ts`) is a lateral join over a
@@ -169,8 +194,11 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 representation of a value rather than the decoded one therefore has it.
 
 Two things produce a `MetaResolver`. One is a column with a row decoder
-(`Column.rowDecoder`), whose field is read from the whole row; `_resolveFields` also projects
-its `dependsOn` columns (see [Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)).
+(`Column.rowDecoder`), whose field is read from the whole row (see
+[Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)). Separately, `_resolveFields`
+projects every selected column's `dependsOn` — the discriminator of a union reference, see
+[Column references](#column-references) — whether or not it has a decoder, so a plain-`uuid`
+belongs-to a union also selects its discriminator.
 The other is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:

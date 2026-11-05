@@ -112,6 +112,12 @@ export class SchemaRegistry<
     this._unions = this._buildUnions(schema, definition);
     this._relations = this._buildRelations(schema);
     this.claimKeys = this._buildClaimKeys(schema);
+
+    for (const [, table] of this.getTableEntries()) {
+      for (const [, column] of table.getColumnEntries()) {
+        column._freezeReferences();
+      }
+    }
   }
 
   /**
@@ -359,6 +365,18 @@ export class SchemaRegistry<
             `both columns of a pair must have the same type.`
         );
       }
+
+      // The reference sits on the foreign key, as in SQL: the `from` of a belongs-to, the `to`
+      // of a has-many / has-one — so a has-many declared here writes onto the target's column.
+      const fromRuntime = this.getTable(sourceName).getColumn(fromAlias) as AnyColumn;
+      const toRuntime = this.getTable(relation.target.name).getColumn(toAlias) as AnyColumn;
+      const via = { table: this.getTable(sourceName), field };
+
+      if (relation.type === Relation.BELONGS_TO) {
+        fromRuntime._addReference({ kind: "table", column: toRuntime, via });
+      } else {
+        toRuntime._addReference({ kind: "table", column: fromRuntime, via });
+      }
     }
   }
 
@@ -428,12 +446,42 @@ export class SchemaRegistry<
 
     this._validateDiscriminator(label, relation, source, union);
 
+    const sourceTable = this.getTable(sourceName);
+    const via = { table: sourceTable, field };
+    let discriminator: AnyColumn | undefined;
+
     if (relation.discriminator) {
       const byField = this._discriminators.get(sourceName) ?? new Map<string, AnyColumn>();
       const alias = this._findColumnAlias(source, relation.discriminator) as string;
 
-      byField.set(field, this.getTable(sourceName).getColumn(alias) as AnyColumn);
+      discriminator = sourceTable.getColumn(alias) as AnyColumn;
+      byField.set(field, discriminator);
       this._discriminators.set(sourceName, byField);
+    }
+
+    // On the foreign key, as for a table target: a belongs-to's `from` points at whichever
+    // member its discriminator names; a has-many / has-one sets one on every member's `to`.
+    for (const [index, fromDefinition] of from.entries()) {
+      const fromColumn = sourceTable.getColumn(
+        this._findColumnAlias(source, fromDefinition) as string
+      ) as AnyColumn;
+
+      if (relation.type === Relation.BELONGS_TO) {
+        fromColumn._addReference({
+          kind: "union",
+          union,
+          members: Object.fromEntries(
+            Object.entries(pairs).map(([alias, to]) => [alias, to[index]])
+          ),
+          discriminator: discriminator as AnyColumn,
+          via,
+        });
+        continue;
+      }
+
+      for (const to of Object.values(pairs)) {
+        to[index]._addReference({ kind: "table", column: fromColumn, via });
+      }
     }
 
     const byField =

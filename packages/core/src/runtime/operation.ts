@@ -334,22 +334,19 @@ export class OperationsFactory<
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
     resolvers.push([META_FIELD, () => table.meta]);
 
-    // A column with a row decoder reads siblings of its row: they are projected with it — once,
-    // however many columns need them — and the field is resolved from the whole row.
+    // A column's dependencies — the discriminator of a union reference — are projected with it,
+    // once however many columns need them. A column with a row decoder is resolved from the
+    // whole row, which is how such a decoder reads them.
     const add = (fieldName: string, column: AnyColumn) => {
-      if (!columns.includes(column)) {
-        columns.push(column);
+      for (const projected of [column, ...column.dependsOn]) {
+        if (!columns.includes(projected)) {
+          columns.push(projected);
+        }
       }
 
       if (!column.rowDecoder) {
         resolvers.push([fieldName, column]);
         return;
-      }
-
-      for (const dependency of column.rowDecoder.dependsOn) {
-        if (!columns.includes(dependency)) {
-          columns.push(dependency);
-        }
       }
 
       resolvers.push([fieldName, (row) => column.resolveRow(row)]);

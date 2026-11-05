@@ -334,6 +334,45 @@ describe("registerNodes", () => {
     );
   });
 
+  // orders.customerId → customers.id, and → customerStats.customerId → customers.id
+  it("should accept two relations whose chains end at the same column", () => {
+    const customers = table("customers", { id: guid("id").primaryKey() });
+    const customerStats = table("customer_stats", { customerId: guid("customer_id").primaryKey() });
+    const orders = table("orders", {
+      id: guid("id").primaryKey(),
+      customerId: guid("customer_id"),
+    });
+    const orderRelations = relations(orders, {
+      customer: belongsTo(customers, {
+        from: [orders.columns.customerId],
+        to: [customers.columns.id],
+      }),
+      stats: belongsTo(customerStats, {
+        from: [orders.columns.customerId],
+        to: [customerStats.columns.customerId],
+      }),
+    });
+    const statsRelations = relations(customerStats, {
+      customer: belongsTo(customers, {
+        from: [customerStats.columns.customerId],
+        to: [customers.columns.id],
+      }),
+    });
+
+    const { registry } = register({
+      customers,
+      customerStats,
+      orders,
+      orderRelations,
+      statsRelations,
+    });
+
+    expect(getGuidBinding(registry.getTable("orders").columns.customerId)).toEqual({
+      key: "customers",
+      keyField: "id",
+    });
+  });
+
   it("should reject columns referencing each other in a ring", () => {
     const a = table("a", { id: guid("id").primaryKey(), bId: guid("b_id") });
     const b = table("b", { id: guid("id").primaryKey(), aId: guid("a_id") });

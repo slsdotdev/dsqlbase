@@ -2,15 +2,17 @@ import { TypedObject } from "../utils/index.js";
 import { ColumnConfig, ColumnDefinition, ColumnRuntimeType } from "../definition/index.js";
 import { SQLContext, SQLNode, SQLParam, SQLStatement, isSQLNode, sql } from "../sql/index.js";
 import { AnyTable } from "./table.js";
+import { ColumnReference, ReferenceEnd, ResolvedReferences, isSameReference } from "./reference.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyColumn = Column<any, any, any>;
 
 /** See {@link Column.rowDecoder}. */
 export type ColumnRowDecoder = {
-  /** Columns of the same table the decode reads; projected alongside this one. */
-  readonly dependsOn: AnyColumn[];
-  /** The value from the column's raw value and the raw row it was read from, keyed by column name. */
+  /**
+   * The value from the column's raw value and the raw row it was read from, keyed by column
+   * name. The row carries {@link Column.dependsOn}, which core projects with the column.
+   */
   decode(raw: unknown, row: Record<string, unknown>): unknown;
 };
 
@@ -68,11 +70,135 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    *
    * Unset by default; a client sets it on the built column when it is created, as it does a
    * bound codec, for a value whose meaning depends on another column (a polymorphic reference
-   * whose target is named by a discriminator). When set, `dependsOn` is projected whenever this
-   * column is selected, and the value is read through {@link Column.resolveRow} instead of
-   * {@link Column.resolve}. Core applies no meaning to it.
+   * whose target is named by a discriminator). When set, the value is read through
+   * {@link Column.resolveRow} instead of {@link Column.resolve}; the siblings it may read are
+   * {@link Column.dependsOn}, which core projects whether or not a decoder is set. Core applies
+   * no meaning to it.
    */
   readonly rowDecoder?: ColumnRowDecoder;
+
+  private _references: ColumnReference[] = [];
+  private _referencesFrozen = false;
+
+  /**
+   * What this column points at, one entry per relation that makes it a foreign key. Set by the
+   * `SchemaRegistry` while it builds relations, for every column type; empty for a column no
+   * relation references through. A column may point at more than one target — a plain key can
+   * be a foreign key of two tables — and what that means is left to the reader.
+   */
+  public get references(): readonly ColumnReference[] {
+    return this._references;
+  }
+
+  /**
+   * Sibling columns of the same row that give this column's value its meaning: the
+   * discriminator of each union reference. Projected alongside the column whenever it is
+   * selected.
+   */
+  public get dependsOn(): readonly AnyColumn[] {
+    const dependencies: AnyColumn[] = [];
+
+    for (const reference of this._references) {
+      if (reference.kind === "union" && !dependencies.includes(reference.discriminator)) {
+        dependencies.push(reference.discriminator);
+      }
+    }
+
+    return dependencies;
+  }
+
+  /**
+   * @internal Called by `SchemaRegistry` while it builds relations. A reference already held is
+   * skipped, not refused: both sides of one relation declare the same reference. So is a
+   * column referencing itself.
+   */
+  public _addReference(reference: ColumnReference): void {
+    if (this._referencesFrozen) {
+      throw new Error(
+        `Column "${this.table.name}"."${this.name}" is already built; its references are fixed.`
+      );
+    }
+
+    // A pair of a column with itself says nothing about where it points.
+    if (reference.kind === "table" && reference.column === this) {
+      return;
+    }
+
+    if (this._references.some((existing) => isSameReference(existing, reference))) {
+      return;
+    }
+
+    this._references = [...this._references, reference];
+  }
+
+  /** @internal Called by `SchemaRegistry` once every relation is built. */
+  public _freezeReferences(): void {
+    this._referencesFrozen = true;
+    Object.freeze(this._references);
+  }
+
+  /**
+   * Follows this column's references to where each chain ends. A table reference continues
+   * through the column it points at; a union reference is an end of its own, since its member
+   * is only known per row — given the `row`, it resolves to the member column its discriminator
+   * names, or to nothing when the discriminator is null or names no member.
+   *
+   * Never throws: two ends, or a ring, can be legitimate for a plain key, so it is the caller
+   * who decides whether they are a conflict.
+   */
+  public resolveReferences(row?: Record<string, unknown>): ResolvedReferences {
+    const ends: ReferenceEnd[] = [];
+    let ring: AnyColumn[] | undefined;
+
+    const addEnd = (end: ReferenceEnd) => {
+      const known = ends.some((existing) =>
+        existing.kind === "table" && end.kind === "table"
+          ? existing.column === end.column
+          : existing.kind === "union" &&
+            end.kind === "union" &&
+            isSameReference(existing.reference, end.reference)
+      );
+
+      if (!known) {
+        ends.push(end);
+      }
+    };
+
+    const walk = (column: AnyColumn, path: AnyColumn[]) => {
+      if (path.includes(column)) {
+        ring ??= [...path.slice(path.indexOf(column)), column];
+        return;
+      }
+
+      if (column.references.length === 0) {
+        addEnd({ kind: "table", column });
+        return;
+      }
+
+      for (const reference of column.references) {
+        if (reference.kind === "table") {
+          walk(reference.column, [...path, column]);
+          continue;
+        }
+
+        if (!row) {
+          addEnd({ kind: "union", reference });
+          continue;
+        }
+
+        // Only the column the row was read from has its discriminator in the row.
+        const key = column === this ? row[reference.discriminator.name] : undefined;
+
+        if (typeof key === "string" && Object.hasOwn(reference.members, key)) {
+          walk(reference.members[key], [...path, column]);
+        }
+      }
+    };
+
+    walk(this, []);
+
+    return ring ? { ends, ring } : { ends };
+  }
 
   /** Reads this column's value from a whole row, through {@link Column.rowDecoder} if set. */
   public resolveRow(row: Record<string, unknown>): TConfig["valueType"] {

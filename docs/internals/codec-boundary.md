@@ -110,12 +110,15 @@ The tenant rows are the one place a value is encoded inside `core` rather than b
 
 Most codecs are fixed where the column is declared. `guid()` cannot be: wrapping a value needs
 the `(alias, field)` its ids name, and that comes from the relations, which do not exist until
-the whole schema does. So `registerNodes` (`packages/dsqlbase/src/client/nodes.ts`) resolves it
-when `createClient` runs — `resolveBindings` gives the key side of every relation pair the
-binding of the column it references, recursively, and every other column its own table and
-field — and installs the bound codec on the built `Column`, not on the definition. A definition is the user's object
-and may be shared by two clients, while a binding depends on the alias the table was exported
-under.
+the whole schema does. Core records what each foreign key points at as it builds relations
+(`Column.references`, see [Column references](./runtime-pipeline.md#column-references)), and
+`registerNodes` (`packages/dsqlbase/src/client/nodes.ts`) reads them when `createClient` runs:
+a guid column follows `Column.resolveReferences()` to where its chains end and takes that
+column's `(alias, field)`, or its own table and field when nothing references through it. Two
+chains ending at different columns, a ring, or a guid paired with a plain column are refused
+there — core keeps every reference and never decides. The bound codec is installed on the
+built `Column`, not on the definition. A definition is the user's object and may be shared by
+two clients, while a binding depends on the alias the table was exported under.
 
 Because reads, writes and filters all funnel through the one `codec`, that single swap covers
 every direction and no call site changed. A `SchemaRegistry` built outside `createClient` has no
@@ -132,13 +135,14 @@ and the discriminator naming which member, and so which node key, the id belongs
 cannot see that sibling, so the read side is a **row decoder** instead:
 
 - **Core** (`Column.rowDecoder` / `Column.resolveRow` in `packages/core/src/runtime/column.ts`)
-  is the guid-agnostic seam. A built column may declare `dependsOn` columns and
-  `decode(raw, row)`. `_resolveFields` then projects the dependencies whenever the column is
-  selected, without emitting them as fields, and resolves the field through a `MetaResolver`
-  over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
+  is the guid-agnostic seam. A built column may carry `decode(raw, row)`. Which siblings
+  the row holds is core's decision, not the decoder's: `Column.dependsOn` is the discriminator
+  of each union reference, and `_resolveFields` projects it whenever the column is selected —
+  decoder or not — without emitting it as a field. A column with a decoder is resolved through
+  a `MetaResolver` over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
   aside for a value computed from the row.
 - **Client** (`bindDynamicGuid` in `packages/dsqlbase/src/client/nodes.ts`) sets it on the built
-  column when `createClient` runs, next to a codec whose `encode` accepts an id for any member.
+  column when `createClient` runs, from the column's union reference, next to a codec whose `encode` accepts an id for any member.
   A `NULL` discriminator, or one naming no member, reads the id raw.
 - **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
   `(discriminator = key AND id = pk)` or a write filling the discriminator, are the client's
