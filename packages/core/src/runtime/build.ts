@@ -4,13 +4,15 @@ import {
   AnyUnionDefinition,
   DefinitionSchema,
   Relation,
-  SourcedRelation,
   TableDefinition,
   UnionDefinition,
+} from "../definition/index.js";
+import {
+  SourcedRelation,
   collectRelations,
   findColumnAlias,
   memberToColumns,
-} from "../definition/index.js";
+} from "../validation/index.js";
 import { AnyColumn } from "./column.js";
 import { ComputedDiscriminator } from "./reference.js";
 import { RuntimeRelation, TableRelation } from "./relation.js";

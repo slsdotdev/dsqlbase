@@ -1,6 +1,5 @@
 export {
   Kind,
-  validateSchema,
   Relation,
   defaultCodec,
   ColumnDefinition,
@@ -141,3 +140,4 @@ export {
   type KeysetKey,
   type KeysetBound,
 } from "./sql/index.js";
+export { validateSchema } from "./validation/index.js";

@@ -62,6 +62,10 @@
       "types": "./dist/sql/*.d.ts",
       "default": "./dist/sql/*.js"
     },
+    "./validation": {
+      "types": "./dist/validation/index.d.ts",
+      "default": "./dist/validation/index.js"
+    },
     "./utils": {
       "types": "./dist/utils/index.d.ts",
       "default": "./dist/utils/index.js"

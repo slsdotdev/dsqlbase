@@ -1,5 +1,6 @@
 import { TypedObject, Prettify, WithMeta } from "../utils/index.js";
-import { DefinitionSchema, TableDefinition, validateSchema } from "../definition/index.js";
+import { DefinitionSchema, TableDefinition } from "../definition/index.js";
+import { validateSchema } from "../validation/index.js";
 import { AnySchema, Schema, SchemaTableRelations } from "./base.js";
 import { buildSchema } from "./build.js";
 import { RuntimeRelation } from "./relation.js";

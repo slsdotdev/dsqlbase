@@ -18,10 +18,13 @@ name and asked the registry three questions (`getRelationTarget`, `getUnionRelat
 
 Three steps, each with one job:
 
-1. **`validateSchema(definition)`** (`packages/core/src/definition/validate.ts`) — pure checks
+1. **`validateSchema(definition)`** (`packages/core/src/validation/validate.ts`) — pure checks
    over definitions. It builds nothing, keeps nothing, and throws the first problem with the same
    messages as before. It also refuses a relation through a deprecated column, which the client
    cannot read and which previously failed while building.
+   It lives in its own module, `validation/`, between `definition/` and `runtime/`: a definition
+   describes one object and does not judge the schema as a whole, and the runtime builds from a
+   schema already judged.
 2. **`buildSchema(definition)`** (`packages/core/src/runtime/build.ts`) — builds tables, unions
    and one `RuntimeRelation` per table and field (runtime columns on both sides, the runtime
    target, per-member columns and discriminator for a union target), then links every column

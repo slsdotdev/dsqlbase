@@ -86,10 +86,3 @@ export {
   type UnionColumns,
   type UnionConfig,
 } from "./union.js";
-export {
-  validateSchema,
-  collectRelations,
-  findColumnAlias,
-  memberToColumns,
-  type SourcedRelation,
-} from "./validate.js";

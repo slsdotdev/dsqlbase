@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Relation } from "./base.js";
-import { ColumnDefinition } from "./column.js";
-import { RelationsDefinition } from "./relations.js";
-import { TableDefinition } from "./table.js";
-import { UnionDefinition } from "./union.js";
+import {
+  ColumnDefinition,
+  Relation,
+  RelationsDefinition,
+  TableDefinition,
+  UnionDefinition,
+} from "../definition/index.js";
 import { collectRelations, validateSchema } from "./validate.js";
 
 const col = (name: string, dataType = "uuid") => new ColumnDefinition(name, { dataType });

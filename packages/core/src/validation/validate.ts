@@ -1,13 +1,18 @@
-import { DefinitionSchema, RESERVED_FIELD_NAMES, Relation } from "./base.js";
-import { AnyColumnDefinition } from "./column.js";
-import { AnyFieldRelation, AnyTableRelations, RelationsDefinition } from "./relations.js";
-import { AnyTableDefinition, TableDefinition } from "./table.js";
 import {
+  AnyColumnDefinition,
+  AnyFieldRelation,
+  AnyTableDefinition,
+  AnyTableRelations,
   AnyUnionColumnDefinition,
   AnyUnionDefinition,
+  DefinitionSchema,
+  RESERVED_FIELD_NAMES,
+  Relation,
+  RelationsDefinition,
+  TableDefinition,
   UnionColumnDefinition,
   UnionDefinition,
-} from "./union.js";
+} from "../definition/index.js";
 
 /**
  * Checks a schema definition, throwing on the first problem. Pure: it reads definitions only,
