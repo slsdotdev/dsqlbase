@@ -5,7 +5,7 @@ _Audience: contributors and agents._
 ## Tooling
 
 - **Package manager**: `npm` / `npx` only. `yarn` and `pnpm` are blocked via `engines`.
-- **TypeScript**: root `tsconfig.json` is `noEmit`, strict, ESNext, `module: "nodenext"`; package configs extend it and emit to `dist/`. Imports use explicit `.js` extensions even from `.ts` files (required by `nodenext`).
+- **TypeScript**: root `tsconfig.json` is `noEmit`, strict, ESNext, `module: "nodenext"`. Each published package has two configs: `tsconfig.json` extends the root, stays `noEmit` and includes test files — the editor and `npm run typecheck` use it — and `tsconfig.build.json` extends that, excludes `*.test.ts` / `*.spec.ts`, and emits to `dist/` (`build`, `dev`). `packages/tests` emits nothing, so it has only `tsconfig.json`. Imports use explicit `.js` extensions even from `.ts` files (required by `nodenext`).
 - **ESLint**: one flat config at the root (`eslint.config.mjs`) applying `typescript-eslint` strict + stylistic to every package. No per-package config. Object types are declared with `type`, never `interface` (`@typescript-eslint/consistent-type-definitions: type`); an editor fixing on save converts them.
 - **Husky**: pre-commit runs `npm run lint`. Do not bypass it.
 - **Changesets**: when a published package changes, add a changeset (`npm run changeset`); never bump `version` by hand. `@dsqlbase/core`, `@dsqlbase/migration`, and `dsqlbase` are a `fixed` group and version together.

@@ -5,6 +5,7 @@ import {
   TableDefinition,
   TenantScopeDefinition,
 } from "../definition/index.js";
+import type { ColumnHookContext } from "../resolvers/index.js";
 import { sql, SQLNode, SQLParam } from "../sql/index.js";
 import { Table } from "./table.js";
 
@@ -212,14 +213,6 @@ describe("Column.validator", () => {
     expect(column.resolve(null)).toBeNull();
   });
 
-  it("validates a value read through a row decoder", () => {
-    const decoded = Object.assign(Object.create(Object.getPrototypeOf(column) as object), column, {
-      rowDecoder: { decode: (raw: unknown) => `row(${String(raw)})` },
-    }) as typeof column;
-
-    expect(decoded.resolveRow({ label: "x" })).toBe("ROW(X)");
-  });
-
   // A filter value is compared with stored values, not stored: a fragment of a valid value, or
   // a value the validator would refuse, must still reach the database as given.
   it("does not validate a filter parameter", () => {
@@ -234,6 +227,99 @@ describe("Column.validator", () => {
 
     expect(defaulted.toJSON().defaultValue).toBe("'enc(d)'");
     expect(() => label().default("bad").toJSON()).toThrow("refused");
+  });
+});
+
+describe("Column.hooks", () => {
+  const steps: string[] = [];
+  const contexts: ColumnHookContext[] = [];
+
+  // Every step records itself, so the order of codec, hooks and validator is observable.
+  const label = () =>
+    new ColumnDefinition("label", {
+      dataType: "text",
+      codec: {
+        encode: (value: string) => (steps.push("encode"), `enc(${value})`),
+        decode: (value: string) => (steps.push("decode"), `dec(${value})`),
+      },
+      validator: {
+        write: (input: string) => (steps.push("validate write"), input),
+        read: (value: string) => (steps.push("validate read"), value),
+      },
+      hooks: {
+        write: (value: string, context: ColumnHookContext) => {
+          steps.push("hook write");
+          contexts.push(context);
+          return `w(${value})`;
+        },
+        read: (value: string, context: ColumnHookContext) => {
+          steps.push("hook read");
+          contexts.push(context);
+          return `r(${value})`;
+        },
+      },
+    });
+
+  const table = new Table(
+    new TableDefinition("labels", {
+      columns: { id: new ColumnDefinition("id", { primaryKey: true }), label: label() },
+    })
+  );
+  const column = table.columns.label;
+  const sent = (node: SQLNode) => sql`${node}`.toQuery().params;
+
+  const reset = () => {
+    steps.length = 0;
+    contexts.length = 0;
+  };
+
+  it("runs a write through the validator, then the write hook, then the codec", () => {
+    reset();
+
+    expect(sent(column.getInsertValue("a"))).toEqual(["enc(w(a))"]);
+    expect(sent(column.getUpdateValue("b"))).toEqual(["enc(w(b))"]);
+    expect(steps).toEqual([
+      "validate write",
+      "hook write",
+      "encode",
+      "validate write",
+      "hook write",
+      "encode",
+    ]);
+    expect(contexts).toEqual([{ column }, { column }]);
+  });
+
+  it("runs a filter value through the write hook and the codec, never the validator", () => {
+    reset();
+
+    expect(sent(column.param("x"))).toEqual(["enc(w(x))"]);
+    expect(steps).toEqual(["hook write", "encode"]);
+  });
+
+  it("runs a read through the codec, then the read hook with the row, then the validator", () => {
+    reset();
+    const row = { label: "x", other: 1 };
+
+    expect(column.resolve("x", row)).toBe("r(dec(x))");
+    expect(steps).toEqual(["decode", "hook read", "validate read"]);
+    expect(contexts[0]?.column).toBe(column);
+    expect(contexts[0]?.row).toBe(row);
+  });
+
+  it("does not run hooks for null", () => {
+    reset();
+
+    expect(column.resolve(null)).toBeNull();
+    expect(sent(column.getUpdateValue(null))).toEqual([null]);
+    expect(steps).toEqual([]);
+  });
+
+  // A default is DDL: a definition has no runtime column to hand a hook.
+  it("does not run hooks for a declared default", () => {
+    reset();
+
+    expect(label().default("d").toJSON().defaultValue).toBe("'enc(d)'");
+    expect(steps).toEqual(["validate write", "encode"]);
   });
 });
 

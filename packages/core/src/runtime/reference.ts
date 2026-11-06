@@ -18,7 +18,7 @@ import type { Union } from "./union.js";
  * Stands in for a stored discriminator wherever a relation declares none: a belongs-to a union
  * without one, and the foreign key of a relation whose source is a union. It renders as an
  * expression, so it compares like a column (`= 'photos'` in a join's correlation or a filter),
- * and is projected under {@link name} so a row decoder reads it from the row as it would a
+ * and is projected under {@link name} so a column's `read` hook reads it from the row as it would a
  * stored discriminator. Each probe is one key lookup per member per row, and it reads the
  * members without their tenant predicate — it only says which member holds a key the row
  * already carries.

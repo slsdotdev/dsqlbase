@@ -40,9 +40,11 @@
     }
   },
   "scripts": {
-    "prebuild": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
-    "build": "tsc -b",
+    "prebuild": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
     "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint src --ext .ts",
     "prepack": "node -e \"require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   },

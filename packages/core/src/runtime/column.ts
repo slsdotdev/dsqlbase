@@ -13,15 +13,6 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyColumn = Column<any, any, any>;
 
-/** See {@link Column.rowDecoder}. */
-export type ColumnRowDecoder = {
-  /**
-   * The value from the column's raw value and the raw row it was read from, keyed by column
-   * name. The row carries {@link Column.dependsOn}, which core projects with the column.
-   */
-  decode(raw: unknown, row: Record<string, unknown>): unknown;
-};
-
 export class Column<TName extends string, TConfig extends ColumnConfig, TTable extends AnyTable>
   implements SQLNode, TypedObject<TConfig>
 {
@@ -30,6 +21,8 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly codec: ColumnDefinition<TName, TConfig>["_codec"];
   /** Checks writes before they are encoded and reads after they are decoded; never filters. */
   readonly validator: ColumnDefinition<TName, TConfig>["_validator"];
+  /** Transforms around the codec that read this column or the row; see `ColumnHooks`. */
+  readonly hooks: ColumnDefinition<TName, TConfig>["_hooks"];
   readonly onCreate: ColumnDefinition<TName, TConfig>["_onCreate"];
   readonly onUpdate: ColumnDefinition<TName, TConfig>["_onUpdate"];
 
@@ -67,21 +60,10 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
 
     this.codec = definition["_codec"];
     this.validator = definition["_validator"];
+    this.hooks = definition["_hooks"];
     this.onCreate = definition["_onCreate"];
     this.onUpdate = definition["_onUpdate"];
   }
-
-  /**
-   * A decode that needs more than the column's own value — sibling columns of the same row.
-   *
-   * Unset by default; a client sets it on the built column when it is created, as it does a
-   * bound codec, for a value whose meaning depends on another column (a polymorphic reference
-   * whose target is named by a discriminator). When set, the value is read through
-   * {@link Column.resolveRow} instead of {@link Column.resolve}; the siblings it may read are
-   * {@link Column.dependsOn}, which core projects whether or not a decoder is set. Core applies
-   * no meaning to it.
-   */
-  readonly rowDecoder?: ColumnRowDecoder;
 
   private _references: ColumnReference[] = [];
   private _referencesFrozen = false;
@@ -149,8 +131,9 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
    * is only known per row — given the `row`, it resolves to the member column its discriminator
    * names, or to nothing when the discriminator is null or names no member.
    *
-   * Never throws: two ends, or a ring, can be legitimate for a plain key, so it is the caller
-   * who decides whether they are a conflict.
+   * Never throws: two ends can be legitimate for a plain key, so it is the caller who decides
+   * whether they are a conflict. `validateSchema` refuses a ring, so a built schema has none;
+   * one is still reported rather than looped on.
    */
   public resolveReferences(row?: Record<string, unknown>): ResolvedReferences {
     const ends: ReferenceEnd[] = [];
@@ -206,18 +189,15 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     return ring ? { ends, ring } : { ends };
   }
 
-  /** Reads this column's value from a whole row, through {@link Column.rowDecoder} if set. */
-  public resolveRow(row: Record<string, unknown>): TConfig["valueType"] {
-    const raw = row[this.name];
-
-    if (!this.rowDecoder || raw === null || raw === undefined) {
-      return this.resolve(raw as TConfig["rawType"]);
-    }
-
-    return this._validateRead(this.rowDecoder.decode(raw, row) as TConfig["valueType"]);
-  }
-
-  public resolve(value: TConfig["rawType"]): TConfig["valueType"] {
+  /**
+   * A value as read: decoded by the codec, passed through the `read` hook with the `row` it came
+   * from, then checked by the validator. `row` is the raw row, keyed by column name — the root
+   * row, a joined level or a union branch — and carries {@link Column.dependsOn}.
+   */
+  public resolve(
+    value: TConfig["rawType"],
+    row: Readonly<Record<string, unknown>> = {}
+  ): TConfig["valueType"] {
     if (value === null || value === undefined) {
       if (this.notNull) {
         throw new Error(`Column ${this.name} cannot be null`);
@@ -226,20 +206,24 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
       return null;
     }
 
-    return this._validateRead(this.codec.decode(value));
+    const decoded = this.codec.decode(value);
+    const read = this.hooks?.read ? this.hooks.read(decoded, { column: this, row }) : decoded;
+
+    return this.validator ? this.validator.read(read) : read;
   }
 
-  private _validateRead(value: TConfig["valueType"]): TConfig["valueType"] {
-    return this.validator ? this.validator.read(value) : value;
-  }
+  /** A filter's value as sent: through the `write` hook, then encoded. Never validated. */
+  private readonly _encodeParam = (value: TConfig["valueType"]): TConfig["rawType"] =>
+    this.codec.encode(this.hooks?.write ? this.hooks.write(value, { column: this }) : value);
 
-  /** A write's value as sent: validated, if the column has a validator, then encoded. */
+  /** A write's value as sent: validated, if the column has a validator, then as a filter's. */
   private readonly _encodeInput = (input: TConfig["inputType"]): TConfig["rawType"] =>
-    this.codec.encode(this.validator ? this.validator.write(input) : input);
+    this._encodeParam(this.validator ? this.validator.write(input) : input);
 
   /**
-   * Wraps a value as a parameter encoded by this column's codec. It is not validated: a filter
-   * value is compared with stored values, not stored, and may be a fragment of one.
+   * Wraps a value as a parameter for this column: through its `write` hook, then encoded by its
+   * codec. It is not validated: a filter value is compared with stored values, not stored, and
+   * may be a fragment of one.
    *
    * This is the filter counterpart to {@link Column.getInsertValue} and
    * {@link Column.getUpdateValue}: a `date`, `bigint` or `interval` column only matches if
@@ -255,7 +239,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
       return value;
     }
 
-    return new SQLParam(value, this.codec.encode);
+    return new SQLParam(value, this._encodeParam);
   }
 
   public getInsertValue(

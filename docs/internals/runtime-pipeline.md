@@ -63,7 +63,7 @@ Built columns belong to one registry, so a reference never leaks into another cl
   `ComputedDiscriminator` (`reference.ts`): `CASE WHEN EXISTS (SELECT 1 FROM <member> AS "__d<i>"
   WHERE <key pairs>) THEN '<alias>' … END`, in member order. It is an `SQLNode`, so it compares
   like a column (a join's `correlate`, a filter's `discriminator = $1`), and is projected as
-  `<expr> AS "<key>$key"`, the name a row decoder reads it by. The member is aliased inside its
+  `<expr> AS "<key>$key"`, the name a column's `read` hook reads it by. The member is aliased inside its
   probe only, so the key columns keep their outer alias. The registry makes one per union and key
   columns, so a has-many from a union and a belongs-to back to it share one reference and one
   probe. The probe skips the members' tenant predicate: it only names which member holds a key
@@ -206,7 +206,7 @@ There are three kinds of entry:
 
 | Entry                    | Resolver           | Produces                                               |
 | ------------------------ | ------------------ | ------------------------------------------------------ |
-| `FieldResolver` (column) | an `AnyColumn`     | `column.resolve(row[column.name])` — the decoded value |
+| `FieldResolver` (column) | an `AnyColumn`     | `column.resolve(row[column.name], row)` — the decoded value, its hooks handed the row |
 | `FieldResolver` (nested) | `ResolverEntry[]`  | a recursive resolve of the join's rows                 |
 | `MetaResolver`           | `(row) => unknown` | a value computed from the driver row itself            |
 | `FieldResolver` (union)  | `UnionResolver`    | each row resolved by the member its `$$key` names      |
@@ -215,13 +215,14 @@ The `row` a `MetaResolver` receives is the **raw driver row**, before any codec 
 — the same row the column branch reads from. A resolver that needs the database's own text
 representation of a value rather than the decoded one therefore has it.
 
-Two things produce a `MetaResolver`. One is a column with a row decoder
-(`Column.rowDecoder`), whose field is read from the whole row (see
-[Codec boundary](./codec-boundary.md#a-decode-that-reads-the-row)). Separately, `_resolveFields`
-projects every selected column's `dependsOn` — the discriminator of a union reference, see
-[Column references](#column-references) — whether or not it has a decoder, so a plain-`uuid`
-belongs-to a union also selects its discriminator.
-The other is `$$meta`, which `_resolveFields` pushes first for every level it
+A column is always a `FieldResolver`: its value is decoded from its own field, and its `read`
+hook, if it has one, gets the whole row of that level — root, joined or union branch — to read
+siblings from (see [Codec boundary](./codec-boundary.md#column-hooks)). Which siblings the row
+holds is core's decision: `_resolveFields` projects every selected column's `dependsOn` — the
+discriminator of a union reference, see [Column references](#column-references) — with or
+without hooks, so a plain-`uuid` belongs-to a union also selects its discriminator.
+
+The one `MetaResolver` is `$$meta`, which `_resolveFields` pushes first for every level it
 builds — the top level of a select, each join level, and each `return` selection — so every
 result record leads with it:
 

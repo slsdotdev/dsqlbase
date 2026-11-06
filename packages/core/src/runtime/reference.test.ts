@@ -6,6 +6,8 @@ import {
   TableDefinition,
   UnionDefinition,
 } from "../definition/index.js";
+import { buildSchema } from "./build.js";
+import type { AnyColumn } from "./column.js";
 import { ExecutionContext } from "./context.js";
 import { OperationsFactory } from "./operation.js";
 import { QueryBuilder } from "./query.js";
@@ -281,8 +283,9 @@ describe("column references", () => {
       ]);
     });
 
+    // `validateSchema` refuses a ring; built without it, the walk reports one rather than looping.
     it("reports a ring without throwing", () => {
-      const schema = new SchemaRegistry({
+      const { tables } = buildSchema({
         orders,
         stats,
         a: new RelationsDefinition(orders, {
@@ -302,8 +305,8 @@ describe("column references", () => {
           },
         }),
       });
-      const customerId = schema.getTable("orders").columns.customerId;
-      const statsId = schema.getTable("customer_stats").columns.customerId;
+      const customerId = tables.get("orders")?.columns.customerId as unknown as AnyColumn;
+      const statsId = tables.get("customer_stats")?.columns.customerId as unknown as AnyColumn;
 
       expect(customerId.resolveReferences()).toEqual({
         ends: [],

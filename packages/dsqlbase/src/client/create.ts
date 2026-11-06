@@ -131,9 +131,9 @@ export function createClient<TSchema extends DefinitionSchema, TEnforce extends 
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
-  // Resolves every guid() column against the tables it can reach. Here rather than inside
-  // `SchemaRegistry`, because the shape of an id is a client concern: core sees a uuid
-  // column with a codec, the same way it sees an interval column with a Duration codec.
+  // Finds the tables a global id can address. Here rather than inside `SchemaRegistry`, because
+  // the shape of an id is a client concern; what each guid() column's ids name is read by its
+  // hooks, from the references core sets.
   registerNodes(schema, options.schema);
 
   const context = new ExecutionContext({

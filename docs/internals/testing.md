@@ -12,11 +12,11 @@ From the repo root (Turbo fans out across workspaces):
 | `npm run coverage`  | Vitest with `--coverage` (v8)                                                                           |
 | `npm run e2e`       | `test:e2e` in `packages/tests` (PGlite)                                                                 |
 | `npm run lint`      | ESLint across packages; also runs in the Husky pre-commit hook                                          |
-| `npm run typecheck` | `tsc --noEmit` over `packages/tests`, whose specs no other task type-checks (builds dependencies first) |
+| `npm run typecheck` | `tsc -p tsconfig.json` in every package, test files included (builds dependencies first) |
 
 Per package (`cd packages/<pkg>`):
 
-- `npm test` — that package's suite. In `packages/dsqlbase` this also runs the type-level suite: `vitest.config.ts` enables `test.typecheck` over `src/**/*.types.test.ts`, checked against `tsconfig.test.json` (the package's build `tsconfig.json` excludes test files, so type tests need their own include set). A failed `expectTypeOf` is reported as a failing test, not as a silent no-op.
+- `npm test` — that package's suite. In `packages/dsqlbase` this also runs the type-level suite: `vitest.config.ts` enables `test.typecheck` over `src/**/*.types.test.ts`, checked against the package's `tsconfig.json`, which includes test files (only `tsconfig.build.json` excludes them). A failed `expectTypeOf` is reported as a failing test, not as a silent no-op.
 - `npx vitest run path/to/file.test.ts` — one file.
 - `npx vitest run -t "name of test"` — one test by name.
 - `npx vitest dev` — watch mode.
@@ -37,7 +37,7 @@ Per package (`cd packages/<pkg>`):
 - Migration-layer fixtures use raw `SerializedObject<…>` JSON rather than the high-level builders, so a builder change does not silently rewrite what the reconciler is being tested against.
 - PGlite has no `ASYNC` — run the runner with `asyncIndexes: false` in e2e.
 - e2e specs boot a fresh in-memory PGlite per test, about 0.5 s each. On a loaded runner that alone can pass vitest's 5 s default, so `packages/tests/vitest.config.ts` sets `testTimeout` and `hookTimeout` to 30 s. A spec that needs longer is slow for a reason worth finding, not a reason to raise the limit.
-- **Known gaps:** test files in `packages/core` and `packages/migration` are excluded from their `tsconfig.json` and nothing else type-checks them, so fixtures drift from the types unseen (53 such errors on 2026-10-03; only `packages/dsqlbase` runs its tests through `tsc`). PGlite `0.5` is outside the `^0.4.5` peer range and untested.
+- **Known gaps:** PGlite `0.5` is outside the `^0.4.5` peer range and untested.
 - The turbo `test` task declares `dependsOn: ["^build"]`: a package's tests resolve its workspace dependencies through their `dist/`, so those are built first. `npm run coverage` runs the same task and inherits this.
 
 ## Related

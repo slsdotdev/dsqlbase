@@ -1,6 +1,6 @@
 import { TypedObject } from "@dsqlbase/core/utils";
 import { KEY_FIELD } from "@dsqlbase/core/definition";
-import { decodeMemberId, getDynamicGuidBinding } from "../nodes.js";
+import { decodeMemberId, getDynamicGuidBinding } from "../../schema/utils/guid-hooks.js";
 import { GlobalIdError } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,

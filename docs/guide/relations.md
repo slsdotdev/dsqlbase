@@ -131,8 +131,10 @@ The relation is also what decides what a key column's ids name: the key side of 
 with, followed to where that chain ends, so `article.authorId === article.author.id` holds. Two
 relations whose chains end at the same column agree (`orders.customerId` → `customers.id`, and
 → `customerStats.customerId` → `customers.id`). A column whose relations end at different
-columns has no single answer, and `createClient` throws, as it does for columns that reference
-each other in a ring.
+columns has no single answer, and `createClient` throws. Columns that reference each other in a
+ring are refused for every column type, guid or not: the usual cause is a `hasOne` declared from
+the table that holds the key (`hasOne(users, { from: [photos.columns.userId], to:
+[users.columns.id] })`) beside a relation the other way — declare it as a `belongsTo`.
 
 Neither failure shows up in SQL — a join correlates on the raw columns, so the query works
 either way. What breaks is quieter: a `guid()` paired with a plain `uuid()` leaves

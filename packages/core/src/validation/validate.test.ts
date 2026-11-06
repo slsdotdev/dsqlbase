@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AnyColumnDefinition,
+  AnyTableDefinition,
   ColumnDefinition,
   Relation,
   RelationsDefinition,
@@ -107,5 +109,122 @@ describe("collectRelations", () => {
 
     expect(() => collectRelations({ photos, videos, posts, notes, own, onUnion })).toThrow(message);
     expect(() => collectRelations({ photos, videos, posts, notes, onUnion, own })).toThrow(message);
+  });
+});
+
+describe("validateSchema — references", () => {
+  const hooks = { read: (value: unknown) => value };
+  const hooked = (name: string) => new ColumnDefinition(name, { dataType: "uuid", hooks });
+  const belongsTo = (
+    target: AnyTableDefinition,
+    from: AnyColumnDefinition,
+    to: AnyColumnDefinition
+  ) => ({ type: Relation.BELONGS_TO, target, from: [from], to: [to] }) as never;
+
+  it("refuses a ring of references, for any column", () => {
+    const orders = new TableDefinition("orders", {
+      columns: { id: col("id").primaryKey(), customerId: col("customer_id") },
+    });
+    const stats = new TableDefinition("stats", {
+      columns: { customerId: col("customer_id") },
+    });
+    const a = new RelationsDefinition(orders, {
+      stats: belongsTo(stats, orders.columns.customerId, stats.columns.customerId),
+    });
+    const b = new RelationsDefinition(stats, {
+      order: belongsTo(orders, stats.columns.customerId, orders.columns.customerId),
+    });
+
+    expect(() => validateSchema({ orders, stats, a, b })).toThrow(
+      'Columns "orders.customerId" → "stats.customerId" → "orders.customerId" reference each ' +
+        "other in a ring"
+    );
+  });
+
+  it("refuses a pair whose columns carry different hooks", () => {
+    const people = new TableDefinition("people", { columns: { id: hooked("id").primaryKey() } });
+    const posts = new TableDefinition("posts", {
+      columns: { id: hooked("id").primaryKey(), personId: col("person_id") },
+    });
+    const rels = new RelationsDefinition(posts, {
+      person: belongsTo(people, posts.columns.personId, people.columns.id),
+    });
+
+    expect(() => validateSchema({ people, posts, rels })).toThrow(
+      /pairs "posts"."personId" and "people"."id", but they carry different column hooks/
+    );
+  });
+
+  it("lets a plain column reference two targets, but not a column with hooks", () => {
+    const build = (column: (name: string) => AnyColumnDefinition) => {
+      const users = new TableDefinition("users", { columns: { id: column("id").primaryKey() } });
+      const teams = new TableDefinition("teams", { columns: { id: column("id").primaryKey() } });
+      const notes = new TableDefinition("notes", {
+        columns: { id: column("id").primaryKey(), ownerId: column("owner_id") },
+      });
+      const rels = new RelationsDefinition(notes, {
+        user: belongsTo(users, notes.columns.ownerId, users.columns.id),
+        team: belongsTo(teams, notes.columns.ownerId, teams.columns.id),
+      });
+
+      return () => validateSchema({ users, teams, notes, rels });
+    };
+
+    expect(build((name) => col(name) as AnyColumnDefinition)).not.toThrow();
+    expect(build((name) => hooked(name) as AnyColumnDefinition)).toThrow(
+      'Column "notes.ownerId" is paired by relation "user" on table "notes" with "users.id" ' +
+        'and by relation "team" on table "notes" with "teams.id".'
+    );
+  });
+
+  describe("a column with hooks pointing at a union", () => {
+    const fixture = (memberKey: (name: string) => AnyColumnDefinition) => {
+      const photos = new TableDefinition("photos", {
+        columns: { id: hooked("id").primaryKey(), ref: memberKey("ref") },
+      });
+      const videos = new TableDefinition("videos", {
+        columns: { id: hooked("id").primaryKey(), ref: memberKey("ref") },
+      });
+      const media = new UnionDefinition({ photos, videos }, { ref: hooked("ref") });
+      const comments = new TableDefinition("comments", {
+        columns: {
+          id: col("id").primaryKey(),
+          mediaType: col("media_type", "text"),
+          mediaRef: hooked("media_ref"),
+        },
+      });
+      const rels = new RelationsDefinition(comments, {
+        media: {
+          type: Relation.BELONGS_TO,
+          target: media,
+          from: [comments.columns.mediaRef],
+          to: [media.columns.ref],
+          discriminator: comments.columns.mediaType,
+        },
+      });
+      // A member's has-many onto the same column agrees with the union reference.
+      const photoRels = new RelationsDefinition(photos, {
+        comments: {
+          type: Relation.HAS_MANY,
+          target: comments,
+          from: [photos.columns.ref],
+          to: [comments.columns.mediaRef],
+        },
+      });
+
+      return () => validateSchema({ photos, videos, media, comments, rels, photoRels });
+    };
+
+    it("accepts members reached through a unique key, and a member's relation agreeing", () => {
+      expect(
+        fixture((name) => hooked(name).unique() as unknown as AnyColumnDefinition)
+      ).not.toThrow();
+    });
+
+    it("refuses a member reached through a column that is not a unique key", () => {
+      expect(fixture((name) => hooked(name) as AnyColumnDefinition)).toThrow(
+        /"photos.ref" is not a unique key of union member "photos"/
+      );
+    });
   });
 });

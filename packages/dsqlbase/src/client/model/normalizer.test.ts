@@ -394,7 +394,7 @@ describe("union joins", () => {
   });
 
   const photoRelations = relations(photos, {
-    owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
+    owner: belongsTo(users, { from: [photos.columns.userId], to: [users.columns.id] }),
   });
 
   const schema = { users, photos, videos, posts, userRelations, photoRelations };
@@ -764,7 +764,7 @@ describe("relations declared on a union", () => {
   });
   // A relation one member has, which does not join across the union.
   const photoRelations = relations(photos, {
-    owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
+    owner: belongsTo(users, { from: [photos.columns.userId], to: [users.columns.id] }),
   });
   const schema = { photos, videos, users, posts, reactions, postRelations, photoRelations };
 

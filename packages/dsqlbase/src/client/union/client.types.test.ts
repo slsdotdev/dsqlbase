@@ -49,7 +49,7 @@ const userRelations = relations(users, {
 });
 
 const photoRelations = relations(photos, {
-  owner: hasOne(users, { from: [photos.columns.userId], to: [users.columns.id] }),
+  owner: belongsTo(users, { from: [photos.columns.userId], to: [users.columns.id] }),
 });
 
 const reactions = table("reactions", {

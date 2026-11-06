@@ -17,6 +17,8 @@ const baseIndex: Index = {
   distinctNulls: true,
   columns: [slugColumn],
   include: null,
+  where: null,
+  valid: true,
 };
 
 const nameColumn = {

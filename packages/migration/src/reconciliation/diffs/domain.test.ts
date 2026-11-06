@@ -17,11 +17,13 @@ const checkA = {
   kind: "CHECK_CONSTRAINT",
   name: "email_format",
   expression: "VALUE ~ '@'",
+  validated: true,
 } as const;
 const checkB = {
   kind: "CHECK_CONSTRAINT",
   name: "email_strict",
   expression: "VALUE ~ '^.+@.+$'",
+  validated: true,
 } as const;
 
 describe("diffDomain", () => {

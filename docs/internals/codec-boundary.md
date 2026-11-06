@@ -2,9 +2,14 @@
 
 _Audience: contributors and agents._
 
-Every column carries a `ColumnConfig.codec { encode, decode }` (`packages/core/src/definition/column.ts`). Date, bigint, interval/duration and `guid()` columns depend on it to present JS values. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
+Every column carries a `ColumnConfig.codec { encode, decode }` (`ColumnCodec`, `packages/core/src/resolvers/codec.ts`). Date, bigint, interval/duration and JSON columns depend on it to present JS values. Knowing exactly where the codec runs is the difference between a feature that works and one that silently mis-filters.
 
-A codec **translates** and nothing else. Checking a value is the column's optional `ColumnConfig.validator { write, read }`, which runs on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters).
+A codec **translates** one value and nothing else. It is pure — it sees the value and no context — which is why a definition can run it for a DDL default. Two things sit around it:
+
+- the optional `ColumnConfig.validator { write, read }` checks values, on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters);
+- the optional `ColumnConfig.hooks { read, write }` transforms values with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them; `guid()` is built on them. See [Column hooks](#column-hooks).
+
+`ColumnCodec`, `ColumnValidator` and `ColumnHooks` live in `packages/core/src/resolvers/`, the module for what a definition declares and the runtime runs.
 
 ## Where codecs apply
 
@@ -30,19 +35,19 @@ A codec **translates** and nothing else. Checking a value is the column's option
   have lost precision the database still compares on. A `timestamptz` holds microseconds, a
   `Date` milliseconds, so a cursor rebuilt from the decoded `Date` of a row at `.123456`
   becomes `.123` and the next page skips every row in that millisecond. The same holds for a
-  bound codec such as the guid wrapper: a guid order key travels as its raw uuid.
+  hook such as the guid wrapper: a guid order key travels as its raw uuid.
 
 ## Validators: run on writes and reads, never on filters
 
-A column may carry a `ColumnValidator` (`packages/core/src/definition/base.ts`) beside its codec.
+A column may carry a `ColumnValidator` (`packages/core/src/resolvers/validator.ts`) beside its codec.
 `Column` (`packages/core/src/runtime/column.ts`) runs it around the codec:
 
-| Path                                                                               | Order                                  |
-| ---------------------------------------------------------------------------------- | -------------------------------------- |
-| insert, update, `$onCreate`, `$onUpdate` (`getInsertValue`, `getUpdateValue`)      | `validator.write`, then `codec.encode` |
-| `ColumnDefinition.default()`                                                       | `validator.write`, then `codec.encode` |
-| reads, root and joined (`Column.resolve`), and a row decoder (`Column.resolveRow`) | `codec.decode`, then `validator.read`  |
-| where-clause values, tenant predicates (`Column.param`)                            | `codec.encode` only                    |
+| Path                                                                          | Order                                                      |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| insert, update, `$onCreate`, `$onUpdate` (`getInsertValue`, `getUpdateValue`) | `validator.write`, then `hooks.write`, then `codec.encode` |
+| `ColumnDefinition.default()`                                                  | `validator.write`, then `codec.encode` — no hooks          |
+| reads, root, joined and union branches (`Column.resolve`)                     | `codec.decode`, then `hooks.read`, then `validator.read`   |
+| where-clause values, tenant predicates (`Column.param`)                       | `hooks.write`, then `codec.encode`                         |
 
 `NULL` reaches neither. A filter value is compared with stored values, not stored, and may be a
 fragment of one (a containment pattern), so validating it would refuse or rewrite it. This is why
@@ -106,49 +111,55 @@ sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}`;
 
 The tenant rows are the one place a value is encoded inside `core` rather than by the normalizer: the predicate is built where the boundary is applied, below the client, so it does not depend on a caller having passed the value through anything.
 
-## A codec bound when the client is built
+## Column hooks
 
-Most codecs are fixed where the column is declared. `guid()` cannot be: wrapping a value needs
-the `(alias, field)` its ids name, and that comes from the relations, which do not exist until
-the whole schema does. Core records what each foreign key points at as it builds relations
-(`Column.references`, see [Column references](./runtime-pipeline.md#column-references)), and
-`registerNodes` (`packages/dsqlbase/src/client/nodes.ts`) reads them when `createClient` runs:
-a guid column follows `Column.resolveReferences()` to where its chains end and takes that
-column's `(alias, field)`, or its own table and field when nothing references through it. Two
-chains ending at different columns, a ring, or a guid paired with a plain column are refused
-there — core keeps every reference and never decides. The bound codec is installed on the
-built `Column`, not on the definition. A definition is the user's object and may be shared by
-two clients, while a binding depends on the alias the table was exported under.
+A codec decodes one value, but some values mean something only next to others: a `guid()` id
+names the node its column references — known once relations are linked — and, for a belongs-to
+a union, the member its row's discriminator names. `ColumnHooks`
+(`packages/core/src/resolvers/hooks.ts`) carry that:
 
-Because reads, writes and filters all funnel through the one `codec`, that single swap covers
-every direction and no call site changed. A `SchemaRegistry` built outside `createClient` has no
-bind pass, so its guid columns behave exactly like the `uuid()` they serialize as.
+- `read(value, { column, row })` runs after the codec decodes, before the read validator;
+- `write(value, { column })` runs before the codec encodes, on every value bound for the column —
+  writes, after the write validator, and filters.
 
-Global ids are deliberately absent from `@dsqlbase/core`: nothing below the client has an
-opinion about the shape of an id. See [0007](../decisions/0007-global-ids.md).
+`column` is the runtime `Column`, its references already linked and frozen, so a hook reads
+`column.references` / `column.resolveReferences()` when it runs and nothing is bound up front.
+`row` is the raw row of the level being read — the root row, a joined level, or a union branch
+(`_createResultResolver` in `packages/core/src/runtime/operation.ts`). Which siblings it holds is
+core's decision, not the hook's: `Column.dependsOn` is the discriminator of each union reference,
+and `_resolveFields` projects it whenever the column is selected, with or without hooks.
 
-## A decode that reads the row
+A definition never runs hooks. `.default()` renders a DDL default, which has no runtime column,
+so it goes through the validator and the codec alone. That is what keeps the codec pure.
 
-A codec decodes one value. The `from` column of a
-[belongs-to a union](../guide/polymorphic-relations.md#a-belongs-to-a-union) needs two: its id,
-and the discriminator naming which member, and so which node key, the id belongs to. A codec
-cannot see that sibling, so the read side is a **row decoder** instead:
+**Validation.** A value crosses a relation as it is read and written, so `validateSchema`
+(`packages/core/src/validation/`) requires both columns of a pair to carry the same hooks
+object, and a column with hooks — whose value is read through what it references — to reference
+one target: every chain from it ends at one column, or one union whose members are each reached
+through a single-column unique key. A ring of references is refused for every column. A plain
+column may still reference two targets.
 
-- **Core** (`Column.rowDecoder` / `Column.resolveRow` in `packages/core/src/runtime/column.ts`)
-  is the guid-agnostic seam. A built column may carry `decode(raw, row)`. Which siblings
-  the row holds is core's decision, not the decoder's: `Column.dependsOn` is the discriminator
-  of each union reference, and `_resolveFields` projects it whenever the column is selected —
-  decoder or not — without emitting it as a field. A column with a decoder is resolved through
-  a `MetaResolver` over the raw row. That is the resolver kind [0004](../decisions/0004-record-meta.md) set
-  aside for a value computed from the row.
-- **Client** (`bindDynamicGuid` in `packages/dsqlbase/src/client/nodes.ts`) sets it on the built
-  column when `createClient` runs, from the column's union reference — reading the
-  discriminator, stored or computed, from the row by its `name` — next to a codec whose `encode` accepts an id for any member.
-  A `NULL` discriminator, or one naming no member, reads the id raw.
-- **Filters and writes** that need the discriminator, such as a global-id `eq` becoming
-  `(discriminator = key AND id = pk)` or a write filling the discriminator, are the client's
-  job: `WhereBuilder._getPolymorphicFilter` (`filters.ts`) and the normalizer's
-  `_fillDiscriminators`. Only they see the whole filter or the whole row.
+**Global ids.** `guid()` (`packages/dsqlbase/src/schema/columns/guid.ts`) is a `uuid` codec plus
+`guidHooks` (`packages/dsqlbase/src/schema/utils/guid-hooks.ts`), one object shared by every guid
+column:
+
+- the binding — what a column's ids name — is read from `column.resolveReferences()` the first
+  time a hook runs, and kept per built column in a `WeakMap`: the `(alias, field)` of the column
+  its chains end at, its own when nothing is referenced through it, or, for a union reference, the
+  discriminator and each member's key field;
+- `read` wraps with that node, or with the member `row[discriminator.name]` names — a stored
+  discriminator or a computed one alike. A `NULL` discriminator, or one naming no member, reads
+  the id raw;
+- `write` unwraps, refusing an id naming another node, or a non-member.
+
+Filters and writes that need the discriminator — a global-id `eq` becoming
+`(discriminator = key AND id = pk)`, a write filling the discriminator — read the same binding
+(`getGuidBinding` / `getDynamicGuidBinding`) in `WhereBuilder._getPolymorphicFilter`
+(`filters.ts`) and the normalizer's `_fillDiscriminators`, the only places that see the whole
+filter or row. Since the hooks travel with the column, a `SchemaRegistry` built without
+`createClient` wraps ids too. Global ids stay out of `@dsqlbase/core`: core runs hooks without
+knowing what they do. See [0007](../decisions/0007-global-ids.md),
+[0022](../decisions/0022-column-hooks.md).
 
 **Note on drivers.** `pg` and PGlite coerce JS `Date` and `bigint` themselves, so those columns filtered correctly even before values were encoded. The encoding matters for a codec that _rewrites_ the value — the guid wrapper — and for any `Session` implementation that does not do its own coercion. Encoding also makes filters agree with inserts and updates rather than depending on driver behaviour.
 
