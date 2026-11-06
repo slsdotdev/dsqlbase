@@ -9,8 +9,8 @@ import {
   Unique,
   ValueType,
 } from "../utils/index.js";
-import { ColumnCodec, ColumnHooks, defaultCodec } from "../resolvers/index.js";
-import { ColumnValidator, DefinitionNode, Kind, NodeRef } from "./base.js";
+import { ColumnCodec, ColumnHooks, ColumnValidator, defaultCodec } from "../resolvers/index.js";
+import { DefinitionNode, Kind, NodeRef } from "./base.js";
 import { AnyCheckConstraintDefinition, CheckConstraintDefinition } from "./constraint.js";
 import { AnyDomainDefinition } from "./domain.js";
 import { SequenceOptions } from "./sequence.js";

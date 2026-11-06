@@ -29,7 +29,6 @@ export {
   type AnyUnionMembers,
   type CommonFieldsOf,
   type UnionColumnsConfig,
-  type ColumnValidator,
   type ColumnConfig,
   type ColumnRuntimeType,
   type DefinitionSchema,
@@ -140,6 +139,7 @@ export {
 export {
   defaultCodec,
   type ColumnCodec,
+  type ColumnValidator,
   type ColumnHooks,
   type ColumnHookContext,
 } from "./resolvers/index.js";

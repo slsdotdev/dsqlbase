@@ -31,7 +31,7 @@ call; and a codec built per column after relations are linked fights the order t
   the codec with the context it lacks: `read(value, { column, row })` after decode,
   `write(value, { column })` before encode, on writes and filters. Only the runtime `Column` runs
   them, after references are frozen, so nothing is bound up front.
-- **`resolvers/`** in core holds `ColumnCodec` and `ColumnHooks`: what a definition declares and
+- **`resolvers/`** in core holds `ColumnCodec`, `ColumnValidator` and `ColumnHooks`: what a definition declares and
   the runtime runs. It is typed with the runtime classes; `definition` imports its types.
 - **One read path.** `Column.resolve(raw, row)` decodes, runs the `read` hook with the row, and
   validates, at every level. `ColumnRowDecoder`, `Column.rowDecoder` and `Column.resolveRow` are
@@ -59,8 +59,8 @@ call; and a codec built per column after relations are linked fights the order t
 - A `SchemaRegistry` built without `createClient` wraps guid ids too, since the hooks travel with
   the column.
 - **Breaking (`@dsqlbase/core`):** `ColumnRowDecoder`, `Column.rowDecoder` and
-  `Column.resolveRow` are removed; `ColumnCodec` / `defaultCodec` move from `definition` to
-  `resolvers` (still exported from the root); a ring of references is refused for every column —
+  `Column.resolveRow` are removed; `ColumnCodec` / `defaultCodec` / `ColumnValidator` move from `definition`
+  to `resolvers` (still exported from the root); a ring of references is refused for every column —
   a `hasOne` declared from the side that holds the key, beside a relation the other way, now
   fails and should be a `belongsTo`.
 

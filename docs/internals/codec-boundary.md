@@ -9,7 +9,7 @@ A codec **translates** one value and nothing else. It is pure — it sees the va
 - the optional `ColumnConfig.validator { write, read }` checks values, on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters);
 - the optional `ColumnConfig.hooks { read, write }` transforms values with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them; `guid()` is built on them. See [Column hooks](#column-hooks).
 
-`ColumnCodec` and `ColumnHooks` live in `packages/core/src/resolvers/`, the module for what a definition declares and the runtime runs.
+`ColumnCodec`, `ColumnValidator` and `ColumnHooks` live in `packages/core/src/resolvers/`, the module for what a definition declares and the runtime runs.
 
 ## Where codecs apply
 
@@ -39,7 +39,7 @@ A codec **translates** one value and nothing else. It is pure — it sees the va
 
 ## Validators: run on writes and reads, never on filters
 
-A column may carry a `ColumnValidator` (`packages/core/src/definition/base.ts`) beside its codec.
+A column may carry a `ColumnValidator` (`packages/core/src/resolvers/validator.ts`) beside its codec.
 `Column` (`packages/core/src/runtime/column.ts`) runs it around the codec:
 
 | Path                                                                          | Order                                                      |

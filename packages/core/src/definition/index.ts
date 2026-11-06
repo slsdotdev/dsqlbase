@@ -8,7 +8,6 @@ export {
   Relation,
   type NodeKind,
   type RelationType,
-  type ColumnValidator,
   type DefinitionSchema,
 } from "./base.js";
 export {
