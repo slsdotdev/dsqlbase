@@ -1,5 +1,110 @@
 # dsqlbase
 
+## 0.3.0
+
+### Minor Changes
+
+- 65d4180: `union(members, columns)` declares its shared fields: `union({ photos, videos }, { id: guid("id"), userId: guid("user_id") })`. Each field resolves to the member column under the same field, which must have the same database name, type and kind, and be `NOT NULL` on every member when declared so. Declaring a field some member lacks is a type error. `union.columns`, shared `select` / `where` / `orderBy`, and a relation's `to` list take only declared fields.
+
+  A global id on a shared field now selects its own member: `posts.findOne({ where: { id: { eq: photoId } } })` reads photos only, instead of throwing `key_mismatch` from the other members. `in` splits its ids by member, and `neq` with another member's id matches that member's rows that have a value.
+
+  **Breaking:**
+  - `union()` requires its columns;
+  - a field stored under different column names is no longer shared — use the per-member `to` map;
+  - `SharedFieldsOf` is replaced by `CommonFieldsOf` / `UnionColumnsConfig`;
+  - the client's union types (`UnionQueryArgs`, `UnionResultOf`, `UnionClient`, …) take the union definition instead of its members.
+
+  Docs: docs/decisions/0019-declared-union-columns.md, docs/guide/schema.md, docs/guide/polymorphic-relations.md, docs/guide/relations.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md, packages/dsqlbase/README.md
+
+- 65d4180: `$findByGlobalId(id)` and `$listByGlobalId(ids)` take the ids alone and return rows with every column. The list keeps the order the ids were given, with `null` for a row that is gone: `[a, missing, c]` reads as `[{ … }, null, { … }]`.
+
+  **Breaking:** the `{ id, on }` / `{ ids, on }` arguments are gone. Replace `$findByGlobalId({ id })` with `$findByGlobalId(id)` and `$listByGlobalId({ ids })` with `$listByGlobalId(ids)`. A narrower read (a `select`, `join` or extra `where`) goes through the table's own `findOne` / `findMany`, which accept the same ids. The `GlobalIdOptionsOf` and `GlobalIdListResultOf` types are removed; `GlobalIdResultOf` no longer takes an `on` parameter.
+
+  Docs: docs/guide/global-ids.md, docs/guide/polymorphic-relations.md, packages/dsqlbase/README.md, docs/decisions/0007-global-ids.md, docs/decisions/0009-polymorphic-relations.md
+
+- 65d4180: Global ids resolve by any unique key. `$findByGlobalId` / `$listByGlobalId` accept an id whose fields are exactly one of the table's unique keys: its primary key of any arity, a `.unique()` column, a `table.unique(...)` constraint, or a non-partial unique index over plain columns. A composite key is one id carrying every field: `encodeGlobalId("articleTags", { articleId, tagId })`. A uuid-keyed table is addressable the same way. Only `guid()` columns emit ids; other keys are built with `encodeGlobalId`.
+
+  **Breaking:**
+  - An id whose fields are not a unique key (part of a composite key, or a non-unique column) throws `GlobalIdError("key_mismatch")` with a new message.
+  - `unknown_node` now means the table is not in the schema or has no unique key.
+  - `NodeTable` (from `getNodes`) carries `keys: string[][]` in place of `keyField` / `keyColumn`.
+  - `NodeAliasesOf` is every table alias, so a lookup's result union covers every table. `NodeKeyFieldOf` is removed.
+  - A polymorphic `belongsTo` member must be related through a single-column unique key of its own, rather than a guid primary key.
+
+  Docs: docs/guide/global-ids.md, docs/guide/schema.md, docs/guide/polymorphic-relations.md, docs/internals/architecture.md, docs/internals/runtime-pipeline.md, docs/decisions/0007-global-ids.md, docs/decisions/0018-guid-keys-from-relations.md
+
+- 65d4180: `guid()` takes only a column name. What a column's ids name comes from the relations, resolved when the client is built:
+  - the key side of a relation pair — the `from` of a `belongsTo`, the `to` of a `hasMany` / `hasOne` — names the column it is paired with;
+  - the `from` of a discriminated `belongsTo` names its discriminator's member, row by row;
+  - any other column names its own table and field.
+
+  `createClient` throws for a column that two relations pair with different targets, and for columns that reference each other in a ring.
+
+  **Breaking:**
+  - the second argument of `guid()` is removed;
+  - a node's key is always its schema alias;
+  - a non-key guid column with no relation reads as its own table and field rather than its table's primary key, so a self reference needs its relation;
+  - a primary key that is also a `belongsTo` key is no longer a node.
+
+  Docs: docs/decisions/0018-guid-keys-from-relations.md, docs/guide/global-ids.md, docs/guide/schema.md, docs/guide/relations.md, docs/guide/polymorphic-relations.md, docs/internals/codec-boundary.md, packages/dsqlbase/README.md
+
+- 65d4180: Embedded objects are removed. `embedded()` is no longer exported from `dsqlbase/schema`, and `EmbeddedObjectDefinition`, `ColumnGroupDefinition`, `ColumnGroup` and their types are gone from `@dsqlbase/core`. `Table.getColumn` returns a `Column` again, `ColumnRefs` and the index, constraint and primary-key callbacks are flat, and `select`, `where`, `orderBy`, `data` and `return` take columns only. `$onUpdate` still runs on every update.
+
+  **Breaking:** a schema using a column group declares its prefixed columns directly. The columns in the database are unchanged.
+
+  Docs: docs/decisions/0017-remove-embedded-objects.md, docs/guide/schema.md, docs/guide/querying.md, docs/guide/pagination.md, docs/guide/global-ids.md, docs/guide/migrations.md, docs/guide/README.md, docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md, README.md, packages/dsqlbase/README.md
+
+- 65d4180: `relations()` takes a union as its source. Every member then has the relation from its own column, so `relations(posts, { reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }) })` joins reactions from a photo, from a video, and from `dsql.posts` through its shared `join` or `select`. The target must be a table.
+
+  A belongs-to a union may omit its `discriminator`. The member is then the first, in declaration order, holding the key, computed when the query runs (`CASE WHEN EXISTS … END`, exported as `ComputedDiscriminator`). The foreign key of a relation declared on a union reads the same way, so `reaction.postId === reaction.post.id` holds with nothing stored to say which member. Each such read costs one key lookup per member per row.
+
+  **Breaking (`@dsqlbase/core`):** `SchemaRegistry.getRelationDiscriminator` returns `AnyColumn | ComputedDiscriminator`, and `UnionReference.discriminator` / `Column.dependsOn` may hold a `ComputedDiscriminator`; narrow with `instanceof Column` where a column is needed.
+
+  Docs: docs/decisions/0020-column-references.md, docs/guide/polymorphic-relations.md, docs/guide/relations.md, docs/guide/global-ids.md, docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md, docs/internals/dsql-capabilities.md, packages/dsqlbase/README.md
+
+### Patch Changes
+
+- 545007a: Column hooks: `ColumnConfig.hooks { read, write }` transform a column's values around its codec with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them (`write` before encode, on writes and filters; `read` after decode), never a definition's `.default()`, so codecs stay pure. `ColumnCodec`, `defaultCodec`, `ColumnValidator`, `ColumnHooks` and `ColumnHookContext` live in the new `@dsqlbase/core/resolvers` entrypoint, and are exported from the root. `validateSchema` refuses a relation pair whose columns carry different hooks, a column with hooks that references more than one target or reaches a union member through a column that is not a unique key, and a ring of references.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `ColumnRowDecoder`, `Column.rowDecoder` and `Column.resolveRow` are removed — use a `read` hook, which gets the row; `Column.resolve(raw, row?)` takes it;
+  - `ColumnCodec`, `defaultCodec` and `ColumnValidator` are no longer exported from `@dsqlbase/core/definition` — import them from `@dsqlbase/core` or `@dsqlbase/core/resolvers`;
+  - a ring of references is refused for every column: a `hasOne` declared from the table that holds the key, beside a relation the other way, now throws — declare it as a `belongsTo`.
+
+  Docs: docs/decisions/0022-column-hooks.md, docs/internals/codec-boundary.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md
+
+- 65d4180: A runtime `Column` now records what it points at. `SchemaRegistry` sets `Column.references` on every foreign-key column while it validates relations — the `from` of a belongs-to, the `to` of a has-many / has-one — for every column type, and freezes them once built. `Column.dependsOn` is the discriminator of a belongs-to a union, projected with the column whenever it is selected; `Column.resolveReferences()` follows references to where each chain ends and reports a ring instead of looping.
+
+  The client binds `guid()` columns from these references instead of walking every relation itself. Behaviour is unchanged, except that two relations whose chains end at the same column (`orders.customerId` → `customers.id`, and → `customerStats.customerId` → `customers.id`) are accepted.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `ColumnRowDecoder.dependsOn` is removed; the dependencies come from `Column.dependsOn`;
+  - a plain-`uuid` belongs-to a union now also selects its discriminator column (not emitted as a field).
+
+  Docs: docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md
+
+- 545007a: `guid()` columns wrap and unwrap ids through column hooks instead of a codec swapped onto the built column when the client is created; the column keeps its declared codec. Ids, filters and writes behave as before. A guid paired with a plain column, a guid column referencing two targets, or a polymorphic guid reaching a member through a non-unique column is now refused by schema validation, with reworded messages ("…carry different column hooks…"). A `SchemaRegistry` built without `createClient` now wraps guid ids too.
+
+  Docs: docs/internals/codec-boundary.md, docs/guide/global-ids.md, docs/internals/architecture.md
+
+- 65d4180: `SchemaRegistry` is built in three steps: `validateSchema` (pure checks over the definition, same messages as before), `buildSchema` (runtime tables, unions and resolved relations, with column references linked from them), and the registry itself, which only looks things up. Relations are resolved once: `getRelation(table, field)` returns a `RuntimeRelation` with runtime columns on both sides, its target, and, to a union, per-member columns and discriminator. A relation through a deprecated column is now refused when the client is built.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `getRelationTarget`, `getUnionRelationColumns`, `getRelationDiscriminator` and `hasRelations` are removed — use `getRelation(table, field)`;
+  - `getRelations(table)` returns `RuntimeRelation`s, and is empty for a table with none;
+  - `Table.relations`, `Table.getRelation` and `Table.hasRelation` are removed, and the `Table` constructor is `(definition, alias?)`;
+  - `ColumnReference.via` is the `RuntimeRelation` that set it.
+
+  Docs: docs/decisions/0021-schema-registry-phases.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md
+
+- Updated dependencies [545007a]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+  - @dsqlbase/core@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @dsqlbase/migration
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [545007a]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+- Updated dependencies [65d4180]
+  - @dsqlbase/core@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes
