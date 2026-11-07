@@ -173,12 +173,11 @@ A row is matched back to its id by node and key, not by the id's text: an id who
 spelled differently — upper case, braces, no hyphens — resolves here as it does in
 `$findByGlobalId`.
 
-## Tenancy
+## Row policies
 
-Both lookups go through the table's own model client, so a node lookup carries the tenant
-predicate like any other read. On a client scoped with `$identityClaims`, another tenant's id
-resolves to `null` — the row exists, it is simply not visible — and on a client with no claims a
-tenant-scoped node throws `TenancyError`. See [Tenancy](./tenancy.md).
+Both lookups go through the table's own model client, so a node lookup carries the table's
+[row policies](./policies.md) like any other read. An id for a row the policies hide resolves to
+`null` — the row exists, it is simply not visible to this client.
 
 ## Failure modes
 
@@ -230,5 +229,5 @@ follows your API's identity rather than the physical schema.
 - [Schema](./schema.md) — `guid()` beside the other column builders
 - [Relations](./relations.md) — the guid pair rule
 - [Querying](./querying.md) — `$$meta` on every row
-- [Tenancy](./tenancy.md) — a node lookup is scoped like any other read
+- [Row policies](./policies.md) — a node lookup is bounded like any other read
 - [Codec boundary](../internals/codec-boundary.md) — where the wrapping runs

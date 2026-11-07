@@ -8,7 +8,6 @@ import {
   hasOne,
   relations,
   table,
-  tenantScope,
   text,
   union,
   uuid,
@@ -144,27 +143,5 @@ describe("the union client", () => {
 
   it("counts to a number", async () => {
     expectTypeOf(await dsql.posts.count()).toEqualTypeOf<number>();
-  });
-
-  it("shows a union only when every member is visible", () => {
-    const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-    const notes = ws.table("notes", { id: uuid("id").primaryKey(), title: text("title") });
-    const links = table("links", { id: uuid("id").primaryKey(), title: text("title") });
-    const items = union({ notes, links }, { id: uuid("id"), title: text("title") });
-    const onlyLinks = union({ links }, { id: uuid("id") });
-
-    const base = createClient({ schema: { notes, links, items, onlyLinks }, session });
-
-    expectTypeOf(base).not.toHaveProperty("items");
-    expectTypeOf(base).toHaveProperty("onlyLinks");
-    expectTypeOf(base.$identityClaims({ workspaceId: "w1" })).toHaveProperty("items");
-
-    const loose = createClient({
-      schema: { notes, links, items },
-      session,
-      tenancy: { enforce: false },
-    });
-
-    expectTypeOf(loose).toHaveProperty("items");
   });
 });

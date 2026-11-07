@@ -18,7 +18,6 @@ import {
   record,
   relations,
   table,
-  tenantScope,
   text,
   union,
   uuid,
@@ -317,56 +316,6 @@ describe("readOnly columns", () => {
   });
 });
 
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-
-const documents = ws.table("documents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(),
-});
-
-const documentContext = new ExecutionContext({
-  dialect: new QueryBuilder(),
-  schema: new SchemaRegistry({ documents }),
-  session: mockSession,
-  identity: { workspaceId: "w1" },
-});
-
-const documentClient = new ModelClient(
-  documentContext,
-  documentContext.schema.getTables().documents
-);
-
-describe("tenant claim columns", () => {
-  // A claim column is read-only by construction, so it follows the `readOnly` rules above. What
-  // is specific to it is that the caller never supplies the value at all — the client does.
-  it("drops the claim from create data, so it is not a required input", () => {
-    const data = expectTypeOf(documentClient.create).parameter(0).toHaveProperty("data");
-
-    data.not.toHaveProperty("workspaceId");
-    data.toHaveProperty("title").toEqualTypeOf<string>();
-  });
-
-  it("drops the claim from the update set", () => {
-    expectTypeOf(documentClient.update)
-      .parameter(0)
-      .toHaveProperty("set")
-      .toEqualTypeOf<{ id?: string; title?: string }>();
-  });
-
-  it("keeps the claim readable, selectable and filterable", () => {
-    const query = documentClient.findOne({
-      where: { workspaceId: { eq: "w1" } },
-      select: { id: true, workspaceId: true },
-    });
-
-    expectTypeOf(query.$typeOf).toEqualTypeOf<{
-      id: string;
-      workspaceId: string;
-      $$meta: Meta<"documents">;
-    } | null>();
-  });
-});
-
 // A table given two `relations()` blocks, which the registry merges. The types used to see a
 // union of the two maps, whose `keyof` is only the keys they share — here none — so every
 // relation on `people` was `never`.
@@ -498,6 +447,30 @@ describe("paginate", () => {
       // @ts-expect-error `title` is not a users field.
       void client.paginate({ orderBy: { title: "asc" } });
     }).toBeFunction();
+  });
+});
+
+describe("updateMany / deleteMany", () => {
+  it("resolve to every returned record", () => {
+    const updated = client.updateMany({
+      where: { lastName: "Doe" },
+      set: { address: "x" },
+      return: { id: true },
+    });
+    const deleted = client.deleteMany({ where: { lastName: "Doe" }, return: { id: true } });
+
+    expectTypeOf(updated.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> }[]>();
+    expectTypeOf(deleted.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> }[]>();
+  });
+
+  it("keep update and delete to one record", () => {
+    const updated = client.update({
+      where: { id: "u1" },
+      set: { address: "x" },
+      return: { id: true },
+    });
+
+    expectTypeOf(updated.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> } | null>();
   });
 });
 

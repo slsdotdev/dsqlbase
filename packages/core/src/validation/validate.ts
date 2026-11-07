@@ -25,8 +25,7 @@ import { validateReferences } from "./references.js";
  *   belongs, and its field name is free on the table that gets it — including each member of a
  *   union it is declared on;
  * - no column's references form a ring, and a column with hooks references one target, reached
- *   in every union member through a unique key;
- * - a tenant claim name means one type across the schema.
+ *   in every union member through a unique key.
  */
 export function validateSchema(schema: DefinitionSchema): void {
   const index = indexSchema(schema);
@@ -43,8 +42,6 @@ export function validateSchema(schema: DefinitionSchema): void {
 
     return memberToColumns(entry.field, alias, union, entry.relation.to);
   });
-
-  validateClaims(index);
 }
 
 function referenceIndex(index: SchemaIndex) {
@@ -509,35 +506,5 @@ function validateDiscriminator(
       `${label}: discriminator "${source.name}"."${alias}" is "${dataType}"; it holds a ` +
         `member alias, so it must be text, varchar, char, or a text domain.`
     );
-  }
-}
-
-/**
- * A claim is identified by its field name across the whole schema — that is what
- * `$identityClaims` picks an identity object apart by — so the same name must mean the same
- * type on every table that declares it.
- */
-function validateClaims(index: SchemaIndex): void {
-  const claims = new Map<string, { dataType: string; table: string }>();
-
-  for (const table of index.tables.values()) {
-    for (const [claim, column] of Object.entries(table.columns)) {
-      if (!column["_tenantKey"] || column["_deprecated"]) {
-        continue;
-      }
-
-      const dataType = column["_dataType"] as string;
-      const declared = claims.get(claim);
-
-      if (declared && declared.dataType !== dataType) {
-        throw new Error(
-          `Claim "${claim}" is "${declared.dataType}" on table "${declared.table}" but ` +
-            `"${dataType}" on table "${table.name}". One claim name means one claim, so it ` +
-            `must have the same type on every table that declares it.`
-        );
-      }
-
-      claims.set(claim, { dataType, table: table.name });
-    }
   }
 }

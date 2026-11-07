@@ -80,31 +80,37 @@ const withProjects = await dsql.teams.findMany({
 });
 ```
 
-## Multi-tenant schemas
+## Row policies
 
-If rows belong to a workspace, organisation or account, declare that boundary once and let the
-client apply it. Aurora DSQL has no row-level security, so this is the layer that enforces it.
+Aurora DSQL has no row-level security, so the client enforces RLS-shaped policies itself, on
+every statement it builds — joins, unions, counts and node lookups included.
 
 ```ts
-import { tenantScope, uuid } from "dsqlbase/schema";
+import { sql } from "dsqlbase";
+import { settings, table, text, uuid } from "dsqlbase/schema";
 
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+export const params = settings({ workspaceId: uuid("identity.workspace_id") });
 
-export const invoices = ws.table("invoices", {
+export const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.settings.workspaceId),
   number: text("number").notNull(),
-});
+}).policy("workspace_isolation", (t) => ({
+  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+}));
+
+const dsql = createClient({ schema, session, settings: params });
 
 // Per request:
-const db = dsql.$identityClaims({ workspaceId: claims.workspace_id });
+const db = dsql.$settings({ workspaceId: claims.workspace_id });
 
 await db.invoices.findMany({});                            // … WHERE "workspace_id" = $1
-await db.invoices.create({ data: { number: "INV-1" } });   // workspace_id filled from the claim
+await db.invoices.create({ data: { number: "INV-1" } });   // workspace_id filled from the setting
 ```
 
-The claim column is readable and filterable but never writable, the predicate applies to nested
-joins as well as root queries, and a tenant table is absent from an unscoped client — in the
-types and at runtime. See the [tenancy guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/tenancy.md).
+A table with any policy denies by default, an unset setting renders `NULL` and so matches
+nothing, and a write that fails a policy's check throws `PolicyViolationError` with nothing
+written. See the [row policies guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/policies.md).
 
 ## Global ids
 
@@ -254,7 +260,7 @@ relation. See the
 
 ## Links
 
-- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, pagination, polymorphic relations, sessions, transactions, tenancy, global ids, migrations, DSQL notes
+- [Guide](https://github.com/slsdotdev/dsqlbase/blob/main/docs/guide/README.md) — schema, querying, pagination, polymorphic relations, sessions, transactions, row policies, global ids, migrations, DSQL notes
 - [Repository](https://github.com/slsdotdev/dsqlbase)
 - [Issues](https://github.com/slsdotdev/dsqlbase/issues)
 - [Contributing](https://github.com/slsdotdev/dsqlbase/blob/main/CONTRIBUTING.md)

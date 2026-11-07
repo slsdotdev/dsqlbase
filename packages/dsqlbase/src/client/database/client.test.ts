@@ -1,19 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
-import { type Session, sql, type SQLStatement, TenancyError } from "@dsqlbase/core";
+import { type Session, sql, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
+import { guid, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
 import { ModelClient } from "../model/client.js";
-import { guid, hasMany, relations, table, tenantScope, text, uuid } from "../../schema/index.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
-
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
 
 const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
 });
 
-const invoices = ws.table("invoices", {
+const params = settings({ workspaceId: uuid("identity.workspace_id") });
+
+const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.settings.workspaceId),
   number: text("number").notNull(),
 });
 
@@ -30,7 +34,7 @@ const schema = { workspaces, invoices, workspaceRelations };
  * A client plus the statements its session was asked to run — where the SQL a query built is
  * observable, since `ExecutableQuery` keeps its operation to itself.
  */
-const setup = (options: { enforce?: boolean } = {}) => {
+const setup = () => {
   const statements: SQLStatement[] = [];
 
   const session = {
@@ -41,80 +45,84 @@ const setup = (options: { enforce?: boolean } = {}) => {
   } as unknown as Session;
 
   return {
-    dsql: createClient({ schema, session, tenancy: { enforce: options.enforce ?? true } }),
+    dsql: createClient({ schema, session, settings: params }),
     last: () => statements.at(-1),
   };
 };
 
-const scopedInvoiceSelect =
-  `SELECT "__t0"."workspace_id", "__t0"."id", "__t0"."number" ` +
-  `FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`;
+describe("DatabaseClient.$settings", () => {
+  const byWorkspace = sql`"__t0"."workspace_id" = ${params.settings.workspaceId}`;
 
-describe("DatabaseClient.$identityClaims", () => {
-  it("scopes every read the derived client builds", async () => {
+  it("binds its values into the statements the derived client builds", async () => {
     const { dsql, last } = setup();
 
-    await dsql.$identityClaims({ workspaceId: "w1" }).invoices.findMany({});
+    await dsql.$settings({ workspaceId: "w1" }).invoices.create({ data: { number: "INV-1" } });
 
-    // Aliased like every other reference in a select tree, so the predicate goes through the
-    // same machinery as the caller's own conditions rather than a second one.
-    expect(last()?.text).toBe(scopedInvoiceSelect);
-    expect(last()?.params).toEqual(["w1"]);
+    expect(last()?.text).toContain('("id", "workspace_id", "number") VALUES (DEFAULT, $1, $2)');
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
   });
 
-  it("leaves the client it was derived from unscoped", async () => {
-    const { dsql, last } = setup({ enforce: false });
-
-    dsql.$identityClaims({ workspaceId: "w1" });
-    await dsql.invoices.findMany({});
-
-    expect(last()?.text).not.toContain("WHERE");
-  });
-
-  it("accepts an identity carrying keys the schema does not declare", async () => {
+  it("renders an unset setting as NULL", async () => {
     const { dsql, last } = setup();
-    const token = { workspaceId: "w1", sub: "user-1", exp: 1_700_000_000 };
 
-    // A caller should be able to hand over a decoded token whole; the declared claims are
-    // picked out of it and the rest ignored.
-    await dsql.$identityClaims({ ...token }).invoices.findMany({});
+    await dsql.$settings({}).invoices.create({ data: { number: "INV-1" } });
+    expect(last()?.params).toEqual([null, "INV-1"]);
 
-    expect(last()?.params).toEqual(["w1"]);
+    await dsql.invoices.create({ data: { number: "INV-2" } });
+    expect(last()?.params).toEqual([null, "INV-2"]);
   });
 
-  it("throws when a declared claim is given as null or undefined", () => {
-    expect(() => setup().dsql.$identityClaims({ workspaceId: null as unknown as string })).toThrow(
-      /Claim "workspaceId" was given as null/
-    );
-    expect(() =>
-      setup().dsql.$identityClaims({ workspaceId: undefined as unknown as string })
-    ).toThrow(TenancyError);
+  it("leaves the client it was derived from without settings", () => {
+    const { dsql } = setup();
+
+    dsql.$settings({ workspaceId: "w1" });
+
+    expect(sql`${byWorkspace}`.toQuery().params).toEqual([null]);
+    expect(() => dsql.$query(sql`SELECT 1`)).not.toThrow();
   });
 
-  it("does not catch a misspelled claim, which surfaces at the first tenant table", () => {
-    // Nothing here to compare a spread-in key against, so the mistake has to surface later.
-    const scoped = setup().dsql.$identityClaims({
-      ...{ workspacesId: "w1" },
-    } as unknown as { workspaceId: string });
+  it("accepts keys it does not declare, and checks nothing", () => {
+    const { dsql } = setup();
+    const token = { workspaceId: "w1", sub: "u1", ws: undefined };
 
-    expect(() => scoped.invoices.findMany({})).toThrow(/scoped by claim "workspaceId"/);
+    expect(() => dsql.$settings({ ...token })).not.toThrow();
+    expect(() => dsql.$settings({})).not.toThrow();
   });
 
   it("attaches its own models, not the ones the client it derived from holds", () => {
-    const { dsql } = setup({ enforce: false });
-    const scoped = dsql.$identityClaims({ workspaceId: "w1" });
+    const { dsql } = setup();
+    const derived = dsql.$settings({ workspaceId: "w1" });
 
-    expect(scoped.invoices).toBeInstanceOf(ModelClient);
-    expect(scoped.invoices).not.toBe(dsql.invoices);
-    expect(scoped.workspaces).not.toBe(dsql.workspaces);
+    expect(derived.invoices).toBeInstanceOf(ModelClient);
+    expect(derived.invoices).not.toBe(dsql.invoices);
+  });
+
+  describe("on a client that carries settings", () => {
+    it("merges the new values over the ones it carries", async () => {
+      const { dsql, last } = setup();
+      const base = dsql.$settings({ workspaceId: "w1" });
+
+      await base.$settings({}).invoices.create({ data: { number: "INV-1" } });
+      expect(last()?.params).toEqual(["w1", "INV-1"]);
+
+      await base.$settings({ workspaceId: "w2" }).invoices.create({ data: { number: "INV-2" } });
+      expect(last()?.params).toEqual(["w2", "INV-2"]);
+
+      await base.$settings({ workspaceId: null }).invoices.create({ data: { number: "INV-3" } });
+      expect(last()?.params).toEqual([null, "INV-3"]);
+
+      await base.invoices.create({ data: { number: "INV-4" } });
+      expect(last()?.params).toEqual(["w1", "INV-4"]);
+    });
+
+    it("keeps raw SQL, which no policy reaches on any client", () => {
+      const { dsql } = setup();
+
+      expect(() => dsql.$settings({ workspaceId: "w1" }).$query(sql`SELECT 1`)).not.toThrow();
+    });
   });
 });
 
-/**
- * The types remove `$query`, `$execute` and `$identityClaims` from a scoped client, so these
- * guards only ever fire for a caller who got past them — a JavaScript consumer, or one holding
- * the client through a widened type. That is what the cast reproduces.
- */
 // A `sql` template has no `text`: passed here, the session would have run nothing, silently.
 describe("DatabaseClient.$execute", () => {
   it("refuses a sql template, naming $query", async () => {
@@ -133,63 +141,6 @@ describe("DatabaseClient.$execute", () => {
     expect(last()?.text).toBe("SELECT 1");
   });
 });
-
-describe("DatabaseClient guards on a scoped client", () => {
-  const scoped = () =>
-    setup().dsql.$identityClaims({ workspaceId: "w1" }) as unknown as ReturnType<
-      typeof setup
-    >["dsql"];
-
-  it("refuses $query and $execute, because raw SQL is not tenant-safe", async () => {
-    expect(() => scoped().$query(sql`SELECT 1`)).toThrow(/not tenant-safe/);
-    await expect(scoped().$execute(sql`SELECT 1`.toQuery())).rejects.toThrow(TenancyError);
-  });
-
-  it("refuses to be re-scoped", () => {
-    expect(() => scoped().$identityClaims({ workspaceId: "w2" })).toThrow(/already scoped/);
-  });
-
-  it("still allows raw SQL on the client it derived from", () => {
-    expect(() => setup().dsql.$query(sql`SELECT 1`)).not.toThrow();
-  });
-});
-
-describe("DatabaseClient tenancy enforcement", () => {
-  it("refuses a tenant table reached through a join, which the types cannot see", () => {
-    expect(() => setup().dsql.workspaces.findMany({ join: { invoices: true } })).toThrow(
-      /Table "invoices" is tenant-scoped/
-    );
-  });
-
-  it("runs unscoped when enforcement is off", async () => {
-    const { dsql, last } = setup({ enforce: false });
-
-    await dsql.invoices.findMany({});
-
-    expect(last()?.text).not.toContain("WHERE");
-  });
-
-  it("still refuses an insert with no claims when enforcement is off", () => {
-    expect(() =>
-      setup({ enforce: false }).dsql.invoices.create({ data: { number: "INV-1" } })
-    ).toThrow(/without claim "workspaceId"/);
-  });
-
-  it("fills the claim on a scoped insert and drops a value spread into the data", async () => {
-    const { dsql, last } = setup();
-
-    await dsql.$identityClaims({ workspaceId: "w1" }).invoices.create({
-      data: { number: "INV-1", ...{ workspaceId: "w2" } },
-    });
-
-    // The normalizer drops the field, so the claim wins rather than the caller's input.
-    expect(last()?.params).toEqual(["w1", "INV-1"]);
-  });
-});
-
-/* -------------------------------------------------------------------------------------------
- * Global ids
- * ---------------------------------------------------------------------------------------- */
 
 const authors = table("authors", {
   id: guid("id").primaryKey().defaultRandom(),

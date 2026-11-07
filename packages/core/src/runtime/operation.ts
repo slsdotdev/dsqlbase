@@ -1,11 +1,20 @@
 import { TypedObject } from "../utils/index.js";
 import { KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
-import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
+import {
+  KeysetBound,
+  SQLIdentifier,
+  SQLNode,
+  SQLQuery,
+  SQLStatement,
+  SQLValue,
+  sql,
+} from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
-import { TenancyError } from "./errors.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn, Column } from "./column.js";
 import { ComputedDiscriminator } from "./reference.js";
+import { RuntimePolicy } from "./policy.js";
+import type { PolicyCommand } from "../resolvers/policy.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -227,61 +236,100 @@ export class OperationsFactory<
     this._ctx = ctx;
   }
 
+  /** Renders a statement with this context's settings, so every setting binds its value. */
+  private _render(query: SQLQuery): SQLStatement {
+    return query.toQuery({ settings: this._ctx.settings });
+  }
+
   /**
-   * The tenant boundary for `table`, as a condition, or `undefined` when there is none to apply.
+   * The rows `table`'s policies let every one of `commands` see, as a condition, or `undefined`
+   * when the table has none. Per command that is `(OR of permissive using) AND (each restrictive
+   * using)`, each part wrapped; with no permissive policy for a command its part is `false` — a
+   * table with any policy denies by default. Several commands (a write and `select`) are AND-ed,
+   * a policy that applies to more than one of them rendered once.
    *
-   * A table with no claim columns is global and always yields `undefined`. Otherwise the
-   * identity on the context decides: present, every claim becomes an equality on its column;
-   * absent, an enforcing context refuses to build the operation at all, and a non-enforcing one
-   * runs unscoped.
-   *
-   * The refusal is what makes this a boundary rather than a convenience. It fires here, below
-   * the point where callers write queries, so it also covers a tenant table reached through a
-   * join — which the types cannot see, because a nested level is named by a relation rather than
-   * by the client.
+   * A setting a policy reads renders `NULL` when unset, and a comparison with `NULL` is never
+   * true: a restrictive policy hides every row, a permissive one drops only its own branch.
    */
-  private _tenantPredicate<T extends AnyTable>(table: T): SQLNode | undefined {
-    if (table.tenantKeys.length === 0) {
+  private _policyPredicate<T extends AnyTable>(
+    table: T,
+    commands: readonly PolicyCommand[]
+  ): SQLNode | undefined {
+    if (table.policies.length === 0 || this._ctx.policies.bypass) {
       return undefined;
     }
 
-    const identity = this._ctx.identity;
+    const using = (policy: RuntimePolicy) => policy.using as SQLNode;
+    const parts: SQLNode[] = [];
+    const permissiveSets = new Set<string>();
+    const restrictive = new Set<RuntimePolicy>();
 
-    if (!identity) {
-      if (!this._ctx.tenancy.enforce) {
-        return undefined;
-      }
+    for (const command of commands) {
+      const policies = table.policiesFor(command);
+      const key = policies.permissive.map((policy) => policy.name).join(",");
 
-      throw new TenancyError(
-        `Table "${table.name}" is tenant-scoped and this client carries no claims. ` +
-          `Derive one with $identityClaims(), or create the client with ` +
-          `tenancy: { enforce: false } if it is meant to run unscoped.`,
-        table.name
-      );
-    }
-
-    const conditions = table.tenantKeys.map(([claim, column]) => {
-      const value = identity[claim];
-
-      if (value === undefined || value === null) {
-        throw new TenancyError(
-          `Table "${table.name}" is scoped by claim "${claim}", which this client's identity ` +
-            `does not carry.`,
-          table.name,
-          claim
+      if (!permissiveSets.has(key)) {
+        permissiveSets.add(key);
+        parts.push(
+          policies.permissive.length === 0
+            ? sql.raw("false")
+            : policies.permissive.length === 1
+              ? using(policies.permissive[0] as RuntimePolicy)
+              : sql.or(policies.permissive.map((policy) => sql.wrap(using(policy))))
         );
       }
 
-      // Encoded by the column's own codec, so the predicate is written the way the column
-      // stored the value — the same rule every other comparison follows.
-      return sql.eq(column, column.param(value));
-    });
-
-    if (conditions.length === 1) {
-      return conditions[0];
+      for (const policy of policies.restrictive) restrictive.add(policy);
     }
 
-    return sql.and(conditions.map((condition) => sql.wrap(condition)));
+    parts.push(...[...restrictive].map(using));
+
+    // A lone condition stays bare, like a lone `where`; several are each wrapped.
+    return parts.length === 1 ? parts[0] : sql.and(parts.map((part) => sql.wrap(part)));
+  }
+
+  /**
+   * The check every row an insert or update writes must pass, as a `RETURNING` expression, or
+   * `undefined` when the table has no policies. One `CASE` arm per restrictive policy, then one
+   * for the permissive policies OR-ed; the first that fails casts its marker to `int`, which
+   * fails the statement — atomically, nothing written — with the marker in the message, for
+   * {@link PolicyViolationError} to decode. Passing rows give `NULL`.
+   *
+   * `COALESCE(…, false)` makes a `NULL` check (an unset setting) fail rather than pass. Each
+   * marker is suffixed with `left(<column>::text, 0)` — always empty, never `NULL` through
+   * `coalesce` — so it depends on the row: a check over parameters alone would otherwise be
+   * folded at plan time and fail an update that matched nothing.
+   */
+  private _policyCheck<T extends AnyTable>(
+    table: T,
+    command: "insert" | "update"
+  ): SQLNode | undefined {
+    if (table.policies.length === 0 || this._ctx.policies.bypass) {
+      return undefined;
+    }
+
+    const { permissive, restrictive } = table.policiesFor(command);
+    const anchor = (table.primaryKey[0] ?? table.getColumnEntries()[0]?.[1]) as AnyColumn;
+    const suffix = sql`coalesce(left(${anchor}::text, 0), '')`;
+    const marker = (as: string, names: readonly string[]) =>
+      sql`${sql.literal(`dsqlbase.policy:${table.alias}:${as}:${names.join(",")}`)} || ${suffix}`;
+    const check = (policy: RuntimePolicy) => sql.wrap(policy.check as SQLNode);
+
+    const arms = restrictive.map(
+      (policy) =>
+        sql`WHEN NOT COALESCE(${check(policy)}, false) THEN ${marker("restrictive", [policy.name])}`
+    );
+
+    arms.push(
+      permissive.length === 0
+        ? sql`WHEN true THEN ${marker("permissive", [])}`
+        : sql`WHEN NOT COALESCE(${sql.or(permissive.map(check))}, false) THEN ${marker(
+            "permissive",
+            permissive.map((policy) => policy.name)
+          )}`
+    );
+
+    return sql`CAST(CASE ${sql.join(arms, " ")} ELSE NULL END AS int) AS ${sql.identifier("__pc")}`;
   }
 
   /**
@@ -293,16 +341,21 @@ export class OperationsFactory<
    * Several nodes are AND-ed, each wrapped so an `OR` among them keeps its precedence. A lone
    * node is returned untouched, so the common case adds no parentheses.
    *
-   * The tenant predicate leads, before anything the caller wrote and before anything a sibling
+   * `commands` names the row policies that bound the rows: `select` for every read level,
+   * `update` / `delete` and `select` for a write — as in PostgreSQL, a write only reaches rows
+   * its reader could see.
+   *
+   * What the seam injects leads, before anything the caller wrote and before anything a sibling
    * feature appends afterwards (a join correlation, a keyset). Order is cosmetic to the planner
    * and deliberate to a reader: the boundary is the first thing an `EXPLAIN` shows.
    */
   private _resolveWhere<T extends AnyTable>(
     table: T,
+    commands: readonly PolicyCommand[],
     where?: SQLNode | SQLNode[]
   ): SQLNode | undefined {
     const conditions = [
-      this._tenantPredicate(table),
+      this._policyPredicate(table, commands),
       ...(Array.isArray(where) ? where : [where]),
     ].filter((condition): condition is SQLNode => condition !== undefined && condition !== null);
 
@@ -378,28 +431,6 @@ export class OperationsFactory<
     return { columns, resolvers };
   }
 
-  /**
-   * The value a tenant claim column is inserted with, taken from the identity.
-   *
-   * Always required, in both modes: the column is `notNull` and nothing else can fill it, so an
-   * insert without claims would write a row into no tenant. Moving a row between tenants is not
-   * a model-client operation — it is raw SQL on an unscoped client, deliberately.
-   */
-  private _tenantValue<T extends AnyTable>(table: T, claim: string): unknown {
-    const value = this._ctx.identity?.[claim];
-
-    if (value === undefined || value === null) {
-      throw new TenancyError(
-        `Cannot insert into "${table.name}" without claim "${claim}": it is filled from the ` +
-          `client's identity, and this client carries none.`,
-        table.name,
-        claim
-      );
-    }
-
-    return value;
-  }
-
   private _resolveInsertEntries<T extends AnyTable>(
     table: T,
     data: FieldMutation[][]
@@ -420,11 +451,6 @@ export class OperationsFactory<
       for (const [fieldName, column] of columnEntries) {
         if (column.readOnly && values[fieldName] !== undefined) {
           throw new Error(`Cannot write read-only column "${fieldName}"`);
-        }
-
-        if (column.tenantKey) {
-          row.push(column.getInsertValue(this._tenantValue(table, fieldName)));
-          continue;
         }
 
         const value = column.getInsertValue(values[fieldName]);
@@ -487,7 +513,7 @@ export class OperationsFactory<
     const fields = this._resolveFields(table, args.select);
     resolvers.push(...fields.resolvers);
 
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["select"], args.where);
     const order = args.orderBy ? this._validateOrderExpression(table, args.orderBy) : undefined;
     const join = args.join ? this._resolveJoinEntries(table, args.join, resolvers) : undefined;
     const limit = mode === "one" ? 1 : args.limit;
@@ -617,9 +643,9 @@ export class OperationsFactory<
   /**
    * Builds the branches of a select over a union, one per member in `args.members`, each
    * through {@link _resolveSelectParams} with the member's own table — so every branch passes
-   * the `WHERE` seam, tenant predicate included, and gets nested joins and codec-aware filters
-   * exactly as a single-table level would. A branch cannot skip them, which is what keeps a
-   * union from becoming a way around a member's tenant boundary.
+   * the `WHERE` seam and gets nested joins and codec-aware filters exactly as a single-table
+   * level would. A branch cannot skip them, which is what keeps a union from becoming a way
+   * around a member's boundary.
    *
    * Each branch also projects:
    * - its alias as a `$$key` literal, which lands in the row's JSON and drives dispatch;
@@ -935,7 +961,7 @@ export class OperationsFactory<
       mode: mode,
       name: name ?? `select_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(fieldResolvers, mode),
     };
   }
@@ -953,7 +979,7 @@ export class OperationsFactory<
     const query = this._ctx.dialect.buildSelectQuery({
       table,
       select: [sql`count(*) AS ${sql.identifier("count")}`],
-      where: this._resolveWhere(table, args.where),
+      where: this._resolveWhere(table, ["select"], args.where),
     });
 
     return {
@@ -961,7 +987,7 @@ export class OperationsFactory<
       mode: "one",
       name: name ?? `count_${table.name}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       // `count(*)` is a `bigint`, which drivers hand back as text (node-postgres) or `bigint`.
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
@@ -993,7 +1019,7 @@ export class OperationsFactory<
       mode,
       name: name ?? `select_${union.alias}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: (rows) =>
         this._resolveUnionRows(
           resolver,
@@ -1017,7 +1043,7 @@ export class OperationsFactory<
       const query = this._ctx.dialect.buildSelectQuery({
         table: member,
         select: [sql`count(*)`],
-        where: this._resolveWhere(member, memberArgs.where),
+        where: this._resolveWhere(member, ["select"], memberArgs.where),
       });
 
       return sql`(${query})`;
@@ -1031,7 +1057,7 @@ export class OperationsFactory<
       mode: "one",
       name: name ?? `count_${union.alias}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
   }
@@ -1047,11 +1073,15 @@ export class OperationsFactory<
     const [columns, values] = this._resolveInsertEntries(table, args.data);
     const selection = this._resolveFields(table, args.return);
 
+    const check = this._policyCheck(table, "insert");
+
     const query = this._ctx.dialect.buildInsertQuery({
       table,
       columns,
       values,
-      return: selection.columns,
+      // The check rides on `RETURNING`, so it runs whether or not the caller asked for rows;
+      // no resolver reads it, so it never reaches a record.
+      return: check ? [...selection.columns, check] : selection.columns,
     });
 
     return {
@@ -1059,7 +1089,7 @@ export class OperationsFactory<
       mode: config.mode,
       name: name ?? `insert_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }
@@ -1073,14 +1103,16 @@ export class OperationsFactory<
     const { name, args, mode } = config;
 
     const entries = this._resolveUpdateEntries(table, args.set);
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["update", "select"], args.where);
     const selection = this._resolveFields(table, args.return);
+
+    const check = this._policyCheck(table, "update");
 
     const query = this._ctx.dialect.buildUpdateQuery({
       table,
       set: entries,
       where,
-      return: selection.columns,
+      return: check ? [...selection.columns, check] : selection.columns,
     });
 
     return {
@@ -1088,7 +1120,7 @@ export class OperationsFactory<
       mode,
       name: name ?? `update_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }
@@ -1101,7 +1133,7 @@ export class OperationsFactory<
   >(table: TTable, config: OperationRequest<TArgs, TMode>): DeleteOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["delete", "select"], args.where);
     const selection = this._resolveFields(table, args.return);
 
     const query = this._ctx.dialect.buildDeleteQuery({
@@ -1115,7 +1147,7 @@ export class OperationsFactory<
       mode: config.mode,
       name: name ?? `delete_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }

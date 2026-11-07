@@ -30,10 +30,14 @@ describe("update operations", () => {
 
       const apiProject = data.projects[0];
 
-      await client.tasks.update({
+      const updated = await client.tasks.updateMany({
         where: { projectId: { eq: apiProject.id } },
         set: { priority: "urgent" },
+        return: { id: true, priority: true },
       });
+
+      expect(updated).toHaveLength(3);
+      expect(updated.every((task) => task.priority === "urgent")).toBe(true);
 
       const after = await client.tasks.findMany({
         where: { projectId: { eq: apiProject.id } },
@@ -48,7 +52,7 @@ describe("update operations", () => {
     it("matches via composite `and` / `or` filters", async () => {
       const client = getClient();
 
-      await client.tasks.update({
+      await client.tasks.updateMany({
         where: {
           and: [
             { status: { eq: "todo" } },
@@ -67,6 +71,19 @@ describe("update operations", () => {
 
       expect(archived).toHaveLength(2);
       expect(stillTodo).toHaveLength(0);
+    });
+
+    it("update refuses a where that does not pin one row, before any row changes", async () => {
+      const client = getClient();
+      const data = getData();
+
+      expect(() =>
+        client.tasks.update({
+          where: { projectId: { eq: data.projects[0].id } },
+          set: { priority: "urgent" },
+        })
+      ).toThrow(/changes one row.*updateMany/);
+      expect(await client.tasks.count({ where: { priority: { eq: "urgent" } } })).toBe(0);
     });
   });
 

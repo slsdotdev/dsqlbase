@@ -6,15 +6,6 @@ import { Session } from "./session.js";
 import { SchemaRegistry } from "./registry.js";
 import { OperationsFactory } from "./operation.js";
 
-/** How a tenant table behaves on a client that carries no identity. */
-export type TenancyOptions = {
-  /**
-   * Refuse to build an operation on a tenant table when there are no claims to scope it with.
-   * On by default: a query that silently runs unscoped is the bug this exists to prevent.
-   */
-  enforce?: boolean;
-};
-
 /** Page-size bounds for keyset pagination. Carried here for the client; core reads neither. */
 export type PaginationOptions = {
   /** The page size when a call names none. */
@@ -29,15 +20,19 @@ export type ExecutionContextOptions<TSchema extends DefinitionSchema> = {
   schema: SchemaRegistry<TSchema>;
 
   /**
-   * The claims every tenant table on this context is scoped to, keyed by claim name.
-   *
-   * Absent on a base client and set once by `$identityClaims`, which builds a derived context
-   * rather than mutating this one — the reason a scoped and an unscoped client can coexist in
-   * one process, and why a query's SQL is fixed by the client that built it.
+   * The values settings render from, keyed by setting name. Absent on a base client; set by
+   * `$settings`, merged over the parent's. It derives a new context rather than mutating this
+   * one, so concurrent requests never see each other's values, and a query's SQL is fixed by the
+   * client that built it. An unset setting renders `NULL`.
    */
-  identity?: Record<string, unknown>;
+  settings?: Readonly<Record<string, unknown>>;
 
-  tenancy?: TenancyOptions;
+  /**
+   * `bypass: true` skips every row policy — predicates and checks — on this context and every
+   * one derived from it: the `BYPASSRLS` analogue, for a worker rather than a request handler.
+   * Set per client, never per call. Settings still render.
+   */
+  policies?: { bypass?: boolean };
 
   pagination?: PaginationOptions;
 };
@@ -51,16 +46,16 @@ export class ExecutionContext<
   readonly dialect: QueryBuilder;
   readonly schema: SchemaRegistry<TDefinition>;
   readonly operations: OperationsFactory<Schema<TDefinition>>;
-  readonly identity?: Record<string, unknown>;
-  readonly tenancy: Required<TenancyOptions>;
+  readonly settings?: Readonly<Record<string, unknown>>;
+  readonly policies: { readonly bypass: boolean };
   readonly pagination?: PaginationOptions;
 
   constructor(options: ExecutionContextOptions<TDefinition>) {
     this.session = options.session;
     this.dialect = options.dialect;
     this.schema = options.schema;
-    this.identity = options.identity;
-    this.tenancy = { enforce: options.tenancy?.enforce ?? true };
+    this.settings = options.settings;
+    this.policies = Object.freeze({ bypass: options.policies?.bypass ?? false });
     this.pagination = options.pagination;
     this.operations = new OperationsFactory<Schema<TDefinition>>(this);
   }

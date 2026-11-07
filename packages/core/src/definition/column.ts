@@ -1,4 +1,5 @@
 import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
+import type { SettingRef } from "./settings.js";
 import {
   HasDefault,
   NotNull,
@@ -85,7 +86,6 @@ export type ColumnConfig<
   primaryKey: boolean;
   unique: boolean;
   readOnly: boolean;
-  tenantKey: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
   validator?: ColumnValidator<TValueType, TInputType>;
   /** Transforms around the codec that need the runtime column or row; see `ColumnHooks`. */
@@ -110,7 +110,6 @@ export class ColumnDefinition<
   protected _primaryKey: boolean;
   protected _unique: boolean;
   protected _readOnly: boolean;
-  protected _tenantKey: boolean;
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
@@ -122,7 +121,7 @@ export class ColumnDefinition<
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
   protected _hooks?: ColumnHooks<this["__type"]["valueType"]>;
-  protected _onCreate?: () => this["__type"]["inputType"];
+  protected _onCreate?: () => this["__type"]["inputType"] | SettingRef<this["__type"]["inputType"]>;
   protected _onUpdate?: () => this["__type"]["inputType"];
 
   constructor(name: TName, config: Partial<TConfig> = {}) {
@@ -134,7 +133,6 @@ export class ColumnDefinition<
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
     this._readOnly = config.readOnly ?? false;
-    this._tenantKey = config.tenantKey ?? false;
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._validator = config.validator;
@@ -200,8 +198,7 @@ export class ColumnDefinition<
    *
    * A `ColumnDefinition` belongs to the table it is declared on: the builders mutate it in
    * place, so one instance shared by two tables would let a later `.check()` on one reach the
-   * other. Anything that hands the same declaration to several tables — `tenantScope().columns()`
-   * is the first — copies it here instead.
+   * other. Anything that hands the same declaration to several tables copies it here instead.
    */
   public clone(): this {
     return Object.assign(Object.create(Object.getPrototypeOf(this) as object), this) as this;
@@ -248,7 +245,15 @@ export class ColumnDefinition<
     return this as ValueType<this, TypeArgOf<this, T>>;
   }
 
-  public $onCreate(cb: () => this["__type"]["inputType"]): this {
+  /**
+   * Fills the column on insert when the caller gives no value. The callback may return a
+   * setting (`() => params.settings.workspaceId`): it renders from the client's settings, `NULL` when
+   * unset, encoded by the setting's own column — the target column's validator does not see it.
+   * Runtime-only: migrations never read it, so a setting-sourced column has no `DEFAULT`.
+   */
+  public $onCreate(
+    cb: () => this["__type"]["inputType"] | SettingRef<this["__type"]["inputType"]>
+  ): this {
     this._onCreate = cb;
     return this;
   }

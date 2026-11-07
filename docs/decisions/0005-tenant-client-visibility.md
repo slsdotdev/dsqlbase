@@ -1,7 +1,7 @@
 # 0005 — Tenant table visibility on the client
 
 - **Date:** 2026-09-23
-- **Status:** accepted provisionally — see [Open concerns](#open-concerns)
+- **Status:** superseded by [0024](./0024-row-policies.md) — `VisibleFor` is removed; every table is on every client
 - **Proposal:** `client-tenancy.md` story B (local working artifact, not tracked)
 
 ## Context

@@ -1,12 +1,4 @@
-import {
-  AnyColumnDefinition,
-  AnyTable,
-  AnyTableDefinition,
-  DefinitionSchema,
-  SchemaRegistry,
-  TableDefinition,
-} from "@dsqlbase/core";
-import { IndexColumnDefinition, UniqueConstraintDefinition } from "@dsqlbase/core/definition";
+import { AnyTable, DefinitionSchema, SchemaRegistry, TableDefinition } from "@dsqlbase/core";
 
 export type { GuidBinding, DynamicGuidBinding } from "../schema/utils/guid-hooks.js";
 
@@ -31,7 +23,7 @@ export type NodeTable = {
 /**
  * Node tables per registry rather than per client.
  *
- * A transaction client and an identity client are derived from their parent's
+ * A transaction client and a client with settings are derived from their parent's
  * `ExecutionContext`, so they share one `SchemaRegistry` — keying off it is what makes
  * `$findByGlobalId` work the same on all three without threading anything through.
  */
@@ -78,7 +70,7 @@ function collectNodes(
     }
 
     const table = registry.getTable(alias);
-    const keys = uniqueKeysOf(table, node);
+    const keys = table.uniqueKeys;
 
     if (keys.length > 0) {
       nodes.set(alias, { key: alias, alias, table, keys });
@@ -86,53 +78,4 @@ function collectNodes(
   }
 
   return nodes;
-}
-
-/** A table's unique keys as sorted field sets, the primary key first, without repeats. */
-function uniqueKeysOf(table: AnyTable, definition: AnyTableDefinition): string[][] {
-  // Constraints and indexes name database columns; a payload names fields.
-  const fieldOf = new Map(table.getColumnEntries().map(([field, column]) => [column.name, field]));
-  const keys = new Map<string, string[]>();
-
-  const add = (fields: (string | undefined)[]) => {
-    // A key over a deprecated column is not addressable: the client has no field for it.
-    if (fields.length === 0 || fields.some((field) => field === undefined)) {
-      return;
-    }
-
-    const key = [...new Set(fields as string[])].sort();
-    keys.set(key.join("\u0000"), key);
-  };
-
-  add(table.primaryKey.map((column) => fieldOf.get(column.name)));
-
-  for (const [field, column] of table.getColumnEntries()) {
-    if (column.unique) add([field]);
-  }
-
-  for (const constraint of definition["_constraints"]) {
-    if (constraint instanceof UniqueConstraintDefinition) {
-      add(constraint["_columns"].map((ref: { name: string }) => fieldOf.get(ref.name)));
-    }
-  }
-
-  for (const index of definition["_indexes"]) {
-    const columns = index["_columns"];
-
-    if (
-      !index["_unique"] ||
-      index["_where"] ||
-      columns.some((c) => !(c instanceof IndexColumnDefinition))
-    ) {
-      continue;
-    }
-
-    add(
-      columns.map((c) =>
-        fieldOf.get((c as IndexColumnDefinition<string, AnyColumnDefinition>)["_column"].name)
-      )
-    );
-  }
-
-  return [...keys.values()];
 }

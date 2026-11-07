@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { TableDefinition } from "./table.js";
 import { ColumnDefinition } from "./column.js";
-import { TenantScopeDefinition } from "./tenant.js";
 import { sql } from "../sql/tag.js";
 
 const usersTable = new TableDefinition("users", {
@@ -194,42 +193,6 @@ describe("TableDefinition reserved field names", () => {
   });
 });
 
-describe("TableDefinition tenant claims", () => {
-  it("rejects a claim column that is not notNull", () => {
-    expect(
-      () =>
-        new TableDefinition("invoices", {
-          columns: {
-            workspaceId: new ColumnDefinition("workspace_id", { tenantKey: true, readOnly: true }),
-            id: new ColumnDefinition("id").primaryKey(),
-          },
-        })
-    ).toThrow(/declares claim "workspaceId" as nullable/);
-  });
-
-  it("rejects a claim column the caller could write", () => {
-    expect(
-      () =>
-        new TableDefinition("invoices", {
-          columns: {
-            workspaceId: new ColumnDefinition("workspace_id", { tenantKey: true }).notNull(),
-            id: new ColumnDefinition("id").primaryKey(),
-          },
-        })
-    ).toThrow(/declares claim "workspaceId" as writable/);
-  });
-
-  it("accepts the columns a tenant scope hands over", () => {
-    const ws = new TenantScopeDefinition({
-      workspaceId: new ColumnDefinition("workspace_id").notNull(),
-    });
-
-    expect(() =>
-      ws.table("invoices", { id: new ColumnDefinition("id").primaryKey() })
-    ).not.toThrow();
-  });
-});
-
 describe("TableDefinition — deprecated() and renamedFrom()", () => {
   it("serializes a deprecated column, NOT NULL dropped when it has no default", () => {
     const people = new TableDefinition("people", {
@@ -268,5 +231,31 @@ describe("TableDefinition — deprecated() and renamedFrom()", () => {
           columns: { id: new ColumnDefinition("id").primaryKey().deprecated() },
         })
     ).toThrow(/deprecates "id", part of its primary key/);
+  });
+});
+
+describe("TableDefinition.policy", () => {
+  const define = () =>
+    new TableDefinition("docs", {
+      columns: { id: new ColumnDefinition("id").primaryKey() },
+    });
+
+  it("records each policy and keeps it out of the DDL", () => {
+    const docs = define().policy("read_all", () => ({ for: "select", using: sql`true` }));
+
+    expect(docs["_policies"].map((policy) => policy.name)).toEqual(["read_all"]);
+    expect(JSON.stringify(docs.toJSON())).not.toContain("read_all");
+  });
+
+  it("refuses a second policy of the same name", () => {
+    const docs = define().policy("p", () => ({ using: sql`true` }));
+
+    expect(() => docs.policy("p", () => ({ using: sql`true` }))).toThrow(
+      'Table "docs" declares policy "p" twice.'
+    );
+  });
+
+  it.each(["", "1st", "has space", 'quo"te', "a:b"])("refuses the policy name %j", (name) => {
+    expect(() => define().policy(name, () => ({ using: sql`true` }))).toThrow(/SQL-style/);
   });
 });

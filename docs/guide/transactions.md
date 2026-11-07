@@ -35,25 +35,27 @@ const [page, open] = await dsql.$transaction([
 ]);
 ```
 
-## Scoped transactions
+## Transactions with settings
 
-A transaction opened on a client scoped with [`$identityClaims`](./tenancy.md) is scoped too: the transaction context carries the identity, so every query inside it gets the tenant predicate, and a write lands in the right tenant.
+A transaction opened on a client with [settings](./policies.md#per-request-clients) carries them: every query inside it is bounded by the [row policies](./policies.md) with those values, and a column filled from a setting is filled in it too.
 
 ```ts
-const db = dsql.$identityClaims({ workspaceId });
+const db = dsql.$settings({ workspaceId, userId });
 
 await db.$transaction(async (tx) => {
   await tx.invoices.create({ data: { number: "INV-2" } });
 });
 ```
 
-Scope first, then open the transaction — a transaction client has no `$identityClaims` of its own, so there is one order rather than two.
+Give the settings first, then open the transaction — a transaction client has no `$settings` of its own, so there is one order rather than two.
 
-Batching a scoped query into an unscoped transaction is safe. An `ExecutableQuery` has its SQL fixed when the client builds it, and `$transaction([...])` only swaps the session each operation runs on, so the predicate is already baked in:
+Batching a query built on a settings client into a transaction without settings is safe. An `ExecutableQuery` has its SQL fixed when the client builds it, and `$transaction([...])` only swaps the session each operation runs on, so the values are already bound:
 
 ```ts
-await dsql.$transaction([db.invoices.findMany({})]);   // still scoped to `workspaceId`
+await dsql.$transaction([db.invoices.findMany({})]);   // still bounded by `workspaceId`
 ```
+
+A write that fails a policy's check throws `PolicyViolationError`; the transaction rolls back and the error is rethrown, never retried.
 
 ## Conflicts and retries
 
@@ -73,6 +75,6 @@ A DSQL transaction writes at most 3,000 rows and 10 MiB, and lives at most 5 min
 
 - [Querying](./querying.md)
 - [Pagination](./pagination.md)
-- [Tenancy](./tenancy.md)
+- [Row policies](./policies.md)
 - [Sessions](./sessions.md)
 - [DSQL notes](./dsql-notes.md)

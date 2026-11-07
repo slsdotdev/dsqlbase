@@ -18,42 +18,54 @@ Models are keyed by the **export name** in `schema`, not by the table name: `exp
 
 Every method returns a query that runs when awaited — an `ExecutableQuery`, or for a counted page a `CompositeQuery` of two statements. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
 
-| Method                            | Args                                            | Returns                                  |
-| --------------------------------- | ----------------------------------------------- | ---------------------------------------- |
-| `findOne(args)`                   | `where` (required), `select`, `join`            | one row or `null`                        |
-| `findMany(args)`                  | `QueryArgs` (below)                             | array of rows                            |
-| `paginate(args)`                  | see [Pagination](./pagination.md)               | a page of rows with cursors              |
-| `count(args?)`                    | `where`                                         | number                                   |
-| `create({ data, return? })`       | column values; `return` selects what comes back | created row, selected fields, or nothing |
-| `update({ set, where, return? })` |                                                 | one updated row (see below)              |
-| `delete({ where, return? })`      |                                                 | one deleted row (see below)              |
+| Method                                | Args                                            | Returns                                  |
+| ------------------------------------- | ----------------------------------------------- | ---------------------------------------- |
+| `findOne(args)`                       | `where` (required), `select`, `join`            | one row or `null`                        |
+| `findMany(args)`                      | `QueryArgs` (below)                             | array of rows                            |
+| `paginate(args)`                      | see [Pagination](./pagination.md)               | a page of rows with cursors              |
+| `count(args?)`                        | `where`                                         | number                                   |
+| `create({ data, return? })`           | column values; `return` selects what comes back | created row, selected fields, or nothing |
+| `update({ set, where, return? })`     | `where` must pin one row (below)                | the updated row, or `null`               |
+| `delete({ where, return? })`          | `where` must pin one row (below)                | the deleted row, or `null`               |
+| `updateMany({ set, where, return? })` |                                                 | every updated row                        |
+| `deleteMany({ where, return? })`      |                                                 | every deleted row                        |
 
-`create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
-An empty `where: {}` does not count: `findOne`, `update` and `delete` refuse it when the query is built,
-before any SQL runs.
+Every write except `create` requires a `where`; there is no "delete everything" form. An empty
+`where: {}` does not count: `findOne`, `update`, `delete`, `updateMany` and `deleteMany` refuse it
+when the query is built, before any SQL runs.
 
-> **Known issue.** `update` and `delete` change **every** row their `where` matches, but return only
-> one of them. Until this is fixed, give them a `where` on a unique key (the primary key, or a
-> `.unique()` column) when you mean one row.
+`update` and `delete` change **one** row. Their `where` must compare every field of one unique key
+— the primary key, a `.unique()` column, a unique constraint or a non-partial unique index — for
+equality with a value, at the top level or inside `and`; other conditions may sit beside it. A
+key compared under `or` / `not`, with `in` / `neq`, or with `null` (a unique column admits many
+`NULL`s) does not count, and a table with no unique key has no `update` / `delete` at all. Anything
+else is refused when the query is built:
+
+```ts
+await dsql.tasks.update({ where: { id: taskId }, set: { status: "done" } }); // one row
+await dsql.tasks.update({ where: { status: "todo" }, set: { status: "done" } }); // throws
+await dsql.tasks.updateMany({ where: { status: "todo" }, set: { status: "done" } }); // every match
+```
+
+The rule is checked at runtime only; the types accept any `where`.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
 readable — `select`, `where`, `orderBy` and the result row are unaffected.
 
-On a client scoped with `$identityClaims`, every one of these methods also carries a tenant
-predicate. It is AND-ed in **ahead of** the `where` you wrote, at the root and at every joined
-level:
+On a table with [row policies](./policies.md), every one of these methods also carries the
+policies' conditions. They are AND-ed in **ahead of** the `where` you wrote, at the root and at
+every joined level, with the values of the client's settings (`dsql.$settings({ ... })`):
 
 ```sql
-SELECT … FROM "invoices"
-WHERE ("invoices"."workspace_id" = $1) AND ("invoices"."number" LIKE $2)
+SELECT … FROM "invoices" AS "__t0"
+WHERE ("__t0"."workspace_id" = $1) AND ("__t0"."number" LIKE $2)
 ```
 
-The claim column is filterable and orderable like any other, but filtering by it cannot widen
-the scope — `where: { workspaceId: other }` becomes two conflicting equalities and returns
-nothing. Reaching a tenant table from a client with no claims throws a `TenancyError` when the
-query is built, including through a join, which the types cannot see. See
-[Tenancy](./tenancy.md).
+Filtering by a column a policy reads cannot widen what is visible — `where: { workspaceId:
+other }` becomes two conflicting equalities and returns nothing. An `update` or `delete` of a
+row the policies hide changes nothing and returns `null`; a write whose new row fails a policy's
+check throws `PolicyViolationError`. See [Row policies](./policies.md).
 
 ## `QueryArgs`
 
@@ -220,9 +232,8 @@ const rows = await dsql.$query<{ n: number }>(
 const raw = await dsql.$execute<{ n: number }>({ text: "select 1 as n", params: [] });
 ```
 
-Neither exists on a client scoped with `$identityClaims`: raw SQL bypasses every seam the
-factory applies, the tenant predicate included, so it is offered only where that is plain to
-read.
+Both bypass every seam the factory applies, [row policies](./policies.md) included, on every
+client — one with settings too.
 
 - `$query(SQLQuery)` — build with the `sql` tagged template; parameters are bound automatically. Returns an `ExecutableQuery`, so it can join a `$transaction([...])` batch.
 - `$execute(SQLStatement)` — pass `{ text, params }` straight to the session.
@@ -241,6 +252,6 @@ await dsql.$query(
 - [Pagination](./pagination.md)
 - [Transactions](./transactions.md)
 - [Global ids](./global-ids.md)
-- [Tenancy](./tenancy.md)
+- [Row policies](./policies.md)
 - [Sessions](./sessions.md)
 - [Runtime pipeline](../internals/runtime-pipeline.md) — how these calls become SQL

@@ -25,9 +25,13 @@ describe("delete operations", () => {
     it("removes every row matching the predicate", async () => {
       const client = getClient();
 
-      await client.tasks.delete({
+      const deleted = await client.tasks.deleteMany({
         where: { status: { eq: "done" } },
+        return: { id: true, status: true },
       });
+
+      expect(deleted.length).toBeGreaterThan(1);
+      expect(deleted.every((task) => task.status === "done")).toBe(true);
 
       const remaining = await client.tasks.findMany({
         where: { status: { eq: "done" } },
@@ -41,7 +45,7 @@ describe("delete operations", () => {
     it("matches via composite `and` / `or` filters", async () => {
       const client = getClient();
 
-      await client.tasks.delete({
+      await client.tasks.deleteMany({
         where: {
           or: [{ priority: { eq: "low" } }, { dueDate: { exists: false } }],
         },
@@ -53,6 +57,16 @@ describe("delete operations", () => {
         expect(task.priority).not.toBe("low");
         expect(task.dueDate).not.toBeNull();
       }
+    });
+
+    it("delete refuses a where that does not pin one row, before any row is removed", async () => {
+      const client = getClient();
+      const before = await client.tasks.count({});
+
+      expect(() => client.tasks.delete({ where: { status: { eq: "done" } } })).toThrow(
+        /changes one row.*deleteMany/
+      );
+      expect(await client.tasks.count({})).toBe(before);
     });
   });
 

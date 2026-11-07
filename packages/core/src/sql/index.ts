@@ -4,6 +4,7 @@ export {
   type SQLContext,
   SQLRaw,
   SQLParam,
+  SQLSetting,
   SQLIdentifier,
   SQLQuery,
   SQLWrapper,

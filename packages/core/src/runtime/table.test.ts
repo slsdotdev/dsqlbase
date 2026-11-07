@@ -7,7 +7,6 @@ import {
   NamespaceDefinition,
   TableDefinition,
   NodeRef,
-  TenantScopeDefinition,
 } from "../definition/index.js";
 
 describe("Table", () => {
@@ -156,6 +155,30 @@ describe("Table", () => {
     });
   });
 
+  describe("unique keys", () => {
+    it("lists the primary key first, then each unique column, sorted, without repeats", () => {
+      const def = new TableDefinition("members", {
+        columns: {
+          id: new ColumnDefinition("id").primaryKey(),
+          email: new ColumnDefinition("email").unique(),
+          workspaceId: new ColumnDefinition("workspace_id").notNull(),
+          handle: new ColumnDefinition("handle").notNull(),
+        },
+      });
+
+      def.unique((c) => [c.workspaceId, c.handle]);
+      def.unique((c) => [c.handle, c.workspaceId]);
+
+      expect(new Table(def).uniqueKeys).toEqual([["id"], ["email"], ["handle", "workspaceId"]]);
+    });
+
+    it("is empty for a table with no key", () => {
+      const def = new TableDefinition("logs", { columns: { at: new ColumnDefinition("at") } });
+
+      expect(new Table(def).uniqueKeys).toEqual([]);
+    });
+  });
+
   describe("with schema", () => {
     const withSchema = new TableDefinition("users", {
       namespace: new NodeRef(new NamespaceDefinition("test")),
@@ -228,39 +251,5 @@ describe("Table meta", () => {
     const definition = new TableDefinition("users", { columns }).meta({ key: "impostor" });
 
     expect(() => new Table(definition)).toThrow(/meta key "key", which is built in/);
-  });
-});
-
-describe("Table.tenantKeys", () => {
-  const ws = new TenantScopeDefinition({
-    workspaceId: new ColumnDefinition("workspace_id", { dataType: "uuid" }).notNull(),
-    regionId: new ColumnDefinition("region_id", { dataType: "uuid" }).notNull(),
-  });
-
-  it("pairs each claim with the column it fills, in declaration order", () => {
-    const table = new Table(
-      ws.table("invoices", {
-        id: new ColumnDefinition("id", { primaryKey: true }),
-        number: new ColumnDefinition("number").notNull(),
-      })
-    );
-
-    expect(table.tenantKeys.map(([claim]) => claim)).toEqual(["workspaceId", "regionId"]);
-    expect(table.tenantKeys.map(([, column]) => column.name)).toEqual([
-      "workspace_id",
-      "region_id",
-    ]);
-    // The claim is the field name; the column carries the database name, which may differ.
-    expect(table.tenantKeys[0]?.[1]).toBe(table.columns.workspaceId);
-  });
-
-  it("is empty for a table outside any scope", () => {
-    const table = new Table(
-      new TableDefinition("workspaces", {
-        columns: { id: new ColumnDefinition("id", { primaryKey: true }) },
-      })
-    );
-
-    expect(table.tenantKeys).toEqual([]);
   });
 });

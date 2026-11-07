@@ -9,7 +9,6 @@ import {
   hasMany,
   relations,
   table,
-  tenantScope,
   text,
   union,
   uuid,
@@ -219,31 +218,6 @@ describe("UnionClient", () => {
 
       expect(page.totalCount).toBe(0);
       expect(calls[1]?.text).toBe('SELECT (SELECT count(*) FROM "videos" AS "__t0") AS "count"');
-    });
-  });
-
-  describe("tenancy", () => {
-    const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-    const notes = ws.table("notes", { id: uuid("id").primaryKey(), title: text("title") });
-    const links = table("links", { id: uuid("id").primaryKey(), title: text("title") });
-    const items = union({ notes, links }, { id: uuid("id"), title: text("title") });
-    const scoped = { notes, links, items };
-
-    it("filters the scoped member's branch and refuses a claimless client", async () => {
-      const execute = vi.fn(async (query: SQLStatement) => {
-        calls.push(query);
-        return [];
-      });
-      const base = createClient({ schema: scoped, session: { execute } as unknown as Session });
-
-      // Hidden by the type as well, since one member needs a claim this client lacks.
-      // @ts-expect-error `items` is not visible on a claimless enforcing client
-      expect(() => base.items.findMany()).toThrow(/tenant-scoped/);
-
-      await base.$identityClaims({ workspaceId: "w1" }).items.findMany();
-
-      expect(text_()).toContain(`FROM "notes" AS "__t0" WHERE "__t0"."workspace_id" = $1`);
-      expect(text_()).toMatch(/FROM "links" AS "__t1"\) AS "__j1"$/);
     });
   });
 });

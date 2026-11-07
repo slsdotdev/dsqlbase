@@ -15,7 +15,6 @@ import {
   hasMany,
   belongsTo,
   sequence,
-  tenantScope,
   guid,
   union,
   array,
@@ -23,6 +22,8 @@ import {
   $enum,
   numeric,
 } from "dsqlbase/schema";
+import { sql } from "dsqlbase";
+import { params } from "./settings";
 import { Decimal } from "decimal.js";
 import { z } from "zod";
 
@@ -119,43 +120,65 @@ tasks
   .include((c) => [c.status]);
 
 /**
- * A second, tenant-scoped half of the fixture, kept apart from the tables above so every other
- * spec keeps running against an unscoped client.
+ * A second half of the fixture bounded by row policies, kept apart from the tables above so
+ * every other spec keeps running on tables without any.
  *
- * `workspaces` is global and owns tenant-scoped `documents`, which in turn own tenant-scoped
- * `comments` — so a scoped read has to carry the predicate into two nested levels, not just the
- * one below the root.
+ * `workspaces` has no policy and owns `documents`, which in turn own `comments`, both bounded to
+ * the client's workspace setting — so a read has to carry the policies into two nested levels,
+ * not just the one below the root. Each fills its `workspace_id` from the same setting.
  */
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-
 const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
 });
 
-const documents = ws
-  .table("documents", {
-    id: uuid("id").primaryKey().defaultRandom(),
-    // Points at a global table, so a join from `users` correlates on something other than the
-    // claim column — the only shape where the tenant predicate, rather than the correlation,
-    // is what keeps another workspace's rows out.
-    authorId: uuid("author_id"),
-    title: text("title").notNull(),
-    body: varchar("body", 5000),
-    createdAt: datetime("created_at").notNull().defaultNow(),
-  })
-  .meta({ __typename: "Document" });
+const documents = table("documents", {
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.settings.workspaceId),
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Points at a table without policies, so a join from `users` correlates on something other
+  // than `workspace_id` — the only shape where the policy, rather than the correlation, is what
+  // keeps another workspace's rows out.
+  authorId: uuid("author_id"),
+  title: text("title").notNull(),
+  body: varchar("body", 5000),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+})
+  .meta({ __typename: "Document" })
+  // A restrictive workspace boundary; every member reads, a member inserts only as the author,
+  // and only the author changes or removes a row.
+  .policy("workspace_isolation", (t) => ({
+    as: "restrictive",
+    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+  }))
+  .policy("members_read", () => ({ for: "select", using: sql`true` }))
+  .policy("members_insert", (t) => ({
+    for: "insert",
+    check: sql`${t.authorId} = ${params.settings.userId}`,
+  }))
+  .policy("author_writes", (t) => ({
+    for: ["update", "delete"],
+    using: sql`${t.authorId} = ${params.settings.userId}`,
+  }));
 
 // Keyed under an alias that differs from its database name, like `members` above.
-const comments = ws.table("document_comments", {
+const comments = table("document_comments", {
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.settings.workspaceId),
   id: uuid("id").primaryKey().defaultRandom(),
   documentId: uuid("document_id").notNull(),
   author: text("author").notNull(),
   body: text("body").notNull(),
-});
+}).policy("workspace_isolation", (t) => ({
+  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+}));
 
-// The claim column leads, which is the shape the guide recommends for a tenant table.
+// The policy's column leads, which is the shape the guide recommends for a bounded table.
 documents.index("documents_workspace_idx").columns((c) => [c.workspaceId, c.id]);
 comments.index("document_comments_workspace_idx").columns((c) => [c.workspaceId, c.documentId]);
 
@@ -294,14 +317,22 @@ const revisions = table("article_revisions", {
 });
 
 /**
- * A node that is also tenant-scoped, so the two features have to compose: `$findByGlobalId`
- * goes through the model client, which means the tenant predicate applies to a node lookup
- * without the lookup knowing anything about tenancy.
+ * A node that is also bounded by a policy, so the two features have to compose:
+ * `$findByGlobalId` goes through the model client, which means the policy applies to a node
+ * lookup without the lookup knowing anything about policies.
  */
-const drafts = ws.table("drafts", {
+const drafts = table("drafts", {
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.settings.workspaceId),
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
-});
+  // Immutable once written: no policy covers update, so every update is refused.
+}).policy("workspace_isolation", (t) => ({
+  for: ["select", "insert", "delete"],
+  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+}));
 
 // A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.
 const tags = table("tags", {
@@ -365,8 +396,8 @@ const revisionRelations = relations(revisions, {
  *   on the union), and each belongs to whichever member holds its `postId`, computed when read.
  * - `entries` unions `folders` and `files`, and `folders.entries` points back at it: a union
  *   one of whose members is the table the join starts from.
- * - `userFeed` unions tenant-scoped `documents` with global `bookmarks`, so a union join and the
- *   union client have to apply the tenant predicate to one member and not the other.
+ * - `userFeed` unions `documents`, bounded by policies, with `bookmarks`, which has none, so a
+ *   union join and the union client have to apply the policies to one member and not the other.
  */
 const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
@@ -546,7 +577,6 @@ export {
   users,
   projects,
   tasks,
-  ws,
   workspaces,
   documents,
   comments,

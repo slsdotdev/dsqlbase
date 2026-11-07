@@ -203,7 +203,8 @@ export class ModelClient<
   }
 
   /**
-   * Updates records in the database matching the specified criteria with the provided values.
+   * Updates the one record the `where` pins with the provided values. The `where` must compare
+   * every field of a unique key for equality with a value; `updateMany` changes every match.
    *
    * @example
    * ```ts
@@ -228,7 +229,8 @@ export class ModelClient<
   }
 
   /**
-   * Deletes records from the database matching the specified criteria.
+   * Deletes the one record the `where` pins. The `where` must compare every field of a unique
+   * key for equality with a value; `deleteMany` removes every match.
    *
    * @example
    * ```ts
@@ -253,6 +255,54 @@ export class ModelClient<
     OperationResult<"one", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
   > {
     const request = this._normalizer.normalizeDelete(this._table, args, "one");
+    const operation = this._ctx.operations.createDeleteOperation(this._table, request);
+
+    return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  /**
+   * Updates every record the `where` matches and returns all of them.
+   *
+   * `update` changes one row and refuses a `where` that does not pin one; this is the form for
+   * a filter that may match many. The `where` is still required: `{}` would match every row.
+   *
+   * @example
+   * ```ts
+   * const archived = await dsql.posts.updateMany({
+   *   where: { authorId: "123" },
+   *   set: { status: "archived" },
+   *   return: { id: true },
+   * });
+   * ```
+   */
+  public updateMany<TArgs extends UpdateArgs<TTable>>(
+    args: TArgs
+  ): ExecutableQuery<
+    OperationResult<"many", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
+  > {
+    const request = this._normalizer.normalizeUpdate(this._table, args, "many");
+    const operation = this._ctx.operations.createUpdateOperation(this._table, request);
+
+    return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  /**
+   * Deletes every record the `where` matches and returns all of them.
+   *
+   * `delete` removes one row and refuses a `where` that does not pin one; this is the form for
+   * a filter that may match many. The `where` is still required: `{}` would match every row.
+   *
+   * @example
+   * ```ts
+   * const removed = await dsql.sessions.deleteMany({ where: { userId: "123" } });
+   * ```
+   */
+  public deleteMany<TArgs extends DeleteArgs<TTable>>(
+    args: TArgs
+  ): ExecutableQuery<
+    OperationResult<"many", ReturningResultOf<TTable, TArgs, AliasOf<Schema<TDefinition>, TTable>>>
+  > {
+    const request = this._normalizer.normalizeDelete(this._table, args, "many");
     const operation = this._ctx.operations.createDeleteOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);

@@ -17,10 +17,9 @@ export {
   ExecutionContext,
   type ExecutionContextOptions,
   type PaginationOptions,
-  type TenancyOptions,
 } from "./context.js";
-export { TenancyError } from "./errors.js";
 export { CompositeQuery, ExecutableQuery, type Executable } from "./executor.js";
+export { PolicyViolationError } from "./errors.js";
 export {
   OperationsFactory,
   type CountOperation,
@@ -79,3 +78,4 @@ export {
 export type { Session, TransactionSession } from "./session.js";
 export { Table, type AnyTable } from "./table.js";
 export { Union, type AnyUnion } from "./union.js";
+export { type RuntimePolicy, type CommandPolicies } from "./policy.js";

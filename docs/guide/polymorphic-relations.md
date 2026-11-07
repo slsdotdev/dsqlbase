@@ -168,12 +168,12 @@ With a `limit`, each member is also ordered and limited to `limit + offset` rows
 union combines them. This is always safe, because every member sorts by the same keys the
 combined rows do.
 
-## Tenancy
+## Row policies
 
-Each member's branch passes through the same `WHERE` seam as a table level, so a
-[tenant-scoped](./tenancy.md) member is filtered inside its own branch, and a global member is
-not. A union with a scoped member, reached from an enforcing client that carries no claims, is
-refused with a `TenancyError`, exactly as a join to that member alone would be.
+Each member's branch passes through the same `WHERE` seam as a table level, so a member with
+[row policies](./policies.md) is filtered inside its own branch by its own policies, and a member
+without any is not. On a client whose settings a member's policies need but does not carry, that
+branch simply yields nothing, exactly as a join to that member alone would.
 
 ## A belongs-to a union
 
@@ -251,8 +251,8 @@ CASE WHEN EXISTS (SELECT 1 FROM "photos" AS "__d0" WHERE "__d0"."id" = "__t0"."p
 - **Filtering.** `{ postId: { eq: photoId } }` matches the key, held by `photos`.
 - **Cost.** One key lookup per member for every row read, whether or not the id is selected
   with its relation. It suits a few members; a stored discriminator costs nothing.
-- **Tenancy.** The lookup only says which member holds a key the row already carries, so it
-  reads the members without their tenant predicate. The join itself applies it, as always.
+- **Row policies.** The lookup only says which member holds a key the row already carries, so
+  it reads the members without their policies. The join itself applies them, as always.
 
 ## Relations declared on a union
 
@@ -331,10 +331,8 @@ page.items[0].$$meta.cursor;
 
 ### Visibility
 
-A union is visible on a client only when **every** member is. On an enforcing client with no
-claims, a union with a [tenant-scoped](./tenancy.md) member is absent from the type, just as
-the member is, and it refuses at runtime too. On the client `$identityClaims` returns, or on the
-transaction client inside one, it is present again.
+Every union is on every client. A member's [row policies](./policies.md) bound its branch of a
+union read, a count and a page, as they bound a read of the member alone.
 
 ## Limits
 

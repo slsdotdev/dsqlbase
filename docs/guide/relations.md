@@ -142,16 +142,15 @@ either way. What breaks is quieter: a `guid()` paired with a plain `uuid()` leav
 equal. The usual mistake is adding a relation to a node table and leaving the foreign key as
 `uuid()`.
 
-## Relations across a tenant boundary
+## Relations and row policies
 
-A relation may cross between a [tenant-scoped](./tenancy.md) table and a global one in either direction, and nothing about declaring it changes. What changes is what a scoped client sees through it:
+A relation may join tables with and without [row policies](./policies.md) in either direction, and nothing about declaring it changes. What changes is what a client sees through it:
 
-- **A tenant target is filtered.** Joining from a global table to a tenant one applies the tenant predicate inside that level's lateral, on top of the join correlation. A global row whose children belong to another tenant comes back with an empty array.
-- **A global target is not.** Joining from a tenant table back to a global one adds nothing; the correlation is the only condition.
-- **Every level is its own decision.** A tenant table two levels down is filtered as much as one directly below the root.
-- **A join is where the types cannot help.** A nested level is named by a relation rather than by the client, so an enforcing client with no claims cannot be stopped at compile time from reaching a tenant table through one. The runtime refuses it instead, with a `TenancyError` when the query is built.
+- **A target with policies is filtered.** Joining to it applies its select policies inside that level's lateral, on top of the join correlation. A parent whose children the policies hide comes back with an empty array.
+- **A target without policies is not.** The correlation is the only condition.
+- **Every level is its own decision.** A table with policies two levels down is filtered as much as one directly below the root.
 
-Correlating _on_ the claim column — `workspaces.id` to `invoices.workspaceId` — is common and works, but note that such a join is already narrowed by its correlation. It is the relations that correlate on something else, like an author or an owner, where the tenant predicate is the only thing keeping another tenant's rows out.
+Correlating _on_ the column a policy reads — `workspaces.id` to `invoices.workspaceId` — is common and works, but such a join is already narrowed by its correlation. It is the relations that correlate on something else, like an author or an owner, where the policy is the only thing keeping other rows out.
 
 ## What relations do not do
 
@@ -163,4 +162,4 @@ Correlating _on_ the claim column — `workspaces.id` to `invoices.workspaceId` 
 - [Schema](./schema.md)
 - [Querying](./querying.md)
 - [Polymorphic relations](./polymorphic-relations.md)
-- [Tenancy](./tenancy.md)
+- [Row policies](./policies.md)

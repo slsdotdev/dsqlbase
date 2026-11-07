@@ -20,7 +20,7 @@ import type { Union } from "./union.js";
  * expression, so it compares like a column (`= 'photos'` in a join's correlation or a filter),
  * and is projected under {@link name} so a column's `read` hook reads it from the row as it would a
  * stored discriminator. Each probe is one key lookup per member per row, and it reads the
- * members without their tenant predicate — it only says which member holds a key the row
+ * members without their row policies — it only says which member holds a key the row
  * already carries.
  */
 export class ComputedDiscriminator implements SQLNode {
