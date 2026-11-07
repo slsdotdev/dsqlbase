@@ -18,7 +18,8 @@ RLS-shaped policies itself, on every statement it builds:
   error as `cause`); `$transaction` rolls back and rethrows it without an OCC retry.
 - `$onCreate` may return a setting, filling a column at insert time without a DDL default.
 - `createClient({ policies: { bypass: true } })` skips every policy on that client.
-- A client with settings has no `$query` / `$execute`, and its transactions inherit its settings.
+- `$settings` on a client that already carries settings merges the new values over the old;
+  transactions inherit a client's settings.
 
 **Breaking (`@dsqlbase/core`):**
 
@@ -31,7 +32,7 @@ RLS-shaped policies itself, on every statement it builds:
 - `tenantScope`, `$identityClaims`, `ClaimsOf`, `IdentityClient`, `VisibleFor`,
   `VisibleAliases`, `ClientOptions.tenancy` and the `TClaims` / `TEnforce` client generics are
   removed. Move a claim column to `uuid("workspace_id").notNull().readOnly().$onCreate(() =>
-params.workspaceId)` with a policy over it, and `$identityClaims(claims)` to
+params.settings.workspaceId)` with a policy over it, and `$identityClaims(claims)` to
   `$settings(values)`.
 - Every table is on every client; a table with policies returns nothing to a client whose
   settings it does not match, rather than being absent from its type.

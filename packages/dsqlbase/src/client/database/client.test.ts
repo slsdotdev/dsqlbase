@@ -17,7 +17,7 @@ const invoices = table("invoices", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.workspaceId),
+    .$onCreate(() => params.settings.workspaceId),
   number: text("number").notNull(),
 });
 
@@ -51,7 +51,7 @@ const setup = () => {
 };
 
 describe("DatabaseClient.$settings", () => {
-  const byWorkspace = sql`"__t0"."workspace_id" = ${params.workspaceId}`;
+  const byWorkspace = sql`"__t0"."workspace_id" = ${params.settings.workspaceId}`;
 
   it("binds its values into the statements the derived client builds", async () => {
     const { dsql, last } = setup();
@@ -97,51 +97,28 @@ describe("DatabaseClient.$settings", () => {
     expect(derived.invoices).not.toBe(dsql.invoices);
   });
 
-  /**
-   * The types remove `$query`, `$execute` and `$settings` from a settings client, so these
-   * guards only ever fire for a caller who got past them — a JavaScript consumer, or one
-   * holding the client through a widened type. That is what the cast reproduces.
-   */
-  describe("guards", () => {
-    const derived = () =>
-      setup().dsql.$settings({ workspaceId: "w1" }) as unknown as ReturnType<typeof setup>["dsql"];
+  describe("on a client that carries settings", () => {
+    it("merges the new values over the ones it carries", async () => {
+      const { dsql, last } = setup();
+      const base = dsql.$settings({ workspaceId: "w1" });
 
-    it("refuses $query and $execute, because raw SQL bypasses every policy", async () => {
-      expect(() => derived().$query(sql`SELECT 1`)).toThrow(/raw SQL bypasses every row policy/);
-      await expect(derived().$execute(sql`SELECT 1`.toQuery())).rejects.toThrow(
-        /raw SQL bypasses every row policy/
-      );
+      await base.$settings({}).invoices.create({ data: { number: "INV-1" } });
+      expect(last()?.params).toEqual(["w1", "INV-1"]);
+
+      await base.$settings({ workspaceId: "w2" }).invoices.create({ data: { number: "INV-2" } });
+      expect(last()?.params).toEqual(["w2", "INV-2"]);
+
+      await base.$settings({ workspaceId: null }).invoices.create({ data: { number: "INV-3" } });
+      expect(last()?.params).toEqual([null, "INV-3"]);
+
+      await base.invoices.create({ data: { number: "INV-4" } });
+      expect(last()?.params).toEqual(["w1", "INV-4"]);
     });
 
-    it("refuses to be given settings again", () => {
-      expect(() => derived().$settings({ workspaceId: "w2" })).toThrow(/already carries settings/);
-    });
+    it("keeps raw SQL, which no policy reaches on any client", () => {
+      const { dsql } = setup();
 
-    it("refuses raw SQL inside a transaction it opens", async () => {
-      const statements: SQLStatement[] = [];
-      const session = {
-        execute: vi.fn(async (query: SQLStatement) => {
-          statements.push(query);
-          return [];
-        }),
-        beginTransaction: vi.fn(async () => ({
-          execute: session.execute,
-          commit: vi.fn(async () => undefined),
-          rollback: vi.fn(async () => undefined),
-        })),
-      } as unknown as Session;
-
-      const scoped = createClient({ schema, session, settings: params }).$settings({
-        workspaceId: "w1",
-      });
-
-      await expect(
-        scoped.$transaction(async (tx) => {
-          await (tx as unknown as { $execute(q: SQLStatement): Promise<unknown> }).$execute(
-            sql`SELECT 1`.toQuery()
-          );
-        })
-      ).rejects.toThrow(/raw SQL bypasses every row policy/);
+      expect(() => dsql.$settings({ workspaceId: "w1" }).$query(sql`SELECT 1`)).not.toThrow();
     });
   });
 });

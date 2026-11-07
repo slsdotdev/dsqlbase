@@ -232,9 +232,8 @@ const rows = await dsql.$query<{ n: number }>(
 const raw = await dsql.$execute<{ n: number }>({ text: "select 1 as n", params: [] });
 ```
 
-Neither exists on a client with [settings](./policies.md#per-request-clients): raw SQL bypasses
-every seam the factory applies, row policies included, so it is offered only where that is plain
-to read.
+Both bypass every seam the factory applies, [row policies](./policies.md) included, on every
+client — one with settings too.
 
 - `$query(SQLQuery)` — build with the `sql` tagged template; parameters are bound automatically. Returns an `ExecutableQuery`, so it can join a `$transaction([...])` batch.
 - `$execute(SQLStatement)` — pass `{ text, params }` straight to the session.

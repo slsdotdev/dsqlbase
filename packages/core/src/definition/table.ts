@@ -238,7 +238,7 @@ export class TableDefinition<
    * ```ts
    * documents.policy("workspace_isolation", (t) => ({
    *   as: "restrictive",
-   *   using: sql`${t.workspaceId} = ${params.workspaceId}`,
+   *   using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
    * }));
    * ```
    */

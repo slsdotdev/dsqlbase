@@ -22,22 +22,54 @@ export class SettingDefinition<
   }
 }
 
-/** Declared settings, keyed by the name values are given under. */
-export type SettingsDefinition<TColumns extends Record<string, AnyColumnDefinition>> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnySettingDefinition = SettingDefinition<any, any>;
+
+/** One {@link SettingDefinition} per declared column, keyed by the name values are given under. */
+export type Settings<TColumns extends Record<string, AnyColumnDefinition>> = {
   readonly [K in keyof TColumns & string]: SettingDefinition<K, TColumns[K]>;
 };
 
-export type AnySettingsDefinition = Readonly<Record<string, SettingDefinition>>;
+/**
+ * Declared settings, from column builders: `new SettingsDefinition({ userId:
+ * uuid("identity.user_id") })`. Policies and `$onCreate` read one through `settings`
+ * (`params.settings.userId`), as a table's are read through `columns`.
+ *
+ * Not a schema object: it describes the request, not the data, so it has no DDL and the registry
+ * and migrations never see it.
+ */
+export class SettingsDefinition<TColumns extends Record<string, AnyColumnDefinition>> {
+  readonly settings: Settings<TColumns>;
+
+  constructor(columns: TColumns) {
+    this.settings = this._buildSettings(columns) as Settings<TColumns>;
+  }
+
+  private _buildSettings(
+    columns: Record<string, AnyColumnDefinition>
+  ): Record<string, AnySettingDefinition> {
+    const settings: Record<string, AnySettingDefinition> = {};
+
+    for (const [name, column] of Object.entries(columns)) {
+      settings[name] = new SettingDefinition(name, column);
+    }
+
+    return Object.freeze(settings);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnySettingsDefinition = SettingsDefinition<any>;
 
 /** No declared settings: the default for a client created without `settings`. */
-export type NoSettings = Readonly<Record<never, SettingDefinition>>;
+export type NoSettings = SettingsDefinition<Record<never, AnyColumnDefinition>>;
 
 /**
  * The values a client may carry for `TSettings`: each declared one optional, typed by its
  * column, `null` meaning unset.
  */
 export type SettingValuesOf<TSettings extends AnySettingsDefinition> = {
-  [K in keyof TSettings]?: TSettings[K]["__type"]["valueType"] | null;
+  [K in keyof TSettings["settings"]]?: TSettings["settings"][K]["__type"]["valueType"] | null;
 };
 
 /**
@@ -45,16 +77,3 @@ export type SettingValuesOf<TSettings extends AnySettingsDefinition> = {
  * read-only, so it stays covariant in `T` and a column's input type keeps its variance.
  */
 export type SettingRef<T> = SQLNode & { readonly __type: { readonly valueType: T } };
-
-/** Declares settings from column builders: `settings({ userId: uuid("identity.user_id") })`. */
-export function defineSettings<TColumns extends Record<string, AnyColumnDefinition>>(
-  columns: TColumns
-): SettingsDefinition<TColumns> {
-  const settings: Record<string, SettingDefinition> = {};
-
-  for (const [name, column] of Object.entries(columns)) {
-    settings[name] = new SettingDefinition(name, column);
-  }
-
-  return Object.freeze(settings) as unknown as SettingsDefinition<TColumns>;
-}

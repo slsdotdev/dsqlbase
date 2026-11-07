@@ -35,7 +35,7 @@ describe("paginate and count", () => {
     workspaceId: uuid("workspace_id").notNull(),
     number: text("number").notNull(),
   }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${params.workspaceId}`,
+    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
   }));
 
   const schema = { tasks, logs, invoices };

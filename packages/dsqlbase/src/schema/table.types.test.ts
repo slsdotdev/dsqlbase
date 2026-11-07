@@ -17,7 +17,7 @@ describe("table().policy()", () => {
       // @ts-expect-error no such column
       void t.missing;
 
-      return { using: sql`${t.ownerId} = ${params.userId}` };
+      return { using: sql`${t.ownerId} = ${params.settings.userId}` };
     });
   });
 
@@ -33,10 +33,10 @@ describe("table().policy()", () => {
 
 describe("$onCreate returning a setting", () => {
   it("accepts a setting of the column's type, and refuses another", () => {
-    uuid("owner_id").$onCreate(() => params.userId);
+    uuid("owner_id").$onCreate(() => params.settings.userId);
 
     const level = settings({ level: int("identity.level") });
     // @ts-expect-error an int setting cannot fill a uuid column
-    uuid("owner_id").$onCreate(() => level.level);
+    uuid("owner_id").$onCreate(() => level.settings.level);
   });
 });

@@ -58,7 +58,7 @@ policies)` with the driver error as `cause` — in core, so a consumer-written s
 ## Consequences
 
 - **Breaking (`minor`, pre-1.0)**: every tenancy API is gone; a schema migrates to a read-only
-  `$onCreate(() => params.x)` column and a policy over it.
+  `$onCreate(() => params.settings.x)` column and a policy over it.
 - Every table is on every client. A client cannot see at compile time what it may read; an empty
   result is the runtime answer, as in RLS.
 - A missing setting is an empty result or a refused write, not an early error naming it. A policy

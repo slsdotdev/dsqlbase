@@ -247,7 +247,7 @@ export class ColumnDefinition<
 
   /**
    * Fills the column on insert when the caller gives no value. The callback may return a
-   * setting (`() => params.workspaceId`): it renders from the client's settings, `NULL` when
+   * setting (`() => params.settings.workspaceId`): it renders from the client's settings, `NULL` when
    * unset, encoded by the setting's own column — the target column's validator does not see it.
    * Runtime-only: migrations never read it, so a setting-sourced column has no `DEFAULT`.
    */

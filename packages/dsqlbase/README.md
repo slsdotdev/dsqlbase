@@ -93,10 +93,10 @@ export const params = settings({ workspaceId: uuid("identity.workspace_id") });
 
 export const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.workspaceId),
+  workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.settings.workspaceId),
   number: text("number").notNull(),
 }).policy("workspace_isolation", (t) => ({
-  using: sql`${t.workspaceId} = ${params.workspaceId}`,
+  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
 }));
 
 const dsql = createClient({ schema, session, settings: params });

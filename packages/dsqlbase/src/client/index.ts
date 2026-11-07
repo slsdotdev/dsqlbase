@@ -13,7 +13,6 @@ export {
   type Aliases,
   type Models,
   type QueryClient,
-  type SettingsClient,
   type UnionAliases,
 } from "./database/index.js";
 export { TransactionClient, type TxClient } from "./transaction/index.js";

@@ -30,14 +30,4 @@ export type QueryClient<
   TSettings extends AnySettingsDefinition = NoSettings,
 > = DatabaseClient<T, TSettings> & Models<T>;
 
-/**
- * A client carrying per-request settings (`$settings`). It has no raw SQL — `$query` would
- * bypass every row policy, so it is removed rather than guarded only at runtime — and cannot
- * be given settings again.
- */
-export type SettingsClient<
-  T extends DefinitionSchema,
-  TSettings extends AnySettingsDefinition = NoSettings,
-> = Omit<DatabaseClient<T, TSettings, true>, "$query" | "$execute" | "$settings"> & Models<T>;
-
 export { DatabaseClient };

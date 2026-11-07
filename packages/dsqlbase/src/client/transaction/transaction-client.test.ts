@@ -279,7 +279,7 @@ const invoices = table("invoices", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.workspaceId),
+    .$onCreate(() => params.settings.workspaceId),
   number: text("number").notNull(),
 });
 

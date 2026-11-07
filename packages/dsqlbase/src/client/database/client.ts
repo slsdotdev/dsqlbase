@@ -2,45 +2,37 @@ import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
 import { AnySettingsDefinition, NoSettings, SettingValuesOf } from "@dsqlbase/core/definition";
 import { attachModels, BaseClient } from "./base.js";
 import { createTransactionRunner, TxClient } from "../transaction/transaction-client.js";
-import type { SettingsClient } from "./index.js";
+import type { QueryClient } from "./index.js";
 
 export class DatabaseClient<
   TDefinition extends DefinitionSchema,
   TSettings extends AnySettingsDefinition = NoSettings,
-  TScoped extends boolean = false,
 > extends BaseClient<TDefinition> {
   /**
    * A client carrying `values` for the settings row policies and `$onCreate` read, for the life
    * of one request. Derive it per request, then open transactions on it: a transaction inherits
    * its settings.
    *
+   * Called on a client that already carries settings, it merges: `values` are laid over the ones
+   * it carries, and `null` unsets one.
+   *
    * Declared settings are typed; any other key is accepted too. Nothing is checked: a setting
    * left out renders `NULL`, and the policy that reads it decides — a comparison with `NULL` is
    * never true. The client it is called on stays usable, and a query's SQL is fixed by the client
    * that built it, so concurrent requests never see each other's values.
-   *
-   * The result has no raw SQL (`$query` / `$execute` bypass every policy) and cannot be derived
-   * again: settings are given in one place.
    */
   public $settings(
     values: SettingValuesOf<TSettings> & Record<string, unknown>
-  ): SettingsClient<TDefinition, TSettings> {
-    if (this._ctx.settings) {
-      throw new Error(
-        "This client already carries settings. They are given in exactly one place; derive " +
-          "from the base client instead."
-      );
-    }
-
+  ): QueryClient<TDefinition, TSettings> {
     const ctx = new ExecutionContext<TDefinition>({
       ...this._ctx,
-      settings: Object.freeze({ ...values }),
+      settings: Object.freeze({ ...this._ctx.settings, ...values }),
     });
-    const client = new DatabaseClient<TDefinition, TSettings, true>(ctx);
+    const client = new DatabaseClient<TDefinition, TSettings>(ctx);
 
     attachModels(client, ctx);
 
-    return client as unknown as SettingsClient<TDefinition, TSettings>;
+    return client as QueryClient<TDefinition, TSettings>;
   }
 
   public async $transaction<const TQueries extends Executable<unknown>[]>(
@@ -51,12 +43,12 @@ export class DatabaseClient<
       : never;
   }>;
   public async $transaction<TReturn = unknown>(
-    callback: (tx: TxClient<TDefinition, TScoped>) => Promise<TReturn>
+    callback: (tx: TxClient<TDefinition>) => Promise<TReturn>
   ): Promise<TReturn>;
   public async $transaction<TReturn = unknown>(
-    arg: Executable<unknown>[] | ((client: TxClient<TDefinition, TScoped>) => Promise<TReturn>)
+    arg: Executable<unknown>[] | ((client: TxClient<TDefinition>) => Promise<TReturn>)
   ): Promise<TReturn> {
-    const runner = await createTransactionRunner<TDefinition, TScoped>(this._ctx);
+    const runner = await createTransactionRunner<TDefinition>(this._ctx);
     return runner<TReturn>(arg);
   }
 }

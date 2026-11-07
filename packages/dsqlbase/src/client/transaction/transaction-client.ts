@@ -7,18 +7,11 @@ export class TransactionClient<
   TDefinition extends DefinitionSchema,
 > extends BaseClient<TDefinition> {}
 
-/** A transaction's client. Opened on a settings client, it carries no raw SQL either. */
-export type TxClient<
-  T extends DefinitionSchema,
-  TScoped extends boolean = false,
-> = (TScoped extends true
-  ? Omit<TransactionClient<T>, "$query" | "$execute">
-  : TransactionClient<T>) &
-  Models<T>;
+/** A transaction's client: the models, bound to the transaction's session. */
+export type TxClient<T extends DefinitionSchema> = TransactionClient<T> & Models<T>;
 
 export async function createTransactionRunner<
   TDefinition extends DefinitionSchema,
-  TScoped extends boolean = false,
 >(ctx: ExecutionContext<TDefinition>, options: OCCRetryOptions = {}) {
   if (typeof ctx.session.beginTransaction !== "function") {
     throw new Error("Session does not support transactions");
@@ -36,7 +29,7 @@ export async function createTransactionRunner<
   return async <TReturn = unknown>(
     opsOrCallback:
       | Executable<unknown>[]
-      | ((client: TxClient<TDefinition, TScoped>) => Promise<TReturn>),
+      | ((client: TxClient<TDefinition>) => Promise<TReturn>),
     attempt = 1
   ): Promise<TReturn> => {
     const { maxRetries = 3, delay = 50, maxDelay = 1000 } = options;
@@ -54,7 +47,7 @@ export async function createTransactionRunner<
         return results as TReturn;
       }
 
-      const result = await opsOrCallback(txClient as unknown as TxClient<TDefinition, TScoped>);
+      const result = await opsOrCallback(txClient as unknown as TxClient<TDefinition>);
       await session.commit();
       return result;
     } catch (error) {
@@ -64,7 +57,7 @@ export async function createTransactionRunner<
 
       if (isOccError(error) && attempt < maxRetries) {
         await sleep(backoffDelay(attempt, delay, maxDelay));
-        const runner = await createTransactionRunner<TDefinition, TScoped>(ctx, options);
+        const runner = await createTransactionRunner<TDefinition>(ctx, options);
         return runner(opsOrCallback, attempt + 1);
       }
 

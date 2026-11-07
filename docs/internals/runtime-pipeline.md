@@ -15,7 +15,7 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 ```
 
 - `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, settings?, policies: { bypass }, pagination? }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — per-request settings are carried by the context, not by a hook, which is why they are fixed when a client is built rather than resolved per call.
-- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or settings, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$settings` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias. A settings client refuses `$query` / `$execute` at runtime (`BaseClient._assertUnscoped`) as well as in its type (`SettingsClient`), and cannot be given settings again.
+- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or settings, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$settings` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias. A client with settings is an ordinary `DatabaseClient`: `$settings` only lays its values over the context's (a second call merges), and changes nothing else the client can do.
 - **Every table is attached to every client**, in the types and at runtime. What a client may read or write is decided by [row policies](#row-policies) in the factory, because that is the only thing a nested join level passes through. See [0024](../decisions/0024-row-policies.md).
 - **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and the unique key its payload matches (the primary key, a unique column, constraint or non-partial index), and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — row policies above all. See [0007](../decisions/0007-global-ids.md).
 - Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
@@ -224,9 +224,10 @@ back and rethrows.
 
 ### Settings
 
-`settings({ ... })` (`defineSettings`, `packages/core/src/definition/settings.ts`) makes one
-`SettingDefinition` per key — an `SQLSetting` node (`packages/core/src/sql/nodes.ts`) carrying
-its name, its native key (the column's name) and its column's codec. It renders by looking its
+`settings({ ... })` builds a `SettingsDefinition` (`packages/core/src/definition/settings.ts`), which
+holds one `SettingDefinition` per key under `settings`, as a table holds its columns under
+`columns`. Each is an `SQLSetting` node (`packages/core/src/sql/nodes.ts`) carrying its
+name, its native key (the column's name) and its column's codec. It renders by looking its
 name up in `SQLContext.settings` and binding an `SQLParam`, `NULL` when unset. Every
 `create*Operation` renders with `query.toQuery({ settings: ctx.settings })`, so the values are
 bound when the operation is built, and an operation re-bound to another session by `clone`

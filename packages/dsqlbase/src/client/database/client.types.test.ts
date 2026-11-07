@@ -61,27 +61,22 @@ describe("$settings", () => {
     withSettings.$settings({ anything: 1 });
   });
 
-  it("returns a client with every table, no raw SQL, that cannot be derived again", () => {
-    const scoped = withSettings.$settings({ workspaceId: "w1" });
+  it("returns the same client shape, with every table and raw SQL", () => {
+    const derived = withSettings.$settings({ workspaceId: "w1" });
 
-    expectTypeOf(scoped).toHaveProperty("invoices");
-    expectTypeOf(scoped).toHaveProperty("$findByGlobalId");
-    expectTypeOf(scoped).not.toHaveProperty("$query");
-    expectTypeOf(scoped).not.toHaveProperty("$execute");
-    expectTypeOf(scoped).not.toHaveProperty("$settings");
+    expectTypeOf(derived).toHaveProperty("invoices");
+    expectTypeOf(derived).toHaveProperty("$findByGlobalId");
+    expectTypeOf(derived).toHaveProperty("$query");
+    expectTypeOf(derived.$settings).parameter(0).toEqualTypeOf<
+      Parameters<typeof withSettings.$settings>[0]
+    >();
   });
 
-  it("opens transactions whose client has no raw SQL either", () => {
+  it("opens transactions whose client is the ordinary transaction client", () => {
     // Typed only: the mock session cannot begin a transaction.
     expectTypeOf(() =>
       withSettings.$settings({}).$transaction(async (tx) => {
         expectTypeOf(tx).toHaveProperty("invoices");
-        expectTypeOf(tx).not.toHaveProperty("$query");
-      })
-    ).toBeFunction();
-
-    expectTypeOf(() =>
-      withSettings.$transaction(async (tx) => {
         expectTypeOf(tx).toHaveProperty("$query");
       })
     ).toBeFunction();

@@ -78,10 +78,11 @@ export {
 } from "./union.js";
 export {
   SettingDefinition,
-  defineSettings,
+  SettingsDefinition,
+  type AnySettingDefinition,
   type AnySettingsDefinition,
   type NoSettings,
   type SettingRef,
-  type SettingsDefinition,
+  type Settings,
   type SettingValuesOf,
 } from "./settings.js";

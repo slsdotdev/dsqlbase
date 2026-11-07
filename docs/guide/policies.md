@@ -20,7 +20,7 @@ export const params = settings({
 });
 ```
 
-The column's name (`identity.user_id`) is the key a native policy would read through `current_setting()`; its type and codec type and encode the value. Settings are not schema objects — they produce no DDL — so keep them out of the module you hand to `createClient({ schema })` and the migration runner, which take only definitions.
+A policy or `$onCreate` reads one through `settings` — `params.settings.userId` — as it reads a table's columns through `columns`. The column's name (`identity.user_id`) is the key a native policy would read through `current_setting()`; its type and codec type and encode the value. Settings are not schema objects — they produce no DDL — so keep them out of the module you hand to `createClient({ schema })` and the migration runner, which take only definitions.
 
 ## Declaring policies
 
@@ -34,28 +34,28 @@ export const documents = table("documents", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.workspaceId),
+    .$onCreate(() => params.settings.workspaceId),
   ownerId: uuid("owner_id")
     .notNull()
-    .$onCreate(() => params.userId),
+    .$onCreate(() => params.settings.userId),
   title: text("title").notNull(),
 });
 
 documents.policy("workspace_isolation", (t) => ({
   as: "restrictive",
-  using: sql`${t.workspaceId} = ${params.workspaceId}`, // check defaults to using
+  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`, // check defaults to using
 }));
 
 documents.policy("members_read", () => ({ for: "select", using: sql`true` }));
 
 documents.policy("owner_writes", (t) => ({
   for: ["update", "delete"],
-  using: sql`${t.ownerId} = ${params.userId}`,
+  using: sql`${t.ownerId} = ${params.settings.userId}`,
 }));
 
 documents.policy("members_insert", (t) => ({
   for: "insert",
-  check: sql`${t.ownerId} = ${params.userId}`,
+  check: sql`${t.ownerId} = ${params.settings.userId}`,
 }));
 ```
 
@@ -114,7 +114,8 @@ await db.documents.findMany({});
 `$settings` builds a new execution context and attaches its own models; it holds no connection and needs no reset. Concurrent requests cannot see each other's values, and a query's SQL is fixed by the client that built it — batched into another client's `$transaction([...])`, it keeps its settings.
 
 - Declared settings are typed; any other key is accepted too, so `{ ...jwt.claims }` works.
-- A client with settings has no `$query` / `$execute` — raw SQL bypasses every policy — and cannot be given settings again. Its `$transaction` callback client has no raw SQL either.
+- Calling `$settings` on a client that already carries settings merges: the new values are laid over the old, and `null` unsets one. `db.$settings({ userId: other })` keeps `workspaceId`.
+- A client with settings is the same client as one without — same models, same `$query` / `$execute`, same `$transaction`.
 - Transactions opened on it inherit its settings.
 
 ## Unset settings
@@ -123,7 +124,7 @@ A request may carry some settings, all, or none. **Nothing refuses a missing set
 
 - In `using`, `col = NULL` is never true. A restrictive policy over an unset setting hides every row; in a permissive OR, an unset setting only drops its own branch.
 - In `check`, `NULL` fails: the write is refused.
-- `$onCreate(() => params.workspaceId)` with the setting unset inserts `NULL`, which a `notNull` column refuses (`23502`).
+- `$onCreate(() => params.settings.workspaceId)` with the setting unset inserts `NULL`, which a `notNull` column refuses (`23502`).
 
 So a missing setting gives an empty result or a refused write, not an early error naming it. **Never turn `NULL` into true** in a policy — `setting IS NULL OR …` opens every row to a request that left the setting out. Compare settings with `=` and let `NULL` block.
 
@@ -132,7 +133,7 @@ So a missing setting gives an empty result or a refused write, not an early erro
 `$onCreate` may return a setting. The column is filled from the client's value on every insert that does not name it:
 
 ```ts
-workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.workspaceId),
+workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.settings.workspaceId),
 ```
 
 With `.readOnly()` the column is out of `create` / `update` input altogether — the types drop it and a value spread into `data` is ignored — so it always comes from the setting. The value is encoded by the setting's column, not validated by the target's `.schema()`; the policy is the guard. Migrations never read `$onCreate`, so the column has no `DEFAULT` in the database. Moving a row to another workspace is stopped by the check, which defaults to `using`.
@@ -168,7 +169,7 @@ const internal = createClient({ schema, session, settings: params, policies: { b
 
 It is the `BYPASSRLS` analogue, set per client and inherited by everything derived from it — never per call, because a per-call escape hatch is a thing to forget. Settings still render: an unset one still fills `NULL`, and `notNull` still refuses it.
 
-Raw SQL (`$query` / `$execute`) is never policed. It is available on a client without settings, where that is plain to read.
+Raw SQL (`$query` / `$execute`) is never policed, on any client: settings bind only into statements the client builds, and a `sql` template renders without them.
 
 ## What a policy can and cannot express
 

@@ -37,7 +37,7 @@ const [page, open] = await dsql.$transaction([
 
 ## Transactions with settings
 
-A transaction opened on a client with [settings](./policies.md#per-request-clients) carries them: every query inside it is bounded by the [row policies](./policies.md) with those values, and a column filled from a setting is filled in it too. Its client has no raw SQL either.
+A transaction opened on a client with [settings](./policies.md#per-request-clients) carries them: every query inside it is bounded by the [row policies](./policies.md) with those values, and a column filled from a setting is filled in it too.
 
 ```ts
 const db = dsql.$settings({ workspaceId, userId });
