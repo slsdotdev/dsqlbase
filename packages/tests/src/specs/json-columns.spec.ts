@@ -101,7 +101,7 @@ describe("json columns", () => {
       // @ts-expect-error not a kind: the runtime refuses it as the types do
       expect(() => createBoard({ config: { kind: "grid" } })).toThrow(ColumnValidationError);
       expect(() =>
-        getClient().boards.update({
+        getClient().boards.updateMany({
           where: { name: "Board" },
           // A number to the types; only the schema knows it must be positive.
           set: { config: { kind: "list", columns: -1 } },

@@ -580,6 +580,61 @@ export class WhereBuilder {
   }
 
   /**
+   * The `where` of an operation that changes one row — `update`, `delete` — refusing a filter
+   * that does not pin one: it must compare every field of one of the table's unique keys
+   * ({@link AnyTable.uniqueKeys}) for equality with a value, at the top level or inside `and`.
+   * Anything under `or` / `not` pins nothing. `null` pins nothing either: a unique column admits
+   * many `NULL`s. Changing every row that matches is what `updateMany` / `deleteMany` are for.
+   */
+  public buildUnique<TTable extends AnyTable>(
+    table: TTable,
+    where: WhereExpressionOf<TTable> | null | undefined,
+    operation: string
+  ): SQLNode {
+    const expression = this.buildRequired(table, where, operation);
+    const pinned = this._pinnedFields(table, where);
+
+    if (!table.uniqueKeys.some((key) => key.every((field) => pinned.has(field)))) {
+      const keys = table.uniqueKeys.map((key) => `(${key.join(", ")})`).join(", ");
+
+      throw new Error(
+        `${operation} on "${table.name}" changes one row, so its where must compare every field ` +
+          `of a unique key with a value — ` +
+          (keys ? `one of ${keys}` : `this table has none`) +
+          `. Use ${operation}Many to change every row a filter matches.`
+      );
+    }
+
+    return expression;
+  }
+
+  /** The fields `where` compares for equality with a non-null value, on every row it selects. */
+  private _pinnedFields(table: AnyTable, where: unknown, pinned = new Set<string>()): Set<string> {
+    if (!isPlainObject(where)) {
+      return pinned;
+    }
+
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (fieldName === "and" && Array.isArray(condition)) {
+        for (const child of condition) this._pinnedFields(table, child, pinned);
+        continue;
+      }
+
+      if (fieldName === "or" || fieldName === "not" || !table.getColumn(fieldName)) {
+        continue;
+      }
+
+      const value = this._isOperatorObject(condition) ? condition.eq : condition;
+
+      if (value !== undefined && value !== null) {
+        pinned.add(fieldName);
+      }
+    }
+
+    return pinned;
+  }
+
+  /**
    * Refuses a field the members of `union` do not all share, anywhere in a shared `where` —
    * inside `and` / `or` / `not` included. Checked on the union rather than per member, so the
    * error names the union instead of whichever member happened to lack the field.

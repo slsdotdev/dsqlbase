@@ -501,6 +501,30 @@ describe("paginate", () => {
   });
 });
 
+describe("updateMany / deleteMany", () => {
+  it("resolve to every returned record", () => {
+    const updated = client.updateMany({
+      where: { lastName: "Doe" },
+      set: { address: "x" },
+      return: { id: true },
+    });
+    const deleted = client.deleteMany({ where: { lastName: "Doe" }, return: { id: true } });
+
+    expectTypeOf(updated.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> }[]>();
+    expectTypeOf(deleted.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> }[]>();
+  });
+
+  it("keep update and delete to one record", () => {
+    const updated = client.update({
+      where: { id: "u1" },
+      set: { address: "x" },
+      return: { id: true },
+    });
+
+    expectTypeOf(updated.$typeOf).toEqualTypeOf<{ id: string; $$meta: Meta<"users"> } | null>();
+  });
+});
+
 describe("count", () => {
   it("resolves to a number", () => {
     expectTypeOf(client.count({ where: { lastName: "Doe" } })).toEqualTypeOf<
