@@ -301,7 +301,7 @@ describe("row policies", () => {
       expect(globex?.body).not.toBe("Revised");
     });
 
-    it("refuses every update on a table no update policy covers, even one matching nothing", async () => {
+    it("hides every row from an update no policy covers, without folding the check into an error", async () => {
       // No permissive policy: the WHERE is false, so nothing matches — and the check's constant
       // arm must not be folded into an error at plan time.
       const [own] = getData().drafts;

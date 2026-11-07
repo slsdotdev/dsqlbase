@@ -1,6 +1,8 @@
 /** The marker a failing check raises, decoded back into a {@link PolicyViolationError}. */
 export const POLICY_MARKER = "dsqlbase.policy";
 
+// The alias is a schema export name and the names are identifiers (`TableDefinition.policy`), so
+// neither holds `:` or `"`.
 const MARKER_PATTERN = /"dsqlbase\.policy:([^:"]*):(restrictive|permissive):([^"]*)"/;
 
 /**

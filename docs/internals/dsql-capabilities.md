@@ -2,7 +2,8 @@
 
 _Audience: contributors and agents. This is the reference the migration module's policy layer must agree with._
 
-**Verified: 2026-10-03**, two ways:
+**Verified: 2026-10-03** (the row-level security, settings and `RETURNING`-error rows under
+[Other](#other): 2026-11-07), two ways:
 - **Docs:** the AWS docs linked below, fetched that day.
 - **Live:** every statement form marked **live** below was run against an Aurora DSQL cluster in
   `eu-central-1` (`SELECT version()` → `PostgreSQL 16`). The docs are silent on several of these,

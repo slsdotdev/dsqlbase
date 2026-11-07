@@ -55,6 +55,7 @@ export { domain, $enum } from "./domain.js";
 export { namespace, schema } from "./namespace.js";
 export { sequence } from "./sequence.js";
 export { settings } from "./settings.js";
+export type { SettingRef, SettingsDefinition, SettingValuesOf } from "@dsqlbase/core/definition";
 export { table } from "./table.js";
 export { union } from "./union.js";
 
