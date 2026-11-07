@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type Session, type SQLStatement, TenancyError } from "@dsqlbase/core";
+import { type Session, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { InvalidCursorError } from "../pagination/cursor.js";
 import {
@@ -9,7 +9,6 @@ import {
   jsonb,
   relations,
   table,
-  tenantScope,
   text,
   uuid,
 } from "../../schema/index.js";
@@ -28,10 +27,9 @@ describe("paginate and count", () => {
     line: text("line").notNull(),
   });
 
-  const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-
-  const invoices = ws.table("invoices", {
+  const invoices = table("invoices", {
     id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id").notNull(),
     number: text("number").notNull(),
   });
 
@@ -51,9 +49,7 @@ describe("paginate and count", () => {
    * A client whose session answers a count with `total` and every other statement with `rows`,
    * recording what it was asked to run.
    */
-  const setup = (
-    options: { rows?: unknown[]; total?: string; pagination?: object; enforce?: boolean } = {}
-  ) => {
+  const setup = (options: { rows?: unknown[]; total?: string; pagination?: object } = {}) => {
     const statements: SQLStatement[] = [];
 
     const session = {
@@ -65,12 +61,7 @@ describe("paginate and count", () => {
       }),
     } as unknown as Session;
 
-    const dsql = createClient({
-      schema,
-      session,
-      pagination: options.pagination,
-      tenancy: { enforce: options.enforce ?? true },
-    });
+    const dsql = createClient({ schema, session, pagination: options.pagination });
 
     return { dsql, statements, last: () => statements.at(-1) };
   };
@@ -161,30 +152,6 @@ describe("paginate and count", () => {
         `WHERE "__t0"."created_at" > $1 OR ("__t0"."created_at" = $2 AND "__t0"."id" > $3) ` +
           `ORDER BY "__t0"."created_at" ASC, "__t0"."id" ASC`
       );
-    });
-
-    it("scopes a tenant table's page, with the tenant predicate first", async () => {
-      const { dsql, last } = setup({
-        rows: [{ id: "i1", number: "1", workspace_id: "w1", __k0: "i1" }],
-      });
-      const acme = dsql.$identityClaims({ workspaceId: "w1" });
-
-      const first = await acme.invoices.paginate({ limit: 1 });
-      await acme.invoices.paginate({ limit: 1, after: first.endCursor });
-
-      expect(last()?.text).toContain(`WHERE ("__t0"."workspace_id" = $1) AND ("__t0"."id" > $2)`);
-    });
-
-    it("refuses a tenant table on a client with no claims, for a page and for a count", () => {
-      const { dsql } = setup();
-      // Absent from an enforcing client's type, but still reachable untyped — which is what the
-      // runtime refusal is for.
-      const { invoices: untyped } = dsql as unknown as {
-        invoices: { paginate(args: object): unknown; count(): unknown };
-      };
-
-      expect(() => untyped.paginate({})).toThrow(TenancyError);
-      expect(() => untyped.count()).toThrow(TenancyError);
     });
   });
 
@@ -392,16 +359,6 @@ describe("paginate and count", () => {
       await dsql.tasks.count({ where: { dueDate: new Date("2026-05-01T00:00:00Z") } });
 
       expect(last()?.params).toEqual(["2026-05-01"]);
-    });
-
-    it("is scoped on a derived client", async () => {
-      const { dsql, last } = setup({ total: "1" });
-
-      await dsql.$identityClaims({ workspaceId: "w1" }).invoices.count();
-
-      expect(last()?.text).toBe(
-        `SELECT count(*) AS "count" FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`
-      );
     });
   });
 

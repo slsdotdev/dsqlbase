@@ -33,13 +33,6 @@ export {
 export { NamespaceDefinition, type AnyNamespaceDefinition } from "./namespace.js";
 export { SequenceDefinition, type SequenceConfig, type AnySequenceDefinition } from "./sequence.js";
 export {
-  TenantScopeDefinition,
-  type AnyTenantScopeDefinition,
-  type TenantClaimColumns,
-  type TenantScopeConfig,
-  type WithClaims,
-} from "./tenant.js";
-export {
   TableDefinition,
   type TableConfig,
   type AnyTableDefinition,

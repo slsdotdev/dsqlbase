@@ -27,8 +27,6 @@ export type BuiltSchema = {
   readonly unions: Map<string, Union>;
   /** Every table's relations, by field. A table with none has no entry. */
   readonly relations: Map<AnyTable, Readonly<Record<string, RuntimeRelation>>>;
-  /** Every tenant claim name, mapped to the data type it is declared with. */
-  readonly claimKeys: Map<string, string>;
 };
 
 /**
@@ -93,19 +91,11 @@ export function buildSchema(schema: DefinitionSchema): BuiltSchema {
     }
   }
 
-  const claimKeys = new Map<string, string>();
-
-  for (const table of unique) {
-    for (const [claim, column] of table.tenantKeys) {
-      claimKeys.set(claim, column.dataType);
-    }
-  }
-
   for (const [table, byField] of relations) {
     relations.set(table, Object.freeze(byField));
   }
 
-  return { tables, unions, relations, claimKeys };
+  return { tables, unions, relations };
 }
 
 /** The runtime column a definition column is declared as on `table`. */

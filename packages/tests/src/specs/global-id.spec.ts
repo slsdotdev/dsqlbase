@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sql, TenancyError } from "@dsqlbase/core";
+import { sql } from "@dsqlbase/core";
 import { decodeGlobalId, encodeGlobalId, isGlobalId } from "dsqlbase";
 import { withSeededClient } from "../fixures/seeded-client";
 
@@ -395,64 +395,6 @@ describe("global ids", () => {
       ]);
 
       expect(records.map((record) => record?.$$key ?? null)).toEqual([null, "authors", null]);
-    });
-  });
-
-  describe("tenancy", () => {
-    /** A client scoped to the workspace the first seeded draft belongs to. */
-    const acme = () =>
-      getClient().$identityClaims({ workspaceId: getData().drafts[0].workspaceId });
-
-    it("resolves a node the scoped client owns", async () => {
-      const [own] = getData().drafts;
-      const record = await acme().$findByGlobalId(wrap("drafts", own.id));
-
-      expect(record?.$$key === "drafts" ? record.title : null).toBe(own.title);
-    });
-
-    it("does not resolve another tenant's node", async () => {
-      // The row is there — it was seeded with raw SQL — and the id is a perfectly good one.
-      // It comes back `null` because the lookup goes through the model client, so the tenant
-      // predicate is in the WHERE. A lookup that issued its own SQL would have returned it.
-      const [, other] = getData().drafts;
-
-      expect(await acme().$findByGlobalId(wrap("drafts", other.id))).toBeNull();
-
-      const [row] = await getClient().$query<{ title: string }>(
-        sql`SELECT "title" FROM "drafts" WHERE "id" = ${other.id}`
-      );
-
-      expect(row.title).toBe(other.title);
-    });
-
-    it("skips another tenant's node in a batch, keeping the rest in place", async () => {
-      const [own, other] = getData().drafts;
-
-      const records = await acme().$listByGlobalId([
-        wrap("drafts", other.id),
-        wrap("drafts", own.id),
-      ]);
-
-      expect(records.map((record) => (record?.$$key === "drafts" ? record.title : null))).toEqual([
-        null,
-        own.title,
-      ]);
-    });
-
-    it("refuses a scoped node on a client with no claims", async () => {
-      const [own] = getData().drafts;
-
-      await expect(getClient().$findByGlobalId(wrap("drafts", own.id))).rejects.toThrow(
-        TenancyError
-      );
-    });
-
-    it("scopes a uuid-keyed tenant table like any other", async () => {
-      const document = getData().documents[0];
-
-      await expect(
-        getClient().$findByGlobalId(encodeGlobalId("documents", { id: document.id }))
-      ).rejects.toThrow(TenancyError);
     });
   });
 

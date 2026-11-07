@@ -15,7 +15,6 @@ import {
   hasMany,
   belongsTo,
   sequence,
-  tenantScope,
   guid,
   union,
   array,
@@ -126,29 +125,27 @@ tasks
  * `comments` — so a scoped read has to carry the predicate into two nested levels, not just the
  * one below the root.
  */
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-
 const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
 });
 
-const documents = ws
-  .table("documents", {
-    id: uuid("id").primaryKey().defaultRandom(),
-    // Points at a global table, so a join from `users` correlates on something other than the
-    // claim column — the only shape where the tenant predicate, rather than the correlation,
-    // is what keeps another workspace's rows out.
-    authorId: uuid("author_id"),
-    title: text("title").notNull(),
-    body: varchar("body", 5000),
-    createdAt: datetime("created_at").notNull().defaultNow(),
-  })
-  .meta({ __typename: "Document" });
+const documents = table("documents", {
+  workspaceId: uuid("workspace_id").notNull().readOnly(),
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Points at a global table, so a join from `users` correlates on something other than the
+  // claim column — the only shape where the tenant predicate, rather than the correlation,
+  // is what keeps another workspace's rows out.
+  authorId: uuid("author_id"),
+  title: text("title").notNull(),
+  body: varchar("body", 5000),
+  createdAt: datetime("created_at").notNull().defaultNow(),
+}).meta({ __typename: "Document" });
 
 // Keyed under an alias that differs from its database name, like `members` above.
-const comments = ws.table("document_comments", {
+const comments = table("document_comments", {
+  workspaceId: uuid("workspace_id").notNull().readOnly(),
   id: uuid("id").primaryKey().defaultRandom(),
   documentId: uuid("document_id").notNull(),
   author: text("author").notNull(),
@@ -298,7 +295,8 @@ const revisions = table("article_revisions", {
  * goes through the model client, which means the tenant predicate applies to a node lookup
  * without the lookup knowing anything about tenancy.
  */
-const drafts = ws.table("drafts", {
+const drafts = table("drafts", {
+  workspaceId: uuid("workspace_id").notNull().readOnly(),
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
 });
@@ -546,7 +544,6 @@ export {
   users,
   projects,
   tasks,
-  ws,
   workspaces,
   documents,
   comments,

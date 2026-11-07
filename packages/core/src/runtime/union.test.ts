@@ -5,13 +5,11 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
-  TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
 import type { ColumnHooks } from "../resolvers/index.js";
 import { sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
-import { TenancyError } from "./errors.js";
 import { OperationsFactory, SelectOperationArgs, UnionSelectOperationArgs } from "./operation.js";
 import { QueryBuilder } from "./query.js";
 import { SchemaRegistry } from "./registry.js";
@@ -518,62 +516,6 @@ describe("union joins — results", () => {
     expect(() => videosOnly([{ id: "u1", feed: [photoRow] }])).toThrow(
       /names member "photos", which this query did not select \(selected: videos\)/
     );
-  });
-});
-
-describe("union joins — tenancy", () => {
-  const ws = new TenantScopeDefinition({
-    workspaceId: col("workspace_id", "uuid").notNull(),
-  });
-
-  const notes = ws.table("notes", {
-    id: col("id", "uuid").primaryKey(),
-    userId: col("user_id", "uuid"),
-  });
-
-  const links = new TableDefinition("links", {
-    columns: { id: col("id", "uuid").primaryKey(), userId: col("user_id", "uuid") },
-  });
-
-  const items = new UnionDefinition(
-    { notes, links },
-    { id: col("id", "uuid"), userId: col("user_id", "uuid") }
-  );
-
-  const rels = new RelationsDefinition(users, {
-    items: {
-      type: Relation.HAS_MANY,
-      target: items,
-      from: [users.columns.id],
-      to: [items.columns.userId],
-    },
-  });
-
-  const scoped = new SchemaRegistry({ users, notes, links, items, rels });
-  const build = (identity?: Record<string, unknown>) =>
-    new OperationsFactory(
-      new ExecutionContext({
-        schema: scoped,
-        dialect: new QueryBuilder(),
-        session: { execute: vi.fn() },
-        identity,
-      })
-    ).createSelectOperation(scoped.getTable("users"), {
-      mode: "many",
-      args: { join: [["items", { members: all("notes", "links") }]] },
-    });
-
-  it("applies the tenant predicate inside the scoped member's branch only", () => {
-    const { query } = build({ workspaceId: "w1" });
-
-    expect(query.text).toContain(
-      'FROM "notes" AS "__t1" WHERE "__t1"."user_id" = "__t0"."id" AND ("__t1"."workspace_id" = $1)'
-    );
-    expect(query.text).toContain('FROM "links" AS "__t2" WHERE "__t2"."user_id" = "__t0"."id")');
-  });
-
-  it("refuses the union when a member is scoped and the client carries no claims", () => {
-    expect(() => build()).toThrow(TenancyError);
   });
 });
 

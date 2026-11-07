@@ -6,7 +6,6 @@ import {
   Schema,
   SQLQuery,
   SQLStatement,
-  TenancyError,
 } from "@dsqlbase/core";
 import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
@@ -31,20 +30,6 @@ export abstract class BaseClient<T extends DefinitionSchema> {
 
   constructor(ctx: ExecutionContext<T>) {
     this._ctx = ctx;
-  }
-
-  /**
-   * Raw SQL bypasses every seam the operations factory applies, the tenant predicate included,
-   * so a scoped client does not carry it. The types remove it; this is the runtime half, for
-   * callers reaching it through a widened type.
-   */
-  private _assertUnscoped(method: string): void {
-    if (this._ctx.identity) {
-      throw new TenancyError(
-        `${method} is not available on an identity-scoped client: raw SQL is not tenant-safe. ` +
-          `Use it on the base client, where that is plain to read.`
-      );
-    }
   }
 
   /**
@@ -132,8 +117,8 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    * exists. A narrower read is that table's own `findOne`, keyed by the same id.
    *
    * The lookup runs through the table's own model client rather than issuing SQL of its own,
-   * so every seam a `findOne` passes applies to it — the tenant predicate above all. A node
-   * lookup that bypassed it would be a cross-tenant read; going through the model makes that
+   * so every seam a `findOne` passes applies to it — row policies above all. A node
+   * lookup that bypassed them would read rows a policy hides; going through the model makes that
    * structurally impossible rather than something to remember.
    *
    * The row is tagged with `$$key`, the alias it came from, which is what narrows the union.
@@ -223,8 +208,6 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   $query<T = unknown>(sql: SQLQuery) {
-    this._assertUnscoped("$query");
-
     return new ExecutableQuery<T[]>(
       {
         mode: "many",
@@ -239,8 +222,6 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   async $execute<T = unknown>(query: SQLStatement): Promise<T[]> {
-    this._assertUnscoped("$execute");
-
     // A `sql` template here is an object with no `text`: the session would run nothing.
     if (typeof (query as Partial<SQLStatement> | null)?.text !== "string") {
       throw new TypeError(

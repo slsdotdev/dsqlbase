@@ -85,7 +85,6 @@ export type ColumnConfig<
   primaryKey: boolean;
   unique: boolean;
   readOnly: boolean;
-  tenantKey: boolean;
   codec: ColumnCodec<TRawType, TValueType>;
   validator?: ColumnValidator<TValueType, TInputType>;
   /** Transforms around the codec that need the runtime column or row; see `ColumnHooks`. */
@@ -110,7 +109,6 @@ export class ColumnDefinition<
   protected _primaryKey: boolean;
   protected _unique: boolean;
   protected _readOnly: boolean;
-  protected _tenantKey: boolean;
   protected _defaultValue?: SQLNode;
   protected _domain?: NodeRef<AnyDomainDefinition>;
   protected _check?: AnyCheckConstraintDefinition;
@@ -134,7 +132,6 @@ export class ColumnDefinition<
     this._primaryKey = config.primaryKey ?? false;
     this._unique = config.unique ?? false;
     this._readOnly = config.readOnly ?? false;
-    this._tenantKey = config.tenantKey ?? false;
     this._defaultValue = config.defaultValue;
     this._codec = config.codec ?? defaultCodec;
     this._validator = config.validator;
@@ -200,8 +197,7 @@ export class ColumnDefinition<
    *
    * A `ColumnDefinition` belongs to the table it is declared on: the builders mutate it in
    * place, so one instance shared by two tables would let a later `.check()` on one reach the
-   * other. Anything that hands the same declaration to several tables — `tenantScope().columns()`
-   * is the first — copies it here instead.
+   * other. Anything that hands the same declaration to several tables copies it here instead.
    */
   public clone(): this {
     return Object.assign(Object.create(Object.getPrototypeOf(this) as object), this) as this;
