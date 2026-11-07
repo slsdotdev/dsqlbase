@@ -148,13 +148,17 @@ const documents = table("documents", {
   createdAt: datetime("created_at").notNull().defaultNow(),
 })
   .meta({ __typename: "Document" })
-  // The proposal's shape: a restrictive boundary, a permissive rule for reads and inserts, and
-  // writes to an existing row only by its author.
+  // A restrictive workspace boundary; every member reads, a member inserts only as the author,
+  // and only the author changes or removes a row.
   .policy("workspace_isolation", (t) => ({
     as: "restrictive",
     using: sql`${t.workspaceId} = ${params.workspaceId}`,
   }))
-  .policy("members", () => ({ for: ["select", "insert"], using: sql`true`, check: sql`true` }))
+  .policy("members_read", () => ({ for: "select", using: sql`true` }))
+  .policy("members_insert", (t) => ({
+    for: "insert",
+    check: sql`${t.authorId} = ${params.userId}`,
+  }))
   .policy("author_writes", (t) => ({
     for: ["update", "delete"],
     using: sql`${t.authorId} = ${params.userId}`,
@@ -324,7 +328,9 @@ const drafts = table("drafts", {
     .$onCreate(() => params.workspaceId),
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
+  // Immutable once written: no policy covers update, so every update is refused.
 }).policy("workspace_isolation", (t) => ({
+  for: ["select", "insert", "delete"],
   using: sql`${t.workspaceId} = ${params.workspaceId}`,
 }));
 
