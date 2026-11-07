@@ -1,4 +1,4 @@
-export { sql, SQLQuery } from "@dsqlbase/core";
+export { sql, SQLQuery, PolicyViolationError } from "@dsqlbase/core";
 export type { Session, SQLStatement } from "@dsqlbase/core";
 export {
   GLOBAL_ID_PREFIX,

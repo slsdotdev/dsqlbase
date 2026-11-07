@@ -1,6 +1,7 @@
 import { Thenable } from "../utils/thenable.js";
 import { AnyOperation } from "./operation.js";
 import { Session } from "./session.js";
+import { PolicyViolationError } from "./errors.js";
 
 /**
  * Anything a client hands back that runs when awaited, and can be re-bound to another session.
@@ -27,7 +28,16 @@ export class ExecutableQuery<TResult> extends Thenable<TResult> implements Execu
   }
 
   public async execute(): Promise<TResult> {
-    const result = await this._session.execute(this._operation.query);
+    let result: unknown[];
+
+    try {
+      result = await this._session.execute(this._operation.query);
+    } catch (error) {
+      // A row policy's check fails the statement with a marker in the message; decoded here, in
+      // core, so a consumer-written session gets the typed error without knowing about it.
+      throw PolicyViolationError.fromDriverError(error, this._operation.type) ?? error;
+    }
+
     return this._operation.resolve(result) as TResult;
   }
 

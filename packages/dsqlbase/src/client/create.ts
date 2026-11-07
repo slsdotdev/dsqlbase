@@ -33,6 +33,14 @@ export type ClientOptions<
   settings?: TSettings;
 
   /**
+   * `bypass: true` skips every row policy on this client and every client derived from it —
+   * no predicates on reads, no checks on writes. The `BYPASSRLS` analogue, for a worker or a
+   * migration script rather than a request handler. Decided per client, never per call: a
+   * per-call escape hatch is a thing to forget.
+   */
+  policies?: { bypass?: boolean };
+
+  /**
    * Page sizes for `paginate`. `defaultLimit` is used when a call names no `limit` (100 when
    * unset); `maxLimit`, when set, refuses any larger `limit` a call asks for.
    */
@@ -133,6 +141,7 @@ export function createClient<
     schema,
     dialect,
     session: options.session,
+    policies: options.policies,
     pagination: options.pagination,
   });
 

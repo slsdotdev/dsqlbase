@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session, SQLStatement } from "@dsqlbase/core";
+import { PolicyViolationError, type Session, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
 import { belongsTo, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
@@ -328,5 +328,60 @@ describe("transactions on a settings client", () => {
 
     // The SQL was rendered when the settings client built it; batching only swaps the session.
     expect(last()?.params).toEqual(["w1", "INV-1"]);
+  });
+});
+
+describe("a policy violation inside a transaction", () => {
+  const violation = Object.assign(
+    new Error('invalid input syntax for type integer: "dsqlbase.policy:invoices:permissive:"'),
+    { code: "22P02" }
+  );
+
+  const setup = () => {
+    const rollback = vi.fn().mockResolvedValue(null);
+    const commit = vi.fn().mockResolvedValue(null);
+    const session = {
+      execute: vi.fn(),
+      beginTransaction: vi.fn(async () => ({
+        execute: vi.fn().mockRejectedValue(violation),
+        commit,
+        rollback,
+      })),
+    } as unknown as Session & { beginTransaction: ReturnType<typeof vi.fn> };
+
+    return {
+      dsql: createClient({ schema: { invoices }, session, settings: params }),
+      session,
+      rollback,
+      commit,
+    };
+  };
+
+  it("rolls back and rethrows it, typed, without an OCC retry — callback form", async () => {
+    const { dsql, session, rollback, commit } = setup();
+
+    await expect(
+      dsql.$settings({ workspaceId: "w1" }).$transaction(async (tx) => {
+        await tx.invoices.create({ data: { number: "INV-1" } });
+      })
+    ).rejects.toBeInstanceOf(PolicyViolationError);
+
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(session.beginTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does the same for a batch", async () => {
+    const { dsql, session, rollback } = setup();
+    const query = dsql.$settings({ workspaceId: "w1" }).invoices.create({ data: { number: "1" } });
+
+    await expect(dsql.$transaction([query])).rejects.toMatchObject({
+      name: "PolicyViolationError",
+      table: "invoices",
+      command: "insert",
+    });
+
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(session.beginTransaction).toHaveBeenCalledTimes(1);
   });
 });

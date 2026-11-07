@@ -27,6 +27,13 @@ export type ExecutionContextOptions<TSchema extends DefinitionSchema> = {
    */
   settings?: Readonly<Record<string, unknown>>;
 
+  /**
+   * `bypass: true` skips every row policy — predicates and checks — on this context and every
+   * one derived from it: the `BYPASSRLS` analogue, for a worker rather than a request handler.
+   * Set per client, never per call. Settings still render.
+   */
+  policies?: { bypass?: boolean };
+
   pagination?: PaginationOptions;
 };
 
@@ -40,6 +47,7 @@ export class ExecutionContext<
   readonly schema: SchemaRegistry<TDefinition>;
   readonly operations: OperationsFactory<Schema<TDefinition>>;
   readonly settings?: Readonly<Record<string, unknown>>;
+  readonly policies: { readonly bypass: boolean };
   readonly pagination?: PaginationOptions;
 
   constructor(options: ExecutionContextOptions<TDefinition>) {
@@ -47,6 +55,7 @@ export class ExecutionContext<
     this.dialect = options.dialect;
     this.schema = options.schema;
     this.settings = options.settings;
+    this.policies = Object.freeze({ bypass: options.policies?.bypass ?? false });
     this.pagination = options.pagination;
     this.operations = new OperationsFactory<Schema<TDefinition>>(this);
   }

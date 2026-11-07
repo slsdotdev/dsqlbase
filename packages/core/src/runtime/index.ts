@@ -19,6 +19,7 @@ export {
   type PaginationOptions,
 } from "./context.js";
 export { CompositeQuery, ExecutableQuery, type Executable } from "./executor.js";
+export { PolicyViolationError } from "./errors.js";
 export {
   OperationsFactory,
   type CountOperation,

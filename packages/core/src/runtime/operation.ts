@@ -255,7 +255,7 @@ export class OperationsFactory<
     table: T,
     commands: readonly PolicyCommand[]
   ): SQLNode | undefined {
-    if (table.policies.length === 0) {
+    if (table.policies.length === 0 || this._ctx.policies.bypass) {
       return undefined;
     }
 
@@ -286,6 +286,50 @@ export class OperationsFactory<
 
     // A lone condition stays bare, like a lone `where`; several are each wrapped.
     return parts.length === 1 ? parts[0] : sql.and(parts.map((part) => sql.wrap(part)));
+  }
+
+  /**
+   * The check every row an insert or update writes must pass, as a `RETURNING` expression, or
+   * `undefined` when the table has no policies. One `CASE` arm per restrictive policy, then one
+   * for the permissive policies OR-ed; the first that fails casts its marker to `int`, which
+   * fails the statement — atomically, nothing written — with the marker in the message, for
+   * {@link PolicyViolationError} to decode. Passing rows give `NULL`.
+   *
+   * `COALESCE(…, false)` makes a `NULL` check (an unset setting) fail rather than pass. Each
+   * marker is suffixed with `left(<column>::text, 0)` — always empty, never `NULL` through
+   * `coalesce` — so it depends on the row: a check over parameters alone would otherwise be
+   * folded at plan time and fail an update that matched nothing.
+   */
+  private _policyCheck<T extends AnyTable>(
+    table: T,
+    command: "insert" | "update"
+  ): SQLNode | undefined {
+    if (table.policies.length === 0 || this._ctx.policies.bypass) {
+      return undefined;
+    }
+
+    const { permissive, restrictive } = table.policiesFor(command);
+    const anchor = (table.primaryKey[0] ?? table.getColumnEntries()[0]?.[1]) as AnyColumn;
+    const suffix = sql`coalesce(left(${anchor}::text, 0), '')`;
+    const marker = (as: string, names: readonly string[]) =>
+      sql`${sql.literal(`dsqlbase.policy:${table.alias}:${as}:${names.join(",")}`)} || ${suffix}`;
+    const check = (policy: RuntimePolicy) => sql.wrap(policy.check as SQLNode);
+
+    const arms = restrictive.map(
+      (policy) =>
+        sql`WHEN NOT COALESCE(${check(policy)}, false) THEN ${marker("restrictive", [policy.name])}`
+    );
+
+    arms.push(
+      permissive.length === 0
+        ? sql`WHEN true THEN ${marker("permissive", [])}`
+        : sql`WHEN NOT COALESCE(${sql.or(permissive.map(check))}, false) THEN ${marker(
+            "permissive",
+            permissive.map((policy) => policy.name)
+          )}`
+    );
+
+    return sql`CAST(CASE ${sql.join(arms, " ")} ELSE NULL END AS int) AS ${sql.identifier("__pc")}`;
   }
 
   /**
@@ -1029,11 +1073,15 @@ export class OperationsFactory<
     const [columns, values] = this._resolveInsertEntries(table, args.data);
     const selection = this._resolveFields(table, args.return);
 
+    const check = this._policyCheck(table, "insert");
+
     const query = this._ctx.dialect.buildInsertQuery({
       table,
       columns,
       values,
-      return: selection.columns,
+      // The check rides on `RETURNING`, so it runs whether or not the caller asked for rows;
+      // no resolver reads it, so it never reaches a record.
+      return: check ? [...selection.columns, check] : selection.columns,
     });
 
     return {
@@ -1058,11 +1106,13 @@ export class OperationsFactory<
     const where = this._resolveWhere(table, ["update", "select"], args.where);
     const selection = this._resolveFields(table, args.return);
 
+    const check = this._policyCheck(table, "update");
+
     const query = this._ctx.dialect.buildUpdateQuery({
       table,
       set: entries,
       where,
-      return: selection.columns,
+      return: check ? [...selection.columns, check] : selection.columns,
     });
 
     return {

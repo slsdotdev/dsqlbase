@@ -161,6 +161,23 @@ describe("paginate and count", () => {
       expect(last()?.params?.[0]).toBe("w1");
     });
 
+    it("skips every policy on a client created with policies: { bypass: true }", async () => {
+      const statements: SQLStatement[] = [];
+      const session = {
+        execute: vi.fn(async (query: SQLStatement) => {
+          statements.push(query);
+          return query.text.startsWith("SELECT count(*)") ? [{ count: "0" }] : [];
+        }),
+      } as unknown as Session;
+      const worker = createClient({ schema, session, policies: { bypass: true } });
+
+      await worker.invoices.count();
+      await worker.invoices.create({ data: { workspaceId: "w1", number: "1" } });
+
+      expect(statements[0]?.text).toBe(`SELECT count(*) AS "count" FROM "invoices" AS "__t0"`);
+      expect(statements[1]?.text).not.toContain("__pc");
+    });
+
     it("bounds a count the same way", async () => {
       const { dsql, last } = setup({ total: "1" });
 

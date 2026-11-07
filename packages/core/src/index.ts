@@ -48,6 +48,7 @@ export {
   OperationsFactory,
   QueryBuilder,
   SchemaRegistry,
+  PolicyViolationError,
   Table,
   Union,
   UnionResolver,

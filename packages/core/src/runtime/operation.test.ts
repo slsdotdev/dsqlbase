@@ -1016,7 +1016,8 @@ describe("OperationFactory / row policies", () => {
       `WHERE (("invoices"."owner_id" = $2) AND (true) AND ("invoices"."workspace_id" = $3)) ` +
         `AND ("invoices"."id" = $4)`
     );
-    expect(query.params).toEqual(["INV-2", "u1", "w1", "i1"]);
+    // The check's own parameters follow: `RETURNING` renders after `WHERE`.
+    expect(query.params?.slice(0, 4)).toEqual(["INV-2", "u1", "w1", "i1"]);
   });
 
   it("bounds a delete the same way", () => {
@@ -1065,5 +1066,110 @@ describe("OperationFactory / row policies", () => {
     expect(query.text).toContain(
       `WHERE (("__t0"."owner_id" = $1) OR ("__t0"."shared")) AND (true)`
     );
+  });
+
+  describe("the write check", () => {
+    const insert = (factoryOf: OperationsFactory, alias: string, data: FieldMutation[]) =>
+      factoryOf.createInsertOperation(table(alias), { mode: "one", args: { data: [data] } }).query;
+
+    it("names each restrictive policy, then the permissive ones together, in RETURNING", () => {
+      const query = insert(scoped(), "lineItems", [
+        ["id", new SQLParam("l1")],
+        ["invoiceId", new SQLParam("i1")],
+        ["workspaceId", new SQLParam("w1")],
+      ]);
+
+      expect(query.text).toContain(
+        `RETURNING "line_items"."id", "line_items"."invoice_id", "line_items"."workspace_id", ` +
+          `CAST(CASE WHEN NOT COALESCE(("line_items"."workspace_id" = $4), false) THEN ` +
+          `'dsqlbase.policy:lineItems:permissive:workspace_isolation' || ` +
+          `coalesce(left("line_items"."id"::text, 0), '') ELSE NULL END AS int) AS "__pc"`
+      );
+      expect(query.params).toEqual(["l1", "i1", "w1", "w1"]);
+    });
+
+    it("puts restrictive arms first, and uses each policy's check", () => {
+      const invoicesTable = table("invoices");
+      const query = scoped().createUpdateOperation(invoicesTable, {
+        mode: "one",
+        args: {
+          set: [["number", new SQLParam("INV-2")]],
+          where: sql.eq(invoicesTable.columns.id, "i1"),
+          return: [],
+        },
+      }).query;
+
+      expect(query.text).toContain(
+        `RETURNING CAST(CASE ` +
+          `WHEN NOT COALESCE(("invoices"."workspace_id" = $5), false) THEN ` +
+          `'dsqlbase.policy:invoices:restrictive:workspace_isolation' || ` +
+          `coalesce(left("invoices"."id"::text, 0), '') ` +
+          `WHEN NOT COALESCE(("invoices"."owner_id" = $6), false) THEN ` +
+          `'dsqlbase.policy:invoices:permissive:owner_writes' || ` +
+          `coalesce(left("invoices"."id"::text, 0), '') ELSE NULL END AS int) AS "__pc"`
+      );
+    });
+
+    it("fails every write when no permissive policy covers the command", () => {
+      // `invoices` has no insert policy besides the restrictive boundary.
+      const query = insert(scoped(), "invoices", [
+        ["id", new SQLParam("i1")],
+        ["workspaceId", new SQLParam("w1")],
+        ["number", new SQLParam("INV-1")],
+      ]);
+
+      expect(query.text).toContain(
+        `WHEN true THEN 'dsqlbase.policy:invoices:permissive:' || coalesce(left(`
+      );
+    });
+
+    it("adds nothing to a table without policies", () => {
+      const query = insert(scoped(), "workspaces", [["id", new SQLParam("w1")]]);
+
+      expect(query.text).not.toContain("__pc");
+    });
+
+    it("keeps the check off the resolved record", () => {
+      const operation = scoped().createInsertOperation(table("lineItems"), {
+        mode: "one",
+        args: { data: [[["id", new SQLParam("l1")]]] },
+      });
+
+      expect(
+        operation.resolve([{ id: "l1", invoice_id: "i1", workspace_id: "w1", __pc: null }])
+      ).toEqual({
+        $$meta: { key: "lineItems", table: "line_items" },
+        id: "l1",
+        invoiceId: "i1",
+        workspaceId: "w1",
+      });
+    });
+  });
+
+  describe("bypass", () => {
+    const bypassing = () =>
+      new OperationsFactory(
+        new ExecutionContext({
+          schema: policyRegistry,
+          dialect: new QueryBuilder(),
+          session: mockSession,
+          settings: { workspaceId: "w1" },
+          policies: { bypass: true },
+        })
+      );
+
+    it("skips predicates and checks, and still renders settings", () => {
+      const read = bypassing().createSelectOperation(table("lineItems"), {
+        mode: "many",
+        args: {},
+      }).query;
+      const write = bypassing().createInsertOperation(table("lineItems"), {
+        mode: "one",
+        args: { data: [[["id", new SQLParam("l1")]]] },
+      }).query;
+
+      expect(read.text).not.toContain("WHERE");
+      expect(write.text).not.toContain("__pc");
+    });
   });
 });
