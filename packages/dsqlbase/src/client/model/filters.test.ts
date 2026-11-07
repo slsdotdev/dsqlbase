@@ -498,12 +498,12 @@ describe("filter values", () => {
 
   describe("mutations", () => {
     it("encodes update.where", async () => {
-      await dsql.events.update({ set: { name: "x" }, where: { day: { eq: DAY } } });
+      await dsql.events.updateMany({ set: { name: "x" }, where: { day: { eq: DAY } } });
       expect(params()).toEqual(["x", "2026-05-01"]);
     });
 
     it("encodes delete.where", async () => {
-      await dsql.events.delete({ where: { day: { eq: DAY } } });
+      await dsql.events.deleteMany({ where: { day: { eq: DAY } } });
       expect(params()).toEqual(["2026-05-01"]);
     });
   });
@@ -655,5 +655,83 @@ describe("filters on a polymorphic id", () => {
         '("__t0"."counterparty_type" = $3 AND "__t0"."counterparty_id" = $4) OR ' +
         '"__t0"."counterparty_id" IN ($5))'
     );
+  });
+});
+
+describe("a where that pins one row", () => {
+  const members = table("members", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").unique(),
+    workspaceId: uuid("workspace_id").notNull(),
+    handle: text("handle").notNull(),
+    role: text("role"),
+  });
+
+  members.unique((c) => [c.workspaceId, c.handle]);
+
+  const logs = table("logs", { at: text("at"), line: text("line") });
+
+  let calls: SQLStatement[];
+  let dsql: ReturnType<typeof createClient<{ members: typeof members; logs: typeof logs }>>;
+
+  beforeEach(() => {
+    calls = [];
+    const session = {
+      execute: vi.fn(async (query: SQLStatement) => {
+        calls.push(query);
+        return [];
+      }),
+    } as unknown as Session;
+
+    dsql = createClient({ schema: { members, logs }, session });
+  });
+
+  it.each([
+    ["the primary key", { id: "m1" }],
+    ["the primary key through eq", { id: { eq: "m1" } }],
+    ["a unique column", { email: "a@b.c" }],
+    ["every field of a composite key", { workspaceId: "w1", handle: "ada" }],
+    ["a key spread over and", { and: [{ workspaceId: "w1" }, { handle: "ada" }] }],
+    ["a key beside other conditions", { id: "m1", role: { neq: "owner" } }],
+  ])("update and delete accept %s", async (_, where) => {
+    await dsql.members.update({ where, set: { role: "admin" } });
+    await dsql.members.delete({ where });
+    expect(calls).toHaveLength(2);
+  });
+
+  it.each([
+    ["a field outside every key", { role: "admin" }],
+    ["half of a composite key", { workspaceId: "w1" }],
+    ["a key under or", { or: [{ id: "m1" }, { id: "m2" }] }],
+    ["a key under not", { not: { id: "m1" } }],
+    ["a key compared with in", { id: { in: ["m1"] } }],
+    ["a key compared with neq", { id: { neq: "m1" } }],
+    // A unique column admits many NULLs.
+    ["a unique column compared with null", { email: { eq: null } }],
+    ["a unique column tested with exists: false", { email: { exists: false } }],
+  ])("update and delete refuse %s before any SQL", (_, where) => {
+    expect(() => dsql.members.update({ where, set: { role: "x" } } as never)).toThrow(
+      /update on "members" changes one row.*\(id\), \(email\), \(handle, workspaceId\).*updateMany/
+    );
+    expect(() => dsql.members.delete({ where } as never)).toThrow(/deleteMany/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses update and delete on a table with no unique key", () => {
+    expect(() => dsql.logs.update({ where: { at: "now" }, set: { line: "x" } })).toThrow(
+      /this table has none/
+    );
+    expect(() => dsql.logs.delete({ where: { at: "now" } })).toThrow(/this table has none/);
+  });
+
+  it("updateMany and deleteMany take any where, and still refuse an empty one", async () => {
+    await dsql.logs.updateMany({ where: { at: "now" }, set: { line: "x" } });
+    await dsql.logs.deleteMany({ where: { at: "now" } });
+    expect(calls).toHaveLength(2);
+
+    expect(() => dsql.logs.updateMany({ where: {}, set: { line: "x" } })).toThrow(
+      'updateMany on "logs" needs a where'
+    );
+    expect(() => dsql.logs.deleteMany({ where: {} })).toThrow('deleteMany on "logs" needs a where');
   });
 });

@@ -30,6 +30,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0020](./0020-column-references.md) | Column references | 2026-11-05 | accepted |
 | [0021](./0021-schema-registry-phases.md) | Schema registry phases | 2026-11-05 | accepted |
 | [0022](./0022-column-hooks.md) | Pure codecs, runtime column hooks | 2026-11-05 | accepted |
+| [0023](./0023-update-many.md) | One-row `update` / `delete`, `updateMany` / `deleteMany` | 2026-11-07 | accepted |
 
 ## Template
 

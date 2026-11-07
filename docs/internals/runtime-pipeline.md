@@ -26,6 +26,21 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
 - It is built from whichever source declares the key: the column-level `.primaryKey()` flag, or a `PrimaryKeyConstraintDefinition` in `TableDefinition._constraints` (`packages/core/src/definition/table.ts`), whose column refs carry DB names and resolve through `Table.getColumn`.
 - **A table has at most one primary key.** Two flagged columns, a flagged column alongside a table-level constraint, or two table-level constraints all throw when the `Table` is built. The migration path never touches `Table`, so the `MULTIPLE_PRIMARY_KEYS` validation rule (`packages/migration/src/validation/rules/table.ts`) catches the same thing there. Both are needed because `packages/migration/src/ddl/printer.ts` prints each source independently — inline `PRIMARY KEY` per flagged column, a `PRIMARY KEY (...)` clause per constraint — so more than one produced DDL Postgres rejects. A composite key is one constraint over several columns: `table.primaryKey((c) => [...])`.
 - `OperationsFactory` refuses updates to PK columns.
+- `Table.uniqueKeys` is every field set that names at most one row — the primary key, then each
+  unique column, unique constraint and non-partial unique index over plain columns — each
+  sorted, without repeats. Global-id node discovery (`packages/dsqlbase/src/client/nodes.ts`)
+  and the one-row write rule below both read it.
+
+## One-row and many-row writes
+
+`update` / `delete` build with mode `"one"`; `updateMany` / `deleteMany` with mode `"many"`
+(`ModelClient`, `packages/dsqlbase/src/client/model/client.ts`). SQL has no row limit on
+`UPDATE` / `DELETE`, so "one" is a rule on the `where`, enforced before SQL exists:
+`WhereBuilder.buildUnique` (`packages/dsqlbase/src/client/model/filters.ts`) requires a non-null
+equality on every field of one of `Table.uniqueKeys`, at the top level or inside `and` — never
+under `or` / `not`. The many forms only refuse an empty `where` (`buildRequired`). Core is
+unchanged: it already resolved both modes. The rule lives in the client, so a direct
+`OperationsFactory` caller is not held to it. See [0023](../decisions/0023-update-many.md).
 
 ## Relations and joins
 
@@ -149,7 +164,7 @@ only ran when the caller happened to filter would not be a rule at all.
 The normalizer's `WhereBuilder` folds a user `where` object into one node before it reaches here
 (`packages/dsqlbase/src/client/model/filters.ts`) — or into none at all, when the object
 selects nothing in particular: `{}` and an empty `and` / `or` group mean "no filter", and the
-operations that require a `where` (`findOne`, `update`, `delete`) refuse one that folds to
+operations that require a `where` (`findOne`, `update`, `delete`, `updateMany`, `deleteMany`) refuse one that folds to
 nothing. The array form is for callers that drive `OperationsFactory` directly, for whatever the
 seam itself adds, and for `paginate`, which passes `[callerWhere, keyset]`.
 
@@ -393,12 +408,6 @@ When one is found, add it here with the code path it lives in and what it blocks
 that needs it names the fix as a prerequisite story rather than designing around it. Public API
 may change; call out the changeset level. Open since the 0.2.0 release review (2026-10-03):
 
-- **`update` / `delete` change every matching row but return one.** They build with mode `"one"`
-  and no row limit (`buildUpdateQuery` / `buildDeleteQuery` in
-  `packages/core/src/runtime/query.ts`, `ModelClient.update` / `delete` in
-  `packages/dsqlbase/src/client/model/client.ts`). The fix is an API decision — require a unique
-  `where`, add `updateMany` / `deleteMany`, or check the affected count — and breaks callers
-  (`minor`). Documented as a known issue in the guide's querying page.
 - **No OCC retry outside `$transaction`.** A single `create` / `update` / `delete` that hits
   `40001` throws (`packages/dsqlbase/src/client/transaction/occ-retry.ts` is only used by the
   transaction runner). Also there: `maxRetries` counts attempts, not retries, jitter is 10%, and

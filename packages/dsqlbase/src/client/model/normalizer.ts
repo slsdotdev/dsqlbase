@@ -896,7 +896,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<UpdateOperationArgs, TMode> {
     const values = this._getMutationEntries(table, args.set);
-    const where = this._where.buildRequired(table, args.where, "update");
+    const where =
+      mode === "one"
+        ? this._where.buildUnique(table, args.where, "update")
+        : this._where.buildRequired(table, args.where, "updateMany");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {
@@ -914,7 +917,10 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     TArgs extends DeleteArgs<TTable>,
     TMode extends OperationMode,
   >(table: TTable, args: TArgs, mode: TMode): OperationRequest<DeleteOperationArgs, TMode> {
-    const where = this._where.buildRequired(table, args.where, "delete");
+    const where =
+      mode === "one"
+        ? this._where.buildUnique(table, args.where, "delete")
+        : this._where.buildRequired(table, args.where, "deleteMany");
     const returning = this._getSelectionEntries(table, args.return);
 
     return {
