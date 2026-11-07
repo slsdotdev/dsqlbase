@@ -21,7 +21,7 @@ export type ColumnHookContext = {
  * | Path | Order |
  * |---|---|
  * | insert, update, `$onCreate`, `$onUpdate` | `validator.write` → `write` → `codec.encode` |
- * | filters, tenant predicates (`Column.param`) | `write` → `codec.encode` |
+ * | filters (`Column.param`) | `write` → `codec.encode` |
  * | reads, root and joined (`Column.resolve`) | `codec.decode` → `read` → `validator.read` |
  *
  * Both sides of a relation pair must carry the same hooks object, and a column with hooks must

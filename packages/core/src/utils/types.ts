@@ -9,10 +9,8 @@ export type Optional<T, K extends keyof T> = {
 /**
  * Collapses a union of object types into their intersection.
  *
- * Used to gather one claim object out of the per-table claim objects a schema yields: a table
- * with no claims contributes `{}` and drops out, and two tables declaring the same claim with
- * different value types collapse it to `never`, which is the type-level mirror of the
- * registry's data-type check.
+ * A member contributing `{}` drops out; two members giving one key different types collapse
+ * it to `never`.
  */
 export type UnionToIntersection<T> = (T extends unknown ? (arg: T) => void : never) extends (
   arg: infer I
@@ -52,15 +50,6 @@ export type ReadOnly<T extends TypedObject> = T & {
  */
 export type Deprecated<T extends TypedObject> = T & {
   __type: { deprecated: true };
-};
-
-/**
- * Marks a column as a tenant claim key: the runtime fills it on insert and filters every read
- * by it, from the identity on the execution context. Always set together with {@link ReadOnly},
- * and only by `tenantScope()` — there is no public builder for it.
- */
-export type TenantKey<T extends TypedObject> = T & {
-  __type: { tenantKey: true };
 };
 
 /** Narrows what a column reads and writes to one type — `$type<T>()`. */

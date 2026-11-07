@@ -26,7 +26,7 @@ import { shapePage } from "../pagination/page.js";
  * a row is written through its member's own model.
  *
  * Every read is one `UNION ALL` over the members, each branch passing the same `WHERE` seam a
- * table read does, so a tenant-scoped member is filtered, or refused, on its own terms.
+ * table read does, so a member's row policies filter its branch on their own terms.
  */
 export class UnionClient<
   TUnion extends AnyUnionDefinition,

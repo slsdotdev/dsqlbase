@@ -17,9 +17,7 @@ export {
   ExecutionContext,
   type ExecutionContextOptions,
   type PaginationOptions,
-  type TenancyOptions,
 } from "./context.js";
-export { TenancyError } from "./errors.js";
 export { CompositeQuery, ExecutableQuery, type Executable } from "./executor.js";
 export {
   OperationsFactory,

@@ -143,15 +143,6 @@ export class Table<
   readonly uniqueKeys: readonly (readonly string[])[];
 
   /**
-   * The table's tenant claim columns, paired with the claim they are filled from, in
-   * declaration order. Empty for a table outside any tenant scope.
-   *
-   * The claim is the *field* name, not the database column name: it is the key the runtime
-   * looks up in `ExecutionContext.identity`, and the name `tenantScope()` declared it under.
-   */
-  readonly tenantKeys: [claim: string, column: AnyColumn][];
-
-  /**
    * What every row of this table reports about itself, surfaced as `$$meta` on each result
    * record — the built-in `key` / `table` / `schema` plus whatever `table().meta()` declared.
    *
@@ -174,7 +165,6 @@ export class Table<
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
     this.uniqueKeys = this._buildUniqueKeys(definition);
-    this.tenantKeys = this.getColumnEntries().filter(([, column]) => column.tenantKey);
     this.meta = this._buildMeta(definition);
   }
 

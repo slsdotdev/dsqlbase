@@ -71,15 +71,6 @@ export class SchemaRegistry<
   private readonly _unions: Map<string, Union>;
   private readonly _relations: Map<AnyTable, Readonly<Record<string, RuntimeRelation>>>;
 
-  /**
-   * Every tenant claim declared anywhere in this schema, mapped to the data type it is
-   * declared with. Empty when no table is inside a tenant scope.
-   *
-   * This is what `$identityClaims` picks an identity object apart by: a claim is identified by
-   * its field name across the whole schema, which `validateSchema` holds to one type.
-   */
-  readonly claimKeys: Map<string, string>;
-
   constructor(definition: TDefinition) {
     validateSchema(definition);
 
@@ -88,7 +79,6 @@ export class SchemaRegistry<
     this._tables = built.tables;
     this._unions = built.unions;
     this._relations = built.relations;
-    this.claimKeys = built.claimKeys;
   }
 
   public getTable<TName extends string>(

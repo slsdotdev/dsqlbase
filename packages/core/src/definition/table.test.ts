@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { TableDefinition } from "./table.js";
 import { ColumnDefinition } from "./column.js";
-import { TenantScopeDefinition } from "./tenant.js";
 import { sql } from "../sql/tag.js";
 
 const usersTable = new TableDefinition("users", {
@@ -190,42 +189,6 @@ describe("TableDefinition reserved field names", () => {
   it("allows those names as database column names, which are a separate namespace", () => {
     expect(
       () => new TableDefinition("users", { columns: { meta: new ColumnDefinition("$$meta") } })
-    ).not.toThrow();
-  });
-});
-
-describe("TableDefinition tenant claims", () => {
-  it("rejects a claim column that is not notNull", () => {
-    expect(
-      () =>
-        new TableDefinition("invoices", {
-          columns: {
-            workspaceId: new ColumnDefinition("workspace_id", { tenantKey: true, readOnly: true }),
-            id: new ColumnDefinition("id").primaryKey(),
-          },
-        })
-    ).toThrow(/declares claim "workspaceId" as nullable/);
-  });
-
-  it("rejects a claim column the caller could write", () => {
-    expect(
-      () =>
-        new TableDefinition("invoices", {
-          columns: {
-            workspaceId: new ColumnDefinition("workspace_id", { tenantKey: true }).notNull(),
-            id: new ColumnDefinition("id").primaryKey(),
-          },
-        })
-    ).toThrow(/declares claim "workspaceId" as writable/);
-  });
-
-  it("accepts the columns a tenant scope hands over", () => {
-    const ws = new TenantScopeDefinition({
-      workspaceId: new ColumnDefinition("workspace_id").notNull(),
-    });
-
-    expect(() =>
-      ws.table("invoices", { id: new ColumnDefinition("id").primaryKey() })
     ).not.toThrow();
   });
 });

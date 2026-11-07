@@ -49,7 +49,7 @@ export type CursorKey = {
  * The first 8 hex characters of SHA-256 over the table alias and the ordered keys.
  *
  * Enough to tell one order from another by accident; not a secret, and not meant to be — a
- * forged cursor is only another position, and tenancy predicates apply to it regardless.
+ * forged cursor is only another position, and row policies apply to it regardless.
  */
 export function keysetSignature(alias: string, keys: CursorKey[]): string {
   const order = keys.map(({ field, direction }) => `${field}:${direction}`).join(",");

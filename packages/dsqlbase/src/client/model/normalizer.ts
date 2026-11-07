@@ -672,7 +672,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * A page read: the select to run, plus everything needed to turn its rows into a page.
    *
    * The keyset predicate is appended to the caller's `where` as a second condition, so the
-   * seam in core renders the tenant predicate, then the caller's filter, then the keyset. The
+   * seam in core renders the row-policy predicate, then the caller's filter, then the keyset. The
    * caller's filter alone is kept apart as `where`, for a count over the same rows.
    */
   public normalizePaginate<
