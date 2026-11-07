@@ -13,6 +13,8 @@ import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn, Column } from "./column.js";
 import { ComputedDiscriminator } from "./reference.js";
+import { RuntimePolicy } from "./policy.js";
+import type { PolicyCommand } from "../resolvers/policy.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
 import { Union } from "./union.js";
@@ -240,6 +242,53 @@ export class OperationsFactory<
   }
 
   /**
+   * The rows `table`'s policies let every one of `commands` see, as a condition, or `undefined`
+   * when the table has none. Per command that is `(OR of permissive using) AND (each restrictive
+   * using)`, each part wrapped; with no permissive policy for a command its part is `false` — a
+   * table with any policy denies by default. Several commands (a write and `select`) are AND-ed,
+   * a policy that applies to more than one of them rendered once.
+   *
+   * A setting a policy reads renders `NULL` when unset, and a comparison with `NULL` is never
+   * true: a restrictive policy hides every row, a permissive one drops only its own branch.
+   */
+  private _policyPredicate<T extends AnyTable>(
+    table: T,
+    commands: readonly PolicyCommand[]
+  ): SQLNode | undefined {
+    if (table.policies.length === 0) {
+      return undefined;
+    }
+
+    const using = (policy: RuntimePolicy) => policy.using as SQLNode;
+    const parts: SQLNode[] = [];
+    const permissiveSets = new Set<string>();
+    const restrictive = new Set<RuntimePolicy>();
+
+    for (const command of commands) {
+      const policies = table.policiesFor(command);
+      const key = policies.permissive.map((policy) => policy.name).join(",");
+
+      if (!permissiveSets.has(key)) {
+        permissiveSets.add(key);
+        parts.push(
+          policies.permissive.length === 0
+            ? sql.raw("false")
+            : policies.permissive.length === 1
+              ? using(policies.permissive[0] as RuntimePolicy)
+              : sql.or(policies.permissive.map((policy) => sql.wrap(using(policy))))
+        );
+      }
+
+      for (const policy of policies.restrictive) restrictive.add(policy);
+    }
+
+    parts.push(...[...restrictive].map(using));
+
+    // A lone condition stays bare, like a lone `where`; several are each wrapped.
+    return parts.length === 1 ? parts[0] : sql.and(parts.map((part) => sql.wrap(part)));
+  }
+
+  /**
    * The single place a `WHERE` is assembled, for every select — root and every nested join
    * level — every update and every delete. It is called unconditionally, even when the caller
    * passed no `where`, because this is the seam predicates are injected into: a rule that only
@@ -248,17 +297,23 @@ export class OperationsFactory<
    * Several nodes are AND-ed, each wrapped so an `OR` among them keeps its precedence. A lone
    * node is returned untouched, so the common case adds no parentheses.
    *
+   * `commands` names the row policies that bound the rows: `select` for every read level,
+   * `update` / `delete` and `select` for a write — as in PostgreSQL, a write only reaches rows
+   * its reader could see.
+   *
    * What the seam injects leads, before anything the caller wrote and before anything a sibling
    * feature appends afterwards (a join correlation, a keyset). Order is cosmetic to the planner
    * and deliberate to a reader: the boundary is the first thing an `EXPLAIN` shows.
    */
   private _resolveWhere<T extends AnyTable>(
     table: T,
+    commands: readonly PolicyCommand[],
     where?: SQLNode | SQLNode[]
   ): SQLNode | undefined {
-    const conditions = [...(Array.isArray(where) ? where : [where])].filter(
-      (condition): condition is SQLNode => condition !== undefined && condition !== null
-    );
+    const conditions = [
+      this._policyPredicate(table, commands),
+      ...(Array.isArray(where) ? where : [where]),
+    ].filter((condition): condition is SQLNode => condition !== undefined && condition !== null);
 
     if (conditions.length === 0) {
       return undefined;
@@ -414,7 +469,7 @@ export class OperationsFactory<
     const fields = this._resolveFields(table, args.select);
     resolvers.push(...fields.resolvers);
 
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["select"], args.where);
     const order = args.orderBy ? this._validateOrderExpression(table, args.orderBy) : undefined;
     const join = args.join ? this._resolveJoinEntries(table, args.join, resolvers) : undefined;
     const limit = mode === "one" ? 1 : args.limit;
@@ -880,7 +935,7 @@ export class OperationsFactory<
     const query = this._ctx.dialect.buildSelectQuery({
       table,
       select: [sql`count(*) AS ${sql.identifier("count")}`],
-      where: this._resolveWhere(table, args.where),
+      where: this._resolveWhere(table, ["select"], args.where),
     });
 
     return {
@@ -944,7 +999,7 @@ export class OperationsFactory<
       const query = this._ctx.dialect.buildSelectQuery({
         table: member,
         select: [sql`count(*)`],
-        where: this._resolveWhere(member, memberArgs.where),
+        where: this._resolveWhere(member, ["select"], memberArgs.where),
       });
 
       return sql`(${query})`;
@@ -1000,7 +1055,7 @@ export class OperationsFactory<
     const { name, args, mode } = config;
 
     const entries = this._resolveUpdateEntries(table, args.set);
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["update", "select"], args.where);
     const selection = this._resolveFields(table, args.return);
 
     const query = this._ctx.dialect.buildUpdateQuery({
@@ -1028,7 +1083,7 @@ export class OperationsFactory<
   >(table: TTable, config: OperationRequest<TArgs, TMode>): DeleteOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
 
-    const where = this._resolveWhere(table, args.where);
+    const where = this._resolveWhere(table, ["delete", "select"], args.where);
     const selection = this._resolveFields(table, args.return);
 
     const query = this._ctx.dialect.buildDeleteQuery({

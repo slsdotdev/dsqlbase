@@ -137,6 +137,10 @@ export {
   type ColumnCodec,
   type ColumnValidator,
   type ColumnHooks,
+  type PolicyCommand,
+  type PolicyConfig,
+  type PolicyFor,
+  type PolicyResolver,
   type ColumnHookContext,
 } from "./resolvers/index.js";
 export { validateSchema } from "./validation/index.js";

@@ -14,6 +14,8 @@ import {
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
+import { CommandPolicies, RuntimePolicy, groupPolicies, resolvePolicy } from "./policy.js";
+import type { PolicyCommand } from "../resolvers/policy.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
@@ -143,6 +145,14 @@ export class Table<
   readonly uniqueKeys: readonly (readonly string[])[];
 
   /**
+   * The table's row policies, resolved against its columns, in declaration order. A table with
+   * any is default deny: a command no permissive policy covers matches no row.
+   */
+  readonly policies: readonly RuntimePolicy[];
+
+  private readonly _policiesByCommand: ReadonlyMap<PolicyCommand, CommandPolicies>;
+
+  /**
    * What every row of this table reports about itself, surfaced as `$$meta` on each result
    * record — the built-in `key` / `table` / `schema` plus whatever `table().meta()` declared.
    *
@@ -165,6 +175,12 @@ export class Table<
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
     this.uniqueKeys = this._buildUniqueKeys(definition);
+    this.policies = Object.freeze(
+      definition["_policies"].map(({ name, resolve }) =>
+        resolvePolicy(this.name, name, resolve(this.columns))
+      )
+    );
+    this._policiesByCommand = groupPolicies(this.policies);
     this.meta = this._buildMeta(definition);
   }
 
@@ -289,6 +305,11 @@ export class Table<
       ...(this.schema ? { schema: this.schema as string } : {}),
       ...declared,
     });
+  }
+
+  /** The policies that apply to `command`, split into permissive and restrictive. */
+  public policiesFor(command: PolicyCommand): CommandPolicies {
+    return this._policiesByCommand.get(command) as CommandPolicies;
   }
 
   public hasColumn(name: string): boolean {

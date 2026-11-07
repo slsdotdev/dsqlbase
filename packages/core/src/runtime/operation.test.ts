@@ -11,6 +11,7 @@ import { ExecutionContext } from "./context.js";
 import { FieldMutation, OperationsFactory } from "./operation.js";
 import { SchemaRegistry } from "./registry.js";
 import { QueryBuilder, TableJoinParams } from "./query.js";
+import type { AnyTable } from "./table.js";
 
 const users = new TableDefinition("users", {
   columns: {
@@ -851,5 +852,218 @@ describe("OperationFactory / settings", () => {
 
     expect(query.text).toContain('WHERE "__t0"."workspace_id" = $1');
     expect(query.params).toEqual(["w1"]);
+  });
+});
+
+describe("OperationFactory / row policies", () => {
+  const params = defineSettings({
+    workspaceId: new ColumnDefinition("identity.workspace_id"),
+    userId: new ColumnDefinition("identity.user_id"),
+  });
+
+  const workspaces = new TableDefinition("workspaces", {
+    columns: { id: new ColumnDefinition("id").primaryKey() },
+  });
+
+  const invoices = new TableDefinition("invoices", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      workspaceId: new ColumnDefinition("workspace_id").notNull(),
+      ownerId: new ColumnDefinition("owner_id"),
+      number: new ColumnDefinition("number").notNull(),
+    },
+  })
+    .policy("workspace_isolation", (t) => ({
+      as: "restrictive",
+      using: sql`${t.workspaceId} = ${params.workspaceId}`,
+    }))
+    .policy("members_read", () => ({ for: "select", using: sql`true` }))
+    .policy("owner_writes", (t) => ({
+      for: ["update", "delete"],
+      using: sql`${t.ownerId} = ${params.userId}`,
+    }));
+
+  const lineItems = new TableDefinition("line_items", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      invoiceId: new ColumnDefinition("invoice_id").notNull(),
+      workspaceId: new ColumnDefinition("workspace_id").notNull(),
+    },
+  }).policy("workspace_isolation", (t) => ({
+    using: sql`${t.workspaceId} = ${params.workspaceId}`,
+  }));
+
+  // Policies but none for select: every read of it is denied.
+  const audit = new TableDefinition("audit", {
+    columns: { id: new ColumnDefinition("id").primaryKey() },
+  }).policy("append_only", () => ({ for: "insert", check: sql`true` }));
+
+  const policyRegistry = new SchemaRegistry({
+    workspaces,
+    invoices,
+    lineItems,
+    audit,
+    workspaceRelations: new RelationsDefinition(workspaces, {
+      invoices: {
+        type: Relation.HAS_MANY,
+        target: invoices,
+        from: [workspaces.columns.id],
+        to: [invoices.columns.workspaceId],
+      },
+    }),
+    invoiceRelations: new RelationsDefinition(invoices, {
+      lineItems: {
+        type: Relation.HAS_MANY,
+        target: lineItems,
+        from: [invoices.columns.id],
+        to: [lineItems.columns.invoiceId],
+      },
+    }),
+  });
+
+  const factory = (settings?: Record<string, unknown>) =>
+    new OperationsFactory(
+      new ExecutionContext({
+        schema: policyRegistry,
+        dialect: new QueryBuilder(),
+        session: mockSession,
+        settings,
+      })
+    );
+
+  const scoped = () => factory({ workspaceId: "w1", userId: "u1" });
+  const table = (alias: string) => policyRegistry.getTable(alias) as AnyTable;
+
+  it("bounds a select that carries no where of its own", () => {
+    const query = scoped().createSelectOperation(table("invoices"), {
+      mode: "many",
+      args: {},
+    }).query;
+
+    expect(query.text).toContain(`WHERE (true) AND ("__t0"."workspace_id" = $1)`);
+    expect(query.params).toEqual(["w1"]);
+  });
+
+  it("puts the policies before the caller's own condition", () => {
+    const invoicesTable = table("invoices");
+    const query = scoped().createSelectOperation(invoicesTable, {
+      mode: "many",
+      args: { where: sql.eq(invoicesTable.columns.number, "INV-1") },
+    }).query;
+
+    expect(query.text).toContain(
+      `WHERE ((true) AND ("__t0"."workspace_id" = $1)) AND ("__t0"."number" = $2)`
+    );
+  });
+
+  it("leaves a table without policies alone", () => {
+    const query = scoped().createSelectOperation(table("workspaces"), {
+      mode: "many",
+      args: {},
+    }).query;
+
+    expect(query.text).not.toContain("WHERE");
+  });
+
+  it("renders a lone policy bare, like a lone where", () => {
+    const query = scoped().createSelectOperation(table("lineItems"), {
+      mode: "many",
+      args: {},
+    }).query;
+
+    expect(query.text).toContain(`WHERE "__t0"."workspace_id" = $1`);
+  });
+
+  it("denies a command no permissive policy covers", () => {
+    const query = scoped().createSelectOperation(table("audit"), { mode: "many", args: {} }).query;
+
+    expect(query.text).toContain("WHERE false");
+  });
+
+  it("bounds every level of a nested join, each under its own alias", () => {
+    const query = scoped().createSelectOperation(table("workspaces"), {
+      mode: "many",
+      args: { join: [["invoices", { join: [["lineItems", {}]] }]] },
+    }).query;
+
+    expect(query.text).toContain(`(true) AND ("__t1"."workspace_id" = $`);
+    expect(query.text).toContain(`"__t2"."workspace_id" = $`);
+    expect(query.params).toEqual(["w1", "w1"]);
+  });
+
+  it("bounds a count", () => {
+    const query = scoped().createCountOperation(table("lineItems"), {
+      mode: "one",
+      args: {},
+    }).query;
+
+    expect(query.text).toBe(
+      `SELECT count(*) AS "count" FROM "line_items" AS "__t0" WHERE "__t0"."workspace_id" = $1`
+    );
+  });
+
+  it("bounds an update by its own policies and the select ones, each policy once", () => {
+    const invoicesTable = table("invoices");
+    const query = scoped().createUpdateOperation(invoicesTable, {
+      mode: "one",
+      args: {
+        set: [["number", new SQLParam("INV-2")]],
+        where: sql.eq(invoicesTable.columns.id, "i1"),
+      },
+    }).query;
+
+    expect(query.text).toContain(
+      `WHERE (("invoices"."owner_id" = $2) AND (true) AND ("invoices"."workspace_id" = $3)) ` +
+        `AND ("invoices"."id" = $4)`
+    );
+    expect(query.params).toEqual(["INV-2", "u1", "w1", "i1"]);
+  });
+
+  it("bounds a delete the same way", () => {
+    const invoicesTable = table("invoices");
+    const query = scoped().createDeleteOperation(invoicesTable, {
+      mode: "one",
+      args: { where: sql.eq(invoicesTable.columns.id, "i1") },
+    }).query;
+
+    expect(query.text).toContain(
+      `WHERE (("invoices"."owner_id" = $1) AND (true) AND ("invoices"."workspace_id" = $2))`
+    );
+  });
+
+  it("binds an unset setting as NULL, which no row equals", () => {
+    const query = factory().createSelectOperation(table("lineItems"), {
+      mode: "many",
+      args: {},
+    }).query;
+
+    expect(query.params).toEqual([null]);
+  });
+
+  it("ORs permissive policies and ANDs restrictive ones onto them", () => {
+    const notes = new TableDefinition("notes", {
+      columns: {
+        id: new ColumnDefinition("id").primaryKey(),
+        ownerId: new ColumnDefinition("owner_id"),
+        shared: new ColumnDefinition("shared"),
+      },
+    })
+      .policy("own", (t) => ({ using: sql`${t.ownerId} = ${params.userId}` }))
+      .policy("shared", (t) => ({ for: "select", using: sql`${t.shared}` }))
+      .policy("live", () => ({ as: "restrictive", using: sql`true` }));
+
+    const registry = new SchemaRegistry({ notes });
+    const query = new OperationsFactory(
+      new ExecutionContext({
+        schema: registry,
+        dialect: new QueryBuilder(),
+        session: mockSession,
+        settings: { userId: "u1" },
+      })
+    ).createSelectOperation(registry.getTable("notes"), { mode: "many", args: {} }).query;
+
+    expect(query.text).toContain(
+      `WHERE (("__t0"."owner_id" = $1) OR ("__t0"."shared")) AND (true)`
+    );
   });
 });

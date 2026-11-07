@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type Session, type SQLStatement } from "@dsqlbase/core";
+import { type Session, sql, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { InvalidCursorError } from "../pagination/cursor.js";
 import {
@@ -8,6 +8,7 @@ import {
   datetime,
   jsonb,
   relations,
+  settings,
   table,
   text,
   uuid,
@@ -27,11 +28,15 @@ describe("paginate and count", () => {
     line: text("line").notNull(),
   });
 
+  const params = settings({ workspaceId: uuid("identity.workspace_id") });
+
   const invoices = table("invoices", {
     id: uuid("id").primaryKey().defaultRandom(),
     workspaceId: uuid("workspace_id").notNull(),
     number: text("number").notNull(),
-  });
+  }).policy("workspace_isolation", (t) => ({
+    using: sql`${t.workspaceId} = ${params.workspaceId}`,
+  }));
 
   const schema = { tasks, logs, invoices };
 
@@ -61,7 +66,12 @@ describe("paginate and count", () => {
       }),
     } as unknown as Session;
 
-    const dsql = createClient({ schema, session, pagination: options.pagination });
+    const dsql = createClient({
+      schema,
+      session,
+      settings: params,
+      pagination: options.pagination,
+    });
 
     return { dsql, statements, last: () => statements.at(-1) };
   };
@@ -136,6 +146,29 @@ describe("paginate and count", () => {
         "id-2",
         3,
       ]);
+    });
+
+    it("bounds a page by the table's policies, ahead of the keyset", async () => {
+      const { dsql, last } = setup({
+        rows: [{ id: "i1", number: "1", workspace_id: "w1", __k0: "i1" }],
+      });
+      const acme = dsql.$settings({ workspaceId: "w1" });
+
+      const first = await acme.invoices.paginate({ limit: 1 });
+      await acme.invoices.paginate({ limit: 1, after: first.endCursor });
+
+      expect(last()?.text).toContain(`WHERE ("__t0"."workspace_id" = $1) AND ("__t0"."id" > $2)`);
+      expect(last()?.params?.[0]).toBe("w1");
+    });
+
+    it("bounds a count the same way", async () => {
+      const { dsql, last } = setup({ total: "1" });
+
+      await dsql.$settings({ workspaceId: "w1" }).invoices.count();
+
+      expect(last()?.text).toBe(
+        `SELECT count(*) AS "count" FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`
+      );
     });
 
     it("reads a page before the cursor with every direction flipped", async () => {

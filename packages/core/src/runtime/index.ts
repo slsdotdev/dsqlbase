@@ -77,3 +77,4 @@ export {
 export type { Session, TransactionSession } from "./session.js";
 export { Table, type AnyTable } from "./table.js";
 export { Union, type AnyUnion } from "./union.js";
+export { type RuntimePolicy, type CommandPolicies } from "./policy.js";

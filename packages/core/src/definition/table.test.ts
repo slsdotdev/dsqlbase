@@ -233,3 +233,29 @@ describe("TableDefinition — deprecated() and renamedFrom()", () => {
     ).toThrow(/deprecates "id", part of its primary key/);
   });
 });
+
+describe("TableDefinition.policy", () => {
+  const define = () =>
+    new TableDefinition("docs", {
+      columns: { id: new ColumnDefinition("id").primaryKey() },
+    });
+
+  it("records each policy and keeps it out of the DDL", () => {
+    const docs = define().policy("read_all", () => ({ for: "select", using: sql`true` }));
+
+    expect(docs["_policies"].map((policy) => policy.name)).toEqual(["read_all"]);
+    expect(JSON.stringify(docs.toJSON())).not.toContain("read_all");
+  });
+
+  it("refuses a second policy of the same name", () => {
+    const docs = define().policy("p", () => ({ using: sql`true` }));
+
+    expect(() => docs.policy("p", () => ({ using: sql`true` }))).toThrow(
+      'Table "docs" declares policy "p" twice.'
+    );
+  });
+
+  it.each(["", "1st", "has space", 'quo"te', "a:b"])("refuses the policy name %j", (name) => {
+    expect(() => define().policy(name, () => ({ using: sql`true` }))).toThrow(/SQL-style/);
+  });
+});

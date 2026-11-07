@@ -10,6 +10,9 @@ import {
 } from "./constraint.js";
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
+import type { PolicyResolver } from "../resolvers/policy.js";
+import type { AnyTableRelations } from "./relations.js";
+import type { Table } from "../runtime/table.js";
 
 export type TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
@@ -28,6 +31,13 @@ export type TableConfig<
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTableDefinition = TableDefinition<any, any, any>;
 
+/** A policy as declared: its name, and the callback the runtime resolves it with. */
+export type PolicyDeclaration = {
+  readonly name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly resolve: PolicyResolver<any>;
+};
+
 export type ColumnRefs<TColumns extends Record<string, AnyColumnDefinition>> = {
   readonly [K in keyof TColumns]: NodeRef<TColumns[K]>;
 };
@@ -44,6 +54,7 @@ export class TableDefinition<
   protected _constraints: AnyConstraintDefinition[] = [];
   protected _meta?: Record<string, unknown>;
   protected _renamedFrom?: string;
+  protected _policies: PolicyDeclaration[] = [];
 
   readonly columns: Readonly<TColumns>;
 
@@ -212,6 +223,42 @@ export class TableDefinition<
     this._meta = meta;
 
     return this as WithMeta<this, M>;
+  }
+
+  /**
+   * Declares a row policy, shaped like `CREATE POLICY <name> ON <table> AS … FOR … USING (…)
+   * WITH CHECK (…)` — DSQL has no RLS, so the runtime enforces it while it builds each
+   * statement. A table with any policy denies by default: a command no permissive policy covers
+   * reads nothing and writes nothing.
+   *
+   * The callback receives the table's runtime columns and runs once, when the client is built.
+   * Policies are not DDL: they never reach `toJSON` or a migration.
+   *
+   * @example
+   * ```ts
+   * documents.policy("workspace_isolation", (t) => ({
+   *   as: "restrictive",
+   *   using: sql`${t.workspaceId} = ${params.workspaceId}`,
+   * }));
+   * ```
+   */
+  public policy(
+    name: string,
+    resolve: PolicyResolver<Table<TName, TColumns, TNamespace, AnyTableRelations>>
+  ): this {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(
+        `Table "${this.name}" declares policy "${name}": a policy name is a SQL-style ` +
+          `identifier — letters, digits and underscores, not starting with a digit.`
+      );
+    }
+
+    if (this._policies.some((policy) => policy.name === name)) {
+      throw new Error(`Table "${this.name}" declares policy "${name}" twice.`);
+    }
+
+    this._policies.push({ name, resolve });
+    return this;
   }
 
   public toJSON() {

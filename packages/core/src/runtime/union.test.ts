@@ -6,6 +6,7 @@ import {
   RelationsDefinition,
   TableDefinition,
   UnionDefinition,
+  defineSettings,
 } from "../definition/index.js";
 import type { ColumnHooks } from "../resolvers/index.js";
 import { sql } from "../sql/index.js";
@@ -516,6 +517,66 @@ describe("union joins — results", () => {
     expect(() => videosOnly([{ id: "u1", feed: [photoRow] }])).toThrow(
       /names member "photos", which this query did not select \(selected: videos\)/
     );
+  });
+});
+
+describe("union joins — row policies", () => {
+  const params = defineSettings({ workspaceId: col("identity.workspace_id", "uuid") });
+
+  const notes = new TableDefinition("notes", {
+    columns: {
+      id: col("id", "uuid").primaryKey(),
+      userId: col("user_id", "uuid"),
+      workspaceId: col("workspace_id", "uuid").notNull(),
+    },
+  }).policy("workspace_isolation", (t) => ({
+    using: sql`${t.workspaceId} = ${params.workspaceId}`,
+  }));
+
+  const links = new TableDefinition("links", {
+    columns: { id: col("id", "uuid").primaryKey(), userId: col("user_id", "uuid") },
+  });
+
+  const items = new UnionDefinition(
+    { notes, links },
+    { id: col("id", "uuid"), userId: col("user_id", "uuid") }
+  );
+
+  const rels = new RelationsDefinition(users, {
+    items: {
+      type: Relation.HAS_MANY,
+      target: items,
+      from: [users.columns.id],
+      to: [items.columns.userId],
+    },
+  });
+
+  const bounded = new SchemaRegistry({ users, notes, links, items, rels });
+  const build = (settings?: Record<string, unknown>) =>
+    new OperationsFactory(
+      new ExecutionContext({
+        schema: bounded,
+        dialect: new QueryBuilder(),
+        session: { execute: vi.fn() },
+        settings,
+      })
+    ).createSelectOperation(bounded.getTable("users"), {
+      mode: "many",
+      args: { join: [["items", { members: all("notes", "links") }]] },
+    });
+
+  it("bounds the member with policies inside its own branch only", () => {
+    const { query } = build({ workspaceId: "w1" });
+
+    expect(query.text).toContain(
+      'FROM "notes" AS "__t1" WHERE "__t1"."user_id" = "__t0"."id" AND ("__t1"."workspace_id" = $1)'
+    );
+    expect(query.text).toContain('FROM "links" AS "__t2" WHERE "__t2"."user_id" = "__t0"."id")');
+    expect(query.params).toEqual(["w1"]);
+  });
+
+  it("binds NULL there when the setting is unset, so the branch yields nothing", () => {
+    expect(build().query.params).toEqual([null]);
   });
 });
 
