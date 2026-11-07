@@ -14,10 +14,10 @@ ModelClient            packages/dsqlbase/src/client/model/client.ts
   → Session.execute    consumer-supplied
 ```
 
-- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, identity?, tenancy, pagination? }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — identity is carried by the context, not by a hook, which is why it is fixed when a client is built rather than resolved per call.
-- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or identity, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$identityClaims` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias.
-- **Every table is attached to every client.** Which tables a client may address is decided by its _type_ (`VisibleFor` in `packages/dsqlbase/src/client/database/index.ts`); the runtime refusal lives in the factory, because that is the only thing a nested join level passes through. See [0005](../decisions/0005-tenant-client-visibility.md).
-- **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and the unique key its payload matches (the primary key, a unique column, constraint or non-partial index), and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — the tenant predicate above all. See [0007](../decisions/0007-global-ids.md).
+- `ExecutionContext` (`packages/core/src/runtime/context.ts`) is `{ session, dialect, schema: SchemaRegistry, operations, settings?, policies: { bypass }, pagination? }`. There are still **no hooks, middleware, or interceptors** anywhere in the chain — per-request settings are carried by the context, not by a hook, which is why they are fixed when a client is built rather than resolved per call.
+- The "derived client" pattern is `attachModels(client, ctx)` in `packages/dsqlbase/src/client/database/base.ts`: build a new `ExecutionContext` with a different session or settings, then attach one `ModelClient` per table with `defineProperty`. `packages/dsqlbase/src/client/create.ts`, `transaction/transaction-client.ts` and `DatabaseClient.$settings` all go through it. Each attached model is also recorded in `BaseClient._models`, keyed by alias. A settings client refuses `$query` / `$execute` at runtime (`BaseClient._assertUnscoped`) as well as in its type (`SettingsClient`), and cannot be given settings again.
+- **Every table is attached to every client**, in the types and at runtime. What a client may read or write is decided by [row policies](#row-policies) in the factory, because that is the only thing a nested join level passes through. See [0024](../decisions/0024-row-policies.md).
+- **Node resolution runs beside model attachment**, not inside it: `registerNodes(registry, schema)` in `packages/dsqlbase/src/client/nodes.ts` is called once by `createClient`, keyed off the `SchemaRegistry` in a `WeakMap` so every derived client sees the same nodes. `$findByGlobalId` / `$listByGlobalId` on `BaseClient` resolve an id to a node and the unique key its payload matches (the primary key, a unique column, constraint or non-partial index), and then go through that table's `ModelClient`, so a node lookup passes every seam a `findOne` does — row policies above all. See [0007](../decisions/0007-global-ids.md).
 - Models are keyed by the schema **alias** — the key the table is exported under, which `Table.alias` carries (`packages/core/src/runtime/table.ts`), defaulting to the table name when a `Table` is built directly. `SchemaRegistry` (`packages/core/src/runtime/registry.ts`) maps both alias and DB table name to the same runtime `Table`, so `getTables()` yields an aliased table **twice**; `getTableEntries()` yields it once, keyed by alias, and is what anything iterating tables should use. `getAlias(nameOrAlias)` is the reverse lookup. There is still no models map on the context.
 
 ## Primary keys at runtime
@@ -46,7 +46,7 @@ unchanged: it already resolved both modes. The rule lives in the client, so a di
 
 - `FieldRelation = { target, type: has_one | has_many | belongs_to, from[], to[] }` (`packages/core/src/definition/relations.ts`). Relations are runtime-only; the migration module ignores them (no FK emission).
 - A join is `LEFT JOIN LATERAL (SELECT row_to_json(...) | json_agg(...) FROM (<inner select>) ...)` in `QueryBuilder`. The inner query is a full `buildSelectQuery`, so nested where/select/join/orderBy/limit already work recursively.
-- **Building a schema is three steps** that know nothing of each other. `validateSchema` (`packages/core/src/validation/validate.ts`) checks the definition and keeps nothing: per relation, non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected) and not deprecated; both columns of a pair of the same `dataType`; field-name collisions; discriminator rules; union aliases; one type per claim. `buildSchema` (`packages/core/src/runtime/build.ts`) then builds tables, unions and one **`RuntimeRelation`** per table and field (`relation.ts`): runtime columns on both sides, the runtime target, per-member columns and the discriminator for a union target — and links every reference from those relations. `SchemaRegistry` only holds the result and looks things up.
+- **Building a schema is three steps** that know nothing of each other. `validateSchema` (`packages/core/src/validation/validate.ts`) checks the definition and keeps nothing: per relation, non-empty, equal-length sides; every column declared on the side it is listed under (checked by identity, so a same-named column from another table is rejected) and not deprecated; both columns of a pair of the same `dataType`; field-name collisions; discriminator rules; union aliases. `buildSchema` (`packages/core/src/runtime/build.ts`) then builds tables, unions and one **`RuntimeRelation`** per table and field (`relation.ts`): runtime columns on both sides, the runtime target, per-member columns and the discriminator for a union target — and links every reference from those relations. `SchemaRegistry` only holds the result and looks things up.
 - A relation is read through `SchemaRegistry.getRelation(table, field)` / `getRelations(table)`; nothing downstream resolves a relation definition again. A runtime `Table` holds no relations; its `TRelations` type parameter only carries their types for the client.
 - `JoinParams.from` / `to` are column arrays and the correlation is built by `QueryBuilder` over every pair.
 - A relation may not share a name with a column of the same table; `SchemaRegistry` throws when the client is built. Columns and relations are one field namespace because `select`, `join` and result keys address them alike.
@@ -81,8 +81,8 @@ Built columns belong to one registry, so a reference never leaks into another cl
   `<expr> AS "<key>$key"`, the name a column's `read` hook reads it by. The member is aliased inside its
   probe only, so the key columns keep their outer alias. The registry makes one per union and key
   columns, so a has-many from a union and a belongs-to back to it share one reference and one
-  probe. The probe skips the members' tenant predicate: it only names which member holds a key
-  the row already carries.
+  probe. The probe skips the members' row policies: it only names which member holds a key the
+  row already carries. It still reveals which member holds a key.
 - **`dependsOn`** is the discriminator of each union reference — a column, or a computed one.
   `_resolveFields` projects it with the column whenever the column is selected, ungated by type.
 - **`resolveReferences(row?)`** follows table references to where each chain ends (a column with
@@ -112,7 +112,7 @@ its `target` is the runtime `Union` (`packages/core/src/runtime/union.ts`).
   (`UnionOrderKey[]`), because each member resolves the field to its own column.
 - **Operations factory.** `_resolveUnionParams` builds every branch through
   `_resolveSelectParams(member, …)`, so each branch passes [the `WHERE` seam](#the-where-seam),
-  tenant predicate included, and gets nested joins exactly as a table level would. A branch
+  the member's row policies included, and gets nested joins exactly as a table level would. A branch
   cannot skip them. Each branch projects:
   - `'<alias>' AS "$$key"` (`sql.literal`);
   - when ordered, every order key as `__o<n>`;
@@ -144,11 +144,11 @@ its `target` is the runtime `Union` (`packages/core/src/runtime/union.ts`).
 
 ## The `WHERE` seam
 
-`OperationsFactory._resolveWhere(table, where?)` (`packages/core/src/runtime/operation.ts`) is
+`OperationsFactory._resolveWhere(table, commands, where?)` (`packages/core/src/runtime/operation.ts`) is
 the single place a `WHERE` is assembled, and it is called **unconditionally** — for every select
 (the root and every nested join level, since `_resolveJoinEntries` calls back into
 `_resolveSelectParams`), every update and every delete, whether or not the caller passed a
-filter. That is the point: a predicate injected here (a tenant boundary, a soft-delete rule)
+filter. That is the point: a predicate injected here (a row policy, a soft-delete rule)
 must apply to a `findMany()` with no arguments as much as to a filtered one, and a seam that
 only ran when the caller happened to filter would not be a rule at all.
 
@@ -170,7 +170,7 @@ seam itself adds, and for `paginate`, which passes `[callerWhere, keyset]`.
 
 ### Order
 
-Within one level, the tenant predicate leads, then the caller's `where`, then a keyset
+Within one level, the row-policy predicate leads, then the caller's `where`, then a keyset
 predicate when `paginate` passed a cursor:
 
 ```sql
@@ -182,32 +182,61 @@ which owns aliasing, renders `correlation AND (level conditions)`, wrapping what
 assembled for that level as one group. Order is cosmetic to the planner and deliberate for a
 reader: the boundary is the first thing an `EXPLAIN` shows of the rows a level may hold.
 
-### The tenant predicate
+### Row policies
 
-`_tenantPredicate(table)` is what the seam injects today. A table with no `tenantKeys` is global
-and yields nothing. Otherwise `ExecutionContext.identity` decides:
+`table.policy(name, (t) => config)` (`packages/core/src/definition/table.ts`) records a
+`PolicyDeclaration`; names are checked there (an identifier, unique per table). The callback's
+type, `PolicyResolver` (`packages/core/src/resolvers/policy.ts`), takes the runtime columns:
+`Table`'s generics are the definition's, so `TableColumns` maps them with no extra type. The
+runtime `Table` runs each callback once against its own columns and freezes the result as
+`Table.policies` (`RuntimePolicy`, `packages/core/src/runtime/policy.ts`), refusing what
+`CREATE POLICY` would — `using` on insert only, `check` on select / delete only — and a policy
+missing the `using` or check a command it covers reads. `Table.policiesFor(command)` returns
+them grouped into permissive and restrictive.
 
-| Identity | `tenancy.enforce` | Result                                                                              |
-| -------- | ----------------- | ----------------------------------------------------------------------------------- |
-| present  | either            | one equality per claim, AND-ed; a missing claim throws `TenancyError(table, claim)` |
-| absent   | `true` (default)  | `TenancyError(table)` — the operation is not built                                  |
-| absent   | `false`           | `undefined` — the query runs unscoped                                               |
+`_resolveWhere` takes the commands whose policies bound the rows: `["select"]` for every read
+level (root, join, union branch, count, page, node lookup), `["update", "select"]` for an update,
+`["delete", "select"]` for a delete. `_policyPredicate(table, commands)` builds, per command,
+`(OR of permissive using)` — `false` when there is none, since a table with any policy denies by
+default — and ANDs every restrictive policy of every command onto it, each policy once. A table
+with no policies, or a context with `policies.bypass`, yields nothing.
 
-Values go through `Column.param`, so a claim is encoded by its column's codec like any other
-comparison ([codec boundary](./codec-boundary.md)). Throwing happens at **build** time — when
-`findMany()` is called, before `execute` — so a missing identity never reaches the database.
+**Writes** are checked in the statement itself. `_policyCheck(table, "insert" | "update")`
+appends one `RETURNING` expression to every insert and update, whether or not the caller asked
+for rows:
 
-This is also the only guard on a tenant table reached through a join. A nested level is named by
-a relation rather than by the client, so no type can see it; the factory can, because every
-level passes through `_resolveSelectParams`.
+```sql
+CAST(CASE WHEN NOT COALESCE((<restrictive check>), false) THEN 'dsqlbase.policy:<alias>:restrictive:<name>' || <sfx>
+          …
+          WHEN NOT COALESCE((<permissive check>) OR …, false) THEN 'dsqlbase.policy:<alias>:permissive:<names>' || <sfx>
+          ELSE NULL END AS int) AS "__pc"
+```
 
-### Insert fill
+A failing row casts its marker to `int`, which fails the statement — atomically, nothing written,
+inside a transaction too (verified on DSQL). `COALESCE(…, false)` makes a `NULL` check fail.
+`<sfx>` is `coalesce(left(<first key column>::text, 0), '')`: always empty, never `NULL`, but
+row-dependent, so a check over parameters alone is not folded at plan time into an error on an
+update that matched nothing. No resolver reads `__pc`. `ExecutableQuery.execute`
+(`packages/core/src/runtime/executor.ts`) decodes the marker from the driver error's message
+into `PolicyViolationError` (`runtime/errors.ts`), with the driver error as `cause`, so a
+consumer-written session gets it too; the transaction runner retries only `40001`, so it rolls
+back and rethrows.
 
-`_resolveInsertEntries` fills each `tenantKeys` column from the identity, ahead of the generic
-`getInsertValue` fallback, so `onCreate` and `DEFAULT` never apply to one. It throws in **both**
-modes when there are no claims: the column is `notNull` and nothing else can fill it, so the
-alternative is a row in no tenant. A caller-supplied value is already refused by the read-only
-rule below — the claim wins.
+### Settings
+
+`settings({ ... })` (`defineSettings`, `packages/core/src/definition/settings.ts`) makes one
+`SettingDefinition` per key — an `SQLSetting` node (`packages/core/src/sql/nodes.ts`) carrying
+its name, its native key (the column's name) and its column's codec. It renders by looking its
+name up in `SQLContext.settings` and binding an `SQLParam`, `NULL` when unset. Every
+`create*Operation` renders with `query.toQuery({ settings: ctx.settings })`, so the values are
+bound when the operation is built, and an operation re-bound to another session by `clone`
+keeps them. Settings are not schema objects: `createClient({ settings })` only types `$settings`.
+
+`$onCreate` may return a setting: `Column.getInsertValue` passes any `SQLNode` through, so the
+setting renders like `DEFAULT` does. Nothing checks a missing setting; the policy that reads it,
+or a `notNull` column it fills, refuses it.
+
+### Insert and update hooks
 
 `_resolveInsertEntries` writes every column, so one the caller did not write takes its
 `$onCreate` or `DEFAULT`. `_resolveUpdateEntries` likewise runs `$onUpdate` for every column the
@@ -383,8 +412,8 @@ Enforcement is deliberately split:
   that carries a value, beside the existing primary-key refusal. Leniency belongs to the client;
   a direct `OperationsFactory` caller gets an error.
 
-`tenantScope()` is the flag's other producer: a claim column is read-only by construction, since
-its value comes from the client's identity.
+A read-only column filled by `$onCreate(() => setting)` is the pattern for a column a row policy
+reads: always written from the client's settings, never from the caller.
 
 ## `$$meta.key` and `$$key`
 
@@ -422,8 +451,9 @@ may change; call out the changeset level. Open since the 0.2.0 release review (2
   a default can't be inserted `NULL`.
 - **A read validator failing on one stored row fails the whole `findMany`.** A lenient read mode
   would let old rows through.
-- **Cross-tenant references.** A scoped client can insert a row whose foreign key points at
-  another tenant's parent; nothing checks that the parent carries the same claims.
+- **References across a policy boundary.** A client can insert a row whose foreign key points at
+  a parent its policies hide; a check reads only the written row's own columns, and a subquery
+  in a policy is not bounded by the other table's policies.
 
 ## Related
 
@@ -431,7 +461,7 @@ may change; call out the changeset level. Open since the 0.2.0 release review (2
 - [Codec boundary](./codec-boundary.md)
 - [Select-tree aliasing](./select-tree-aliasing.md)
 - [Querying (guide)](../guide/querying.md)
-- [Tenancy (guide)](../guide/tenancy.md)
+- [Row policies (guide)](../guide/policies.md)
 - [Global ids (guide)](../guide/global-ids.md)
 - [0007 — Global ids](../decisions/0007-global-ids.md)
-- [0005 — Tenant table visibility on the client](../decisions/0005-tenant-client-visibility.md)
+- [0024 — Row policies](../decisions/0024-row-policies.md)

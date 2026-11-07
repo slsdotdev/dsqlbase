@@ -22,7 +22,7 @@ The object key (`createdAt`) is the property name you use in queries; the first 
 
 ### Column modifiers
 
-Every column supports `.notNull()`, `.primaryKey()`, `.unique()`, `.readOnly()`, `.default(value | sql)`, `.check(expr)`, `.$type<T>()` (narrow the TypeScript type without changing the SQL type), `.$onCreate(fn)` and `.$onUpdate(fn)` (client-side value hooks: `$onCreate` fills the column on every insert and `$onUpdate` on every update, unless the call sets the column itself; a hook's value is validated and encoded like any written value, and it writes a `.readOnly()` column too). `uuid()` adds `.defaultRandom()`; `timestamp()` / `datetime()` add `.defaultNow()`.
+Every column supports `.notNull()`, `.primaryKey()`, `.unique()`, `.readOnly()`, `.default(value | sql)`, `.check(expr)`, `.$type<T>()` (narrow the TypeScript type without changing the SQL type), `.$onCreate(fn)` and `.$onUpdate(fn)` (client-side value hooks: `$onCreate` fills the column on every insert and `$onUpdate` on every update, unless the call sets the column itself; a hook's value is validated and encoded like any written value, and it writes a `.readOnly()` column too. `$onCreate` may also return a [setting](./policies.md#filling-columns-from-settings), which is encoded by the setting's column and not validated). `uuid()` adds `.defaultRandom()`; `timestamp()` / `datetime()` add `.defaultNow()`.
 
 `.readOnly()` marks a column **system-managed**: it is read like any other — selectable,
 filterable, orderable — but it is not part of `create`'s `data` or `update`'s `set`, in the
@@ -72,28 +72,31 @@ existing column produces no DDL. Full rules — node keys, relation pairs, what 
 accepted as input — are in
 [Global ids](./global-ids.md).
 
-### Tenant scopes
+### Row policies
 
-`tenantScope(claims)` declares a set of claim columns shared by every table inside one tenant
-boundary. The columns it hands a table are read-only _and_ filled by the client, from the
-identity it was scoped to:
+`table.policy(name, (t) => ({ as, for, using, check }))` declares a row policy, shaped like
+`CREATE POLICY`, that the client enforces on every statement — DSQL has no RLS. Its conditions
+compare columns with [settings](./policies.md#settings), per-request values declared with
+`settings({ ... })`:
 
 ```ts
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
+const params = settings({ workspaceId: uuid("identity.workspace_id") });
 
-const invoices = ws.table("invoices", {
+const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
   number: text("number").notNull(),
-});
+}).policy("workspace_isolation", (t) => ({
+  using: sql`${t.workspaceId} = ${params.workspaceId}`,
+}));
 ```
 
-Every claim column must be `notNull`, a table may not redeclare one, and one claim name must
-have the same type on every table that declares it. The claim key is the field name, not the
-column name. A composite primary key including the claim — `(workspace_id, id)` — is allowed.
-
-Claim columns are ordinary columns in the emitted DDL: no foreign key, no index, nothing a
-migration treats specially. Declare the index yourself, leading with the claim. The full rules,
-and what a scoped client can do, are in [Tenancy](./tenancy.md).
+A table with any policy denies by default. Policies emit no DDL, and the column a policy reads is
+an ordinary column: declare its index yourself, leading with it. The full rules are in
+[Row policies](./policies.md).
 
 ### Table-level definitions
 

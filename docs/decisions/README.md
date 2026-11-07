@@ -12,8 +12,8 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0002](./0002-migration-consolidation.md) | Migration module consolidation (v1 shape) | 2026-09-19 | accepted |
 | [0003](./0003-select-tree-aliasing.md) | Table aliasing in select trees | 2026-09-21 | accepted provisionally |
 | [0004](./0004-record-meta.md) | `$$meta` on every result row | 2026-09-22 | accepted |
-| [0005](./0005-tenant-client-visibility.md) | Tenant table visibility on the client | 2026-09-23 | accepted provisionally |
-| [0006](./0006-client-tenancy.md) | Application-level tenancy | 2026-09-23 | accepted |
+| [0005](./0005-tenant-client-visibility.md) | Tenant table visibility on the client | 2026-09-23 | superseded by [0024](./0024-row-policies.md) |
+| [0006](./0006-client-tenancy.md) | Application-level tenancy | 2026-09-23 | superseded by [0024](./0024-row-policies.md) |
 | [0007](./0007-global-ids.md) | Global ids | 2026-09-27 | accepted; key resolution superseded by [0018](./0018-guid-keys-from-relations.md) |
 | [0008](./0008-client-pagination.md) | Keyset pagination | 2026-09-27 | accepted |
 | [0009](./0009-polymorphic-relations.md) | Polymorphic relations | 2026-09-29 | accepted; shared fields superseded by [0019](./0019-declared-union-columns.md) |
@@ -31,6 +31,7 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0021](./0021-schema-registry-phases.md) | Schema registry phases | 2026-11-05 | accepted |
 | [0022](./0022-column-hooks.md) | Pure codecs, runtime column hooks | 2026-11-05 | accepted |
 | [0023](./0023-update-many.md) | One-row `update` / `delete`, `updateMany` / `deleteMany` | 2026-11-07 | accepted |
+| [0024](./0024-row-policies.md) | Row policies, enforced by the runtime | 2026-11-07 | accepted |
 
 ## Template
 

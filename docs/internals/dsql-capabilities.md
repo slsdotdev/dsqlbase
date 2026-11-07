@@ -116,6 +116,25 @@ The catalog reports the index method as `btree_index`. `pg_index.indoption` is 0
 - **JSON:** `json` and `jsonb` are storable, each value limited to 1 MiB **compressed**, with **no index support**. All PostgreSQL JSON functions and operators work. `CREATE TYPE` isn't supported, so there are no composite or enum types. Arrays and `inet` are query-runtime types only.
 - **Functions and statistics:** `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `ALTER FUNCTION` (rename, owner, schema) are supported; `CREATE STATISTICS` is supported too. Neither is modelled.
 - **Not supported:** `CREATE TYPE`, `CREATE PROCEDURE`, PL/pgSQL, row-level security, temporary tables and views. The migration guide gives replacements for triggers and `TRUNCATE` (`DELETE FROM`). Permissions are `GRANT`s.
+- **Row-level security and roles** (live, 2026-11-07, `.claude`-local probe scripts): `ALTER TABLE …
+  ENABLE ROW LEVEL SECURITY` → `0A000`; `CREATE POLICY` → `0A000 unsupported statement:
+  CreatePolicy`; `SET ROLE` → `0A000`, so a connection's role is fixed by the IAM token it logged
+  in with. Row policies are therefore enforced by the client ([Runtime pipeline → Row
+  policies](./runtime-pipeline.md#row-policies)).
+- **Custom settings (GUCs)** (live, 2026-11-07): `SET identity.x = …` → `0A000`;
+  `set_config('identity.x', 'v', false)` works only with the value as a literal and outside a
+  transaction (a bound `$1`, `set_config(…, true)`, or any `set_config` inside `BEGIN` →
+  `0A000`); `SET LOCAL` of a built-in GUC works; `current_setting('missing', true)` is `NULL`. So
+  no transaction-local custom setting exists, and per-request values must be bound into each
+  statement.
+- **An error raised in `RETURNING`** (live, 2026-11-07): a cast that fails on one row of a
+  multi-row `INSERT` or `UPDATE` fails the statement and writes nothing, in autocommit and inside
+  `BEGIN` (which is then aborted, `25P02`). It sees `DEFAULT`ed columns and `SET` values. A
+  `CASE` over parameters alone is folded at plan time and errors even when no row matched; a
+  row-dependent arm (`… || left(id::text, 0)`) is not. `1/0` folds the same way. Row-policy
+  checks rely on this.
+- **`DEFAULT` inside a `VALUES` subquery** (`INSERT … SELECT * FROM (VALUES (…, DEFAULT))`) →
+  `42601` (live). **Data-modifying CTEs** (`WITH u AS (UPDATE … RETURNING …) SELECT …`) work (live).
 - **Unsupported PG types** (`money`, `xml`, `tsvector`, ranges, inherited tables) are excluded at compile time by the column builders; there's no runtime rule.
 
 ## To verify on a real DSQL cluster

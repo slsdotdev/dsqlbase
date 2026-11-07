@@ -15,7 +15,7 @@ Verified: 2026-10-03, against the [DSQL SQL feature reference](https://docs.aws.
   - A `NOT NULL` column can't be added to a table that already exists.
 - **Constraints are added `NOT VALID` then validated asynchronously.** `CHECK` and `FOREIGN KEY` can be added to existing tables that way; a primary key cannot be added after creation. Foreign keys add reads on every write and can surface as OCC failures.
 - **Indexes are always `CREATE INDEX ASYNC`**, even on an empty table, and a build takes seconds even then. Index keys can't be `DESC`. Unique constraints on existing tables are created by building a unique index first, then promoting it (`ADD CONSTRAINT … UNIQUE USING INDEX`).
-- **No enum type, no row-level security, no triggers, no PL/pgSQL, no temp tables, no `TRUNCATE`.** `$enum` is a `text` domain with a `CHECK`. Permissions are schema-level grants.
+- **No enum type, no row-level security, no triggers, no PL/pgSQL, no temp tables, no `TRUNCATE`.** `$enum` is a `text` domain with a `CHECK`. Permissions are schema-level grants; the client enforces [row policies](./policies.md) instead of RLS. `SET ROLE` is refused, and custom settings (`set_config`) work only session-wide, outside a transaction, with the value inlined — so per-request values are bound into each statement rather than set on the connection.
 - **Sequences** must declare `CACHE 1` or `CACHE >= 65536`.
 - **Identifiers** are limited to 63 bytes. A longer name is silently truncated; the validator refuses it first.
 - **`numeric` without a precision is `numeric(18,6)`**: at most 12 integer digits, and values rounded to 6 decimals. `numeric()` states this default explicitly and refuses a write that would be rounded; pass `{ precision, scale }` for more.

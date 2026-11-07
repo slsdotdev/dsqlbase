@@ -8,8 +8,8 @@ _Audience: application developers using `dsqlbase`._
 
 | Import                | What you get                                                                                             |
 | --------------------- | -------------------------------------------------------------------------------------------------------- |
-| `dsqlbase`            | `createClient`, `sql`, `SQLQuery`, the global-id helpers, and the `Session` / `SQLStatement` types       |
-| `dsqlbase/schema`     | Column builders, `table`, `union`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `tenantScope`, `guid` |
+| `dsqlbase`            | `createClient`, `sql`, `SQLQuery`, `PolicyViolationError`, the global-id helpers, and the `Session` / `SQLStatement` types |
+| `dsqlbase/schema`     | Column builders, `table`, `union`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `settings`, `guid` |
 | `dsqlbase/client`     | Client classes and the `QueryArgs` family of types, for advanced typing                                  |
 | `dsqlbase/pg`         | `createPgSession` for a `pg` `Pool` (production, via the Aurora DSQL connector)                          |
 | `dsqlbase/pglite`     | `createPgLiteSession` for `@electric-sql/pglite` (tests, local dev)                                      |
@@ -21,7 +21,7 @@ _Audience: application developers using `dsqlbase`._
 1. [Install](./install.md)
 2. [Schema](./schema.md) and [Relations](./relations.md) — and [Polymorphic relations](./polymorphic-relations.md) for relations to a `union()`
 3. [Sessions](./sessions.md), then [Querying](./querying.md), [Pagination](./pagination.md) and [Transactions](./transactions.md)
-4. [Tenancy](./tenancy.md) — if rows belong to a workspace, organisation or account
+4. [Row policies](./policies.md) — if who may see or change a row depends on the request: a workspace, an owner, a role
 5. [Global ids](./global-ids.md) — if ids leave your process and have to come back
 6. [Migrations](./migrations.md)
 7. [DSQL notes](./dsql-notes.md) — read before designing a schema for DSQL

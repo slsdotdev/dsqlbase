@@ -1,7 +1,7 @@
 # 0006 — Application-level tenancy
 
 - **Date:** 2026-09-23
-- **Status:** accepted
+- **Status:** superseded by [0024](./0024-row-policies.md) — tenancy is replaced by row policies
 - **Proposal:** `client-tenancy.md` (local working artifact, not tracked)
 
 ## Context

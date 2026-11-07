@@ -54,7 +54,7 @@ A cursor is valid only under the order it was taken with: the same model and the
 
 A cursor is a position, not a snapshot. If a row's order-key value changes while you page — its `createdAt` rewritten, say — it moves in the order, and may be seen twice or not at all. Rows inserted or deleted elsewhere in the list do not disturb the pages around them.
 
-Cursors are opaque strings. What they carry is each order key's value as the **database's own text** — `2026-09-27 12:00:00.123456+00`, not a JavaScript `Date` — because a `Date` holds milliseconds and a `timestamptz` holds microseconds: a cursor rebuilt from a `Date` would skip every other row written in the same millisecond. They are not signed or encrypted. A cursor someone edits by hand is only another position in the list; it grants nothing a `where` could not, and [tenancy](./tenancy.md) applies to every page regardless.
+Cursors are opaque strings. What they carry is each order key's value as the **database's own text** — `2026-09-27 12:00:00.123456+00`, not a JavaScript `Date` — because a `Date` holds milliseconds and a `timestamptz` holds microseconds: a cursor rebuilt from a `Date` would skip every other row written in the same millisecond. They are not signed or encrypted. A cursor someone edits by hand is only another position in the list; it grants nothing a `where` could not, and [row policies](./policies.md) apply to every page regardless.
 
 ## The two flags
 
@@ -103,11 +103,11 @@ const all = await dsql.tasks.count();
 
 A count is a second statement and reads every row the filter selects, on every call — which is why it is opt-in on a page. The two statements of a counted page run concurrently: on a pool they may use two connections, and so two snapshots a moment apart; inside [`$transaction`](./transactions.md) they share one.
 
-## Transactions and tenancy
+## Transactions and row policies
 
 A page — counted or not — batches in `$transaction([...])` like any other query, and `tx.<model>.paginate` works inside a callback. See [Transactions](./transactions.md).
 
-On a client scoped with `$identityClaims`, the tenant predicate bounds both the page and the count, exactly as it bounds `findMany`. A cursor is never a tenant boundary: one taken from another tenant's row is only a position, and the page it reads is still that client's rows alone. See [Tenancy](./tenancy.md).
+A table's [row policies](./policies.md) bound both the page and the count, exactly as they bound `findMany`. A cursor is never a boundary: one taken from a row the client cannot see is only a position, and the page it reads is still the rows the policies let that client see. See [Row policies](./policies.md).
 
 ## Indexes
 
@@ -154,5 +154,5 @@ union.
 
 - [Querying](./querying.md)
 - [Transactions](./transactions.md)
-- [Tenancy](./tenancy.md)
+- [Row policies](./policies.md)
 - [Global ids](./global-ids.md)
