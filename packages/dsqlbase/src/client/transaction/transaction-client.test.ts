@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "@dsqlbase/core";
+import type { Session, SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
-import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { belongsTo, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
 import { TxClient } from "./transaction-client.js";
 
 const users = table("users", {
@@ -269,5 +269,64 @@ describe("createTransactionRunner via $transaction", () => {
       await expect(client.$transaction(async () => "second-try")).resolves.toBe("second-try");
       expect(flaky.beginTransaction).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+const params = settings({ workspaceId: uuid("identity.workspace_id") });
+
+const invoices = table("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
+  number: text("number").notNull(),
+});
+
+describe("transactions on a settings client", () => {
+  const setup = () => {
+    const statements: SQLStatement[] = [];
+    const record = vi.fn(async (query: SQLStatement) => {
+      statements.push(query);
+      return [];
+    });
+
+    const session = {
+      execute: record,
+      beginTransaction: vi.fn(async () => ({
+        execute: record,
+        commit: vi.fn().mockResolvedValue(null),
+        rollback: vi.fn().mockResolvedValue(null),
+      })),
+    } as unknown as Session;
+
+    return {
+      dsql: createClient({ schema: { invoices }, session, settings: params }),
+      last: () => statements.at(-1),
+    };
+  };
+
+  it("carries the settings into a transaction opened on a settings client", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$settings({ workspaceId: "w1" }).$transaction(async (tx) => {
+      await tx.invoices.create({ data: { number: "INV-1" } });
+    });
+
+    // The transaction context spreads the parent's, so the settings come along with it.
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
+  });
+
+  it("keeps a query's settings when it is batched into a transaction without them", async () => {
+    const { dsql, last } = setup();
+
+    const query = dsql.$settings({ workspaceId: "w1" }).invoices.create({
+      data: { number: "INV-1" },
+    });
+
+    await dsql.$transaction([query]);
+
+    // The SQL was rendered when the settings client built it; batching only swaps the session.
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
   });
 });

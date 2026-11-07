@@ -7,12 +7,19 @@ export class TransactionClient<
   TDefinition extends DefinitionSchema,
 > extends BaseClient<TDefinition> {}
 
-export type TxClient<T extends DefinitionSchema> = TransactionClient<T> & Models<T>;
+/** A transaction's client. Opened on a settings client, it carries no raw SQL either. */
+export type TxClient<
+  T extends DefinitionSchema,
+  TScoped extends boolean = false,
+> = (TScoped extends true
+  ? Omit<TransactionClient<T>, "$query" | "$execute">
+  : TransactionClient<T>) &
+  Models<T>;
 
-export async function createTransactionRunner<TDefinition extends DefinitionSchema>(
-  ctx: ExecutionContext<TDefinition>,
-  options: OCCRetryOptions = {}
-) {
+export async function createTransactionRunner<
+  TDefinition extends DefinitionSchema,
+  TScoped extends boolean = false,
+>(ctx: ExecutionContext<TDefinition>, options: OCCRetryOptions = {}) {
   if (typeof ctx.session.beginTransaction !== "function") {
     throw new Error("Session does not support transactions");
   }
@@ -27,7 +34,9 @@ export async function createTransactionRunner<TDefinition extends DefinitionSche
   attachModels(txClient, context);
 
   return async <TReturn = unknown>(
-    opsOrCallback: Executable<unknown>[] | ((client: TxClient<TDefinition>) => Promise<TReturn>),
+    opsOrCallback:
+      | Executable<unknown>[]
+      | ((client: TxClient<TDefinition, TScoped>) => Promise<TReturn>),
     attempt = 1
   ): Promise<TReturn> => {
     const { maxRetries = 3, delay = 50, maxDelay = 1000 } = options;
@@ -45,7 +54,7 @@ export async function createTransactionRunner<TDefinition extends DefinitionSche
         return results as TReturn;
       }
 
-      const result = await opsOrCallback(txClient as unknown as TxClient<TDefinition>);
+      const result = await opsOrCallback(txClient as unknown as TxClient<TDefinition, TScoped>);
       await session.commit();
       return result;
     } catch (error) {
@@ -55,7 +64,7 @@ export async function createTransactionRunner<TDefinition extends DefinitionSche
 
       if (isOccError(error) && attempt < maxRetries) {
         await sleep(backoffDelay(attempt, delay, maxDelay));
-        const runner = await createTransactionRunner<TDefinition>(ctx, options);
+        const runner = await createTransactionRunner<TDefinition, TScoped>(ctx, options);
         return runner(opsOrCallback, attempt + 1);
       }
 

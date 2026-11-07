@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Session, sql, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { guid, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
+import { ModelClient } from "../model/client.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const workspaces = table("workspaces", {
@@ -9,9 +10,14 @@ const workspaces = table("workspaces", {
   name: text("name").notNull(),
 });
 
+const params = settings({ workspaceId: uuid("identity.workspace_id") });
+
 const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id").notNull(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
   number: text("number").notNull(),
 });
 
@@ -39,10 +45,106 @@ const setup = () => {
   } as unknown as Session;
 
   return {
-    dsql: createClient({ schema, session }),
+    dsql: createClient({ schema, session, settings: params }),
     last: () => statements.at(-1),
   };
 };
+
+describe("DatabaseClient.$settings", () => {
+  const byWorkspace = sql`"__t0"."workspace_id" = ${params.workspaceId}`;
+
+  it("binds its values into the statements the derived client builds", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$settings({ workspaceId: "w1" }).invoices.create({ data: { number: "INV-1" } });
+
+    expect(last()?.text).toContain('("id", "workspace_id", "number") VALUES (DEFAULT, $1, $2)');
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
+  });
+
+  it("renders an unset setting as NULL", async () => {
+    const { dsql, last } = setup();
+
+    await dsql.$settings({}).invoices.create({ data: { number: "INV-1" } });
+    expect(last()?.params).toEqual([null, "INV-1"]);
+
+    await dsql.invoices.create({ data: { number: "INV-2" } });
+    expect(last()?.params).toEqual([null, "INV-2"]);
+  });
+
+  it("leaves the client it was derived from without settings", () => {
+    const { dsql } = setup();
+
+    dsql.$settings({ workspaceId: "w1" });
+
+    expect(sql`${byWorkspace}`.toQuery().params).toEqual([null]);
+    expect(() => dsql.$query(sql`SELECT 1`)).not.toThrow();
+  });
+
+  it("accepts keys it does not declare, and checks nothing", () => {
+    const { dsql } = setup();
+    const token = { workspaceId: "w1", sub: "u1", ws: undefined };
+
+    expect(() => dsql.$settings({ ...token })).not.toThrow();
+    expect(() => dsql.$settings({})).not.toThrow();
+  });
+
+  it("attaches its own models, not the ones the client it derived from holds", () => {
+    const { dsql } = setup();
+    const derived = dsql.$settings({ workspaceId: "w1" });
+
+    expect(derived.invoices).toBeInstanceOf(ModelClient);
+    expect(derived.invoices).not.toBe(dsql.invoices);
+  });
+
+  /**
+   * The types remove `$query`, `$execute` and `$settings` from a settings client, so these
+   * guards only ever fire for a caller who got past them — a JavaScript consumer, or one
+   * holding the client through a widened type. That is what the cast reproduces.
+   */
+  describe("guards", () => {
+    const derived = () =>
+      setup().dsql.$settings({ workspaceId: "w1" }) as unknown as ReturnType<typeof setup>["dsql"];
+
+    it("refuses $query and $execute, because raw SQL bypasses every policy", async () => {
+      expect(() => derived().$query(sql`SELECT 1`)).toThrow(/raw SQL bypasses every row policy/);
+      await expect(derived().$execute(sql`SELECT 1`.toQuery())).rejects.toThrow(
+        /raw SQL bypasses every row policy/
+      );
+    });
+
+    it("refuses to be given settings again", () => {
+      expect(() => derived().$settings({ workspaceId: "w2" })).toThrow(/already carries settings/);
+    });
+
+    it("refuses raw SQL inside a transaction it opens", async () => {
+      const statements: SQLStatement[] = [];
+      const session = {
+        execute: vi.fn(async (query: SQLStatement) => {
+          statements.push(query);
+          return [];
+        }),
+        beginTransaction: vi.fn(async () => ({
+          execute: session.execute,
+          commit: vi.fn(async () => undefined),
+          rollback: vi.fn(async () => undefined),
+        })),
+      } as unknown as Session;
+
+      const scoped = createClient({ schema, session, settings: params }).$settings({
+        workspaceId: "w1",
+      });
+
+      await expect(
+        scoped.$transaction(async (tx) => {
+          await (tx as unknown as { $execute(q: SQLStatement): Promise<unknown> }).$execute(
+            sql`SELECT 1`.toQuery()
+          );
+        })
+      ).rejects.toThrow(/raw SQL bypasses every row policy/);
+    });
+  });
+});
 
 // A `sql` template has no `text`: passed here, the session would have run nothing, silently.
 describe("DatabaseClient.$execute", () => {

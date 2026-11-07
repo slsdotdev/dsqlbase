@@ -22,6 +22,7 @@ import {
   $enum,
   numeric,
 } from "dsqlbase/schema";
+import { params } from "./settings";
 import { Decimal } from "decimal.js";
 import { z } from "zod";
 
@@ -132,7 +133,10 @@ const workspaces = table("workspaces", {
 });
 
 const documents = table("documents", {
-  workspaceId: uuid("workspace_id").notNull().readOnly(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
   id: uuid("id").primaryKey().defaultRandom(),
   // Points at a global table, so a join from `users` correlates on something other than the
   // claim column — the only shape where the tenant predicate, rather than the correlation,
@@ -145,7 +149,10 @@ const documents = table("documents", {
 
 // Keyed under an alias that differs from its database name, like `members` above.
 const comments = table("document_comments", {
-  workspaceId: uuid("workspace_id").notNull().readOnly(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
   id: uuid("id").primaryKey().defaultRandom(),
   documentId: uuid("document_id").notNull(),
   author: text("author").notNull(),
@@ -296,7 +303,10 @@ const revisions = table("article_revisions", {
  * without the lookup knowing anything about tenancy.
  */
 const drafts = table("drafts", {
-  workspaceId: uuid("workspace_id").notNull().readOnly(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => params.workspaceId),
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
 });

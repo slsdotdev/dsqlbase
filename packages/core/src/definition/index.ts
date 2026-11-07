@@ -76,3 +76,12 @@ export {
   type UnionColumns,
   type UnionConfig,
 } from "./union.js";
+export {
+  SettingDefinition,
+  defineSettings,
+  type AnySettingsDefinition,
+  type NoSettings,
+  type SettingRef,
+  type SettingsDefinition,
+  type SettingValuesOf,
+} from "./settings.js";

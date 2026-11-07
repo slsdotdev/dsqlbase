@@ -122,6 +122,7 @@ export {
   SQLQuery,
   SQLParam,
   SQLRaw,
+  SQLSetting,
   SQLIdentifier,
   SQLWrapper,
   type SQLNode,

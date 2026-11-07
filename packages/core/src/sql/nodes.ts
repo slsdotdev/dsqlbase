@@ -19,6 +19,12 @@ export type SQLContext = {
    * the keys are, which keeps this layer independent of the runtime.
    */
   aliases?: ReadonlyMap<unknown, string>;
+
+  /**
+   * The per-request values {@link SQLSetting} nodes render, keyed by setting name. Absent, or
+   * missing a key, renders that setting as `NULL`.
+   */
+  settings?: Readonly<Record<string, unknown>>;
 };
 
 export type SQLValue = string | number | boolean | bigint | null | object;
@@ -93,6 +99,38 @@ export class SQLParam<TValue> implements SQLNode {
 
     const paramIndex = ctx.paramCounter.next();
     return { text: `$${paramIndex}`, params: [encodedValue] };
+  }
+}
+
+/**
+ * A per-request value, read from {@link SQLContext.settings} when the statement is rendered and
+ * bound as a parameter — the runtime stand-in for `current_setting('<key>', true)`, which DSQL
+ * cannot scope to a request.
+ *
+ * Unset renders `NULL`, exactly as `current_setting(key, true)` does. Nothing refuses a missing
+ * value: a comparison with `NULL` is never true, so a policy reading one denies by itself.
+ */
+export class SQLSetting<TValue = unknown> implements SQLNode {
+  declare readonly __type: { valueType: TValue };
+
+  /** The key values are given under (`$settings({ userId })`). */
+  readonly name: string;
+
+  /** The name a native policy would read through `current_setting()` (`identity.user_id`). */
+  readonly key: string;
+
+  private readonly _encode: ValueSerializer<TValue>;
+
+  constructor(name: string, key: string, encode: ValueSerializer<TValue> = (value) => value) {
+    this.name = name;
+    this.key = key;
+    this._encode = encode;
+  }
+
+  toSQL(ctx: SQLContext): SQLStatement {
+    const value = ctx.settings?.[this.name];
+
+    return new SQLParam((value ?? null) as TValue, this._encode).toSQL(ctx);
   }
 }
 
@@ -181,6 +219,7 @@ export class SQLQuery<T = unknown> implements SQLNode {
       paramCounter: ctx?.paramCounter ?? counter(),
       escapeValue: ctx?.escapeValue ?? escapeValue,
       escapeIdentifier: ctx?.escapeIdentifier ?? escapeIdentifier,
+      settings: ctx?.settings,
     });
   }
 

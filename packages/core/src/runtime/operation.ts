@@ -1,6 +1,14 @@
 import { TypedObject } from "../utils/index.js";
 import { KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
-import { KeysetBound, SQLIdentifier, SQLNode, SQLStatement, SQLValue, sql } from "../sql/index.js";
+import {
+  KeysetBound,
+  SQLIdentifier,
+  SQLNode,
+  SQLQuery,
+  SQLStatement,
+  SQLValue,
+  sql,
+} from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn, Column } from "./column.js";
@@ -224,6 +232,11 @@ export class OperationsFactory<
 
   constructor(ctx: ExecutionContext) {
     this._ctx = ctx;
+  }
+
+  /** Renders a statement with this context's settings, so every setting binds its value. */
+  private _render(query: SQLQuery): SQLStatement {
+    return query.toQuery({ settings: this._ctx.settings });
   }
 
   /**
@@ -849,7 +862,7 @@ export class OperationsFactory<
       mode: mode,
       name: name ?? `select_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(fieldResolvers, mode),
     };
   }
@@ -875,7 +888,7 @@ export class OperationsFactory<
       mode: "one",
       name: name ?? `count_${table.name}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       // `count(*)` is a `bigint`, which drivers hand back as text (node-postgres) or `bigint`.
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
@@ -907,7 +920,7 @@ export class OperationsFactory<
       mode,
       name: name ?? `select_${union.alias}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: (rows) =>
         this._resolveUnionRows(
           resolver,
@@ -945,7 +958,7 @@ export class OperationsFactory<
       mode: "one",
       name: name ?? `count_${union.alias}`,
       args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: (rows) => Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0),
     };
   }
@@ -973,7 +986,7 @@ export class OperationsFactory<
       mode: config.mode,
       name: name ?? `insert_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }
@@ -1002,7 +1015,7 @@ export class OperationsFactory<
       mode,
       name: name ?? `update_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }
@@ -1029,7 +1042,7 @@ export class OperationsFactory<
       mode: config.mode,
       name: name ?? `delete_${table.name}`,
       args: args,
-      query: query.toQuery(),
+      query: this._render(query),
       resolve: this._createResultResolver<TMode, TResult>(selection.resolvers, mode),
     };
   }

@@ -4,6 +4,7 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
+  defineSettings,
 } from "../definition/index.js";
 import { sql, SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
@@ -786,5 +787,69 @@ describe("OperationFactory / $onUpdate", () => {
       ["revision", "pinned"],
       ["updated_at", "now"],
     ]);
+  });
+});
+
+describe("OperationFactory / settings", () => {
+  const params = defineSettings({ workspaceId: new ColumnDefinition("identity.workspace_id") });
+
+  const docs = new TableDefinition("docs", {
+    columns: {
+      id: new ColumnDefinition("id").primaryKey(),
+      workspaceId: new ColumnDefinition("workspace_id")
+        .notNull()
+        .readOnly()
+        .$onCreate(() => params.workspaceId),
+      title: new ColumnDefinition("title").notNull(),
+    },
+  });
+
+  const docsRegistry = new SchemaRegistry({ docs });
+  const table = docsRegistry.getTable("docs");
+
+  const factory = (settings?: Record<string, unknown>) =>
+    new OperationsFactory(
+      new ExecutionContext({
+        schema: docsRegistry,
+        dialect: new QueryBuilder(),
+        session: mockSession,
+        settings,
+      })
+    );
+
+  const insert = (settings?: Record<string, unknown>) =>
+    factory(settings).createInsertOperation(table, {
+      mode: "one",
+      args: {
+        data: [
+          [
+            ["id", new SQLParam("d1")],
+            ["title", new SQLParam("t")],
+          ],
+        ],
+      },
+    }).query;
+
+  it("fills a column from the setting its $onCreate returns", () => {
+    const query = insert({ workspaceId: "w1" });
+
+    expect(query.text).toContain(
+      'INSERT INTO "docs" ("id", "workspace_id", "title") VALUES ($1, $2, $3)'
+    );
+    expect(query.params).toEqual(["d1", "w1", "t"]);
+  });
+
+  it("inserts NULL when the setting is unset, for notNull or a policy to refuse", () => {
+    expect(insert().params).toEqual(["d1", null, "t"]);
+  });
+
+  it("binds a setting anywhere the statement reads one", () => {
+    const query = factory({ workspaceId: "w1" }).createSelectOperation(table, {
+      mode: "many",
+      args: { where: sql`${table.columns.workspaceId} = ${params.workspaceId}` },
+    }).query;
+
+    expect(query.text).toContain('WHERE "__t0"."workspace_id" = $1');
+    expect(query.params).toEqual(["w1"]);
   });
 });

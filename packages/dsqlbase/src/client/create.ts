@@ -1,3 +1,4 @@
+import { AnySettingsDefinition, NoSettings } from "@dsqlbase/core/definition";
 import {
   DefinitionSchema,
   ExecutionContext,
@@ -10,7 +11,10 @@ import { attachModels } from "./database/base.js";
 import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
-export type ClientOptions<TSchema extends DefinitionSchema> = {
+export type ClientOptions<
+  TSchema extends DefinitionSchema,
+  TSettings extends AnySettingsDefinition = NoSettings,
+> = {
   /**
    * Definition schema for the database, including relations configuration.
    */
@@ -20,6 +24,13 @@ export type ClientOptions<TSchema extends DefinitionSchema> = {
    * Session object for managing database connections and transactions.
    */
   session: Session;
+
+  /**
+   * The settings row policies and `$onCreate` read — a `settings({ ... })` declaration. It types
+   * `$settings()`; values are given per request through it. Not a schema object: it describes
+   * the request, not the data, so the registry and migrations never see it.
+   */
+  settings?: TSettings;
 
   /**
    * Page sizes for `paginate`. `defaultLimit` is used when a call names no `limit` (100 when
@@ -104,9 +115,10 @@ function assertPagination(options: PaginationOptions | undefined) {
  * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
-export function createClient<TSchema extends DefinitionSchema>(
-  options: ClientOptions<TSchema>
-): QueryClient<TSchema> {
+export function createClient<
+  TSchema extends DefinitionSchema,
+  TSettings extends AnySettingsDefinition = NoSettings,
+>(options: ClientOptions<TSchema, TSettings>): QueryClient<TSchema, TSettings> {
   assertPagination(options.pagination);
 
   const schema = new SchemaRegistry(options.schema);
@@ -127,5 +139,5 @@ export function createClient<TSchema extends DefinitionSchema>(
   const dbClient = new DatabaseClient(context);
   attachModels(dbClient, context);
 
-  return dbClient as unknown as QueryClient<TSchema>;
+  return dbClient as unknown as QueryClient<TSchema, TSettings>;
 }

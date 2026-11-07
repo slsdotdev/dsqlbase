@@ -54,6 +54,7 @@ export { varchar } from "./columns/varchar.js";
 export { domain, $enum } from "./domain.js";
 export { namespace, schema } from "./namespace.js";
 export { sequence } from "./sequence.js";
+export { settings } from "./settings.js";
 export { table } from "./table.js";
 export { union } from "./union.js";
 

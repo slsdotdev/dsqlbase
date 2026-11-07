@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema as CoreSchema, Session } from "@dsqlbase/core";
 import { createClient } from "../create.js";
 import type { NodeAliasesOf } from "../model/base.js";
-import { guid, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, int, relations, settings, table, text, uuid } from "../../schema/index.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
 const workspaces = table("workspaces", {
@@ -35,6 +35,56 @@ describe("createClient", () => {
     expectTypeOf(dsql).toHaveProperty("invoices");
     expectTypeOf(dsql).toHaveProperty("$query");
     expectTypeOf(dsql).toHaveProperty("$execute");
+  });
+});
+
+const params = settings({
+  workspaceId: uuid("identity.workspace_id"),
+  level: int("identity.level"),
+});
+const withSettings = createClient({ schema, session, settings: params });
+
+describe("$settings", () => {
+  it("types each declared setting by its column, optional and nullable", () => {
+    withSettings.$settings({ workspaceId: "w1", level: 2 });
+    withSettings.$settings({ workspaceId: null });
+    withSettings.$settings({});
+
+    // @ts-expect-error `level` is an int setting.
+    withSettings.$settings({ level: "high" });
+  });
+
+  it("accepts keys it does not declare", () => {
+    const token = { workspaceId: "w1", sub: "u1" };
+
+    expectTypeOf(withSettings.$settings({ ...token })).toHaveProperty("invoices");
+    withSettings.$settings({ anything: 1 });
+  });
+
+  it("returns a client with every table, no raw SQL, that cannot be derived again", () => {
+    const scoped = withSettings.$settings({ workspaceId: "w1" });
+
+    expectTypeOf(scoped).toHaveProperty("invoices");
+    expectTypeOf(scoped).toHaveProperty("$findByGlobalId");
+    expectTypeOf(scoped).not.toHaveProperty("$query");
+    expectTypeOf(scoped).not.toHaveProperty("$execute");
+    expectTypeOf(scoped).not.toHaveProperty("$settings");
+  });
+
+  it("opens transactions whose client has no raw SQL either", () => {
+    // Typed only: the mock session cannot begin a transaction.
+    expectTypeOf(() =>
+      withSettings.$settings({}).$transaction(async (tx) => {
+        expectTypeOf(tx).toHaveProperty("invoices");
+        expectTypeOf(tx).not.toHaveProperty("$query");
+      })
+    ).toBeFunction();
+
+    expectTypeOf(() =>
+      withSettings.$transaction(async (tx) => {
+        expectTypeOf(tx).toHaveProperty("$query");
+      })
+    ).toBeFunction();
   });
 });
 

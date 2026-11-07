@@ -1,4 +1,5 @@
 import { SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/nodes.js";
+import type { SettingRef } from "./settings.js";
 import {
   HasDefault,
   NotNull,
@@ -120,7 +121,7 @@ export class ColumnDefinition<
   protected _codec: ColumnCodec<this["__type"]["rawType"], this["__type"]["valueType"]>;
   protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
   protected _hooks?: ColumnHooks<this["__type"]["valueType"]>;
-  protected _onCreate?: () => this["__type"]["inputType"];
+  protected _onCreate?: () => this["__type"]["inputType"] | SettingRef<this["__type"]["inputType"]>;
   protected _onUpdate?: () => this["__type"]["inputType"];
 
   constructor(name: TName, config: Partial<TConfig> = {}) {
@@ -244,7 +245,15 @@ export class ColumnDefinition<
     return this as ValueType<this, TypeArgOf<this, T>>;
   }
 
-  public $onCreate(cb: () => this["__type"]["inputType"]): this {
+  /**
+   * Fills the column on insert when the caller gives no value. The callback may return a
+   * setting (`() => params.workspaceId`): it renders from the client's settings, `NULL` when
+   * unset, encoded by the setting's own column — the target column's validator does not see it.
+   * Runtime-only: migrations never read it, so a setting-sourced column has no `DEFAULT`.
+   */
+  public $onCreate(
+    cb: () => this["__type"]["inputType"] | SettingRef<this["__type"]["inputType"]>
+  ): this {
     this._onCreate = cb;
     return this;
   }

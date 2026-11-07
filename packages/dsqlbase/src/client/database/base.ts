@@ -33,6 +33,20 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /**
+   * Raw SQL bypasses every seam the operations factory applies, row policies included, so a
+   * settings client does not carry it. The types remove it; this is the runtime half, for
+   * callers reaching it through a widened type.
+   */
+  private _assertUnscoped(method: string): void {
+    if (this._ctx.settings) {
+      throw new Error(
+        `${method} is not available on a client carrying settings: raw SQL bypasses every row ` +
+          `policy. Use it on the base client, where that is plain to read.`
+      );
+    }
+  }
+
+  /**
    * Resolves a global id to the table it names and the unique key its payload matches.
    *
    * Every failure is raised here, before a query is built: an id that does not decode, one
@@ -208,6 +222,8 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   $query<T = unknown>(sql: SQLQuery) {
+    this._assertUnscoped("$query");
+
     return new ExecutableQuery<T[]>(
       {
         mode: "many",
@@ -222,6 +238,8 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   async $execute<T = unknown>(query: SQLStatement): Promise<T[]> {
+    this._assertUnscoped("$execute");
+
     // A `sql` template here is an object with no `text`: the session would run nothing.
     if (typeof (query as Partial<SQLStatement> | null)?.text !== "string") {
       throw new TypeError(
