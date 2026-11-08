@@ -23,7 +23,6 @@ import {
   numeric,
 } from "dsqlbase/schema";
 import { sql } from "dsqlbase";
-import { params } from "./settings";
 import { Decimal } from "decimal.js";
 import { z } from "zod";
 
@@ -137,7 +136,7 @@ const documents = table("documents", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   id: uuid("id").primaryKey().defaultRandom(),
   // Points at a table without policies, so a join from `users` correlates on something other
   // than `workspace_id` — the only shape where the policy, rather than the correlation, is what
@@ -152,16 +151,16 @@ const documents = table("documents", {
   // and only the author changes or removes a row.
   .policy("workspace_isolation", (t) => ({
     as: "restrictive",
-    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
   }))
   .policy("members_read", () => ({ for: "select", using: sql`true` }))
   .policy("members_insert", (t) => ({
     for: "insert",
-    check: sql`${t.authorId} = ${params.settings.userId}`,
+    check: sql`${t.authorId} = ${sql.claim("userId")}`,
   }))
   .policy("author_writes", (t) => ({
     for: ["update", "delete"],
-    using: sql`${t.authorId} = ${params.settings.userId}`,
+    using: sql`${t.authorId} = ${sql.claim("userId")}`,
   }));
 
 // Keyed under an alias that differs from its database name, like `members` above.
@@ -169,13 +168,13 @@ const comments = table("document_comments", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   id: uuid("id").primaryKey().defaultRandom(),
   documentId: uuid("document_id").notNull(),
   author: text("author").notNull(),
   body: text("body").notNull(),
 }).policy("workspace_isolation", (t) => ({
-  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+  using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
 }));
 
 // The policy's column leads, which is the shape the guide recommends for a bounded table.
@@ -325,13 +324,13 @@ const drafts = table("drafts", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   // Immutable once written: no policy covers update, so every update is refused.
 }).policy("workspace_isolation", (t) => ({
   for: ["select", "insert", "delete"],
-  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+  using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
 }));
 
 // A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.

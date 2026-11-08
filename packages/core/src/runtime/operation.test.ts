@@ -4,7 +4,6 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
-  SettingsDefinition,
 } from "../definition/index.js";
 import { sql, SQLIdentifier, SQLNode, SQLParam, SQLQuery } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
@@ -792,15 +791,13 @@ describe("OperationFactory / $onUpdate", () => {
 });
 
 describe("OperationFactory / settings", () => {
-  const params = new SettingsDefinition({ workspaceId: new ColumnDefinition("identity.workspace_id") });
-
   const docs = new TableDefinition("docs", {
     columns: {
       id: new ColumnDefinition("id").primaryKey(),
       workspaceId: new ColumnDefinition("workspace_id")
         .notNull()
         .readOnly()
-        .$onCreate(() => params.settings.workspaceId),
+        .$onCreate(() => sql.claim("workspaceId")),
       title: new ColumnDefinition("title").notNull(),
     },
   });
@@ -847,7 +844,7 @@ describe("OperationFactory / settings", () => {
   it("binds a setting anywhere the statement reads one", () => {
     const query = factory({ workspaceId: "w1" }).createSelectOperation(table, {
       mode: "many",
-      args: { where: sql`${table.columns.workspaceId} = ${params.settings.workspaceId}` },
+      args: { where: sql`${table.columns.workspaceId} = ${sql.claim("workspaceId")}` },
     }).query;
 
     expect(query.text).toContain('WHERE "__t0"."workspace_id" = $1');
@@ -856,11 +853,6 @@ describe("OperationFactory / settings", () => {
 });
 
 describe("OperationFactory / row policies", () => {
-  const params = new SettingsDefinition({
-    workspaceId: new ColumnDefinition("identity.workspace_id"),
-    userId: new ColumnDefinition("identity.user_id"),
-  });
-
   const workspaces = new TableDefinition("workspaces", {
     columns: { id: new ColumnDefinition("id").primaryKey() },
   });
@@ -875,12 +867,12 @@ describe("OperationFactory / row policies", () => {
   })
     .policy("workspace_isolation", (t) => ({
       as: "restrictive",
-      using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+      using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
     }))
     .policy("members_read", () => ({ for: "select", using: sql`true` }))
     .policy("owner_writes", (t) => ({
       for: ["update", "delete"],
-      using: sql`${t.ownerId} = ${params.settings.userId}`,
+      using: sql`${t.ownerId} = ${sql.claim("userId")}`,
     }));
 
   const lineItems = new TableDefinition("line_items", {
@@ -890,7 +882,7 @@ describe("OperationFactory / row policies", () => {
       workspaceId: new ColumnDefinition("workspace_id").notNull(),
     },
   }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
   }));
 
   // Policies but none for select: every read of it is denied.
@@ -1049,7 +1041,7 @@ describe("OperationFactory / row policies", () => {
         shared: new ColumnDefinition("shared"),
       },
     })
-      .policy("own", (t) => ({ using: sql`${t.ownerId} = ${params.settings.userId}` }))
+      .policy("own", (t) => ({ using: sql`${t.ownerId} = ${sql.claim("userId")}` }))
       .policy("shared", (t) => ({ for: "select", using: sql`${t.shared}` }))
       .policy("live", () => ({ as: "restrictive", using: sql`true` }));
 

@@ -8,7 +8,6 @@ import {
   datetime,
   jsonb,
   relations,
-  settings,
   table,
   text,
   uuid,
@@ -28,14 +27,12 @@ describe("paginate and count", () => {
     line: text("line").notNull(),
   });
 
-  const params = settings({ workspaceId: uuid("identity.workspace_id") });
-
   const invoices = table("invoices", {
     id: uuid("id").primaryKey().defaultRandom(),
     workspaceId: uuid("workspace_id").notNull(),
     number: text("number").notNull(),
   }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
   }));
 
   const schema = { tasks, logs, invoices };
@@ -69,7 +66,6 @@ describe("paginate and count", () => {
     const dsql = createClient({
       schema,
       session,
-      settings: params,
       pagination: options.pagination,
     });
 
@@ -152,7 +148,7 @@ describe("paginate and count", () => {
       const { dsql, last } = setup({
         rows: [{ id: "i1", number: "1", workspace_id: "w1", __k0: "i1" }],
       });
-      const acme = dsql.$settings({ workspaceId: "w1" });
+      const acme = dsql.$withClaims({ workspaceId: "w1" });
 
       const first = await acme.invoices.paginate({ limit: 1 });
       await acme.invoices.paginate({ limit: 1, after: first.endCursor });
@@ -181,7 +177,7 @@ describe("paginate and count", () => {
     it("bounds a count the same way", async () => {
       const { dsql, last } = setup({ total: "1" });
 
-      await dsql.$settings({ workspaceId: "w1" }).invoices.count();
+      await dsql.$withClaims({ workspaceId: "w1" }).invoices.count();
 
       expect(last()?.text).toBe(
         `SELECT count(*) AS "count" FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`

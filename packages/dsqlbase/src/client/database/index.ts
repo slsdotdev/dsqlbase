@@ -1,5 +1,4 @@
 import { AnyTable, DefinitionSchema, RuntimeTables, Schema } from "@dsqlbase/core";
-import { AnySettingsDefinition, NoSettings } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import { DatabaseClient } from "./client.js";
@@ -25,9 +24,6 @@ export type Models<T extends DefinitionSchema, TVisible extends Aliases<T> = Ali
 };
 
 /** A client: the `$`-prefixed methods, and one model per table and union in the schema. */
-export type QueryClient<
-  T extends DefinitionSchema,
-  TSettings extends AnySettingsDefinition = NoSettings,
-> = DatabaseClient<T, TSettings> & Models<T>;
+export type QueryClient<T extends DefinitionSchema> = DatabaseClient<T> & Models<T>;
 
 export { DatabaseClient };

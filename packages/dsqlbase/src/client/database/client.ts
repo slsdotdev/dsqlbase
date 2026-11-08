@@ -1,13 +1,9 @@
 import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
-import { AnySettingsDefinition, NoSettings, SettingValuesOf } from "@dsqlbase/core/definition";
 import { attachModels, BaseClient } from "./base.js";
 import { createTransactionRunner, TxClient } from "../transaction/transaction-client.js";
 import type { QueryClient } from "./index.js";
 
-export class DatabaseClient<
-  TDefinition extends DefinitionSchema,
-  TSettings extends AnySettingsDefinition = NoSettings,
-> extends BaseClient<TDefinition> {
+export class DatabaseClient<TDefinition extends DefinitionSchema> extends BaseClient<TDefinition> {
   /**
    * A client carrying `values` for the settings row policies and `$onCreate` read, for the life
    * of one request. Derive it per request, then open transactions on it: a transaction inherits
@@ -21,18 +17,16 @@ export class DatabaseClient<
    * never true. The client it is called on stays usable, and a query's SQL is fixed by the client
    * that built it, so concurrent requests never see each other's values.
    */
-  public $settings(
-    values: SettingValuesOf<TSettings> & Record<string, unknown>
-  ): QueryClient<TDefinition, TSettings> {
+  public $withClaims(values: Record<string, unknown>): QueryClient<TDefinition> {
     const ctx = new ExecutionContext<TDefinition>({
       ...this._ctx,
       settings: Object.freeze({ ...this._ctx.settings, ...values }),
     });
-    const client = new DatabaseClient<TDefinition, TSettings>(ctx);
+    const client = new DatabaseClient<TDefinition>(ctx);
 
     attachModels(client, ctx);
 
-    return client as QueryClient<TDefinition, TSettings>;
+    return client as QueryClient<TDefinition>;
   }
 
   public async $transaction<const TQueries extends Executable<unknown>[]>(

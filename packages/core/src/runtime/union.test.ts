@@ -6,7 +6,6 @@ import {
   RelationsDefinition,
   TableDefinition,
   UnionDefinition,
-  SettingsDefinition,
 } from "../definition/index.js";
 import type { ColumnHooks } from "../resolvers/index.js";
 import { sql } from "../sql/index.js";
@@ -521,8 +520,6 @@ describe("union joins — results", () => {
 });
 
 describe("union joins — row policies", () => {
-  const params = new SettingsDefinition({ workspaceId: col("identity.workspace_id", "uuid") });
-
   const notes = new TableDefinition("notes", {
     columns: {
       id: col("id", "uuid").primaryKey(),
@@ -530,7 +527,7 @@ describe("union joins — row policies", () => {
       workspaceId: col("workspace_id", "uuid").notNull(),
     },
   }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
   }));
 
   const links = new TableDefinition("links", {

@@ -238,7 +238,7 @@ export class OperationsFactory<
 
   /** Renders a statement with this context's settings, so every setting binds its value. */
   private _render(query: SQLQuery): SQLStatement {
-    return query.toQuery({ settings: this._ctx.settings });
+    return query.toQuery({ claims: this._ctx.settings });
   }
 
   /**

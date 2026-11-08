@@ -3,13 +3,12 @@ import { Schema } from "@dsqlbase/core/runtime";
 import { createClient } from "dsqlbase";
 import { createPgLiteSession } from "dsqlbase/pglite";
 import { schema } from "./schema";
-import { params } from "./schema/settings";
 
 export const createTestClient = () => {
   const pg = new PGlite("memory://", { debug: 0 });
 
   const session = createPgLiteSession(pg);
-  const dsql = createClient({ schema, session, settings: params });
+  const dsql = createClient({ schema, session });
 
   return Object.assign(dsql, { session, pg, close: () => pg.close() });
 };

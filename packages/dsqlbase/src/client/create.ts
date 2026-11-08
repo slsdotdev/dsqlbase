@@ -1,4 +1,3 @@
-import { AnySettingsDefinition, NoSettings } from "@dsqlbase/core/definition";
 import {
   DefinitionSchema,
   ExecutionContext,
@@ -11,10 +10,7 @@ import { attachModels } from "./database/base.js";
 import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
-export type ClientOptions<
-  TSchema extends DefinitionSchema,
-  TSettings extends AnySettingsDefinition = NoSettings,
-> = {
+export type ClientOptions<TSchema extends DefinitionSchema> = {
   /**
    * Definition schema for the database, including relations configuration.
    */
@@ -24,13 +20,6 @@ export type ClientOptions<
    * Session object for managing database connections and transactions.
    */
   session: Session;
-
-  /**
-   * The settings row policies and `$onCreate` read — a `settings({ ... })` declaration. It types
-   * `$settings()`; values are given per request through it. Not a schema object: it describes
-   * the request, not the data, so the registry and migrations never see it.
-   */
-  settings?: TSettings;
 
   /**
    * `bypass: true` skips every row policy on this client and every client derived from it —
@@ -123,10 +112,9 @@ function assertPagination(options: PaginationOptions | undefined) {
  * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
-export function createClient<
-  TSchema extends DefinitionSchema,
-  TSettings extends AnySettingsDefinition = NoSettings,
->(options: ClientOptions<TSchema, TSettings>): QueryClient<TSchema, TSettings> {
+export function createClient<TSchema extends DefinitionSchema>(
+  options: ClientOptions<TSchema>
+): QueryClient<TSchema> {
   assertPagination(options.pagination);
 
   const schema = new SchemaRegistry(options.schema);
@@ -148,5 +136,5 @@ export function createClient<
   const dbClient = new DatabaseClient(context);
   attachModels(dbClient, context);
 
-  return dbClient as unknown as QueryClient<TSchema, TSettings>;
+  return dbClient as unknown as QueryClient<TSchema>;
 }

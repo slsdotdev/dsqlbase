@@ -6,9 +6,6 @@
 Row policies replace tenancy. DSQL has no row-level security, so the client enforces
 RLS-shaped policies itself, on every statement it builds:
 
-- `settings({ ... })` declares per-request values with column builders;
-  `createClient({ settings })` types them and `dsql.$settings(values)` derives a client carrying
-  them. An unset setting renders `NULL`.
 - `table.policy(name, (t) => ({ as, for, using, check }))` declares a policy with PostgreSQL RLS
   semantics: permissive OR-ed, restrictive AND-ed, default deny, update / delete also bounded by
   select policies. `using` bounds every read level, join, union branch, count, page and node
@@ -16,9 +13,9 @@ RLS-shaped policies itself, on every statement it builds:
   failing row fails the statement with nothing written.
 - A failed check throws `PolicyViolationError` (`table`, `command`, `as`, `policies`, driver
   error as `cause`); `$transaction` rolls back and rethrows it without an OCC retry.
-- `$onCreate` may return a setting, filling a column at insert time without a DDL default.
+- `$onCreate` may return a `SQLNode`, filling a column at insert time without a DDL default.
 - `createClient({ policies: { bypass: true } })` skips every policy on that client.
-- `$settings` on a client that already carries settings merges the new values over the old;
+- `$withClaims` on a client that already carries settings merges the new values over the old;
   transactions inherit a client's settings.
 
 **Breaking (`@dsqlbase/core`):**
@@ -31,9 +28,7 @@ RLS-shaped policies itself, on every statement it builds:
 
 - `tenantScope`, `$identityClaims`, `ClaimsOf`, `IdentityClient`, `VisibleFor`,
   `VisibleAliases`, `ClientOptions.tenancy` and the `TClaims` / `TEnforce` client generics are
-  removed. Move a claim column to `uuid("workspace_id").notNull().readOnly().$onCreate(() =>
-params.settings.workspaceId)` with a policy over it, and `$identityClaims(claims)` to
-  `$settings(values)`.
+  removed.
 - Every table is on every client; a table with policies returns nothing to a client whose
   settings it does not match, rather than being absent from its type.
 

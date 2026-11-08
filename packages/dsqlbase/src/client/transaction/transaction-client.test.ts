@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PolicyViolationError, type Session, type SQLStatement } from "@dsqlbase/core";
+import { PolicyViolationError, sql, type Session, type SQLStatement } from "@dsqlbase/core";
+import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
-import { belongsTo, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
 import { TxClient } from "./transaction-client.js";
 
 const users = table("users", {
@@ -272,14 +272,12 @@ describe("createTransactionRunner via $transaction", () => {
   });
 });
 
-const params = settings({ workspaceId: uuid("identity.workspace_id") });
-
 const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   number: text("number").notNull(),
 });
 
@@ -301,7 +299,7 @@ describe("transactions on a settings client", () => {
     } as unknown as Session;
 
     return {
-      dsql: createClient({ schema: { invoices }, session, settings: params }),
+      dsql: createClient({ schema: { invoices }, session }),
       last: () => statements.at(-1),
     };
   };
@@ -309,7 +307,7 @@ describe("transactions on a settings client", () => {
   it("carries the settings into a transaction opened on a settings client", async () => {
     const { dsql, last } = setup();
 
-    await dsql.$settings({ workspaceId: "w1" }).$transaction(async (tx) => {
+    await dsql.$withClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
       await tx.invoices.create({ data: { number: "INV-1" } });
     });
 
@@ -317,10 +315,10 @@ describe("transactions on a settings client", () => {
     expect(last()?.params).toEqual(["w1", "INV-1"]);
   });
 
-  it("keeps a query's settings when it is batched into a transaction without them", async () => {
+  it("keeps a query's claims when it is batched into a transaction without them", async () => {
     const { dsql, last } = setup();
 
-    const query = dsql.$settings({ workspaceId: "w1" }).invoices.create({
+    const query = dsql.$withClaims({ workspaceId: "w1" }).invoices.create({
       data: { number: "INV-1" },
     });
 
@@ -350,7 +348,7 @@ describe("a policy violation inside a transaction", () => {
     } as unknown as Session & { beginTransaction: ReturnType<typeof vi.fn> };
 
     return {
-      dsql: createClient({ schema: { invoices }, session, settings: params }),
+      dsql: createClient({ schema: { invoices }, session }),
       session,
       rollback,
       commit,
@@ -361,7 +359,7 @@ describe("a policy violation inside a transaction", () => {
     const { dsql, session, rollback, commit } = setup();
 
     await expect(
-      dsql.$settings({ workspaceId: "w1" }).$transaction(async (tx) => {
+      dsql.$withClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
         await tx.invoices.create({ data: { number: "INV-1" } });
       })
     ).rejects.toBeInstanceOf(PolicyViolationError);
@@ -373,7 +371,9 @@ describe("a policy violation inside a transaction", () => {
 
   it("does the same for a batch", async () => {
     const { dsql, session, rollback } = setup();
-    const query = dsql.$settings({ workspaceId: "w1" }).invoices.create({ data: { number: "1" } });
+    const query = dsql
+      .$withClaims({ workspaceId: "w1" })
+      .invoices.create({ data: { number: "1" } });
 
     await expect(dsql.$transaction([query])).rejects.toMatchObject({
       name: "PolicyViolationError",

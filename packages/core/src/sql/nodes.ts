@@ -21,10 +21,10 @@ export type SQLContext = {
   aliases?: ReadonlyMap<unknown, string>;
 
   /**
-   * The per-request values {@link SQLSetting} nodes render, keyed by setting name. Absent, or
-   * missing a key, renders that setting as `NULL`.
+   * The per-request values {@link SQLClaim} nodes render, keyed by claim name. Absent, or
+   * missing a key, renders that claim as `NULL`.
    */
-  settings?: Readonly<Record<string, unknown>>;
+  claims?: Readonly<Record<string, unknown>>;
 };
 
 export type SQLValue = string | number | boolean | bigint | null | object;
@@ -103,32 +103,27 @@ export class SQLParam<TValue> implements SQLNode {
 }
 
 /**
- * A per-request value, read from {@link SQLContext.settings} when the statement is rendered and
- * bound as a parameter — the runtime stand-in for `current_setting('<key>', true)`, which DSQL
- * cannot scope to a request.
+ * A per-request value, read from {@link SQLContext.claims} when the statement is rendered and
+ * bound as a parameter. Claims are typically used to represent authenticated user attributes or
+ * other request-scoped metadata.
  *
  * Unset renders `NULL`, exactly as `current_setting(key, true)` does. Nothing refuses a missing
  * value: a comparison with `NULL` is never true, so a policy reading one denies by itself.
  */
-export class SQLSetting<TValue = unknown> implements SQLNode {
+export class SQLClaim<TValue = unknown> implements SQLNode {
   declare readonly __type: { valueType: TValue };
 
-  /** The key values are given under (`$settings({ userId })`). */
-  readonly name: string;
-
-  /** The name a native policy would read through `current_setting()` (`identity.user_id`). */
   readonly key: string;
 
   private readonly _encode: ValueSerializer<TValue>;
 
-  constructor(name: string, key: string, encode: ValueSerializer<TValue> = (value) => value) {
-    this.name = name;
+  constructor(key: string, encode: ValueSerializer<TValue> = (value) => value) {
     this.key = key;
     this._encode = encode;
   }
 
   toSQL(ctx: SQLContext): SQLStatement {
-    const value = ctx.settings?.[this.name];
+    const value = ctx.claims?.[this.key];
 
     return new SQLParam((value ?? null) as TValue, this._encode).toSQL(ctx);
   }
@@ -219,7 +214,7 @@ export class SQLQuery<T = unknown> implements SQLNode {
       paramCounter: ctx?.paramCounter ?? counter(),
       escapeValue: ctx?.escapeValue ?? escapeValue,
       escapeIdentifier: ctx?.escapeIdentifier ?? escapeIdentifier,
-      settings: ctx?.settings,
+      claims: ctx?.claims,
     });
   }
 

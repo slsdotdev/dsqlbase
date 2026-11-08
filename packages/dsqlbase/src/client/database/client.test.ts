@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Session, sql, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { guid, hasMany, relations, settings, table, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, relations, table, text, uuid } from "../../schema/index.js";
 import { ModelClient } from "../model/client.js";
 import { encodeGlobalId } from "../../schema/utils/global-id.js";
 
@@ -10,14 +10,12 @@ const workspaces = table("workspaces", {
   name: text("name").notNull(),
 });
 
-const params = settings({ workspaceId: uuid("identity.workspace_id") });
-
 const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   number: text("number").notNull(),
 });
 
@@ -45,18 +43,18 @@ const setup = () => {
   } as unknown as Session;
 
   return {
-    dsql: createClient({ schema, session, settings: params }),
+    dsql: createClient({ schema, session }),
     last: () => statements.at(-1),
   };
 };
 
-describe("DatabaseClient.$settings", () => {
-  const byWorkspace = sql`"__t0"."workspace_id" = ${params.settings.workspaceId}`;
+describe("DatabaseClient.$withClaims", () => {
+  const byWorkspace = sql`"__t0"."workspace_id" = ${sql.claim("workspaceId")}`;
 
   it("binds its values into the statements the derived client builds", async () => {
     const { dsql, last } = setup();
 
-    await dsql.$settings({ workspaceId: "w1" }).invoices.create({ data: { number: "INV-1" } });
+    await dsql.$withClaims({ workspaceId: "w1" }).invoices.create({ data: { number: "INV-1" } });
 
     expect(last()?.text).toContain('("id", "workspace_id", "number") VALUES (DEFAULT, $1, $2)');
     expect(last()?.params).toEqual(["w1", "INV-1"]);
@@ -65,7 +63,7 @@ describe("DatabaseClient.$settings", () => {
   it("renders an unset setting as NULL", async () => {
     const { dsql, last } = setup();
 
-    await dsql.$settings({}).invoices.create({ data: { number: "INV-1" } });
+    await dsql.$withClaims({}).invoices.create({ data: { number: "INV-1" } });
     expect(last()?.params).toEqual([null, "INV-1"]);
 
     await dsql.invoices.create({ data: { number: "INV-2" } });
@@ -75,7 +73,7 @@ describe("DatabaseClient.$settings", () => {
   it("leaves the client it was derived from without settings", () => {
     const { dsql } = setup();
 
-    dsql.$settings({ workspaceId: "w1" });
+    dsql.$withClaims({ workspaceId: "w1" });
 
     expect(sql`${byWorkspace}`.toQuery().params).toEqual([null]);
     expect(() => dsql.$query(sql`SELECT 1`)).not.toThrow();
@@ -85,13 +83,13 @@ describe("DatabaseClient.$settings", () => {
     const { dsql } = setup();
     const token = { workspaceId: "w1", sub: "u1", ws: undefined };
 
-    expect(() => dsql.$settings({ ...token })).not.toThrow();
-    expect(() => dsql.$settings({})).not.toThrow();
+    expect(() => dsql.$withClaims({ ...token })).not.toThrow();
+    expect(() => dsql.$withClaims({})).not.toThrow();
   });
 
   it("attaches its own models, not the ones the client it derived from holds", () => {
     const { dsql } = setup();
-    const derived = dsql.$settings({ workspaceId: "w1" });
+    const derived = dsql.$withClaims({ workspaceId: "w1" });
 
     expect(derived.invoices).toBeInstanceOf(ModelClient);
     expect(derived.invoices).not.toBe(dsql.invoices);
@@ -100,15 +98,15 @@ describe("DatabaseClient.$settings", () => {
   describe("on a client that carries settings", () => {
     it("merges the new values over the ones it carries", async () => {
       const { dsql, last } = setup();
-      const base = dsql.$settings({ workspaceId: "w1" });
+      const base = dsql.$withClaims({ workspaceId: "w1" });
 
-      await base.$settings({}).invoices.create({ data: { number: "INV-1" } });
+      await base.$withClaims({}).invoices.create({ data: { number: "INV-1" } });
       expect(last()?.params).toEqual(["w1", "INV-1"]);
 
-      await base.$settings({ workspaceId: "w2" }).invoices.create({ data: { number: "INV-2" } });
+      await base.$withClaims({ workspaceId: "w2" }).invoices.create({ data: { number: "INV-2" } });
       expect(last()?.params).toEqual(["w2", "INV-2"]);
 
-      await base.$settings({ workspaceId: null }).invoices.create({ data: { number: "INV-3" } });
+      await base.$withClaims({ workspaceId: null }).invoices.create({ data: { number: "INV-3" } });
       expect(last()?.params).toEqual([null, "INV-3"]);
 
       await base.invoices.create({ data: { number: "INV-4" } });
@@ -118,7 +116,7 @@ describe("DatabaseClient.$settings", () => {
     it("keeps raw SQL, which no policy reaches on any client", () => {
       const { dsql } = setup();
 
-      expect(() => dsql.$settings({ workspaceId: "w1" }).$query(sql`SELECT 1`)).not.toThrow();
+      expect(() => dsql.$withClaims({ workspaceId: "w1" }).$query(sql`SELECT 1`)).not.toThrow();
     });
   });
 });

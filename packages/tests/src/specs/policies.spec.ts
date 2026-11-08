@@ -3,7 +3,6 @@ import { sql } from "@dsqlbase/core";
 import { createClient, encodeGlobalId, PolicyViolationError } from "dsqlbase";
 import { withSeededClient } from "../fixures/seeded-client";
 import { schema } from "../db/schema";
-import { params } from "../db/schema/settings";
 
 /**
  * Row policies, end to end against PGlite.
@@ -22,7 +21,7 @@ describe("row policies", () => {
 
   /** Alice's view: the first workspace, as the first user — author of "Acme roadmap". */
   const acme = () =>
-    getClient().$settings({
+    getClient().$withClaims({
       workspaceId: getData().workspaces[0].id,
       userId: getData().users[0].id,
     });
@@ -32,7 +31,6 @@ describe("row policies", () => {
     createClient({
       schema,
       session: getClient().session,
-      settings: params,
       policies: { bypass: true },
     });
 
@@ -162,13 +160,13 @@ describe("row policies", () => {
     });
 
     it("a setting left out hides what a policy over it bounds", async () => {
-      const noWorkspace = getClient().$settings({ userId: getData().users[0].id });
+      const noWorkspace = getClient().$withClaims({ userId: getData().users[0].id });
 
       await expect(noWorkspace.documents.findMany({})).resolves.toEqual([]);
     });
 
     it("an unset setting a column is filled from is refused by NOT NULL", async () => {
-      const noWorkspace = getClient().$settings({ userId: getData().users[0].id });
+      const noWorkspace = getClient().$withClaims({ userId: getData().users[0].id });
 
       await expect(
         noWorkspace.documents.create({ data: { title: "orphan", authorId: getData().users[0].id } })
@@ -176,7 +174,7 @@ describe("row policies", () => {
     });
 
     it("an unset setting a check reads fails the check", async () => {
-      const noUser = getClient().$settings({ workspaceId: getData().workspaces[0].id });
+      const noUser = getClient().$withClaims({ workspaceId: getData().workspaces[0].id });
 
       await expect(
         noUser.documents.create({ data: { title: "anonymous", authorId: getData().users[0].id } })
