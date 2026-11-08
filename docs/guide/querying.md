@@ -18,23 +18,36 @@ Models are keyed by the **export name** in `schema`, not by the table name: `exp
 
 Every method returns a query that runs when awaited — an `ExecutableQuery`, or for a counted page a `CompositeQuery` of two statements. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
 
-| Method                            | Args                                            | Returns                                  |
-| --------------------------------- | ----------------------------------------------- | ---------------------------------------- |
-| `findOne(args)`                   | `where` (required), `select`, `join`            | one row or `null`                        |
-| `findMany(args)`                  | `QueryArgs` (below)                             | array of rows                            |
-| `paginate(args)`                  | see [Pagination](./pagination.md)               | a page of rows with cursors              |
-| `count(args?)`                    | `where`                                         | number                                   |
-| `create({ data, return? })`       | column values; `return` selects what comes back | created row, selected fields, or nothing |
-| `update({ set, where, return? })` |                                                 | one updated row (see below)              |
-| `delete({ where, return? })`      |                                                 | one deleted row (see below)              |
+| Method                                | Args                                            | Returns                                  |
+| ------------------------------------- | ----------------------------------------------- | ---------------------------------------- |
+| `findOne(args)`                       | `where` (required), `select`, `join`            | one row or `null`                        |
+| `findMany(args)`                      | `QueryArgs` (below)                             | array of rows                            |
+| `paginate(args)`                      | see [Pagination](./pagination.md)               | a page of rows with cursors              |
+| `count(args?)`                        | `where`                                         | number                                   |
+| `create({ data, return? })`           | column values; `return` selects what comes back | created row, selected fields, or nothing |
+| `update({ set, where, return? })`     | `where` must pin one row (below)                | the updated row, or `null`               |
+| `delete({ where, return? })`          | `where` must pin one row (below)                | the deleted row, or `null`               |
+| `updateMany({ set, where, return? })` |                                                 | every updated row                        |
+| `deleteMany({ where, return? })`      |                                                 | every deleted row                        |
 
-`create` / `update` / `delete` always require `where` (except `create`) — there is no "delete everything" form.
-An empty `where: {}` does not count: `findOne`, `update` and `delete` refuse it when the query is built,
-before any SQL runs.
+Every write except `create` requires a `where`; there is no "delete everything" form. An empty
+`where: {}` does not count: `findOne`, `update`, `delete`, `updateMany` and `deleteMany` refuse it
+when the query is built, before any SQL runs.
 
-> **Known issue.** `update` and `delete` change **every** row their `where` matches, but return only
-> one of them. Until this is fixed, give them a `where` on a unique key (the primary key, or a
-> `.unique()` column) when you mean one row.
+`update` and `delete` change **one** row. Their `where` must compare every field of one unique key
+— the primary key, a `.unique()` column, a unique constraint or a non-partial unique index — for
+equality with a value, at the top level or inside `and`; other conditions may sit beside it. A
+key compared under `or` / `not`, with `in` / `neq`, or with `null` (a unique column admits many
+`NULL`s) does not count, and a table with no unique key has no `update` / `delete` at all. Anything
+else is refused when the query is built:
+
+```ts
+await dsql.tasks.update({ where: { id: taskId }, set: { status: "done" } }); // one row
+await dsql.tasks.update({ where: { status: "todo" }, set: { status: "done" } }); // throws
+await dsql.tasks.updateMany({ where: { status: "todo" }, set: { status: "done" } }); // every match
+```
+
+The rule is checked at runtime only; the types accept any `where`.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully

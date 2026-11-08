@@ -9,6 +9,8 @@ import {
   TableDefinition,
   NamespaceDefinition,
   PrimaryKeyConstraintDefinition,
+  UniqueConstraintDefinition,
+  IndexColumnDefinition,
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
@@ -131,6 +133,16 @@ export class Table<
   readonly isCompositeKey: boolean;
 
   /**
+   * Every field set that names at most one row — the primary key, then each unique column,
+   * unique constraint and unique index — each sorted, without repeats, the primary key first.
+   *
+   * A partial unique index is not a key (it is unique only where its predicate holds), and
+   * neither is one over an expression, which no field can name. A key over a deprecated column
+   * is left out: the client has no field for it.
+   */
+  readonly uniqueKeys: readonly (readonly string[])[];
+
+  /**
    * The table's tenant claim columns, paired with the claim they are filled from, in
    * declaration order. Empty for a table outside any tenant scope.
    *
@@ -161,6 +173,7 @@ export class Table<
     this.columns = this._buildColumns(definition);
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
+    this.uniqueKeys = this._buildUniqueKeys(definition);
     this.tenantKeys = this.getColumnEntries().filter(([, column]) => column.tenantKey);
     this.meta = this._buildMeta(definition);
   }
@@ -180,9 +193,7 @@ export class Table<
     return columns as TableColumns<this>;
   }
 
-  private _buildPrimaryKey(
-    definition: TableDefinition<TName, TColumns, TNamespace>
-  ): AnyColumn[] {
+  private _buildPrimaryKey(definition: TableDefinition<TName, TColumns, TNamespace>): AnyColumn[] {
     const flagged = this.getColumnEntries().filter(([, column]) => column.primaryKey);
     const constraints = definition["_constraints"].filter(
       (constraint) => constraint instanceof PrimaryKeyConstraintDefinition
@@ -217,6 +228,57 @@ export class Table<
 
       return column;
     });
+  }
+
+  private _buildUniqueKeys(
+    definition: TableDefinition<TName, TColumns, TNamespace>
+  ): readonly (readonly string[])[] {
+    // Constraints and indexes name database columns; a key names fields.
+    const fieldOf = new Map(this.getColumnEntries().map(([field, column]) => [column.name, field]));
+    const keys = new Map<string, readonly string[]>();
+
+    const add = (fields: (string | undefined)[]) => {
+      if (fields.length === 0 || fields.some((field) => field === undefined)) {
+        return;
+      }
+
+      const key = Object.freeze([...new Set(fields as string[])].sort());
+      keys.set(key.join("\u0000"), key);
+    };
+
+    add(this.primaryKey.map((column) => fieldOf.get(column.name)));
+
+    for (const [field, column] of this.getColumnEntries()) {
+      if (column.unique) add([field]);
+    }
+
+    for (const constraint of definition["_constraints"]) {
+      if (constraint instanceof UniqueConstraintDefinition) {
+        add(constraint["_columns"].map((ref: { name: string }) => fieldOf.get(ref.name)));
+      }
+    }
+
+    for (const index of definition["_indexes"]) {
+      const columns = index["_columns"];
+
+      if (
+        !index["_unique"] ||
+        index["_where"] ||
+        columns.some((column) => !(column instanceof IndexColumnDefinition))
+      ) {
+        continue;
+      }
+
+      add(
+        columns.map((column) =>
+          fieldOf.get(
+            (column as IndexColumnDefinition<string, AnyColumnDefinition>)["_column"].name
+          )
+        )
+      );
+    }
+
+    return Object.freeze([...keys.values()]);
   }
 
   private _buildMeta(definition: TableDefinition<TName, TColumns, TNamespace>): RecordMeta {

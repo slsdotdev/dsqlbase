@@ -156,6 +156,30 @@ describe("Table", () => {
     });
   });
 
+  describe("unique keys", () => {
+    it("lists the primary key first, then each unique column, sorted, without repeats", () => {
+      const def = new TableDefinition("members", {
+        columns: {
+          id: new ColumnDefinition("id").primaryKey(),
+          email: new ColumnDefinition("email").unique(),
+          workspaceId: new ColumnDefinition("workspace_id").notNull(),
+          handle: new ColumnDefinition("handle").notNull(),
+        },
+      });
+
+      def.unique((c) => [c.workspaceId, c.handle]);
+      def.unique((c) => [c.handle, c.workspaceId]);
+
+      expect(new Table(def).uniqueKeys).toEqual([["id"], ["email"], ["handle", "workspaceId"]]);
+    });
+
+    it("is empty for a table with no key", () => {
+      const def = new TableDefinition("logs", { columns: { at: new ColumnDefinition("at") } });
+
+      expect(new Table(def).uniqueKeys).toEqual([]);
+    });
+  });
+
   describe("with schema", () => {
     const withSchema = new TableDefinition("users", {
       namespace: new NodeRef(new NamespaceDefinition("test")),

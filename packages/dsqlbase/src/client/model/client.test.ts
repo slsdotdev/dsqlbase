@@ -532,14 +532,14 @@ describe("JSON columns with a schema", () => {
 
     it("writes the validated output on create and update", async () => {
       await dsql.users.create({ data: { name: "Ada", settings: {} } });
-      await dsql.users.update({ where: { name: "Ada" }, set: { settings: { theme: "dark" } } });
+      await dsql.users.updateMany({ where: { name: "Ada" }, set: { settings: { theme: "dark" } } });
 
       expect(calls[0]?.params).toContain('{"theme":"light"}');
       expect(calls[1]?.params).toContain('{"theme":"dark"}');
     });
 
     it("writes null as SQL NULL, without validating it", async () => {
-      await dsql.users.update({ where: { name: "Ada" }, set: { settings: null } });
+      await dsql.users.updateMany({ where: { name: "Ada" }, set: { settings: null } });
 
       expect(calls[0]?.params).toContain(null);
     });

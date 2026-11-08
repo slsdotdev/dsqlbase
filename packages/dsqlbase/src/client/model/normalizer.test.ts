@@ -51,7 +51,7 @@ describe("RequestNormalizer read-only columns", () => {
   });
 
   it("drops a read-only field from update set", async () => {
-    await dsql.invoices.update({
+    await dsql.invoices.updateMany({
       set: { number: "INV-2", workspaceId: "ws-2" } as { number: string },
       where: { number: { eq: "INV-1" } },
     });
@@ -741,7 +741,7 @@ describe("polymorphic writes", () => {
         expect(params()).not.toContain("companies");
 
         calls = [];
-        await dsql.ledgerEntries.update({
+        await dsql.ledgerEntries.updateMany({
           set: { counterpartyId: personId },
           where: { amount: { eq: 1 } },
         });
