@@ -17,18 +17,16 @@ import { AnyColumn } from "./column.js";
 import { ComputedDiscriminator } from "./reference.js";
 import { RuntimeRelation, TableRelation } from "./relation.js";
 import { AnyTable, Table } from "./table.js";
-import { Union } from "./union.js";
+import { AnyUnion, Union } from "./union.js";
 
 /** A schema's runtime objects, as `SchemaRegistry` holds them. */
 export type BuiltSchema = {
   /** Every table, under both its schema alias and its database name. */
   readonly tables: Map<string, AnyTable>;
   /** Every union, by schema alias. */
-  readonly unions: Map<string, Union>;
+  readonly unions: Map<string, AnyUnion>;
   /** Every table's relations, by field. A table with none has no entry. */
   readonly relations: Map<AnyTable, Readonly<Record<string, RuntimeRelation>>>;
-  /** Every tenant claim name, mapped to the data type it is declared with. */
-  readonly claimKeys: Map<string, string>;
 };
 
 /**
@@ -52,8 +50,8 @@ export function buildSchema(schema: DefinitionSchema): BuiltSchema {
     }
   }
 
-  const unions = new Map<string, Union>();
-  const unionOf = new Map<AnyUnionDefinition, Union>();
+  const unions = new Map<string, AnyUnion>();
+  const unionOf = new Map<AnyUnionDefinition, AnyUnion>();
 
   for (const [alias, node] of Object.entries(schema)) {
     if (node instanceof UnionDefinition) {
@@ -93,19 +91,11 @@ export function buildSchema(schema: DefinitionSchema): BuiltSchema {
     }
   }
 
-  const claimKeys = new Map<string, string>();
-
-  for (const table of unique) {
-    for (const [claim, column] of table.tenantKeys) {
-      claimKeys.set(claim, column.dataType);
-    }
-  }
-
   for (const [table, byField] of relations) {
     relations.set(table, Object.freeze(byField));
   }
 
-  return { tables, unions, relations, claimKeys };
+  return { tables, unions, relations };
 }
 
 /** The runtime column a definition column is declared as on `table`. */
@@ -118,7 +108,7 @@ function columnOf(
 }
 
 type ComputedDiscriminators = (
-  union: Union,
+  union: AnyUnion,
   keys: readonly AnyColumn[],
   members: Readonly<Record<string, readonly AnyColumn[]>>
 ) => ComputedDiscriminator;
@@ -155,12 +145,12 @@ function computedDiscriminators(): ComputedDiscriminators {
 function buildRelation(
   entry: SourcedRelation,
   tableOf: ReadonlyMap<AnyTableDefinition, AnyTable>,
-  unionOf: ReadonlyMap<AnyUnionDefinition, Union>,
+  unionOf: ReadonlyMap<AnyUnionDefinition, AnyUnion>,
   computed: ComputedDiscriminators
 ): RuntimeRelation {
   const { field, relation } = entry;
   const source = tableOf.get(entry.source) as AnyTable;
-  const declaredOn = entry.union ? (unionOf.get(entry.union) as Union) : source;
+  const declaredOn = entry.union ? (unionOf.get(entry.union) as AnyUnion) : source;
   const from = relation.from.map((column) => columnOf(source, entry.source, column));
   const base = { field, type: relation.type, source, declaredOn, from };
 
@@ -179,7 +169,7 @@ function buildRelation(
   }
 
   const definition = relation.target;
-  const union = unionOf.get(definition) as Union;
+  const union = unionOf.get(definition) as AnyUnion;
   const lists = memberToColumns(field, union.alias, definition, relation.to);
   const members = Object.fromEntries(
     Object.entries(lists).map(([alias, columns]) => [
@@ -213,7 +203,7 @@ function buildRelation(
  *   the same key — with its stored discriminator — is found and shared.
  */
 function linkReferences(relations: readonly RuntimeRelation[], computed: ComputedDiscriminators) {
-  const fromUnions = new Map<Union, Map<string, TableRelation[]>>();
+  const fromUnions = new Map<AnyUnion, Map<string, TableRelation[]>>();
 
   for (const relation of relations) {
     const via = relation;

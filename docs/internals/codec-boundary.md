@@ -20,8 +20,7 @@ A codec **translates** one value and nothing else. It is pure — it sees the va
 | Update values                                                  | encode    | `getUpdateValue` in `runtime/column.ts`                                                                                                   |
 | Column defaults set from JS                                    | encode    | `ColumnDefinition.default()` in `definition/column.ts`                                                                                    |
 | Where-clause values, including `update.where` / `delete.where` | encode    | `Column.param` in `runtime/column.ts`, applied by `WhereBuilder` in `packages/dsqlbase/src/client/model/filters.ts`                       |
-| Tenant predicate values                                        | encode    | `Column.param`, applied by `_tenantPredicate` in `runtime/operation.ts`                                                                   |
-| Tenant claim values on insert                                  | encode    | `getInsertValue` in `runtime/column.ts`, from the identity rather than from `data`                                                        |
+| Setting values (row policies, `$onCreate` returning a setting) | encode    | `SQLSetting` in `packages/core/src/sql/nodes.ts`, by the setting's own column codec — no validator, no hooks                              |
 
 ## Where codecs do NOT apply
 
@@ -47,7 +46,8 @@ A column may carry a `ColumnValidator` (`packages/core/src/resolvers/validator.t
 | insert, update, `$onCreate`, `$onUpdate` (`getInsertValue`, `getUpdateValue`) | `validator.write`, then `hooks.write`, then `codec.encode` |
 | `ColumnDefinition.default()`                                                  | `validator.write`, then `codec.encode` — no hooks          |
 | reads, root, joined and union branches (`Column.resolve`)                     | `codec.decode`, then `hooks.read`, then `validator.read`   |
-| where-clause values, tenant predicates (`Column.param`)                       | `hooks.write`, then `codec.encode`                         |
+| where-clause values (`Column.param`)                                          | `hooks.write`, then `codec.encode`                         |
+| settings (`SQLSetting`)                                                       | `codec.encode` of the setting's column — no hooks          |
 
 `NULL` reaches neither. A filter value is compared with stored values, not stored, and may be a
 fragment of one (a containment pattern), so validating it would refuse or rewrite it. This is why
@@ -109,7 +109,7 @@ sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}`;
 
 `Column.param` is the filter counterpart to `getInsertValue` / `getUpdateValue`. A value that is already an `SQLNode` passes through untouched, so a column reference or sub-expression is never encoded.
 
-The tenant rows are the one place a value is encoded inside `core` rather than by the normalizer: the predicate is built where the boundary is applied, below the client, so it does not depend on a caller having passed the value through anything.
+Settings are the one place a value is encoded inside `core` rather than by the normalizer: a setting is bound where a policy or `$onCreate` reads it, below the client, so it does not depend on a caller having passed the value through anything. Only its column's codec runs — a setting has no table for a hook to read references from, and it is compared or copied, not validated as input. An unset setting is `NULL` and reaches no codec.
 
 ## Column hooks
 

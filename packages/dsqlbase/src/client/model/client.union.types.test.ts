@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Session } from "@dsqlbase/core";
-import type { UnionFieldsOf } from "./base.js";
 import { createClient } from "../create.js";
 import {
   belongsTo,
@@ -60,10 +59,6 @@ const dsql = createClient({ schema, session });
 const where = { id: { eq: "u1" } };
 
 describe("union types", () => {
-  it("shares exactly the fields the union declares", () => {
-    expectTypeOf<UnionFieldsOf<typeof posts>>().toEqualTypeOf<"id" | "userId" | "createdAt">();
-  });
-
   it("refuses to declare a field some member does not have", () => {
     // Type-checked only: at runtime the definition throws.
     // @ts-expect-error `photoUrl` is on photos only

@@ -10,10 +10,7 @@ import { attachModels } from "./database/base.js";
 import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
-export type ClientOptions<
-  TSchema extends DefinitionSchema,
-  TEnforce extends boolean = true,
-> = {
+export type ClientOptions<TSchema extends DefinitionSchema> = {
   /**
    * Definition schema for the database, including relations configuration.
    */
@@ -25,20 +22,12 @@ export type ClientOptions<
   session: Session;
 
   /**
-   * How tables declared inside a `tenantScope()` behave on this client.
-   *
-   * With `enforce` on, which is the default, they are absent from the base client's type and
-   * refuse to build a query until the client is scoped with `$identityClaims`. Set it to
-   * `false` for a process that is meant to run unscoped — an internal worker rather than a
-   * request handler — and every tenant table becomes readable across tenants.
-   *
-   * It is decided here, per client, rather than per call: a per-call escape hatch is a thing to
-   * forget, and the processes that need one are separate deployments anyway. Inserting into a
-   * tenant table still requires claims in both modes.
+   * `bypass: true` skips every row policy on this client and every client derived from it —
+   * no predicates on reads, no checks on writes. The `BYPASSRLS` analogue, for a worker or a
+   * migration script rather than a request handler. Decided per client, never per call: a
+   * per-call escape hatch is a thing to forget.
    */
-  tenancy?: {
-    enforce?: TEnforce;
-  };
+  policies?: { bypass?: boolean };
 
   /**
    * Page sizes for `paginate`. `defaultLimit` is used when a call names no `limit` (100 when
@@ -123,9 +112,9 @@ function assertPagination(options: PaginationOptions | undefined) {
  * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
-export function createClient<TSchema extends DefinitionSchema, TEnforce extends boolean = true>(
-  options: ClientOptions<TSchema, TEnforce>
-): QueryClient<TSchema, TEnforce> {
+export function createClient<TSchema extends DefinitionSchema>(
+  options: ClientOptions<TSchema>
+): QueryClient<TSchema> {
   assertPagination(options.pagination);
 
   const schema = new SchemaRegistry(options.schema);
@@ -140,12 +129,12 @@ export function createClient<TSchema extends DefinitionSchema, TEnforce extends 
     schema,
     dialect,
     session: options.session,
-    tenancy: options.tenancy,
+    policies: options.policies,
     pagination: options.pagination,
   });
 
   const dbClient = new DatabaseClient(context);
   attachModels(dbClient, context);
 
-  return dbClient as unknown as QueryClient<TSchema, TEnforce>;
+  return dbClient as unknown as QueryClient<TSchema>;
 }

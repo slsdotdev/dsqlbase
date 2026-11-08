@@ -23,7 +23,7 @@ export type NodeTable = {
 /**
  * Node tables per registry rather than per client.
  *
- * A transaction client and an identity client are derived from their parent's
+ * A transaction client and a client with settings are derived from their parent's
  * `ExecutionContext`, so they share one `SchemaRegistry` — keying off it is what makes
  * `$findByGlobalId` work the same on all three without threading anything through.
  */

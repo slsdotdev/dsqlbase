@@ -9,7 +9,6 @@ export type {
   PrimaryKey,
   ReadOnly,
   Deprecated,
-  TenantKey,
   TypedObject,
   Unique,
   UnionToIntersection,

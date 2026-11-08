@@ -53,20 +53,19 @@ Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
 readable — `select`, `where`, `orderBy` and the result row are unaffected.
 
-On a client scoped with `$identityClaims`, every one of these methods also carries a tenant
-predicate. It is AND-ed in **ahead of** the `where` you wrote, at the root and at every joined
-level:
+On a table with [row policies](./policies.md), every one of these methods also carries the
+policies' conditions. They are AND-ed in **ahead of** the `where` you wrote, at the root and at
+every joined level, with the values of the client's settings (`dsql.$settings({ ... })`):
 
 ```sql
-SELECT … FROM "invoices"
-WHERE ("invoices"."workspace_id" = $1) AND ("invoices"."number" LIKE $2)
+SELECT … FROM "invoices" AS "__t0"
+WHERE ("__t0"."workspace_id" = $1) AND ("__t0"."number" LIKE $2)
 ```
 
-The claim column is filterable and orderable like any other, but filtering by it cannot widen
-the scope — `where: { workspaceId: other }` becomes two conflicting equalities and returns
-nothing. Reaching a tenant table from a client with no claims throws a `TenancyError` when the
-query is built, including through a join, which the types cannot see. See
-[Tenancy](./tenancy.md).
+Filtering by a column a policy reads cannot widen what is visible — `where: { workspaceId:
+other }` becomes two conflicting equalities and returns nothing. An `update` or `delete` of a
+row the policies hide changes nothing and returns `null`; a write whose new row fails a policy's
+check throws `PolicyViolationError`. See [Row policies](./policies.md).
 
 ## `QueryArgs`
 
@@ -233,9 +232,8 @@ const rows = await dsql.$query<{ n: number }>(
 const raw = await dsql.$execute<{ n: number }>({ text: "select 1 as n", params: [] });
 ```
 
-Neither exists on a client scoped with `$identityClaims`: raw SQL bypasses every seam the
-factory applies, the tenant predicate included, so it is offered only where that is plain to
-read.
+Both bypass every seam the factory applies, [row policies](./policies.md) included, on every
+client — one with settings too.
 
 - `$query(SQLQuery)` — build with the `sql` tagged template; parameters are bound automatically. Returns an `ExecutableQuery`, so it can join a `$transaction([...])` batch.
 - `$execute(SQLStatement)` — pass `{ text, params }` straight to the session.
@@ -254,6 +252,6 @@ await dsql.$query(
 - [Pagination](./pagination.md)
 - [Transactions](./transactions.md)
 - [Global ids](./global-ids.md)
-- [Tenancy](./tenancy.md)
+- [Row policies](./policies.md)
 - [Sessions](./sessions.md)
 - [Runtime pipeline](../internals/runtime-pipeline.md) — how these calls become SQL

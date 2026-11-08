@@ -1,71 +1,32 @@
-import {
-  DefinitionSchema,
-  Executable,
-  ExecutionContext,
-  Schema,
-  TenancyError,
-} from "@dsqlbase/core";
+import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
 import { attachModels, BaseClient } from "./base.js";
 import { createTransactionRunner, TxClient } from "../transaction/transaction-client.js";
-import { ClaimsOf, IdentityClient } from "./index.js";
+import type { QueryClient } from "./index.js";
 
-export class DatabaseClient<
-  TDefinition extends DefinitionSchema,
-  TClaims = never,
-  TEnforce extends boolean = true,
-> extends BaseClient<TDefinition> {
+export class DatabaseClient<TDefinition extends DefinitionSchema> extends BaseClient<TDefinition> {
   /**
-   * A client scoped to `claims`, for the life of one request. Scope first, then open a
-   * transaction on the result: a transaction client cannot be scoped, so there is one order.
+   * A client carrying `values` for the settings row policies and `$onCreate` read, for the life
+   * of one request. Derive it per request, then open transactions on it: a transaction inherits
+   * its settings.
    *
-   * The claims are picked from the argument by name, so `{ ...jwt.claims }` may carry anything
-   * else it likes; only what the schema declares is kept. A claim the schema declares but the
-   * argument leaves out is allowed — the tables needing it simply are not on the result — but a
-   * claim given as `null` or `undefined` throws, because that is a mapping bug rather than a
-   * narrower scope. A misspelled claim inside a spread is not caught here, since there is
-   * nothing to compare it against, and surfaces at the first tenant table it cannot scope.
+   * Called on a client that already carries settings, it merges: `values` are laid over the ones
+   * it carries, and `null` unsets one.
    *
-   * Derives rather than mutates: the client this was called on stays usable, and a query's SQL
-   * is fixed by whichever client built it.
+   * Declared settings are typed; any other key is accepted too. Nothing is checked: a setting
+   * left out renders `NULL`, and the policy that reads it decides — a comparison with `NULL` is
+   * never true. The client it is called on stays usable, and a query's SQL is fixed by the client
+   * that built it, so concurrent requests never see each other's values.
    */
-  public $identityClaims<TNewClaims extends Partial<ClaimsOf<Schema<TDefinition>>>>(
-    claims: TNewClaims
-  ): IdentityClient<TDefinition, TNewClaims> {
-    if (this._ctx.identity) {
-      throw new TenancyError(
-        "This client is already scoped to an identity. Claims are set in exactly one place; " +
-          "derive from the base client instead."
-      );
-    }
-
-    const identity: Record<string, unknown> = {};
-    const given = claims as Record<string, unknown>;
-
-    for (const claim of this._ctx.schema.claimKeys.keys()) {
-      if (!Object.hasOwn(given, claim)) {
-        continue;
-      }
-
-      const value = given[claim];
-
-      if (value === undefined || value === null) {
-        throw new TenancyError(
-          `Claim "${claim}" was given as ${String(value)}. Leave a claim out to narrow what ` +
-            `the client can reach; an empty one scopes nothing.`,
-          undefined,
-          claim
-        );
-      }
-
-      identity[claim] = value;
-    }
-
-    const ctx = new ExecutionContext<TDefinition>({ ...this._ctx, identity });
-    const client = new DatabaseClient<TDefinition, TNewClaims, TEnforce>(ctx);
+  public $withClaims(values: Record<string, unknown>): QueryClient<TDefinition> {
+    const ctx = new ExecutionContext<TDefinition>({
+      ...this._ctx,
+      settings: Object.freeze({ ...this._ctx.settings, ...values }),
+    });
+    const client = new DatabaseClient<TDefinition>(ctx);
 
     attachModels(client, ctx);
 
-    return client as unknown as IdentityClient<TDefinition, TNewClaims>;
+    return client as QueryClient<TDefinition>;
   }
 
   public async $transaction<const TQueries extends Executable<unknown>[]>(
@@ -76,14 +37,12 @@ export class DatabaseClient<
       : never;
   }>;
   public async $transaction<TReturn = unknown>(
-    callback: (tx: TxClient<TDefinition, TClaims, TEnforce>) => Promise<TReturn>
+    callback: (tx: TxClient<TDefinition>) => Promise<TReturn>
   ): Promise<TReturn>;
   public async $transaction<TReturn = unknown>(
-    arg:
-      | Executable<unknown>[]
-      | ((client: TxClient<TDefinition, TClaims, TEnforce>) => Promise<TReturn>)
+    arg: Executable<unknown>[] | ((client: TxClient<TDefinition>) => Promise<TReturn>)
   ): Promise<TReturn> {
-    const runner = await createTransactionRunner<TDefinition, TClaims, TEnforce>(this._ctx);
+    const runner = await createTransactionRunner<TDefinition>(this._ctx);
     return runner<TReturn>(arg);
   }
 }

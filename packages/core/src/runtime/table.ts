@@ -14,6 +14,8 @@ import {
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
+import { AnyPolicy, resolvePolicy } from "./policy.js";
+import type { PolicyCommand } from "../resolvers/policy.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
@@ -32,6 +34,8 @@ export type RecordMeta = {
   readonly schema?: string;
   readonly [field: string]: unknown;
 };
+
+export type PolicyRegistry = Partial<Record<PolicyCommand, AnyPolicy[]>>;
 
 /** Meta keys the runtime owns; `table().meta()` may not redeclare them. */
 const BUILT_IN_META_KEYS: readonly string[] = Object.freeze(["key", "table", "schema"]);
@@ -143,13 +147,10 @@ export class Table<
   readonly uniqueKeys: readonly (readonly string[])[];
 
   /**
-   * The table's tenant claim columns, paired with the claim they are filled from, in
-   * declaration order. Empty for a table outside any tenant scope.
-   *
-   * The claim is the *field* name, not the database column name: it is the key the runtime
-   * looks up in `ExecutionContext.identity`, and the name `tenantScope()` declared it under.
+   * The table's row policies, resolved against its columns, in declaration order. A table with
+   * any is default deny: a command no permissive policy covers matches no row.
    */
-  readonly tenantKeys: [claim: string, column: AnyColumn][];
+  readonly policies: Readonly<PolicyRegistry>;
 
   /**
    * What every row of this table reports about itself, surfaced as `$$meta` on each result
@@ -174,7 +175,7 @@ export class Table<
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
     this.uniqueKeys = this._buildUniqueKeys(definition);
-    this.tenantKeys = this.getColumnEntries().filter(([, column]) => column.tenantKey);
+    this.policies = this._buildPolicies(definition);
     this.meta = this._buildMeta(definition);
   }
 
@@ -281,6 +282,24 @@ export class Table<
     return Object.freeze([...keys.values()]);
   }
 
+  private _buildPolicies(definition: TableDefinition<TName, TColumns, TNamespace>): PolicyRegistry {
+    const policies = {} as PolicyRegistry;
+
+    for (const def of definition["_policies"] ?? []) {
+      const policy = resolvePolicy(this, def);
+
+      for (const command of policy.commands) {
+        if (!policies[command]) {
+          policies[command] = [];
+        }
+
+        policies[command].push(policy);
+      }
+    }
+
+    return policies;
+  }
+
   private _buildMeta(definition: TableDefinition<TName, TColumns, TNamespace>): RecordMeta {
     const declared = definition["_meta"] ?? {};
 
@@ -299,6 +318,15 @@ export class Table<
       ...(this.schema ? { schema: this.schema as string } : {}),
       ...declared,
     });
+  }
+
+  public hasPolicies() {
+    return Object.keys(this.policies).length > 0;
+  }
+
+  /** The policies that apply to `command`, split into permissive and restrictive. */
+  public getPolicies(command: PolicyCommand): AnyPolicy[] {
+    return this.policies[command] ?? [];
   }
 
   public hasColumn(name: string): boolean {

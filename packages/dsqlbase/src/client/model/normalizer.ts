@@ -5,6 +5,7 @@ import { GlobalIdError } from "../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
+  AnyUnion,
   Column,
   CountOperationArgs,
   DefinitionSchema,
@@ -359,7 +360,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * declared on the union, which every member has, joins from every member through the shared
    * `join` or `select`.
    */
-  private _getUnionArgs(union: Union, args: AnyUnionQuery): UnionSelectOperationArgs {
+  private _getUnionArgs(union: AnyUnion, args: AnyUnionQuery): UnionSelectOperationArgs {
     if (args.distinct) {
       throw new Error(`\`distinct\` is not supported on union "${union.alias}".`);
     }
@@ -504,7 +505,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   }
 
   private _getUnionOrderKeys(
-    union: Union,
+    union: AnyUnion,
     orderBy: Record<string, unknown> | null | undefined
   ): UnionOrderKey[] | undefined {
     if (!orderBy) {
@@ -672,7 +673,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * A page read: the select to run, plus everything needed to turn its rows into a page.
    *
    * The keyset predicate is appended to the caller's `where` as a second condition, so the
-   * seam in core renders the tenant predicate, then the caller's filter, then the keyset. The
+   * seam in core renders the row-policy predicate, then the caller's filter, then the keyset. The
    * caller's filter alone is kept apart as `where`, for a count over the same rows.
    */
   public normalizePaginate<
@@ -744,7 +745,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * union row is only "the" row when something names it.
    */
   public normalizeUnionSelect<TMode extends OperationMode>(
-    union: Union,
+    union: AnyUnion,
     args: AnyUnionQuery,
     mode: TMode
   ): OperationRequest<UnionSelectOperationArgs, TMode> {
@@ -765,7 +766,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * that whole list against the union's alias, so a table's cursor never reads a union's page.
    */
   public normalizeUnionPaginate(
-    union: Union,
+    union: AnyUnion,
     args: AnyUnionQuery & { after?: string | null; before?: string | null }
   ): UnionPaginateRequest {
     const { after, before } = args;
@@ -851,7 +852,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   /** A count over the rows a union's members select. */
   public normalizeUnionCount(
-    union: Union,
+    union: AnyUnion,
     args: Pick<AnyUnionQuery, "where"> = {}
   ): OperationRequest<UnionCountOperationArgs, "one"> {
     const { members } = this._getUnionArgs(union, { where: args.where });

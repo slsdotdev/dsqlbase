@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sql, TenancyError } from "@dsqlbase/core";
+import { sql } from "@dsqlbase/core";
 import { encodeGlobalId, GlobalIdError } from "dsqlbase";
 import { withSeededClient } from "../fixures/seeded-client";
 import { SeededData } from "../fixures/seed";
@@ -497,54 +497,6 @@ describe("polymorphic relations", () => {
       });
 
       expect(subject?.id).toBe(comment.subjectId);
-    });
-  });
-
-  describe("tenancy", () => {
-    const acme = () => getClient().$identityClaims({ workspaceId: getData().workspaces[0].id });
-
-    it("filters the tenant-scoped member of a union join, and not the global one", async () => {
-      const data = getData();
-      const user = data.users[0];
-
-      const result = await acme().users.findOne({
-        where: { id: { eq: user.id } },
-        join: { feed: true },
-      });
-
-      const documents = result?.feed.filter((item) => item.$$key === "documents") ?? [];
-      const bookmarks = result?.feed.filter((item) => item.$$key === "bookmarks") ?? [];
-
-      expect(documents.map((item) => item.title)).toEqual(["Acme roadmap"]);
-      expect(bookmarks.map((item) => item.title)).toEqual(["Read later"]);
-    });
-
-    it("filters the scoped member on the union client, its count and its pages", async () => {
-      const data = getData();
-      const acmeDocuments = data.documents.filter((d) => d.workspaceId === data.workspaces[0].id);
-      const expected = acmeDocuments.length + data.bookmarks.length;
-
-      const rows = await acme().userFeed.findMany({});
-      const count = await acme().userFeed.count();
-      const page = await acme().userFeed.paginate({ limit: 100 });
-
-      expect(
-        rows
-          .filter((row) => row.$$key === "documents")
-          .map((row) => row.title)
-          .sort()
-      ).toEqual(acmeDocuments.map((d) => d.title).sort());
-      expect(rows).toHaveLength(expected);
-      expect(count).toBe(expected);
-      expect(page.items).toHaveLength(expected);
-    });
-
-    it("refuses a union with a scoped member on an enforcing client with no claims", () => {
-      const client = getClient() as unknown as {
-        users: { findMany: (args: object) => unknown };
-      };
-
-      expect(() => client.users.findMany({ join: { feed: true } })).toThrow(TenancyError);
     });
   });
 

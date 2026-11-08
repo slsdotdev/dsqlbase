@@ -7,6 +7,7 @@ import {
   SQLIdentifier,
   SQLWrapper,
   SQLValue,
+  SQLClaim,
 } from "./nodes.js";
 import { escapeValue } from "./utils.js";
 
@@ -60,6 +61,9 @@ sql.join = (nodes: SQLNode[], separator: string | SQLNode = " ") => {
 
   return node;
 };
+
+sql.claim = <TValue extends SQLValue>(key: string, serialize?: (value: unknown) => unknown) =>
+  new SQLClaim<TValue>(key, serialize);
 
 sql.eq = (left: SQLNode, right: SQLValue) => {
   return sql.join([left, sql.raw("="), asNode(right)]);

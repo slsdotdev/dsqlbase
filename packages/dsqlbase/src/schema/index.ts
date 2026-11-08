@@ -55,7 +55,6 @@ export { domain, $enum } from "./domain.js";
 export { namespace, schema } from "./namespace.js";
 export { sequence } from "./sequence.js";
 export { table } from "./table.js";
-export { tenantScope } from "./tenant.js";
 export { union } from "./union.js";
 
 export { relations, belongsTo, hasMany, hasOne } from "./relations.js";

@@ -4,7 +4,6 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
-  TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
 import { ComputedDiscriminator } from "./reference.js";
@@ -397,62 +396,6 @@ describe("SchemaRegistry over a shared schema", () => {
 
     expect(() => new SchemaRegistry({ users, posts, usersRelations, clash })).toThrow(
       /Duplicate relation name: posts/
-    );
-  });
-});
-
-describe("SchemaRegistry.claimKeys", () => {
-  const ws = new TenantScopeDefinition({
-    workspaceId: new ColumnDefinition("workspace_id", { dataType: "uuid" }).notNull(),
-  });
-
-  const workspaces = new TableDefinition("workspaces", {
-    columns: { id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey() },
-  });
-
-  it("is empty when no table is inside a scope", () => {
-    expect(new SchemaRegistry({ workspaces }).claimKeys.size).toBe(0);
-  });
-
-  it("collects every claim with the type it is declared with", () => {
-    const invoices = ws.table("invoices", {
-      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
-    });
-
-    const registry = new SchemaRegistry({ workspaces, invoices });
-
-    expect([...registry.claimKeys.entries()]).toEqual([["workspaceId", "uuid"]]);
-  });
-
-  it("records a claim once when several tables declare it", () => {
-    const invoices = ws.table("invoices", {
-      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
-    });
-    const receipts = ws.table("receipts", {
-      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
-    });
-
-    expect([...new SchemaRegistry({ invoices, receipts }).claimKeys.keys()]).toEqual([
-      "workspaceId",
-    ]);
-  });
-
-  it("rejects one claim name declared with two types", () => {
-    // `$identityClaims` picks claims by name across the whole schema, so one name has to mean
-    // one claim — otherwise the identity would be right for one table and wrong for another.
-    const other = new TenantScopeDefinition({
-      workspaceId: new ColumnDefinition("workspace_id", { dataType: "text" }).notNull(),
-    });
-
-    const invoices = ws.table("invoices", {
-      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
-    });
-    const receipts = other.table("receipts", {
-      id: new ColumnDefinition("id", { dataType: "uuid" }).primaryKey(),
-    });
-
-    expect(() => new SchemaRegistry({ invoices, receipts })).toThrow(
-      /Claim "workspaceId" is "uuid" on table "invoices" but "text" on table "receipts"/
     );
   });
 });

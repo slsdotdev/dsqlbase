@@ -31,14 +31,14 @@ export {
   type ColumnConfigType,
 } from "./indexes.js";
 export { NamespaceDefinition, type AnyNamespaceDefinition } from "./namespace.js";
-export { SequenceDefinition, type SequenceConfig, type AnySequenceDefinition } from "./sequence.js";
 export {
-  TenantScopeDefinition,
-  type AnyTenantScopeDefinition,
-  type TenantClaimColumns,
-  type TenantScopeConfig,
-  type WithClaims,
-} from "./tenant.js";
+  PolicyDefinition,
+  type AnyPolicyDefinition,
+  type PolicyConfig,
+  type PolicyCommand,
+  type PolicyFor,
+} from "./policy.js";
+export { SequenceDefinition, type SequenceConfig, type AnySequenceDefinition } from "./sequence.js";
 export {
   TableDefinition,
   type TableConfig,

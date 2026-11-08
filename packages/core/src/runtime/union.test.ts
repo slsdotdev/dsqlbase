@@ -5,13 +5,11 @@ import {
   Relation,
   RelationsDefinition,
   TableDefinition,
-  TenantScopeDefinition,
   UnionDefinition,
 } from "../definition/index.js";
 import type { ColumnHooks } from "../resolvers/index.js";
 import { sql } from "../sql/index.js";
 import { ExecutionContext } from "./context.js";
-import { TenancyError } from "./errors.js";
 import { OperationsFactory, SelectOperationArgs, UnionSelectOperationArgs } from "./operation.js";
 import { QueryBuilder } from "./query.js";
 import { SchemaRegistry } from "./registry.js";
@@ -521,14 +519,17 @@ describe("union joins — results", () => {
   });
 });
 
-describe("union joins — tenancy", () => {
-  const ws = new TenantScopeDefinition({
-    workspaceId: col("workspace_id", "uuid").notNull(),
+describe("union joins — row policies", () => {
+  const notes = new TableDefinition("notes", {
+    columns: {
+      id: col("id", "uuid").primaryKey(),
+      userId: col("user_id", "uuid"),
+      workspaceId: col("workspace_id", "uuid").notNull(),
+    },
   });
 
-  const notes = ws.table("notes", {
-    id: col("id", "uuid").primaryKey(),
-    userId: col("user_id", "uuid"),
+  notes.policy("workspace_isolation", {
+    using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
   });
 
   const links = new TableDefinition("links", {
@@ -549,31 +550,32 @@ describe("union joins — tenancy", () => {
     },
   });
 
-  const scoped = new SchemaRegistry({ users, notes, links, items, rels });
-  const build = (identity?: Record<string, unknown>) =>
+  const bounded = new SchemaRegistry({ users, notes, links, items, rels });
+  const build = (settings?: Record<string, unknown>) =>
     new OperationsFactory(
       new ExecutionContext({
-        schema: scoped,
+        schema: bounded,
         dialect: new QueryBuilder(),
         session: { execute: vi.fn() },
-        identity,
+        settings,
       })
-    ).createSelectOperation(scoped.getTable("users"), {
+    ).createSelectOperation(bounded.getTable("users"), {
       mode: "many",
       args: { join: [["items", { members: all("notes", "links") }]] },
     });
 
-  it("applies the tenant predicate inside the scoped member's branch only", () => {
+  it("bounds the member with policies inside its own branch only", () => {
     const { query } = build({ workspaceId: "w1" });
 
     expect(query.text).toContain(
       'FROM "notes" AS "__t1" WHERE "__t1"."user_id" = "__t0"."id" AND ("__t1"."workspace_id" = $1)'
     );
     expect(query.text).toContain('FROM "links" AS "__t2" WHERE "__t2"."user_id" = "__t0"."id")');
+    expect(query.params).toEqual(["w1"]);
   });
 
-  it("refuses the union when a member is scoped and the client carries no claims", () => {
-    expect(() => build()).toThrow(TenancyError);
+  it("binds NULL there when the setting is unset, so the branch yields nothing", () => {
+    expect(build().query.params).toEqual([null]);
   });
 });
 
@@ -684,8 +686,13 @@ describe("top-level union select", () => {
 
     it("refuses to page a union whose members' keys do not line up", () => {
       const composite = new TableDefinition("composite", {
-        columns: { a: col("a", "uuid"), b: col("b", "uuid"), userId: col("user_id", "uuid") },
+        columns: {
+          a: col("a", "uuid"),
+          b: col("b", "uuid"),
+          userId: col("user_id", "uuid"),
+        },
       });
+
       composite.primaryKey((c) => [c.a, c.b]);
 
       const mixed = new UnionDefinition({ photos, composite }, { userId: col("user_id", "uuid") });

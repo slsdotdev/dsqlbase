@@ -10,6 +10,7 @@ import {
 } from "./constraint.js";
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
+import { AnyPolicyDefinition, PolicyConfig, PolicyDefinition } from "./policy.js";
 
 export type TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
@@ -42,6 +43,7 @@ export class TableDefinition<
   protected _namespace?: NodeRef<TNamespace>;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
+  protected _policies: AnyPolicyDefinition[] = [];
   protected _meta?: Record<string, unknown>;
   protected _renamedFrom?: string;
 
@@ -57,7 +59,6 @@ export class TableDefinition<
     this._assertReservedFieldNames();
     this._assertDistinctColumnNames();
     this._assertDeprecations();
-    this._assertTenantKeys();
   }
 
   /**
@@ -109,34 +110,6 @@ export class TableDefinition<
       }
 
       fieldsByColumn.set(column.name, field);
-    }
-  }
-
-  /**
-   * A tenant claim column is filled by the runtime on every insert and AND-ed into every read,
-   * so it can be neither null nor writable by the caller. `tenantScope()` sets both flags when
-   * it hands the column over; this catches a column configured as a claim key any other way,
-   * and catches it here — where the error can name the definition the author wrote.
-   */
-  private _assertTenantKeys(): void {
-    for (const [field, column] of Object.entries(this.columns)) {
-      if (!column["_tenantKey"]) {
-        continue;
-      }
-
-      if (!column["_notNull"]) {
-        throw new Error(
-          `Table "${this.name}" declares claim "${field}" as nullable. A claim column is ` +
-            `filled by the runtime on every insert, so it is never null.`
-        );
-      }
-
-      if (!column["_readOnly"]) {
-        throw new Error(
-          `Table "${this.name}" declares claim "${field}" as writable. A claim column's value ` +
-            `comes from the identity on the client, never from the caller.`
-        );
-      }
     }
   }
 
@@ -213,6 +186,52 @@ export class TableDefinition<
   }
 
   /**
+   * Declares a row policy, shaped like `CREATE POLICY <name> ON <table> AS … FOR … USING (…)
+   * WITH CHECK (…)` — DSQL has no RLS, so the runtime enforces it while it builds each
+   * statement. A table with any policy denies by default: a command no permissive policy covers
+   * reads nothing and writes nothing.
+   *
+   * The callback receives the table's runtime columns and runs once, when the client is built.
+   * Policies are not DDL: they never reach `toJSON` or a migration.
+   *
+   * @example
+   * ```ts
+   * documents.policy("workspace_isolation", (t) => ({
+   *   as: "restrictive",
+   *   using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
+   * }));
+   * ```
+   */
+  public policy(name: string, config: Omit<PolicyConfig<this>, "table">) {
+    // move this to runtime / migration validation
+    // if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    //   throw new Error(
+    //     `Table "${this.name}" declares policy "${name}": a policy name is a SQL-style ` +
+    //       `identifier — letters, digits and underscores, not starting with a digit.`
+    //   );
+    // }
+
+    if (this._policies.some((policy) => policy.name === name)) {
+      throw new Error(`Table "${this.name}" declares policy "${name}" twice.`);
+    }
+
+    const policy = new PolicyDefinition(name, { table: this, ...config });
+    this._policies.push(policy);
+
+    return policy;
+  }
+
+  /**
+   * The table's previous name: the migration renames it (`ALTER TABLE … RENAME TO`) instead of
+   * dropping one table and creating another. Once the database has the new name the hint does
+   * nothing, so it can stay for a release before it is removed.
+   */
+  public renamedFrom(previous: string): this {
+    this._renamedFrom = previous;
+    return this;
+  }
+
+  /**
    * Attaches arbitrary metadata to the table, surfaced on every result row under `$$meta`
    * alongside the built-in `key`, `table` and `schema`.
    *
@@ -227,16 +246,6 @@ export class TableDefinition<
    * // row.$$meta.__typename === "User"
    * ```
    */
-  /**
-   * The table's previous name: the migration renames it (`ALTER TABLE … RENAME TO`) instead of
-   * dropping one table and creating another. Once the database has the new name the hint does
-   * nothing, so it can stay for a release before it is removed.
-   */
-  public renamedFrom(previous: string): this {
-    this._renamedFrom = previous;
-    return this;
-  }
-
   public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
     this._meta = meta;
 

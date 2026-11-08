@@ -1,4 +1,4 @@
-export { sql, SQLQuery, TenancyError } from "@dsqlbase/core";
+export { sql, SQLQuery, PolicyViolationError } from "@dsqlbase/core";
 export type { Session, SQLStatement } from "@dsqlbase/core";
 export {
   GLOBAL_ID_PREFIX,
@@ -18,10 +18,4 @@ export {
   InvalidCursorError,
   type InvalidCursorCode,
 } from "./client/pagination/cursor.js";
-export {
-  createClient,
-  type ClaimsOf,
-  type ClientOptions,
-  type IdentityClient,
-  type QueryClient,
-} from "./client/index.js";
+export { createClient, type ClientOptions, type QueryClient } from "./client/index.js";

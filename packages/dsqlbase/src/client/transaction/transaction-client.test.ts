@@ -1,16 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session, SQLStatement } from "@dsqlbase/core";
+import { PolicyViolationError, sql, type Session, type SQLStatement } from "@dsqlbase/core";
+import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
-import {
-  belongsTo,
-  hasMany,
-  relations,
-  table,
-  tenantScope,
-  text,
-  uuid,
-} from "../../schema/index.js";
 import { TxClient } from "./transaction-client.js";
 
 const users = table("users", {
@@ -280,16 +272,16 @@ describe("createTransactionRunner via $transaction", () => {
   });
 });
 
-const ws = tenantScope({ workspaceId: uuid("workspace_id").notNull() });
-
-const invoices = ws.table("invoices", {
+const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .readOnly()
+    .$onCreate(() => sql.claim("workspaceId")),
   number: text("number").notNull(),
 });
 
-const tenantSchema = { invoices };
-
-describe("transactions on a scoped client", () => {
+describe("transactions on a settings client", () => {
   const setup = () => {
     const statements: SQLStatement[] = [];
     const record = vi.fn(async (query: SQLStatement) => {
@@ -307,47 +299,89 @@ describe("transactions on a scoped client", () => {
     } as unknown as Session;
 
     return {
-      dsql: createClient({ schema: tenantSchema, session, tenancy: { enforce: false } }),
+      dsql: createClient({ schema: { invoices }, session }),
       last: () => statements.at(-1),
     };
   };
 
-  const scopedSelect =
-    `SELECT "__t0"."workspace_id", "__t0"."id", "__t0"."number" ` +
-    `FROM "invoices" AS "__t0" WHERE "__t0"."workspace_id" = $1`;
-
-  it("carries the identity into a transaction opened on a scoped client", async () => {
+  it("carries the settings into a transaction opened on a settings client", async () => {
     const { dsql, last } = setup();
 
-    await dsql.$identityClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
-      await tx.invoices.findMany({});
+    await dsql.$withClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
+      await tx.invoices.create({ data: { number: "INV-1" } });
     });
 
-    // The transaction context spreads the parent's, so the identity comes along with it.
-    expect(last()?.text).toBe(scopedSelect);
-    expect(last()?.params).toEqual(["w1"]);
+    // The transaction context spreads the parent's, so the settings come along with it.
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
   });
 
-  it("keeps a scoped query's predicate when it is batched into an unscoped transaction", async () => {
+  it("keeps a query's claims when it is batched into a transaction without them", async () => {
     const { dsql, last } = setup();
 
-    const query = dsql.$identityClaims({ workspaceId: "w1" }).invoices.findMany({});
+    const query = dsql.$withClaims({ workspaceId: "w1" }).invoices.create({
+      data: { number: "INV-1" },
+    });
 
     await dsql.$transaction([query]);
 
-    // Safe because the SQL was baked when the scoped client built it; batching only swaps the
-    // session the operation runs on.
-    expect(last()?.text).toBe(scopedSelect);
-    expect(last()?.params).toEqual(["w1"]);
+    // The SQL was rendered when the settings client built it; batching only swaps the session.
+    expect(last()?.params).toEqual(["w1", "INV-1"]);
+  });
+});
+
+describe("a policy violation inside a transaction", () => {
+  const violation = Object.assign(
+    new Error('invalid input syntax for type integer: "dsqlbase.policy:invoices:permissive:"'),
+    { code: "22P02" }
+  );
+
+  const setup = () => {
+    const rollback = vi.fn().mockResolvedValue(null);
+    const commit = vi.fn().mockResolvedValue(null);
+    const session = {
+      execute: vi.fn(),
+      beginTransaction: vi.fn(async () => ({
+        execute: vi.fn().mockRejectedValue(violation),
+        commit,
+        rollback,
+      })),
+    } as unknown as Session & { beginTransaction: ReturnType<typeof vi.fn> };
+
+    return {
+      dsql: createClient({ schema: { invoices }, session }),
+      session,
+      rollback,
+      commit,
+    };
+  };
+
+  it("rolls back and rethrows it, typed, without an OCC retry — callback form", async () => {
+    const { dsql, session, rollback, commit } = setup();
+
+    await expect(
+      dsql.$withClaims({ workspaceId: "w1" }).$transaction(async (tx) => {
+        await tx.invoices.create({ data: { number: "INV-1" } });
+      })
+    ).rejects.toBeInstanceOf(PolicyViolationError);
+
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(session.beginTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves an unscoped transaction unscoped", async () => {
-    const { dsql, last } = setup();
+  it("does the same for a batch", async () => {
+    const { dsql, session, rollback } = setup();
+    const query = dsql
+      .$withClaims({ workspaceId: "w1" })
+      .invoices.create({ data: { number: "1" } });
 
-    await dsql.$transaction(async (tx) => {
-      await tx.invoices.findMany({});
+    await expect(dsql.$transaction([query])).rejects.toMatchObject({
+      name: "PolicyViolationError",
+      table: "invoices",
+      command: "insert",
     });
 
-    expect(last()?.text).not.toContain("WHERE");
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(session.beginTransaction).toHaveBeenCalledTimes(1);
   });
 });

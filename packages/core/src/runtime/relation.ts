@@ -2,7 +2,7 @@ import type { RelationType } from "../definition/index.js";
 import type { AnyColumn } from "./column.js";
 import type { ComputedDiscriminator } from "./reference.js";
 import type { AnyTable } from "./table.js";
-import type { Union } from "./union.js";
+import type { AnyUnion } from "./union.js";
 
 type RelationBase = {
   /** The field the relation is read under. */
@@ -14,7 +14,7 @@ type RelationBase = {
    * Where the relation was written: `source` itself, or the union `source` is a member of, for a
    * relation declared on a union — which every member has, from its own columns.
    */
-  readonly declaredOn: AnyTable | Union;
+  readonly declaredOn: AnyTable | AnyUnion;
   /** The source's columns, paired index by index with the target's. */
   readonly from: readonly AnyColumn[];
 };
@@ -29,7 +29,7 @@ export type TableRelation = RelationBase & {
 /** A relation to a union: the target's columns are resolved per member. */
 export type UnionRelation = RelationBase & {
   readonly kind: "union";
-  readonly target: Union;
+  readonly target: AnyUnion;
   /** Member alias → that member's columns, paired index by index with `from`. */
   readonly members: Readonly<Record<string, readonly AnyColumn[]>>;
   /**
