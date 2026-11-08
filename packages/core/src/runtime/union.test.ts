@@ -526,9 +526,11 @@ describe("union joins — row policies", () => {
       userId: col("user_id", "uuid"),
       workspaceId: col("workspace_id", "uuid").notNull(),
     },
-  }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-  }));
+  });
+
+  notes.policy("workspace_isolation", {
+    using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+  });
 
   const links = new TableDefinition("links", {
     columns: { id: col("id", "uuid").primaryKey(), userId: col("user_id", "uuid") },
@@ -684,8 +686,13 @@ describe("top-level union select", () => {
 
     it("refuses to page a union whose members' keys do not line up", () => {
       const composite = new TableDefinition("composite", {
-        columns: { a: col("a", "uuid"), b: col("b", "uuid"), userId: col("user_id", "uuid") },
+        columns: {
+          a: col("a", "uuid"),
+          b: col("b", "uuid"),
+          userId: col("user_id", "uuid"),
+        },
       });
+
       composite.primaryKey((c) => [c.a, c.b]);
 
       const mixed = new UnionDefinition({ photos, composite }, { userId: col("user_id", "uuid") });

@@ -5,5 +5,5 @@ export {
   type PolicyCommand,
   type PolicyConfig,
   type PolicyFor,
-  type PolicyResolver,
+  type PolicyExpressionResolver,
 } from "./policy.js";

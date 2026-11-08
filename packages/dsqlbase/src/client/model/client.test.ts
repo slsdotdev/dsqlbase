@@ -31,9 +31,11 @@ describe("paginate and count", () => {
     id: uuid("id").primaryKey().defaultRandom(),
     workspaceId: uuid("workspace_id").notNull(),
     number: text("number").notNull(),
-  }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-  }));
+  });
+
+  invoices.policy("workspace_isolation", {
+    using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+  });
 
   const schema = { tasks, logs, invoices };
 

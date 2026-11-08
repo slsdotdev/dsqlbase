@@ -1,4 +1,11 @@
-import { AnyUnionDefinition } from "../definition/index.js";
+import {
+  AnyColumnDefinition,
+  AnyUnionDefinition,
+  AnyUnionMembers,
+  UnionConfig,
+  UnionDefinition,
+} from "../definition/index.js";
+import { TypedObject } from "../utils/types.js";
 import { AnyColumn } from "./column.js";
 import { AnyTable } from "./table.js";
 
@@ -8,7 +15,12 @@ import { AnyTable } from "./table.js";
  *
  * Built by the registry once every table exists, since a member is only a `Table` from then.
  */
-export class Union {
+export class Union<
+  TMembers extends AnyUnionMembers,
+  TColumns extends Partial<Record<string, AnyColumnDefinition>>,
+> implements TypedObject<UnionConfig<TMembers, TColumns>> {
+  declare readonly __type: UnionConfig<TMembers, TColumns>;
+
   /** The schema key the union was exported under. */
   readonly alias: string;
 
@@ -19,7 +31,11 @@ export class Union {
   /** Shared field → member alias → that member's column for the field. */
   readonly sharedColumns: Readonly<Record<string, Readonly<Record<string, AnyColumn>>>>;
 
-  constructor(definition: AnyUnionDefinition, members: Record<string, AnyTable>, alias: string) {
+  constructor(
+    definition: UnionDefinition<TMembers, TColumns>,
+    members: Record<string, AnyTable>,
+    alias: string
+  ) {
     this.alias = alias;
     this.definition = definition;
     this.members = Object.freeze({ ...members });
@@ -100,4 +116,4 @@ export class Union {
   }
 }
 
-export type AnyUnion = Union;
+export type AnyUnion = Union<AnyUnionMembers, Record<string, AnyColumnDefinition>>;

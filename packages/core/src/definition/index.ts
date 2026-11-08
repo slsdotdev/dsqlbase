@@ -31,6 +31,13 @@ export {
   type ColumnConfigType,
 } from "./indexes.js";
 export { NamespaceDefinition, type AnyNamespaceDefinition } from "./namespace.js";
+export {
+  PolicyDefinition,
+  type AnyPolicyDefinition,
+  type PolicyConfig,
+  type PolicyCommand,
+  type PolicyFor,
+} from "./policy.js";
 export { SequenceDefinition, type SequenceConfig, type AnySequenceDefinition } from "./sequence.js";
 export {
   TableDefinition,

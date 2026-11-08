@@ -1,12 +1,11 @@
 import { DefinitionSchema } from "@dsqlbase/core";
-import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import {
+  AnyUnion,
   CompositeQuery,
   Executable,
   ExecutableQuery,
   ExecutionContext,
   Schema,
-  Union,
 } from "@dsqlbase/core/runtime";
 import { TypedObject } from "@dsqlbase/core/utils";
 import {
@@ -29,16 +28,16 @@ import { shapePage } from "../pagination/page.js";
  * table read does, so a member's row policies filter its branch on their own terms.
  */
 export class UnionClient<
-  TUnion extends AnyUnionDefinition,
+  TUnion extends AnyUnion,
   TDefinition extends DefinitionSchema,
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
 
   private readonly _ctx: ExecutionContext<TDefinition>;
-  private readonly _union: Union;
+  private readonly _union: TUnion;
   private readonly _normalizer: RequestNormalizer<TDefinition>;
 
-  constructor(ctx: ExecutionContext<TDefinition>, union: Union) {
+  constructor(ctx: ExecutionContext<TDefinition>, union: TUnion) {
     this._ctx = ctx;
     this._union = union;
     this._normalizer = new RequestNormalizer<TDefinition>(ctx);

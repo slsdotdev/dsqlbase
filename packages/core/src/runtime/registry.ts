@@ -1,11 +1,11 @@
 import { TypedObject, Prettify, WithMeta } from "../utils/index.js";
-import { DefinitionSchema, TableDefinition } from "../definition/index.js";
+import { DefinitionSchema, TableDefinition, UnionDefinition } from "../definition/index.js";
 import { validateSchema } from "../validation/index.js";
 import { AnySchema, Schema, SchemaTableRelations } from "./base.js";
 import { buildSchema } from "./build.js";
 import { RuntimeRelation } from "./relation.js";
 import { AnyTable, Table } from "./table.js";
-import { Union } from "./union.js";
+import { AnyUnion, Union } from "./union.js";
 
 /**
  * The metadata a definition declared with `table().meta()`. Rebuilding a `Table` from the
@@ -24,6 +24,15 @@ export type RuntimeTables<TSchema extends AnySchema> = {
         Table<Name, Columns, Schema, SchemaTableRelations<TSchema, Name>>,
         DeclaredTableMeta<TSchema["tables"][K]>
       >
+    : never;
+};
+
+export type RuntimeUnions<TSchema extends AnySchema> = {
+  [K in keyof TSchema["unions"]]: TSchema["unions"][K] extends UnionDefinition<
+    infer TMembers,
+    infer TColumns
+  >
+    ? Union<TMembers, TColumns>
     : never;
 };
 
@@ -68,7 +77,7 @@ export class SchemaRegistry<
   declare readonly __type: Schema<TDefinition>;
 
   private readonly _tables: Map<string, AnyTable>;
-  private readonly _unions: Map<string, Union>;
+  private readonly _unions: Map<string, AnyUnion>;
   private readonly _relations: Map<AnyTable, Readonly<Record<string, RuntimeRelation>>>;
 
   constructor(definition: TDefinition) {
@@ -144,7 +153,7 @@ export class SchemaRegistry<
     return this._unions.has(alias);
   }
 
-  public getUnion(alias: string): Union {
+  public getUnion(alias: string): AnyUnion {
     const union = this._unions.get(alias);
 
     if (!union) {
@@ -155,7 +164,7 @@ export class SchemaRegistry<
   }
 
   /** One entry per union, keyed by schema alias. */
-  public getUnions(): [alias: string, union: Union][] {
+  public getUnions(): [alias: string, union: AnyUnion][] {
     return [...this._unions.entries()];
   }
 }

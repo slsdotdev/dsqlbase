@@ -1,24 +1,58 @@
 import type { SQLNode } from "../sql/nodes.js";
-import type { PolicyCommand, PolicyConfig, PolicyFor } from "../resolvers/policy.js";
+import type { PolicyCommand, PolicyFor } from "../resolvers/policy.js";
+import { AnyTable } from "./table.js";
+import { AnyPolicyDefinition } from "../definition/policy.js";
 
-const COMMANDS: readonly PolicyCommand[] = ["select", "insert", "update", "delete"];
+const COMMANDS: PolicyCommand[] = ["select", "insert", "update", "delete"];
 
 /** A policy resolved against a table's runtime columns. */
-export type RuntimePolicy = {
+export type RuntimePolicyConfig<TTable extends AnyTable> = {
   readonly name: string;
   readonly as: "permissive" | "restrictive";
-  readonly commands: readonly PolicyCommand[];
+  readonly commands: PolicyCommand[];
   /** Filters the rows a select, update or delete sees. */
-  readonly using?: SQLNode;
+  readonly using?: SQLNode | ((columns: TTable["columns"]) => SQLNode);
   /** What a written row must satisfy: the declared `check`, else `using`. */
-  readonly check?: SQLNode;
+  readonly check?: SQLNode | ((columns: TTable["columns"]) => SQLNode);
 };
 
-/** The policies that apply to one command, split the way they compose. */
-export type CommandPolicies = {
-  readonly permissive: readonly RuntimePolicy[];
-  readonly restrictive: readonly RuntimePolicy[];
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyPolicy = Policy<any, any>;
+
+export class Policy<TTable extends AnyTable, TConfig extends RuntimePolicyConfig<TTable>> {
+  readonly table: TTable;
+  readonly as: "permissive" | "restrictive";
+  readonly name: string;
+  readonly commands: PolicyCommand[];
+
+  private _check?: SQLNode | ((columns: TTable["columns"]) => SQLNode);
+  private _using?: SQLNode | ((columns: TTable["columns"]) => SQLNode);
+
+  constructor(table: TTable, config: TConfig) {
+    this.name = config.name;
+    this.table = table;
+    this.commands = config.commands;
+    this.as = config.as;
+    this._using = config.using;
+    this._check = config.check;
+  }
+
+  get using(): SQLNode | undefined {
+    if (typeof this._using === "function") {
+      return this._using(this.table.columns);
+    }
+
+    return this._using;
+  }
+
+  get check(): SQLNode | undefined {
+    if (typeof this._check === "function") {
+      return this._check(this.table.columns);
+    }
+
+    return this._check;
+  }
+}
 
 /**
  * Resolves one declared policy, refusing what `CREATE POLICY` would: `using` on a policy only
@@ -27,12 +61,21 @@ export type CommandPolicies = {
  * a check (declared, or `using`) for any insert or update — so a policy never silently means
  * "every row".
  */
-export function resolvePolicy(table: string, name: string, config: PolicyConfig): RuntimePolicy {
+export function resolvePolicy<TTable extends AnyTable>(
+  table: TTable,
+  definition: AnyPolicyDefinition
+): Policy<TTable, RuntimePolicyConfig<TTable>> {
   const declared: readonly PolicyFor[] =
-    config.for === undefined ? ["all"] : typeof config.for === "string" ? [config.for] : config.for;
+    definition["_for"] === undefined
+      ? ["all"]
+      : typeof definition["_for"] === "string"
+        ? [definition["_for"]]
+        : definition["_for"];
 
   if (declared.length === 0) {
-    throw new Error(`Policy "${name}" on "${table}" applies to no command: \`for\` is empty.`);
+    throw new Error(
+      `Policy "${definition.name}" on "${table.name}" applies to no command: \`for\` is empty.`
+    );
   }
 
   const commands = declared.includes("all")
@@ -41,52 +84,31 @@ export function resolvePolicy(table: string, name: string, config: PolicyConfig)
 
   const reads = commands.some((command) => command !== "insert");
   const writes = commands.some((command) => command === "insert" || command === "update");
-  const label = `Policy "${name}" on "${table}" (for ${commands.join(", ")})`;
+  const label = `Policy "${definition.name}" on "${table}" (for ${commands.join(", ")})`;
 
-  if (config.using && !reads) {
+  if (definition["_using"] && !reads) {
     throw new Error(
       `${label} declares \`using\`, which an insert has no existing row to apply to.`
     );
   }
 
-  if (config.check && !writes) {
+  if (definition["_check"] && !writes) {
     throw new Error(`${label} declares \`check\`, which only an insert or update applies.`);
   }
 
-  if (reads && !config.using) {
+  if (reads && !definition["_using"]) {
     throw new Error(`${label} needs \`using\`: it decides which existing rows are visible.`);
   }
 
-  if (writes && !config.check && !config.using) {
+  if (writes && !definition["_check"] && !definition["_using"]) {
     throw new Error(`${label} needs \`check\`: it decides which rows may be written.`);
   }
 
-  return Object.freeze({
-    name,
-    as: config.as ?? "permissive",
-    commands: Object.freeze([...commands]),
-    using: config.using,
-    check: writes ? (config.check ?? config.using) : undefined,
+  return new Policy(table, {
+    name: definition.name,
+    commands,
+    as: definition["_as"] ?? "permissive",
+    using: definition["_using"],
+    check: writes ? (definition["_check"] ?? definition["_using"]) : undefined,
   });
-}
-
-/** Groups resolved policies by the command they apply to, in declaration order. */
-export function groupPolicies(
-  policies: readonly RuntimePolicy[]
-): ReadonlyMap<PolicyCommand, CommandPolicies> {
-  const byCommand = new Map<PolicyCommand, CommandPolicies>();
-
-  for (const command of COMMANDS) {
-    const applying = policies.filter((policy) => policy.commands.includes(command));
-
-    byCommand.set(
-      command,
-      Object.freeze({
-        permissive: Object.freeze(applying.filter((policy) => policy.as === "permissive")),
-        restrictive: Object.freeze(applying.filter((policy) => policy.as === "restrictive")),
-      })
-    );
-  }
-
-  return byCommand;
 }

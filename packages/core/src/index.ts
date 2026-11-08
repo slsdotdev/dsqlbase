@@ -41,8 +41,10 @@ export {
   type UpdateGuard,
 } from "./definition/index.js";
 export {
+  buildSchema,
   Column,
   CompositeQuery,
+  ComputedDiscriminator,
   ExecutionContext,
   ExecutableQuery,
   OperationsFactory,
@@ -53,13 +55,11 @@ export {
   Union,
   UnionResolver,
   type AnyColumn,
-  ComputedDiscriminator,
   type ColumnReference,
   type ReferenceEnd,
   type RuntimeRelation,
   type TableRelation,
   type UnionRelation,
-  buildSchema,
   type BuiltSchema,
   type ResolvedReferences,
   type TableReference,
@@ -92,6 +92,7 @@ export {
   type OperationType,
   type PaginationOptions,
   type RuntimeTables,
+  type RuntimeUnions,
   type Schema,
   type SchemaRelationDefinitions,
   type SchemaTableDefinitions,
@@ -147,7 +148,13 @@ export {
   type PolicyCommand,
   type PolicyConfig,
   type PolicyFor,
-  type PolicyResolver,
+  type PolicyExpressionResolver,
   type ColumnHookContext,
 } from "./resolvers/index.js";
-export { validateSchema } from "./validation/index.js";
+export {
+  validateSchema,
+  collectRelations,
+  findColumnAlias,
+  memberToColumns,
+  type SourcedRelation,
+} from "./validation/index.js";

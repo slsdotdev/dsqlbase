@@ -145,23 +145,22 @@ const documents = table("documents", {
   title: text("title").notNull(),
   body: varchar("body", 5000),
   createdAt: datetime("created_at").notNull().defaultNow(),
-})
-  .meta({ __typename: "Document" })
-  // A restrictive workspace boundary; every member reads, a member inserts only as the author,
-  // and only the author changes or removes a row.
-  .policy("workspace_isolation", (t) => ({
-    as: "restrictive",
-    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-  }))
-  .policy("members_read", () => ({ for: "select", using: sql`true` }))
-  .policy("members_insert", (t) => ({
-    for: "insert",
-    check: sql`${t.authorId} = ${sql.claim("userId")}`,
-  }))
-  .policy("author_writes", (t) => ({
-    for: ["update", "delete"],
-    using: sql`${t.authorId} = ${sql.claim("userId")}`,
-  }));
+}).meta({ __typename: "Document" });
+// A restrictive workspace boundary; every member reads, a member inserts only as the author,
+// and only the author changes or removes a row.
+documents.policy("workspace_isolation", {
+  as: "restrictive",
+  using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+});
+documents.policy("members_read", { for: "select", using: sql`true` });
+documents.policy("members_insert", {
+  for: "insert",
+  check: (t) => sql`${t.authorId} = ${sql.claim("userId")}`,
+});
+documents.policy("author_writes", {
+  for: ["update", "delete"],
+  using: (t) => sql`${t.authorId} = ${sql.claim("userId")}`,
+});
 
 // Keyed under an alias that differs from its database name, like `members` above.
 const comments = table("document_comments", {
@@ -173,9 +172,11 @@ const comments = table("document_comments", {
   documentId: uuid("document_id").notNull(),
   author: text("author").notNull(),
   body: text("body").notNull(),
-}).policy("workspace_isolation", (t) => ({
-  using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-}));
+});
+
+comments.policy("workspace_isolation", {
+  using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+});
 
 // The policy's column leads, which is the shape the guide recommends for a bounded table.
 documents.index("documents_workspace_idx").columns((c) => [c.workspaceId, c.id]);
@@ -328,10 +329,12 @@ const drafts = table("drafts", {
   id: guid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   // Immutable once written: no policy covers update, so every update is refused.
-}).policy("workspace_isolation", (t) => ({
+});
+
+drafts.policy("workspace_isolation", {
   for: ["select", "insert", "delete"],
-  using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-}));
+  using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+});
 
 // A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.
 const tags = table("tags", {

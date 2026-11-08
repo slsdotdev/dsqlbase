@@ -4,7 +4,7 @@ import type {
   ColumnConfig,
   ColumnRuntimeType,
 } from "@dsqlbase/core/definition";
-import { AnyColumn, AnyTable, sql, SQLNode, SQLValue, Union } from "@dsqlbase/core";
+import { AnyColumn, AnyTable, AnyUnion, sql, SQLNode, SQLValue } from "@dsqlbase/core";
 import type { Prettify } from "@dsqlbase/core/utils";
 import {
   decodeMemberId,
@@ -639,7 +639,7 @@ export class WhereBuilder {
    * inside `and` / `or` / `not` included. Checked on the union rather than per member, so the
    * error names the union instead of whichever member happened to lack the field.
    */
-  public assertShared(union: Union, where: Record<string, unknown> | null | undefined) {
+  public assertShared(union: AnyUnion, where: Record<string, unknown> | null | undefined) {
     for (const [fieldName, condition] of Object.entries(where ?? {})) {
       if ((fieldName === "and" || fieldName === "or") && Array.isArray(condition)) {
         for (const child of condition) {
@@ -673,7 +673,7 @@ export class WhereBuilder {
    * bare-value shorthand, each naming member aliases; anything else — another operator, a
    * value that is not a member — is refused, since it could only ever be a typo.
    */
-  private _getKeyCondition(union: Union, condition: unknown): (alias: string) => boolean {
+  private _getKeyCondition(union: AnyUnion, condition: unknown): (alias: string) => boolean {
     const assertMembers = (values: unknown[]) => {
       for (const value of values) {
         if (typeof value !== "string" || !union.hasMember(value)) {
@@ -728,7 +728,7 @@ export class WhereBuilder {
    * naming another node can never equal this member's column.
    */
   public foldKey(
-    union: Union,
+    union: AnyUnion,
     where: Record<string, unknown>,
     alias: string
   ): Record<string, unknown> | false {

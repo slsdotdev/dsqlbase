@@ -13,11 +13,11 @@ import { ExecutionContext } from "./context.js";
 import { AnyTable } from "./table.js";
 import { AnyColumn, Column } from "./column.js";
 import { ComputedDiscriminator } from "./reference.js";
-import { RuntimePolicy } from "./policy.js";
+import { AnyPolicy } from "./policy.js";
 import type { PolicyCommand } from "../resolvers/policy.js";
 import { JoinParams, SelectParams, UnionBranchParams, UnionSelectParams } from "./query.js";
 import { AnySchema } from "./base.js";
-import { Union } from "./union.js";
+import { AnyUnion } from "./union.js";
 
 export type OperationType = "select" | "insert" | "update" | "delete";
 export type OperationMode = "one" | "many";
@@ -255,31 +255,35 @@ export class OperationsFactory<
     table: T,
     commands: readonly PolicyCommand[]
   ): SQLNode | undefined {
-    if (table.policies.length === 0 || this._ctx.policies.bypass) {
+    if (!table.hasPolicies() || this._ctx.policies.bypass) {
       return undefined;
     }
 
-    const using = (policy: RuntimePolicy) => policy.using as SQLNode;
     const parts: SQLNode[] = [];
     const permissiveSets = new Set<string>();
-    const restrictive = new Set<RuntimePolicy>();
+    const restrictive = new Set<AnyPolicy>();
+
+    const using = (policy: AnyPolicy) => policy.using as SQLNode;
 
     for (const command of commands) {
-      const policies = table.policiesFor(command);
-      const key = policies.permissive.map((policy) => policy.name).join(",");
+      const policies = table.getPolicies(command);
+      const permissive = policies.filter((policy) => policy.as === "permissive");
+      const key = permissive.map((policy) => policy.name).join(",");
 
       if (!permissiveSets.has(key)) {
         permissiveSets.add(key);
         parts.push(
-          policies.permissive.length === 0
+          permissive.length === 0
             ? sql.raw("false")
-            : policies.permissive.length === 1
-              ? using(policies.permissive[0] as RuntimePolicy)
-              : sql.or(policies.permissive.map((policy) => sql.wrap(using(policy))))
+            : permissive.length === 1
+              ? using(permissive[0])
+              : sql.or(permissive.map((policy) => sql.wrap(using(policy))))
         );
       }
 
-      for (const policy of policies.restrictive) restrictive.add(policy);
+      for (const policy of policies.filter((policy) => policy.as === "restrictive")) {
+        restrictive.add(policy);
+      }
     }
 
     parts.push(...[...restrictive].map(using));
@@ -304,21 +308,28 @@ export class OperationsFactory<
     table: T,
     command: "insert" | "update"
   ): SQLNode | undefined {
-    if (table.policies.length === 0 || this._ctx.policies.bypass) {
+    if (!table.hasPolicies() || this._ctx.policies.bypass) {
       return undefined;
     }
 
-    const { permissive, restrictive } = table.policiesFor(command);
     const anchor = (table.primaryKey[0] ?? table.getColumnEntries()[0]?.[1]) as AnyColumn;
     const suffix = sql`coalesce(left(${anchor}::text, 0), '')`;
     const marker = (as: string, names: readonly string[]) =>
       sql`${sql.literal(`dsqlbase.policy:${table.alias}:${as}:${names.join(",")}`)} || ${suffix}`;
-    const check = (policy: RuntimePolicy) => sql.wrap(policy.check as SQLNode);
+    const check = (policy: AnyPolicy) => sql.wrap(policy.check as SQLNode);
 
-    const arms = restrictive.map(
-      (policy) =>
-        sql`WHEN NOT COALESCE(${check(policy)}, false) THEN ${marker("restrictive", [policy.name])}`
-    );
+    const arms: SQLNode[] = [];
+    const permissive: AnyPolicy[] = [];
+
+    for (const policy of table.getPolicies(command)) {
+      if (policy.as === "restrictive") {
+        arms.push(
+          sql`WHEN NOT COALESCE(${check(policy)}, false) THEN ${marker("restrictive", [policy.name])}`
+        );
+      } else {
+        permissive.push(policy);
+      }
+    }
 
     arms.push(
       permissive.length === 0
@@ -660,7 +671,7 @@ export class OperationsFactory<
    * `pairs` are the join's `to` columns per member; absent at the root of a query.
    */
   private _resolveUnionParams(
-    union: Union,
+    union: AnyUnion,
     args: UnionSelectOperationArgs,
     mode: OperationMode,
     pairs?: Readonly<Record<string, readonly AnyColumn[]>>,
@@ -832,7 +843,7 @@ export class OperationsFactory<
   }
 
   /** What one order key reads inside one member's branch. */
-  private _getUnionKeyExpression(union: Union, alias: string, key: UnionOrderKey): SQLNode {
+  private _getUnionKeyExpression(union: AnyUnion, alias: string, key: UnionOrderKey): SQLNode {
     if (key.field === KEY_FIELD) {
       return sql.literal(alias);
     }
@@ -1000,10 +1011,11 @@ export class OperationsFactory<
    */
   public createUnionSelectOperation<
     TResult extends object,
+    TUnion extends AnyUnion,
     TMode extends OperationMode = OperationMode,
     TArgs extends UnionSelectOperationArgs = UnionSelectOperationArgs,
   >(
-    union: Union,
+    union: TUnion,
     config: OperationRequest<TArgs, TMode>
   ): UnionSelectOperation<TMode, TArgs, TResult> {
     const { name, args, mode } = config;
@@ -1032,8 +1044,8 @@ export class OperationsFactory<
    * Counts the rows a union's members select: one `count(*)` per member, each through the
    * `WHERE` seam with that member's own table, added together.
    */
-  public createUnionCountOperation(
-    union: Union,
+  public createUnionCountOperation<TUnion extends AnyUnion>(
+    union: TUnion,
     config: OperationRequest<UnionCountOperationArgs, "one">
   ): CountOperation {
     const { name, args } = config;

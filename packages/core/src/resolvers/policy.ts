@@ -1,5 +1,7 @@
 import type { SQLNode } from "../sql/nodes.js";
-import type { AnyTable, TableColumns } from "../runtime/table.js";
+import type { Table, TableColumns } from "../runtime/table.js";
+import { AnyTableDefinition, TableDefinition } from "../definition/table.js";
+import { AnyTableRelations } from "../definition/relations.js";
 
 /** A statement a policy applies to — PostgreSQL's `FOR` commands, `ALL` aside. */
 export type PolicyCommand = "select" | "insert" | "update" | "delete";
@@ -29,4 +31,12 @@ export type PolicyConfig = {
  * Declares a policy against a table's runtime columns, so `${t.ownerId}` renders under whatever
  * alias the level reading it is bound to. Runs once, when the client is built.
  */
-export type PolicyResolver<T extends AnyTable> = (columns: TableColumns<T>) => PolicyConfig;
+
+export type PolicyExpressionResolver<T extends AnyTableDefinition> =
+  T extends TableDefinition<infer TName, infer TColumns, infer TNamespace>
+    ?
+        | SQLNode
+        | ((
+            columns: TableColumns<Table<TName, TColumns, TNamespace, AnyTableRelations>>
+          ) => SQLNode)
+    : never;

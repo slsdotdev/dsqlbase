@@ -864,16 +864,16 @@ describe("OperationFactory / row policies", () => {
       ownerId: new ColumnDefinition("owner_id"),
       number: new ColumnDefinition("number").notNull(),
     },
-  })
-    .policy("workspace_isolation", (t) => ({
-      as: "restrictive",
-      using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-    }))
-    .policy("members_read", () => ({ for: "select", using: sql`true` }))
-    .policy("owner_writes", (t) => ({
-      for: ["update", "delete"],
-      using: sql`${t.ownerId} = ${sql.claim("userId")}`,
-    }));
+  });
+  invoices.policy("workspace_isolation", {
+    as: "restrictive",
+    using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+  });
+  invoices.policy("members_read", { for: "select", using: sql`true` });
+  invoices.policy("owner_writes", {
+    for: ["update", "delete"],
+    using: (t) => sql`${t.ownerId} = ${sql.claim("userId")}`,
+  });
 
   const lineItems = new TableDefinition("line_items", {
     columns: {
@@ -881,14 +881,18 @@ describe("OperationFactory / row policies", () => {
       invoiceId: new ColumnDefinition("invoice_id").notNull(),
       workspaceId: new ColumnDefinition("workspace_id").notNull(),
     },
-  }).policy("workspace_isolation", (t) => ({
-    using: sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
-  }));
+  });
+
+  lineItems.policy("workspace_isolation", {
+    using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+  });
 
   // Policies but none for select: every read of it is denied.
   const audit = new TableDefinition("audit", {
     columns: { id: new ColumnDefinition("id").primaryKey() },
-  }).policy("append_only", () => ({ for: "insert", check: sql`true` }));
+  });
+
+  audit.policy("append_only", { for: "insert", check: sql`true` });
 
   const policyRegistry = new SchemaRegistry({
     workspaces,
@@ -1040,10 +1044,11 @@ describe("OperationFactory / row policies", () => {
         ownerId: new ColumnDefinition("owner_id"),
         shared: new ColumnDefinition("shared"),
       },
-    })
-      .policy("own", (t) => ({ using: sql`${t.ownerId} = ${sql.claim("userId")}` }))
-      .policy("shared", (t) => ({ for: "select", using: sql`${t.shared}` }))
-      .policy("live", () => ({ as: "restrictive", using: sql`true` }));
+    });
+
+    notes.policy("own", { using: (t) => sql`${t.ownerId} = ${sql.claim("userId")}` });
+    notes.policy("shared", { for: "select", using: (t) => sql`${t.shared}` });
+    notes.policy("live", { as: "restrictive", using: () => sql`true` });
 
     const registry = new SchemaRegistry({ notes });
     const query = new OperationsFactory(

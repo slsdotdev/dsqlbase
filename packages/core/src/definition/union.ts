@@ -47,8 +47,12 @@ export type UnionColumns<TColumns extends Partial<Record<string, AnyColumnDefini
   readonly [K in keyof TColumns & string]: UnionColumnDefinition<K, NonNullable<TColumns[K]>>;
 };
 
-export type UnionConfig<TMembers extends AnyUnionMembers> = {
+export type UnionConfig<
+  TMembers extends AnyUnionMembers,
+  TColumns extends Partial<Record<string, AnyColumnDefinition>>,
+> = {
   members: TMembers;
+  columns: TColumns;
 };
 
 /**
@@ -66,7 +70,7 @@ export class UnionDefinition<
     string,
     AnyColumnDefinition
   >,
-> extends DefinitionNode<string, UnionConfig<TMembers>> {
+> extends DefinitionNode<string, UnionConfig<TMembers, TColumns>> {
   readonly kind = Kind.UNION;
 
   readonly members: Readonly<TMembers>;

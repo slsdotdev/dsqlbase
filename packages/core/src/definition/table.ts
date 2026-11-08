@@ -10,9 +10,7 @@ import {
 } from "./constraint.js";
 import { AnyIndexDefinition, IndexConfig, IndexDefinition } from "./indexes.js";
 import { AnyNamespaceDefinition } from "./namespace.js";
-import type { PolicyResolver } from "../resolvers/policy.js";
-import type { AnyTableRelations } from "./relations.js";
-import type { Table } from "../runtime/table.js";
+import { AnyPolicyDefinition, PolicyConfig, PolicyDefinition } from "./policy.js";
 
 export type TableConfig<
   TColumns extends Record<string, AnyColumnDefinition>,
@@ -31,13 +29,6 @@ export type TableConfig<
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTableDefinition = TableDefinition<any, any, any>;
 
-/** A policy as declared: its name, and the callback the runtime resolves it with. */
-export type PolicyDeclaration = {
-  readonly name: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly resolve: PolicyResolver<any>;
-};
-
 export type ColumnRefs<TColumns extends Record<string, AnyColumnDefinition>> = {
   readonly [K in keyof TColumns]: NodeRef<TColumns[K]>;
 };
@@ -52,9 +43,9 @@ export class TableDefinition<
   protected _namespace?: NodeRef<TNamespace>;
   protected _indexes: AnyIndexDefinition[] = [];
   protected _constraints: AnyConstraintDefinition[] = [];
+  protected _policies: AnyPolicyDefinition[] = [];
   protected _meta?: Record<string, unknown>;
   protected _renamedFrom?: string;
-  protected _policies: PolicyDeclaration[] = [];
 
   readonly columns: Readonly<TColumns>;
 
@@ -195,37 +186,6 @@ export class TableDefinition<
   }
 
   /**
-   * Attaches arbitrary metadata to the table, surfaced on every result row under `$$meta`
-   * alongside the built-in `key`, `table` and `schema`.
-   *
-   * Metadata describes the table to the application — a GraphQL typename, a display label —
-   * and never to the database: it is absent from {@link TableDefinition.toJSON}, so it does
-   * not participate in migrations. Built-in keys may not be overwritten; that throws when the
-   * runtime `Table` is built.
-   *
-   * @example
-   * ```ts
-   * const users = table("users", { id: uuid("id").primaryKey() }).meta({ __typename: "User" });
-   * // row.$$meta.__typename === "User"
-   * ```
-   */
-  /**
-   * The table's previous name: the migration renames it (`ALTER TABLE … RENAME TO`) instead of
-   * dropping one table and creating another. Once the database has the new name the hint does
-   * nothing, so it can stay for a release before it is removed.
-   */
-  public renamedFrom(previous: string): this {
-    this._renamedFrom = previous;
-    return this;
-  }
-
-  public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
-    this._meta = meta;
-
-    return this as WithMeta<this, M>;
-  }
-
-  /**
    * Declares a row policy, shaped like `CREATE POLICY <name> ON <table> AS … FOR … USING (…)
    * WITH CHECK (…)` — DSQL has no RLS, so the runtime enforces it while it builds each
    * statement. A table with any policy denies by default: a command no permissive policy covers
@@ -242,23 +202,54 @@ export class TableDefinition<
    * }));
    * ```
    */
-  public policy(
-    name: string,
-    resolve: PolicyResolver<Table<TName, TColumns, TNamespace, AnyTableRelations>>
-  ): this {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      throw new Error(
-        `Table "${this.name}" declares policy "${name}": a policy name is a SQL-style ` +
-          `identifier — letters, digits and underscores, not starting with a digit.`
-      );
-    }
+  public policy(name: string, config: Omit<PolicyConfig<this>, "table">) {
+    // move this to runtime / migration validation
+    // if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    //   throw new Error(
+    //     `Table "${this.name}" declares policy "${name}": a policy name is a SQL-style ` +
+    //       `identifier — letters, digits and underscores, not starting with a digit.`
+    //   );
+    // }
 
     if (this._policies.some((policy) => policy.name === name)) {
       throw new Error(`Table "${this.name}" declares policy "${name}" twice.`);
     }
 
-    this._policies.push({ name, resolve });
+    const policy = new PolicyDefinition(name, { table: this, ...config });
+    this._policies.push(policy);
+
+    return policy;
+  }
+
+  /**
+   * The table's previous name: the migration renames it (`ALTER TABLE … RENAME TO`) instead of
+   * dropping one table and creating another. Once the database has the new name the hint does
+   * nothing, so it can stay for a release before it is removed.
+   */
+  public renamedFrom(previous: string): this {
+    this._renamedFrom = previous;
     return this;
+  }
+
+  /**
+   * Attaches arbitrary metadata to the table, surfaced on every result row under `$$meta`
+   * alongside the built-in `key`, `table` and `schema`.
+   *
+   * Metadata describes the table to the application — a GraphQL typename, a display label —
+   * and never to the database: it is absent from {@link TableDefinition.toJSON}, so it does
+   * not participate in migrations. Built-in keys may not be overwritten; that throws when the
+   * runtime `Table` is built.
+   *
+   * @example
+   * ```ts
+   * const users = table("users", { id: uuid("id").primaryKey() }).meta({ __typename: "User" });
+   * // row.$$meta.__typename === "User"
+   * ```
+   */
+  public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
+    this._meta = meta;
+
+    return this as WithMeta<this, M>;
   }
 
   public toJSON() {

@@ -1,4 +1,11 @@
-import { AnyTable, DefinitionSchema, RuntimeTables, Schema } from "@dsqlbase/core";
+import {
+  AnyTable,
+  AnyUnion,
+  DefinitionSchema,
+  RuntimeTables,
+  RuntimeUnions,
+  Schema,
+} from "@dsqlbase/core";
 import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import { DatabaseClient } from "./client.js";
@@ -18,8 +25,12 @@ export type Models<T extends DefinitionSchema, TVisible extends Aliases<T> = Ali
         ? ModelClient<TTable, T>
         : never
       : never
-    : K extends UnionAliases<T>
-      ? UnionClient<Schema<T>["unions"][K], T>
+    : K extends keyof RuntimeUnions<Schema<T>>
+      ? RuntimeUnions<Schema<T>>[K] extends infer TUnion
+        ? TUnion extends AnyUnion
+          ? UnionClient<TUnion, T>
+          : never
+        : never
       : never;
 };
 

@@ -88,6 +88,7 @@ describe("the union client", () => {
       where: { $$key: "videos" },
       orderBy: { createdAt: "desc" },
     });
+
     const [row] = rows;
 
     if (row?.$$key === "videos") {

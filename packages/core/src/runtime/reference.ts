@@ -2,7 +2,7 @@ import { SQLContext, SQLNode, SQLParam, SQLScope, SQLStatement } from "../sql/no
 import { sql } from "../sql/tag.js";
 import type { AnyColumn } from "./column.js";
 import type { RuntimeRelation } from "./relation.js";
-import type { Union } from "./union.js";
+import type { AnyUnion } from "./union.js";
 
 /**
  * Which member of a union a row's key points at, computed when the query runs: the first
@@ -27,7 +27,7 @@ export class ComputedDiscriminator implements SQLNode {
   /** The name it is projected under: the first key column's, suffixed `$key`. */
   readonly name: string;
 
-  readonly union: Union;
+  readonly union: AnyUnion;
 
   /** The referencing row's key columns. */
   readonly keys: readonly AnyColumn[];
@@ -36,7 +36,7 @@ export class ComputedDiscriminator implements SQLNode {
   readonly members: Readonly<Record<string, readonly AnyColumn[]>>;
 
   constructor(
-    union: Union,
+    union: AnyUnion,
     keys: readonly AnyColumn[],
     members: Readonly<Record<string, readonly AnyColumn[]>>
   ) {
@@ -87,7 +87,7 @@ export type TableReference = {
  */
 export type UnionReference = {
   readonly kind: "union";
-  readonly union: Union;
+  readonly union: AnyUnion;
   /** Member alias → the member's column this key points at. */
   readonly members: Readonly<Record<string, AnyColumn>>;
   /**

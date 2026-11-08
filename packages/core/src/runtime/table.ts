@@ -14,7 +14,7 @@ import {
 } from "../definition/index.js";
 import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
-import { CommandPolicies, RuntimePolicy, groupPolicies, resolvePolicy } from "./policy.js";
+import { AnyPolicy, resolvePolicy } from "./policy.js";
 import type { PolicyCommand } from "../resolvers/policy.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,6 +34,8 @@ export type RecordMeta = {
   readonly schema?: string;
   readonly [field: string]: unknown;
 };
+
+export type PolicyRegistry = Partial<Record<PolicyCommand, AnyPolicy[]>>;
 
 /** Meta keys the runtime owns; `table().meta()` may not redeclare them. */
 const BUILT_IN_META_KEYS: readonly string[] = Object.freeze(["key", "table", "schema"]);
@@ -148,9 +150,7 @@ export class Table<
    * The table's row policies, resolved against its columns, in declaration order. A table with
    * any is default deny: a command no permissive policy covers matches no row.
    */
-  readonly policies: readonly RuntimePolicy[];
-
-  private readonly _policiesByCommand: ReadonlyMap<PolicyCommand, CommandPolicies>;
+  readonly policies: Readonly<PolicyRegistry>;
 
   /**
    * What every row of this table reports about itself, surfaced as `$$meta` on each result
@@ -175,12 +175,7 @@ export class Table<
     this.primaryKey = this._buildPrimaryKey(definition);
     this.isCompositeKey = this.primaryKey.length > 1;
     this.uniqueKeys = this._buildUniqueKeys(definition);
-    this.policies = Object.freeze(
-      definition["_policies"].map(({ name, resolve }) =>
-        resolvePolicy(this.name, name, resolve(this.columns))
-      )
-    );
-    this._policiesByCommand = groupPolicies(this.policies);
+    this.policies = this._buildPolicies(definition);
     this.meta = this._buildMeta(definition);
   }
 
@@ -287,6 +282,24 @@ export class Table<
     return Object.freeze([...keys.values()]);
   }
 
+  private _buildPolicies(definition: TableDefinition<TName, TColumns, TNamespace>): PolicyRegistry {
+    const policies = {} as PolicyRegistry;
+
+    for (const def of definition["_policies"] ?? []) {
+      const policy = resolvePolicy(this, def);
+
+      for (const command of policy.commands) {
+        if (!policies[command]) {
+          policies[command] = [];
+        }
+
+        policies[command].push(policy);
+      }
+    }
+
+    return policies;
+  }
+
   private _buildMeta(definition: TableDefinition<TName, TColumns, TNamespace>): RecordMeta {
     const declared = definition["_meta"] ?? {};
 
@@ -307,9 +320,13 @@ export class Table<
     });
   }
 
+  public hasPolicies() {
+    return Object.keys(this.policies).length > 0;
+  }
+
   /** The policies that apply to `command`, split into permissive and restrictive. */
-  public policiesFor(command: PolicyCommand): CommandPolicies {
-    return this._policiesByCommand.get(command) as CommandPolicies;
+  public getPolicies(command: PolicyCommand): AnyPolicy[] {
+    return this.policies[command] ?? [];
   }
 
   public hasColumn(name: string): boolean {

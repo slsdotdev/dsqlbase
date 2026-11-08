@@ -1,5 +1,6 @@
 import {
   AnyTable,
+  AnyUnion,
   DefinitionSchema,
   ExecutableQuery,
   ExecutionContext,
@@ -7,7 +8,6 @@ import {
   SQLQuery,
   SQLStatement,
 } from "@dsqlbase/core";
-import { AnyUnionDefinition } from "@dsqlbase/core/definition";
 import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import { GlobalIdResultOf } from "../model/base.js";
@@ -263,7 +263,7 @@ export function attachModels<T extends DefinitionSchema>(
   // union named like a table, so the two cannot collide.
   for (const [alias, union] of ctx.schema.getUnions()) {
     Object.defineProperty(client, alias, {
-      value: new UnionClient<AnyUnionDefinition, T>(ctx, union),
+      value: new UnionClient<AnyUnion, T>(ctx, union),
       writable: false,
       enumerable: true,
     });

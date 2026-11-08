@@ -18,6 +18,7 @@ export const Kind = Object.freeze({
   PRIMARY_KEY_CONSTRAINT: "PRIMARY_KEY_CONSTRAINT",
   UNION: "UNION",
   UNION_COLUMN: "UNION_COLUMN",
+  POLICY: "POLICY",
 } as const);
 
 export const Relation = Object.freeze({
