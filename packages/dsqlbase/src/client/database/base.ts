@@ -13,11 +13,10 @@ import { UnionClient } from "../union/client.js";
 import { GlobalIdResultOf } from "../model/base.js";
 import { WhereExpressionOf } from "../model/filters.js";
 import { GlobalIdError, decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
-import { NodeTable, getNodes } from "../nodes.js";
 
 /** A global id resolved against the schema: its table, the unique key it matches, its values. */
 type ResolvedId = {
-  readonly node: NodeTable;
+  readonly node: AnyTable;
   readonly fields: readonly string[];
   readonly pk: Record<string, string>;
 };
@@ -42,17 +41,17 @@ export abstract class BaseClient<T extends DefinitionSchema> {
    */
   private _resolveNode(id: string): ResolvedId {
     const { key, pk } = decodeGlobalId(id);
-    const node = getNodes(this._ctx.schema).get(key);
 
-    if (!node) {
+    if (!this._ctx.schema.hasTable(key)) {
       throw new GlobalIdError(
         "unknown_node",
         `"${key}" is not a table with a unique key in this schema.`
       );
     }
 
+    const node = this._ctx.schema.getTable(key);
     const fields = Object.keys(pk).sort();
-    const match = node.keys.find(
+    const match = node.uniqueKeys.find(
       (key) => key.length === fields.length && key.every((field, i) => field === fields[i])
     );
 
@@ -62,7 +61,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       throw new GlobalIdError(
         "key_mismatch",
         `Global id for "${key}" carries ${list(fields)}, which is not a unique key of it. ` +
-          `Its keys are ${node.keys.map(list).join(", ")}.`
+          `Its keys are ${node.uniqueKeys.map(list).join(", ")}.`
       );
     }
 
@@ -146,7 +145,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
   }
 
   /** Tags a resolved row with the alias it came from, so a caller can narrow the union. */
-  private _tag(row: Record<string, unknown>, node: NodeTable): Record<string, unknown> {
+  private _tag(row: Record<string, unknown>, node: AnyTable): Record<string, unknown> {
     return { ...row, $$key: node.alias };
   }
 
@@ -170,7 +169,7 @@ export abstract class BaseClient<T extends DefinitionSchema> {
     const resolved = ids.map((id) => this._resolveNode(id));
     const groups = new Map<
       string,
-      { node: NodeTable; fields: readonly string[]; pks: Map<string, Record<string, string>> }
+      { node: AnyTable; fields: readonly string[]; pks: Map<string, Record<string, string>> }
     >();
 
     // A table may be asked for under two different keys in one batch; each is its own query.
@@ -276,14 +275,14 @@ export function attachModels<T extends DefinitionSchema>(
  * one matches what the database hands back.
  */
 function matchKey(
-  node: NodeTable,
+  node: AnyTable,
   fields: readonly string[],
   valueOf: (field: string) => string | undefined
 ): { group: string; row: string } {
   const values = fields.map((field) => {
     const value = valueOf(field) ?? "";
 
-    return node.table.getColumn(field)?.dataType === "uuid" ? canonicalUuid(value) : value;
+    return node.getColumn(field)?.dataType === "uuid" ? canonicalUuid(value) : value;
   });
 
   return { group: `${node.alias}\u0000${fields.join(",")}`, row: values.join("\u0000") };

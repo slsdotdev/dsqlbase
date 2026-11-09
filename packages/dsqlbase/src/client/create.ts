@@ -7,7 +7,6 @@ import {
   Session,
 } from "@dsqlbase/core";
 import { attachModels } from "./database/base.js";
-import { registerNodes } from "./nodes.js";
 import { DatabaseClient, QueryClient } from "./database/index.js";
 
 export type ClientOptions<TSchema extends DefinitionSchema> = {
@@ -119,11 +118,6 @@ export function createClient<TSchema extends DefinitionSchema>(
 
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
-
-  // Finds the tables a global id can address. Here rather than inside `SchemaRegistry`, because
-  // the shape of an id is a client concern; what each guid() column's ids name is read by its
-  // hooks, from the references core sets.
-  registerNodes(schema, options.schema);
 
   const context = new ExecutionContext({
     schema,
