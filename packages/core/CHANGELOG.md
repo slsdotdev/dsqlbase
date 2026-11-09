@@ -1,5 +1,111 @@
 # @dsqlbase/core
 
+## 0.3.0
+
+### Minor Changes
+
+- 545007a: Column hooks: `ColumnConfig.hooks { read, write }` transform a column's values around its codec with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them (`write` before encode, on writes and filters; `read` after decode), never a definition's `.default()`, so codecs stay pure. `ColumnCodec`, `defaultCodec`, `ColumnValidator`, `ColumnHooks` and `ColumnHookContext` live in the new `@dsqlbase/core/resolvers` entrypoint, and are exported from the root. `validateSchema` refuses a relation pair whose columns carry different hooks, a column with hooks that references more than one target or reaches a union member through a column that is not a unique key, and a ring of references.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `ColumnRowDecoder`, `Column.rowDecoder` and `Column.resolveRow` are removed — use a `read` hook, which gets the row; `Column.resolve(raw, row?)` takes it;
+  - `ColumnCodec`, `defaultCodec` and `ColumnValidator` are no longer exported from `@dsqlbase/core/definition` — import them from `@dsqlbase/core` or `@dsqlbase/core/resolvers`;
+  - a ring of references is refused for every column: a `hasOne` declared from the table that holds the key, beside a relation the other way, now throws — declare it as a `belongsTo`.
+
+  Docs: docs/decisions/0022-column-hooks.md, docs/internals/codec-boundary.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md
+
+- 65d4180: A runtime `Column` now records what it points at. `SchemaRegistry` sets `Column.references` on every foreign-key column while it validates relations — the `from` of a belongs-to, the `to` of a has-many / has-one — for every column type, and freezes them once built. `Column.dependsOn` is the discriminator of a belongs-to a union, projected with the column whenever it is selected; `Column.resolveReferences()` follows references to where each chain ends and reports a ring instead of looping.
+
+  The client binds `guid()` columns from these references instead of walking every relation itself. Behaviour is unchanged, except that two relations whose chains end at the same column (`orders.customerId` → `customers.id`, and → `customerStats.customerId` → `customers.id`) are accepted.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `ColumnRowDecoder.dependsOn` is removed; the dependencies come from `Column.dependsOn`;
+  - a plain-`uuid` belongs-to a union now also selects its discriminator column (not emitted as a field).
+
+  Docs: docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md
+
+- 65d4180: `union(members, columns)` declares its shared fields: `union({ photos, videos }, { id: guid("id"), userId: guid("user_id") })`. Each field resolves to the member column under the same field, which must have the same database name, type and kind, and be `NOT NULL` on every member when declared so. Declaring a field some member lacks is a type error. `union.columns`, shared `select` / `where` / `orderBy`, and a relation's `to` list take only declared fields.
+
+  A global id on a shared field now selects its own member: `posts.findOne({ where: { id: { eq: photoId } } })` reads photos only, instead of throwing `key_mismatch` from the other members. `in` splits its ids by member, and `neq` with another member's id matches that member's rows that have a value.
+
+  **Breaking:**
+  - `union()` requires its columns;
+  - a field stored under different column names is no longer shared — use the per-member `to` map;
+  - `SharedFieldsOf` is replaced by `CommonFieldsOf` / `UnionColumnsConfig`;
+  - the client's union types (`UnionQueryArgs`, `UnionResultOf`, `UnionClient`, …) take the union definition instead of its members.
+
+  Docs: docs/decisions/0019-declared-union-columns.md, docs/guide/schema.md, docs/guide/polymorphic-relations.md, docs/guide/relations.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md, packages/dsqlbase/README.md
+
+- 65d4180: Embedded objects are removed. `embedded()` is no longer exported from `dsqlbase/schema`, and `EmbeddedObjectDefinition`, `ColumnGroupDefinition`, `ColumnGroup` and their types are gone from `@dsqlbase/core`. `Table.getColumn` returns a `Column` again, `ColumnRefs` and the index, constraint and primary-key callbacks are flat, and `select`, `where`, `orderBy`, `data` and `return` take columns only. `$onUpdate` still runs on every update.
+
+  **Breaking:** a schema using a column group declares its prefixed columns directly. The columns in the database are unchanged.
+
+  Docs: docs/decisions/0017-remove-embedded-objects.md, docs/guide/schema.md, docs/guide/querying.md, docs/guide/pagination.md, docs/guide/global-ids.md, docs/guide/migrations.md, docs/guide/README.md, docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md, README.md, packages/dsqlbase/README.md
+
+- 0206d60: Row policies replace tenancy. DSQL has no row-level security, so the client enforces
+  RLS-shaped policies itself, on every statement it builds:
+  - `table.policy(name, (t) => ({ as, for, using, check }))` declares a policy with PostgreSQL RLS
+    semantics: permissive OR-ed, restrictive AND-ed, default deny, update / delete also bounded by
+    select policies. `using` bounds every read level, join, union branch, count, page and node
+    lookup, and every update and delete; `check` is evaluated in the write's `RETURNING`, so a
+    failing row fails the statement with nothing written.
+  - A failed check throws `PolicyViolationError` (`table`, `command`, `as`, `policies`, driver
+    error as `cause`); `$transaction` rolls back and rethrows it without an OCC retry.
+  - `$onCreate` may return a `SQLNode`, filling a column at insert time without a DDL default.
+  - `createClient({ policies: { bypass: true } })` skips every policy on that client.
+  - `$withClaims` on a client that already carries settings merges the new values over the old;
+    transactions inherit a client's settings.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `TenantScopeDefinition`, the `tenantKey` column flag, `TenantKey`, `TenancyError`,
+    `TenancyOptions`, `ExecutionContext.identity` / `tenancy`, `Table.tenantKeys`,
+    `SchemaRegistry.claimKeys` and the claim-type validation are removed.
+
+  **Breaking (`dsqlbase`):**
+  - `tenantScope`, `$identityClaims`, `ClaimsOf`, `IdentityClient`, `VisibleFor`,
+    `VisibleAliases`, `ClientOptions.tenancy` and the `TClaims` / `TEnforce` client generics are
+    removed.
+  - Every table is on every client; a table with policies returns nothing to a client whose
+    settings it does not match, rather than being absent from its type.
+
+  Docs: docs/guide/policies.md (new; replaces docs/guide/tenancy.md), docs/guide/schema.md, docs/guide/querying.md, docs/guide/relations.md, docs/guide/polymorphic-relations.md, docs/guide/pagination.md, docs/guide/transactions.md, docs/guide/global-ids.md, docs/guide/dsql-notes.md, docs/guide/README.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md, docs/internals/codec-boundary.md, docs/internals/dsql-capabilities.md, docs/decisions/0024-row-policies.md, docs/decisions/0005-tenant-client-visibility.md, docs/decisions/0006-client-tenancy.md, docs/decisions/README.md, README.md, packages/dsqlbase/README.md
+
+- 65d4180: `SchemaRegistry` is built in three steps: `validateSchema` (pure checks over the definition, same messages as before), `buildSchema` (runtime tables, unions and resolved relations, with column references linked from them), and the registry itself, which only looks things up. Relations are resolved once: `getRelation(table, field)` returns a `RuntimeRelation` with runtime columns on both sides, its target, and, to a union, per-member columns and discriminator. A relation through a deprecated column is now refused when the client is built.
+
+  **Breaking (`@dsqlbase/core`):**
+  - `getRelationTarget`, `getUnionRelationColumns`, `getRelationDiscriminator` and `hasRelations` are removed — use `getRelation(table, field)`;
+  - `getRelations(table)` returns `RuntimeRelation`s, and is empty for a table with none;
+  - `Table.relations`, `Table.getRelation` and `Table.hasRelation` are removed, and the `Table` constructor is `(definition, alias?)`;
+  - `ColumnReference.via` is the `RuntimeRelation` that set it.
+
+  Docs: docs/decisions/0021-schema-registry-phases.md, docs/internals/runtime-pipeline.md, docs/internals/architecture.md
+
+- 65d4180: `relations()` takes a union as its source. Every member then has the relation from its own column, so `relations(posts, { reactions: hasMany(reactions, { from: [posts.columns.id], to: [reactions.columns.postId] }) })` joins reactions from a photo, from a video, and from `dsql.posts` through its shared `join` or `select`. The target must be a table.
+
+  A belongs-to a union may omit its `discriminator`. The member is then the first, in declaration order, holding the key, computed when the query runs (`CASE WHEN EXISTS … END`, exported as `ComputedDiscriminator`). The foreign key of a relation declared on a union reads the same way, so `reaction.postId === reaction.post.id` holds with nothing stored to say which member. Each such read costs one key lookup per member per row.
+
+  **Breaking (`@dsqlbase/core`):** `SchemaRegistry.getRelationDiscriminator` returns `AnyColumn | ComputedDiscriminator`, and `UnionReference.discriminator` / `Column.dependsOn` may hold a `ComputedDiscriminator`; narrow with `instanceof Column` where a column is needed.
+
+  Docs: docs/decisions/0020-column-references.md, docs/guide/polymorphic-relations.md, docs/guide/relations.md, docs/guide/global-ids.md, docs/internals/runtime-pipeline.md, docs/internals/codec-boundary.md, docs/internals/architecture.md, docs/internals/dsql-capabilities.md, packages/dsqlbase/README.md
+
+- 9a82c76: `update` / `delete` now change exactly one row, and `updateMany` / `deleteMany` change every row a
+  filter matches and return all of them. Previously `update` / `delete` changed every match and
+  returned only the first.
+
+  `Table.uniqueKeys` (core) lists every field set that names at most one row: the primary key,
+  unique columns, unique constraints and non-partial unique indexes.
+
+  **Breaking (`dsqlbase`):**
+  - `update` / `delete` refuse a `where` that does not compare every field of a unique key for
+    equality with a non-null value (at the top level or inside `and`), before any SQL runs. Use
+    `updateMany` / `deleteMany` for a filter that may match several rows.
+
+  Docs: docs/guide/querying.md, docs/internals/runtime-pipeline.md, docs/decisions/0023-update-many.md, docs/decisions/README.md
+
+### Patch Changes
+
+- ae3fb13: adds self identifier to column `$onUpdate` hook
+- 8a384c5: removed UnionColumnDefinition and simplify union definition
+
 ## 0.2.1
 
 No changes in this release.
