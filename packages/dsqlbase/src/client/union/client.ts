@@ -1,3 +1,4 @@
+import { TypedObject } from "@dsqlbase/core/utils";
 import { DefinitionSchema } from "@dsqlbase/core";
 import {
   AnyUnion,
@@ -7,7 +8,6 @@ import {
   ExecutionContext,
   Schema,
 } from "@dsqlbase/core/runtime";
-import { TypedObject } from "@dsqlbase/core/utils";
 import {
   AnyUnionQuery,
   UnionCountArgs,

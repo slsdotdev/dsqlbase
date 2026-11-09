@@ -39,6 +39,7 @@ import {
   OrderByExpressionOf,
   PaginateArgs,
   QueryArgs,
+  SelectionOf,
   UpdateArgs,
   UpdateValuesOf,
 } from "./base.js";
@@ -142,12 +143,16 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * Which columns come back: those named; none when only relations are named (`[]`); every
    * column when nothing is named at all (`undefined`), as with no `select`.
    */
-  private _getReadSelection<TTable extends AnyTable>(
+  private _getReadSelection<
+    TTable extends AnyTable,
+    TSelection extends SelectionOf<TTable, this["__type"]>,
+    TJoin extends JoinExpressionOf<TTable, this["__type"]>,
+  >(
     table: TTable,
-    selection: Record<string, unknown> | null | undefined,
-    join: Record<string, unknown> | null | undefined,
+    selection: TSelection | null | undefined,
+    join: TJoin | null | undefined,
     columns: FieldSelection[] = []
-  ): { select: FieldSelection[] | undefined; join: Record<string, unknown> } {
+  ): { select: FieldSelection[] | undefined; join: TJoin } {
     // Selected relations first, so a result's keys follow the call as written.
     const merged: Record<string, unknown> = {};
 
@@ -170,7 +175,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         throw new Error(`Invalid field "${fieldName}" in selection for table "${table.name}".`);
       }
 
-      const joined = join?.[fieldName];
+      const joined = join?.[fieldName as keyof JoinExpressionOf<TTable, this["__type"]>];
 
       if (joined !== undefined && joined !== null && joined !== false) {
         throw new Error(
@@ -193,7 +198,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     return {
       select: columns.length > 0 ? columns : hasRelation ? [] : undefined,
-      join: merged,
+      join: merged as TJoin,
     };
   }
 
@@ -361,6 +366,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
    * `join` or `select`.
    */
   private _getUnionArgs(union: AnyUnion, args: AnyUnionQuery): UnionSelectOperationArgs {
+    // TODO: Why is this in the args if it's not supported?
     if (args.distinct) {
       throw new Error(`\`distinct\` is not supported on union "${union.alias}".`);
     }
@@ -376,6 +382,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
+    // TODO: Seems redundand, a relation on the union is guaranteed to be on every member by the validation/build process.
+
     // A relation every member has — one declared on the union — joins across it.
     const isUnionRelation = (field: string) =>
       union.memberAliases.every((alias) =>
@@ -385,9 +393,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     const selected = Object.entries(args.select ?? {})
       .filter(([, value]) => value)
       .map(([field]) => field);
+
     const sharedSelect = selected.filter(
       (field) => union.isShared(field) || !isUnionRelation(field)
     );
+
     const sharedJoin: Record<string, unknown> = {};
 
     // Read as `join: { r: true }`, as a table's `select` reads a relation.
@@ -417,6 +427,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       sharedJoin[field] = entry;
     }
 
+    // TODO: Unions declare their common fields now, those should be the ones availalbe to query on. So if the union knowns the fields it is guaranteed by the validation to be on each member.
+    // Same applies to relations: if the union declares a relation, it is guaranteed to exist on every member. Only the relations declared directly on the union should be avaialbe to query.
+
+    // Basically, the union will act as the proxy so we don't have to infer shared fields or relations from the members themselves, at runtime.
+
     for (const field of sharedSelect) {
       if (!union.isShared(field)) {
         throw new Error(
@@ -426,6 +441,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
     }
 
+    // Same here, we're doing to much work to build the query.
     this._where.assertShared(union, args.where as Record<string, unknown> | undefined);
 
     const members: [string, SelectOperationArgs][] = [];
@@ -437,9 +453,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         continue;
       }
 
-      const sharedWhere = args.where
-        ? this._where.foldKey(union, args.where as Record<string, unknown>, alias)
-        : undefined;
+      // I don't like this fold key thing. not sure if we should be able to narrow the query further or just allow selection and joins.
+
+      const sharedWhere = args.where ? this._where.foldKey(union, args.where, alias) : undefined;
 
       // A `$$key` condition this member can never satisfy: no branch at all.
       if (sharedWhere === false) {
@@ -456,7 +472,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         field,
         union.getMemberColumn(alias, field),
       ]);
-      const ownJoin = (own.join ?? {}) as Record<string, unknown>;
+
+      const ownJoin = own.join ?? {};
 
       for (const field of Object.keys(sharedJoin)) {
         const entry = ownJoin[field];
@@ -473,8 +490,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       // beside the relations joined across the union.
       const selection = this._getReadSelection(
         member,
-        own.select as Record<string, unknown> | undefined,
-        { ...sharedJoin, ...ownJoin },
+        own.select,
+        { ...sharedJoin, ...ownJoin } as JoinExpressionOf<typeof member, this["__type"]>,
         shared
       );
 
@@ -627,16 +644,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     table: TTable,
     args: QueryArgs<TTable, this["__type"]>
   ): SelectOperationArgs {
-    const selection = this._getReadSelection(
-      table,
-      args.select as Record<string, unknown> | undefined,
-      args.join as Record<string, unknown> | undefined
-    );
+    const selection = this._getReadSelection(table, args.select, args.join);
     const where = this._where.build(table, args.where);
-    const join = this._getJoinEntries(
-      table,
-      selection.join as JoinExpressionOf<TTable, this["__type"]>
-    );
+    const join = this._getJoinEntries(table, selection.join);
     const orderBy = this._getOrderByEntries(table, args.orderBy);
 
     if (args.distinct) {

@@ -12,10 +12,35 @@ import { collectRelations, validateSchema } from "./validate.js";
 
 const col = (name: string, dataType = "uuid") => new ColumnDefinition(name, { dataType });
 
-const authors = new TableDefinition("authors", { columns: { id: col("id").primaryKey() } });
-const articles = new TableDefinition("articles", {
-  columns: { id: col("id").primaryKey(), authorId: col("author_id"), oldId: col("old_id") },
+const authors = new TableDefinition("authors", {
+  columns: {
+    id: col("id").primaryKey(),
+  },
 });
+
+const articles = new TableDefinition("articles", {
+  columns: {
+    id: col("id").primaryKey(),
+    authorId: col("author_id"),
+    oldId: col("old_id"),
+  },
+});
+
+const photos = new TableDefinition("photos", {
+  columns: {
+    id: col("id").primaryKey(),
+    userId: col("user_id", "uuid"),
+  },
+});
+
+const videos = new TableDefinition("videos", {
+  columns: {
+    id: col("id").primaryKey(),
+    duration: col("duration", "integer"),
+    userId: col("owner_id", "uuid"),
+  },
+});
+
 const author = (from = articles.columns.authorId) =>
   new RelationsDefinition(articles, {
     author: { type: Relation.BELONGS_TO, target: authors, from: [from], to: [authors.columns.id] },
@@ -67,6 +92,50 @@ describe("validateSchema", () => {
     expect(() => validateSchema({ authors, textId, rels })).toThrow(
       /"articles"."authorId" is "text" but "authors"."id" is "uuid"/
     );
+  });
+});
+
+describe("Union validation", () => {
+  it("rejects a field a member does not have", () => {
+    const union = new UnionDefinition(
+      { photos, videos },
+      // @ts-expect-error - "photos" has no "duration" column
+      { duration: col("duration", "integer") }
+    );
+
+    expect(() => validateSchema({ photos, videos, union })).toThrow(
+      /declares "duration", but member "photos" has no such field/
+    );
+  });
+
+  it("rejects a field a member stores under another column name", () => {
+    const union = new UnionDefinition({ photos, videos }, { userId: col("user_id") });
+
+    expect(() => validateSchema({ photos, videos, union })).toThrow(
+      /member "videos" stores it in column "owner_id", not "user_id"/
+    );
+  });
+
+  it("rejects a field whose data type differs on a member", () => {
+    const a = new TableDefinition("a", { columns: { size: col("size", "integer") } });
+    const b = new TableDefinition("b", { columns: { size: col("size", "text") } });
+    const union = new UnionDefinition({ a, b }, { size: col("size", "integer") });
+
+    expect(() => validateSchema({ a, b, union })).toThrow(
+      /member "b" declares it as a different kind of column \(text\)/
+    );
+  });
+
+  it("rejects a NOT NULL field a member allows NULL in", () => {
+    const a = new TableDefinition("a", { columns: { url: col("url", "text").notNull() } });
+    const b = new TableDefinition("b", { columns: { url: col("url", "text") } });
+    const bad = new UnionDefinition({ a, b }, { url: col("url", "text").notNull() });
+    const ok = new UnionDefinition({ a, b }, { url: col("url", "text") });
+
+    expect(() => validateSchema({ a, b, bad })).toThrow(
+      /member "b" allows NULL in it, and the union declares it NOT NULL/
+    );
+    expect(() => validateSchema({ a, b, ok })).not.toThrow();
   });
 });
 

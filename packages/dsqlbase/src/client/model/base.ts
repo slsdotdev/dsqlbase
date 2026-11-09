@@ -820,20 +820,28 @@ type SharedJoinOf<TArgs> = TArgs extends { join: infer TJoin } ? TJoin : undefin
  * One row of a union result: a union over the members `on` did not exclude, each tagged with
  * its alias in `$$key` — which is what narrows it — and shaped by that member's own selection.
  */
-export type UnionResultOf<TUnion extends AnyUnion, TSchema extends AnySchema, TArgs> = {
-  [A in MemberAliasesOf<TUnion>]: IsExcluded<
-    A,
-    TArgs extends { on: infer TOn } ? TOn : undefined
-  > extends true
-    ? never
-    : Prettify<
-        { $$key: A } & QueryResultOf<
-          TableByAlias<TSchema, A>,
-          TSchema,
-          MemberArgsOf<TSchema, A, SharedSelectOf<TArgs>, OnEntryOf<TArgs, A>, SharedJoinOf<TArgs>>
-        >
-      >;
-}[MemberAliasesOf<TUnion>];
+export type UnionResultOf<TUnion extends AnyUnion, TSchema extends AnySchema, TArgs> = Prettify<
+  {
+    [A in MemberAliasesOf<TUnion>]: IsExcluded<
+      A,
+      TArgs extends { on: infer TOn } ? TOn : undefined
+    > extends true
+      ? never
+      : Prettify<
+          { $$key: A } & QueryResultOf<
+            TableByAlias<TSchema, A>,
+            TSchema,
+            MemberArgsOf<
+              TSchema,
+              A,
+              SharedSelectOf<TArgs>,
+              OnEntryOf<TArgs, A>,
+              SharedJoinOf<TArgs>
+            >
+          >
+        >;
+  }[MemberAliasesOf<TUnion>]
+>;
 
 export type UnionJoinResultOf<
   TUnion extends AnyUnion,

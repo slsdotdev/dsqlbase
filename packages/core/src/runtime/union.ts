@@ -2,6 +2,7 @@ import {
   AnyColumnDefinition,
   AnyUnionDefinition,
   AnyUnionMembers,
+  UnionColumnsConfig,
   UnionConfig,
   UnionDefinition,
 } from "../definition/index.js";
@@ -17,7 +18,7 @@ import { AnyTable } from "./table.js";
  */
 export class Union<
   TMembers extends AnyUnionMembers,
-  TColumns extends Partial<Record<string, AnyColumnDefinition>>,
+  TColumns extends UnionColumnsConfig<TMembers>,
 > implements TypedObject<UnionConfig<TMembers, TColumns>> {
   declare readonly __type: UnionConfig<TMembers, TColumns>;
 

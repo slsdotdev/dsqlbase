@@ -4,8 +4,6 @@ import { ColumnDefinition } from "./column.js";
 import { RelationsDefinition } from "./relations.js";
 import { Relation } from "./base.js";
 
-// #region Tables
-
 const users = new TableDefinition("users", {
   columns: {
     id: new ColumnDefinition("id").primaryKey(),
@@ -35,87 +33,6 @@ const publications = new TableDefinition("publications", {
     description: new ColumnDefinition("description"),
   },
 });
-
-// const publicationMemberships = new TableDefinition("publication_memberships", {
-//   columns: {
-//     publicationId: new ColumnDefinition("publication_id").notNull(),
-//     userId: new ColumnDefinition("user_id").notNull(),
-//     role: new ColumnDefinition("role").notNull(),
-//   },
-// });
-
-// #endregion Table Definitions
-
-// #region Relations
-
-// const postRelations = new RelationsDefinition(posts.name, {
-//   table: posts,
-//   relations: {
-//     // post belongsTo user
-//     author: {
-//       target: users,
-//       type: "belongs_to",
-//       from: [posts["_columns"].authorId],
-//       to: [users["_columns"].id],
-//     },
-//     // post belongsTo publication
-//     publication: {
-//       target: publications,
-//       type: "belongs_to",
-//       from: [posts["_columns"].publicationId],
-//       to: [publications["_columns"].id],
-//     },
-//   },
-// });
-
-// const publicationRelations = new RelationsDefinition(publications.name, {
-//   table: publications,
-//   relations: {
-//     // publication belongsTo user
-//     owner: {
-//       target: users,
-//       type: "belongs_to",
-//       from: [publications["_columns"].ownerId],
-//       to: [users["_columns"].id],
-//     },
-//     // publication hasMany posts
-//     posts: {
-//       target: posts,
-//       type: "has_many",
-//       from: [publications["_columns"].id],
-//       to: [posts["_columns"].publicationId],
-//     },
-//     // publication hasMany members
-//     members: {
-//       target: publicationMemberships,
-//       type: "has_many",
-//       from: [publications["_columns"].id],
-//       to: [publicationMemberships["_columns"].publicationId],
-//     },
-//   },
-// });
-
-// const publicationMembershipRelations = new RelationsDefinition(publicationMemberships.name, {
-//   table: publicationMemberships,
-//   relations: {
-//     // membership belongsTo publication
-//     publication: {
-//       target: publications,
-//       type: "belongs_to",
-//       from: [publicationMemberships["_columns"].publicationId],
-//       to: [publications["_columns"].id],
-//     },
-//     // membership belongsTo user
-//     user: {
-//       target: users,
-//       type: "belongs_to",
-//       from: [publicationMemberships["_columns"].userId],
-//       to: [users["_columns"].id],
-//     },
-//   },
-// });
-
-// #endregion Relations Definitions
 
 describe("RelationsDefinition", () => {
   it("should serialize user relations to JSON", () => {

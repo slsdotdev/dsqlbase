@@ -10,9 +10,10 @@ export class TransactionClient<
 /** A transaction's client: the models, bound to the transaction's session. */
 export type TxClient<T extends DefinitionSchema> = TransactionClient<T> & Models<T>;
 
-export async function createTransactionRunner<
-  TDefinition extends DefinitionSchema,
->(ctx: ExecutionContext<TDefinition>, options: OCCRetryOptions = {}) {
+export async function createTransactionRunner<TDefinition extends DefinitionSchema>(
+  ctx: ExecutionContext<TDefinition>,
+  options: OCCRetryOptions = {}
+) {
   if (typeof ctx.session.beginTransaction !== "function") {
     throw new Error("Session does not support transactions");
   }
@@ -27,9 +28,7 @@ export async function createTransactionRunner<
   attachModels(txClient, context);
 
   return async <TReturn = unknown>(
-    opsOrCallback:
-      | Executable<unknown>[]
-      | ((client: TxClient<TDefinition>) => Promise<TReturn>),
+    opsOrCallback: Executable<unknown>[] | ((client: TxClient<TDefinition>) => Promise<TReturn>),
     attempt = 1
   ): Promise<TReturn> => {
     const { maxRetries = 3, delay = 50, maxDelay = 1000 } = options;

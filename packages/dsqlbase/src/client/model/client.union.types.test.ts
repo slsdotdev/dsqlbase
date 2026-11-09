@@ -61,8 +61,13 @@ const where = { id: { eq: "u1" } };
 describe("union types", () => {
   it("refuses to declare a field some member does not have", () => {
     // Type-checked only: at runtime the definition throws.
-    // @ts-expect-error `photoUrl` is on photos only
-    expectTypeOf(() => union({ photos, videos }, { photoUrl: text("photo_url") })).toBeFunction();
+    expectTypeOf(() =>
+      union(
+        { photos, videos },
+        // @ts-expect-error - "videos" has no "photoUrl" column
+        { photoUrl: text("photo_url") }
+      )
+    ).toBeFunction();
   });
 
   it("types a has-many to a union as an array of member rows tagged by $$key", async () => {

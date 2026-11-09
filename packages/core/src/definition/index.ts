@@ -64,22 +64,13 @@ export {
   type AnyFieldRelation,
   type AnyRelationDefinition,
   type AnyTableRelations,
-  type AnyRelationTarget,
-  type AnyRelationSource,
-  type RelationSourceColumn,
   type FieldRelation,
-  type RelationTargetColumns,
-  type TableDefinitionColumn,
-  type UnionTargetColumns,
 } from "./relations.js";
 export {
   UnionDefinition,
-  UnionColumnDefinition,
-  type AnyUnionColumnDefinition,
   type AnyUnionDefinition,
   type AnyUnionMembers,
   type CommonFieldsOf,
   type UnionColumnsConfig,
-  type UnionColumns,
   type UnionConfig,
 } from "./union.js";

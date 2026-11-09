@@ -47,6 +47,7 @@ const comparable: RuntimeTypeRules = {
   orderable: true,
   distinct: true,
 };
+
 const document: RuntimeTypeRules = {
   operators: ["exists"],
   shorthand: false,
@@ -109,8 +110,7 @@ const PLAIN_OBJECT_VALUES: ReadonlySet<ColumnRuntimeType> = new Set([
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  return prototype === Object.prototype || prototype === null;
+  return Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null;
 }
 
 /**

@@ -3,14 +3,13 @@ import {
   AnyFieldRelation,
   AnyTableDefinition,
   AnyTableRelations,
-  AnyUnionColumnDefinition,
   AnyUnionDefinition,
+  ColumnDefinition,
   DefinitionSchema,
   RESERVED_FIELD_NAMES,
   Relation,
   RelationsDefinition,
   TableDefinition,
-  UnionColumnDefinition,
   UnionDefinition,
 } from "../definition/index.js";
 import { validateReferences } from "./references.js";
@@ -128,9 +127,9 @@ export function collectRelations(schema: DefinitionSchema): SourcedRelation[] {
             member,
             relation: {
               ...relation,
-              from: (relation.from as unknown as AnyUnionColumnDefinition[]).map(
-                (column) => column.members[member]
-              ),
+              from: relation.from.map((column) =>
+                Object.values(source.columns).find((c) => c.name === column.name)
+              ) as AnyColumnDefinition[],
             } as AnyFieldRelation,
           });
         }
@@ -185,6 +184,47 @@ function validateUnions(schema: DefinitionSchema, index: SchemaIndex): void {
         );
       }
     }
+
+    validateUnionColumns(union);
+  }
+}
+
+function validateUnionColumns(union: AnyUnionDefinition): void {
+  for (const [field, column] of Object.entries<AnyColumnDefinition>(union.columns)) {
+    if (!column) {
+      continue;
+    }
+
+    for (const [alias, member] of Object.entries(union.members)) {
+      const candidate = (member.columns as Record<string, AnyColumnDefinition>)[field];
+
+      const label = `${union.name} declares "${field}", but member "${alias}"`;
+
+      if (!candidate) {
+        throw new Error(`${label} has no such field.`);
+      }
+
+      if (candidate.name !== column.name) {
+        throw new Error(
+          `${label} stores it in column "${candidate.name}", not "${column.name}". A shared ` +
+            `field has one column name on every member.`
+        );
+      }
+
+      if (
+        candidate["_dataType"] !== column["_dataType"] ||
+        Object.getPrototypeOf(candidate) !== Object.getPrototypeOf(column)
+      ) {
+        throw new Error(
+          `${label} declares it as a different kind of column (${candidate["_dataType"]}). ` +
+            `A shared field has one type on every member.`
+        );
+      }
+
+      if (column["_notNull"] && !candidate["_notNull"]) {
+        throw new Error(`${label} allows NULL in it, and the union declares it NOT NULL.`);
+      }
+    }
   }
 }
 
@@ -207,7 +247,7 @@ function validateUnionSource(
   }
 
   for (const column of relation.from as unknown[]) {
-    if (!(column instanceof UnionColumnDefinition) || union.columns[column.name] !== column) {
+    if (!(column instanceof ColumnDefinition) || union.columns[column.name] !== column) {
       throw new Error(
         `${label}: a "from" column must be a field the union declares (\`union.columns.<field>\`).`
       );
@@ -415,7 +455,7 @@ export function memberToColumns(
   union: AnyUnionDefinition,
   to: AnyFieldRelation["to"]
 ): Record<string, AnyColumnDefinition[]> {
-  const members = Object.keys(union.members);
+  const members = Object.entries(union.members);
 
   if (Array.isArray(to)) {
     if (to.length === 0) {
@@ -423,10 +463,13 @@ export function memberToColumns(
     }
 
     return Object.fromEntries(
-      members.map((member) => [
+      members.map(([member, table]: [string, AnyTableDefinition]) => [
         member,
-        (to as unknown[]).map((column) => {
-          if (!(column instanceof UnionColumnDefinition) || union.columns[column.name] !== column) {
+        to.map((column: AnyColumnDefinition) => {
+          if (
+            !(column instanceof ColumnDefinition) ||
+            !Object.values(union.columns).some((c) => c === column)
+          ) {
             throw new Error(
               `${label}: a "to" column given as a list must be a shared field of union ` +
                 `"${alias}" (\`${alias}.columns.<field>\`). To name a different column per ` +
@@ -434,7 +477,9 @@ export function memberToColumns(
             );
           }
 
-          return column.members[member];
+          return Object.values(table.columns).find(
+            (c: AnyColumnDefinition) => c.name === column.name
+          );
         }),
       ])
     );
@@ -442,14 +487,15 @@ export function memberToColumns(
 
   const lists = to as Record<string, AnyColumnDefinition[]>;
   const given = Object.keys(lists);
-  const missing = members.filter((member) => !given.includes(member));
-  const unknown = given.filter((member) => !members.includes(member));
+
+  const missing = members.filter(([member]) => !given.includes(member));
+  const unknown = given.filter((member) => !members.some(([m]) => m === member));
 
   if (missing.length > 0 || unknown.length > 0) {
     throw new Error(
       `${label} must name one "to" column list per member of union "${alias}" ` +
-        `(${members.join(", ")})` +
-        (missing.length > 0 ? `; missing: ${missing.join(", ")}` : "") +
+        `(${members.map(([member]) => member).join(", ")})` +
+        (missing.length > 0 ? `; missing: ${missing.map(([member]) => member).join(", ")}` : "") +
         (unknown.length > 0 ? `; not members: ${unknown.join(", ")}` : "") +
         `.`
     );

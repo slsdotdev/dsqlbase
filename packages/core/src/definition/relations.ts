@@ -2,79 +2,65 @@ import { DefinitionNode, Kind, RelationType } from "./base.js";
 import { AnyTableDefinition } from "./table.js";
 import { AnyUnionDefinition, UnionDefinition } from "./union.js";
 
-export type TableDefinitionColumn<TTable extends AnyTableDefinition> = {
-  [K in keyof TTable["__type"]["columns"]]: TTable["__type"]["columns"][K];
-}[keyof TTable["__type"]["columns"]];
-
 /** What a relation can point at: one table, or a union of tables. */
-export type AnyRelationTarget = AnyTableDefinition | AnyUnionDefinition;
+export type AnyRelationObject = AnyTableDefinition | AnyUnionDefinition;
 
-/**
- * What a relation can be declared on: one table, or a union — whose relations every member
- * then has, from its own columns. A union source targets a table only.
- */
-export type AnyRelationSource = AnyTableDefinition | AnyUnionDefinition;
+export type RelationObjectColumn<TObject extends AnyRelationObject> = {
+  [K in keyof TObject["__type"]["columns"]]: TObject["__type"]["columns"][K];
+}[keyof TObject["__type"]["columns"]];
 
-/** The columns a relation's `from` names on its source: a table's, or a union's declared fields. */
-export type RelationSourceColumn<TSource extends AnyRelationSource> =
-  TSource extends AnyTableDefinition
-    ? TableDefinitionColumn<TSource>
-    : TSource extends AnyUnionDefinition
-      ? TSource["columns"][keyof TSource["columns"]]
-      : never;
-
-/**
- * The `to` side of a relation to a union: either fields the union declares, taken from
- * `union.columns`, which resolve to each member's own column, or one column list per member for
- * members that store the key under different fields.
- */
-export type UnionTargetColumns<TUnion extends AnyUnionDefinition> =
-  | TUnion["columns"][keyof TUnion["columns"]][]
-  | { [A in keyof TUnion["members"]]: TableDefinitionColumn<TUnion["members"][A]>[] };
-
-export type RelationTargetColumns<TTarget extends AnyRelationTarget> =
-  TTarget extends AnyTableDefinition
-    ? TableDefinitionColumn<TTarget>[]
-    : TTarget extends AnyUnionDefinition
-      ? UnionTargetColumns<TTarget>
+export type RelationTargetColumn<TObject extends AnyRelationObject> =
+  TObject extends AnyTableDefinition
+    ? RelationObjectColumn<TObject>[]
+    : TObject extends AnyUnionDefinition
+      ?
+          | RelationObjectColumn<TObject>[]
+          | {
+              [K in keyof TObject["__type"]["members"]]: TObject["__type"]["members"][K] extends AnyTableDefinition
+                ? RelationObjectColumn<TObject["__type"]["members"][K]>[]
+                : never;
+            }
       : never;
 
 export type FieldRelation<
-  TSource extends AnyRelationSource,
-  TTarget extends AnyRelationTarget = AnyRelationTarget,
-  TType extends RelationType = RelationType,
+  TType extends RelationType,
+  TSource extends AnyRelationObject,
+  out TTarget extends AnyRelationObject,
 > = {
-  target: TTarget;
   type: TType;
-  from: RelationSourceColumn<TSource>[];
-  to: RelationTargetColumns<TTarget>;
+  target: TTarget;
+  from: RelationObjectColumn<TSource>[];
+  to: RelationTargetColumn<TTarget>;
   /**
    * The source column naming which member of a union a belongs-to row points at. Optional on
    * a belongs-to whose target is a union — without one, the member is computed when the query
    * runs — and refused everywhere else; see the registry.
    */
-  discriminator?: TSource extends AnyTableDefinition ? TableDefinitionColumn<TSource> : never;
+  discriminator?: RelationObjectColumn<TSource>;
 };
 
-export type RelationsConfig<TTable extends AnyRelationSource = AnyTableDefinition> = {
-  table: TTable;
-  relations: Record<string, FieldRelation<TTable, AnyRelationTarget, RelationType>>;
+export type RelationsConfig<TSource extends AnyRelationObject = AnyTableDefinition> = {
+  table: TSource;
+  relations: Record<string, FieldRelation<RelationType, TSource, AnyRelationObject>>;
 };
 
-export type AnyFieldRelation = FieldRelation<AnyTableDefinition, AnyRelationTarget, RelationType>;
+export type AnyFieldRelation = FieldRelation<RelationType, AnyTableDefinition, AnyRelationObject>;
 export type AnyTableRelations = Record<string, AnyFieldRelation>;
 export type AnyRelationDefinition = RelationsDefinition<AnyTableDefinition, AnyTableRelations>;
 
 export class RelationsDefinition<
-  TTable extends AnyRelationSource,
-  TRelations extends Record<string, FieldRelation<TTable, AnyRelationTarget, RelationType>>,
-> extends DefinitionNode<`${TTable["name"]}_relations`, { table: TTable; relations: TRelations }> {
+  TSource extends AnyRelationObject,
+  TRelations extends Record<string, FieldRelation<RelationType, TSource, AnyRelationObject>>,
+> extends DefinitionNode<
+  `${TSource["name"]}_relations`,
+  { table: TSource; relations: TRelations }
+> {
   public readonly kind = Kind.RELATIONS;
 
-  readonly table: TTable;
+  readonly table: TSource;
   readonly relations: TRelations;
 
-  constructor(table: TTable, relations: TRelations) {
+  constructor(table: TSource, relations: TRelations) {
     super(`${table.name}_relations`);
 
     this.table = table;
@@ -102,10 +88,9 @@ export class RelationsDefinition<
             to: Array.isArray(relation.to)
               ? relation.to.map(toColumnJSON)
               : Object.fromEntries(
-                  Object.entries(relation.to).map(([alias, columns]) => [
-                    alias,
-                    columns.map(toColumnJSON),
-                  ])
+                  Object.entries(
+                    relation.to as Record<string, RelationObjectColumn<AnyTableDefinition>[]>
+                  ).map(([alias, columns]) => [alias, columns.map(toColumnJSON)])
                 ),
             ...(relation.discriminator && {
               discriminator: toColumnJSON(relation.discriminator),
