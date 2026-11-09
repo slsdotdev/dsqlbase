@@ -264,7 +264,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     let param = value;
 
     if (param === undefined) {
-      param = this.onUpdate?.() ?? undefined;
+      param = this.onUpdate?.(sql.identifier(this.name)) ?? undefined;
     }
 
     if (param instanceof SQLParam) {

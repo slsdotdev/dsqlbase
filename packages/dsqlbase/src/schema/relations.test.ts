@@ -55,7 +55,10 @@ describe("relations to a union", () => {
       feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
       owned: hasMany(posts, {
         from: [users.columns.id],
-        to: { photos: [photos.columns.userId], videos: [videos.columns.ownerId] },
+        to: {
+          photos: [photos.columns.userId],
+          videos: [videos.columns.ownerId],
+        },
       }),
       latest: hasOne(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
     });

@@ -72,6 +72,7 @@ export type ColumnConfig<
 > = {
   /** SQL data type for the column */
   dataType: string;
+  /** Runtime data type for the column */
   runtimeType: TRuntimeType;
   /** What a read returns. */
   valueType: TValueType;
@@ -80,6 +81,10 @@ export type ColumnConfig<
    * unless set apart. Filters take the read type, since they compare with stored values.
    */
   inputType: TInputType;
+  /**
+   * The raw type of the column as stored in the database.
+   * This is the type that the driver will recieve or return.
+   */
   rawType: TRawType;
   notNull: boolean;
   primaryKey: boolean;
@@ -121,7 +126,7 @@ export class ColumnDefinition<
   protected _validator?: ColumnValidator<this["__type"]["valueType"], this["__type"]["inputType"]>;
   protected _hooks?: ColumnHooks<this["__type"]["valueType"]>;
   protected _onCreate?: () => this["__type"]["inputType"] | SQLNode;
-  protected _onUpdate?: () => this["__type"]["inputType"];
+  protected _onUpdate?: (self: SQLIdentifier) => this["__type"]["inputType"] | SQLNode;
 
   constructor(name: TName, config: Partial<TConfig> = {}) {
     super(name);
@@ -255,7 +260,7 @@ export class ColumnDefinition<
     return this;
   }
 
-  public $onUpdate(cb: () => this["__type"]["inputType"]): UpdateGuard<this> {
+  public $onUpdate(cb: (self: SQLIdentifier) => this["__type"]["inputType"]): UpdateGuard<this> {
     if (this._primaryKey) {
       throw new Error("Cannot set onUpdate callback for a primary key column.");
     }
