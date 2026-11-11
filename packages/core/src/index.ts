@@ -87,6 +87,7 @@ export {
   type OperationResult,
   type OperationType,
   type PaginationOptions,
+  type RelationSelection,
   type RuntimeTables,
   type RuntimeUnions,
   type Schema,

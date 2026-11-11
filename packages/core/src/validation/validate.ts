@@ -247,7 +247,10 @@ function validateUnionSource(
   }
 
   for (const column of relation.from as unknown[]) {
-    if (!(column instanceof ColumnDefinition) || union.columns[column.name] !== column) {
+    if (
+      !(column instanceof ColumnDefinition) ||
+      !Object.values(union.columns).some((c) => c === column)
+    ) {
       throw new Error(
         `${label}: a "from" column must be a field the union declares (\`union.columns.<field>\`).`
       );

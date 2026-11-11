@@ -1,10 +1,7 @@
 import {
   AnyColumnDefinition,
   AnyNamespaceDefinition,
-  AnyFieldRelation,
-  AnyTableRelations,
   AnyUnionDefinition,
-  ColumnConfig,
   TableDefinition,
 } from "@dsqlbase/core/definition";
 import {
@@ -16,79 +13,7 @@ import {
   TableByAlias,
 } from "@dsqlbase/core/runtime";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
-import { FilterOf, OrderableRuntimeType, WhereExpressionOf } from "./filters.js";
-
-/** A table's column fields — not its deprecated columns. */
-export type FieldNamesOf<T extends AnyTable> = keyof T["__type"]["columns"] extends infer K
-  ? K extends string
-    ? T["__type"]["columns"][K] extends AnyColumnDefinition
-      ? T["__type"]["columns"][K] extends { __type: { deprecated: true } }
-        ? never
-        : K
-      : never
-    : never
-  : never;
-
-export type RelationFieldNamesOf<T extends AnyTable> =
-  T["__type"]["relations"] extends AnyTableRelations
-    ? keyof T["__type"]["relations"] extends infer K
-      ? K extends string
-        ? T["__type"]["relations"][K] extends AnyFieldRelation
-          ? K
-          : never
-        : never
-      : never
-    : never;
-
-export type ColumnTypeOf<T extends AnyTable, K extends FieldNamesOf<T>> =
-  T["__type"]["columns"] extends Record<K, infer TColumn>
-    ? TColumn extends AnyColumnDefinition
-      ? TColumn["__type"]
-      : never
-    : never;
-
-export type FieldRelationOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> =
-  T["__type"]["relations"] extends Record<K, infer R>
-    ? R extends AnyFieldRelation
-      ? R
-      : never
-    : never;
-
-/**
- * `V`, unless it is untyped on a column whose shape is checked: an untyped `array()` reads and
- * writes as `unknown[]`, an untyped `record()` as `Record<string, unknown>`. The column's own
- * value type stays `unknown`, so that `$type<T>()` gives exactly `T`.
- */
-type ShapedTypeOf<R, V> = unknown extends V
-  ? R extends "array"
-    ? unknown[]
-    : R extends "object"
-      ? Record<string, unknown>
-      : V
-  : V;
-
-export type ValueTypeOf<T extends ColumnConfig> = T extends ColumnConfig
-  ? T["notNull"] extends true
-    ? ShapedTypeOf<T["runtimeType"], T["valueType"]>
-    : ShapedTypeOf<T["runtimeType"], T["valueType"]> | null
-  : never;
-
-/** What a write accepts for a column: its input type, nullable unless the column is not null. */
-export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
-  ? T["notNull"] extends true
-    ? ShapedTypeOf<T["runtimeType"], T["inputType"]>
-    : ShapedTypeOf<T["runtimeType"], T["inputType"]> | null
-  : never;
-
-/**
- * The metadata a table declared with `table().meta()`, or `object` when it declared none.
- * Accepts a `Table` or a `TableDefinition` — both carry it on `__type`.
- */
-export type DeclaredMetaOf<T> = T extends { __type: { meta: infer M } }
-  ? M extends Record<string, unknown>
-    ? M
-    : object
-  : object;
+import { FilterOf, WhereExpressionOf } from "./filters.js";
 
 /**
  * The aliases a schema exports a given table under, matched on the database table name.
@@ -132,9 +57,6 @@ export type RecordMetaOf<T, TAlias extends string = string> = Prettify<
   { key: TAlias; table: string; schema?: string } & DeclaredMetaOf<T>
 >;
 
-/** The columns a `return` may name. A read's `select` also takes relations: {@link SelectionOf}. */
-export type FieldSelectionOf<T extends AnyTable> = Partial<Record<FieldNamesOf<T>, boolean>>;
-
 /** The columns a selection names as `true` — never its relations. */
 export type SelectedFieldsOf<
   TTable extends AnyTable,
@@ -156,38 +78,12 @@ type NamedKeysOf<TSelection> = {
 }[keyof TSelection];
 
 /**
- * A read's `select`: columns, plus relation fields. A relation takes `true` — every column of
- * its target — or a field map over its target, relations included, and is read exactly as
- * `join: { r: true }` or `join: { r: { select: map } }`. Filters, order and limits on a relation
- * are written in `join`.
- */
-export type SelectionOf<T extends AnyTable, S extends AnySchema> = [
-  DeclaredRelationNamesOf<T>,
-] extends [never]
-  ? FieldSelectionOf<T>
-  : FieldSelectionOf<T> & {
-      [R in DeclaredRelationNamesOf<T>]?: boolean | RelationSelectionOf<T, S, R>;
-    };
-
-/**
  * The relation fields a table declares. A table with no `relations()` block reads its
  * relations as a bare record, whose keys are `string` — every key, columns included — so that
  * case is none.
  */
 type DeclaredRelationNamesOf<T extends AnyTable> =
   string extends RelationFieldNamesOf<T> ? never : RelationFieldNamesOf<T>;
-
-/** The field map a relation takes in `select`: over its target, or a union's shared fields. */
-export type RelationSelectionOf<
-  T extends AnyTable,
-  S extends AnySchema,
-  R extends RelationFieldNamesOf<T>,
-> =
-  RelationTargetOf<T, R> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
-    ? SelectionOf<Table<TName, TCols, TNamespace, SchemaTableRelations<S, TName>>, S>
-    : RelationTargetOf<T, R> extends AnyUnionDefinition
-      ? Partial<Record<UnionFieldsOf<RelationTargetOf<T, R>>, boolean>>
-      : never;
 
 /** The relations a selection names, as `true` or a field map. */
 type SelectedRelationsOf<T extends AnyTable, TSelection> = NamedKeysOf<TSelection> &
@@ -207,46 +103,6 @@ export type NoSelectJoinOverlap<TArgs> = TArgs extends {
   : unknown;
 
 type OverlapOf<TSelect, TJoin> = Extract<NamedKeysOf<TSelect>, NamedKeysOf<TJoin>> & string;
-
-export type RequiredFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
-    ? ColumnTypeOf<T, K> extends { hasDefault: true }
-      ? never
-      : K
-    : never;
-}[FieldNamesOf<T>];
-
-export type RelationTypeOf<T extends AnyTable, K extends RelationFieldNamesOf<T>> = FieldRelationOf<
-  T,
-  K
->["type"];
-
-export type RelationTargetOf<
-  T extends AnyTable,
-  K extends RelationFieldNamesOf<T>,
-> = FieldRelationOf<T, K>["target"];
-
-export type OptionalFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
-    ? ColumnTypeOf<T, K> extends { hasDefault: true }
-      ? K
-      : never
-    : K;
-}[FieldNamesOf<T>];
-
-/**
- * Fields the caller may not write. They stay fully readable — selectable, filterable and
- * orderable — and are only removed from the two mutation inputs.
- */
-export type ReadOnlyFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
-}[FieldNamesOf<T>];
-
-export type CreateValuesOf<T extends AnyTable> = {
-  [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
-} & {
-  [K in Exclude<OptionalFieldsOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-};
 
 export type ReturningResultOf<
   T extends AnyTable,
@@ -281,10 +137,6 @@ export type CreateArgs<TTable extends AnyTable> = Prettify<{
   return?: FieldSelectionOf<TTable> | boolean | null | undefined;
 }>;
 
-export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
-};
-
 export type UpdateArgs<TTable extends AnyTable> = Prettify<{
   set: UpdateValuesOf<TTable>;
   where: WhereExpressionOf<TTable>;
@@ -295,147 +147,6 @@ export type DeleteArgs<TTable extends AnyTable> = Prettify<{
   where: WhereExpressionOf<TTable>;
   return?: FieldSelectionOf<TTable> | boolean | null | undefined;
 }>;
-
-export type QueryArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
-  /**
-   * Select specific fields to return in the query result. If not provided, all fields will be returned.
-   *
-   * @example
-   * ```ts
-   * client.findOne({
-   *   where: { id: { eq: "123" } },
-   *   select: {
-   *     id: true,
-   *     firstName: true,
-   *   },
-   * })
-   * ```
-   * @notes
-   * * The `select` clause allows you to specify which fields to retrieve, if not provided, all fields will be selected by default.
-   * * You can only select fields that exist on the table, attempting to select a non-existent field will result in a TypeScript error.
-   * * A relation may be named like a field, as `true` or a field map over its target, and reads exactly as the same
-   *   relation in `join`. Naming only relations returns only them; naming nothing as `true` returns every column.
-   *   The same relation may not be named in both `select` and `join`.
-   *
-   * @typeParam TTable - The table being queried, used for type inference of selectable fields.
-   * @typeParam TSchema - The overall schema, used for type inference of relations in join expressions.
-   */
-  select?: SelectionOf<TTable, TSchema>;
-
-  /**
-   * A filter expression to specify which records to retrieve. This is optional for `findMany`, if not provided, all records will be returned.
-   *
-   * @example
-   * ```ts
-   * client.findMany({
-   *   where: { published: true },
-   * });
-   * ```
-   * @notes
-   * * The `where` clause is optional for `findMany`, if not provided, all records will be returned.
-   * * The `where` clause supports various filter conditions such as equality, inequality, range queries, and more.
-   * * You can combine multiple conditions using logical operators like `and`, `or`, and `not`.
-   * * The fields used in the `where` clause must exist on the table, attempting to filter by a non-existent field will result in a TypeScript error.
-   *
-   * @typeParam TTable - The table being queried, used for type inference of filterable fields.
-   */
-
-  where?: WhereExpressionOf<TTable>;
-  /**
-   * Specify the order in which to return the records. The keys must be field names of the table, and the values must be either "asc" for ascending order or "desc" for descending order.
-   *
-   * @example
-   * ```ts
-   * client.findMany({
-   *   orderBy: { createdAt: "desc" },
-   * });
-   * ```
-   * @notes
-   * * The `orderBy` clause allows you to specify the order in which to return the records. The keys must be field names of the table, and the values must be either "asc" for ascending order or "desc" for descending order.
-   * * You can specify multiple fields to order by, in which case the records will be ordered by the first field, and then by the second field in case of ties, and so on.
-   * * The fields used in the `orderBy` clause must exist on the table, attempting to order by a non-existent field will result in a TypeScript error.
-   *
-   * @typeParam TTable - The table being queried, used for type inference of orderable fields.
-   */
-  orderBy?: OrderByExpressionOf<TTable>;
-
-  /**
-   * Specify that the query should return only distinct records based on the selected fields. This is useful when you want to eliminate duplicate records from the result set.
-   *
-   * @example
-   * ```ts
-   * client.findMany({
-   *   where: { published: true },
-   *   distinct: true,
-   * });
-   * ```
-   * @notes
-   * * The `distinct` flag indicates that the query should return only distinct records based on the selected fields. This is useful when you want to eliminate duplicate records from the result set.
-   * * When `distinct` is true, the database will ensure that the returned records are unique based on the fields specified in the `select` clause. If no `select` clause is provided, all fields will be considered for determining uniqueness.
-   * * The `distinct` flag is typically used in conjunction with the `select` clause to specify which fields should be considered when determining uniqueness. If you want to return distinct records based on specific fields, make sure to include those fields in the `select` clause.
-   * * The behavior of the `distinct` flag may vary depending on the underlying database and how it handles distinct queries, especially when combined with joins and other query features.
-   */
-  distinct?: boolean;
-
-  /**
-   * Specify the maximum number of records to return and the number of records to skip. This is useful for implementing pagination in your queries.
-   *
-   * @example
-   * ```ts
-   * client.findMany({
-   *   where: { published: true },
-   *   limit: 10,
-   *   offset: 20,
-   * });
-   * ```
-   * @notes
-   * * The `limit` parameter specifies the maximum number of records to return. If not provided, no limit is applied and every matching record is returned.
-   * * The `offset` parameter specifies the number of records to skip before starting to return records. This is useful for implementing pagination in your queries. If not provided, no records will be skipped.
-   * * When using `limit` and `offset` together, the query will return records starting from the `offset` position up to the number specified by `limit`. For example, if `offset` is 20 and `limit` is 10, the query will return records 21 through 30.
-   */
-  limit?: number;
-
-  /**
-   * The `offset` parameter specifies the number of records to skip before starting to return records. This is useful for implementing pagination in your queries. If not provided, no records will be skipped.
-   *
-   * @example
-   * ```ts
-   * client.findMany({
-   *   where: { published: true },
-   *   offset: 20,
-   * });
-   * ```
-   * @notes
-   * * The `offset` parameter specifies the number of records to skip before starting to return records. This is useful for implementing pagination in your queries. If not provided, no records will be skipped.
-   * * When using `limit` and `offset` together, the query will return records starting from the `offset` position up to the number specified by `limit`. For example, if `offset` is 20 and `limit` is 10, the query will return records 21 through 30.
-   */
-  offset?: number;
-
-  /**
-   * Join related records based on the relations defined in the schema. The value can be a boolean or a nested query object for more complex queries.
-   *
-   * @example
-   * ```ts
-   * client.findOne({
-   *   where: { id: "123" },
-   *   select: {
-   *     id: true,
-   *     firstName: true,
-   *   },
-   *   join: {
-   *     posts: {
-   *       where: { published: true },
-   *       select: {
-   *         title: true,
-   *       },
-   *     },
-   *     profile: true,
-   *   },
-   * })
-   * ```
-   */
-  join?: Prettify<JoinExpressionOf<TTable, TSchema>>;
-};
 
 export type FindOneArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
   /**
@@ -521,24 +232,6 @@ export type PageOf<
 export type CountArgs<TTable extends AnyTable> = {
   where?: WhereExpressionOf<TTable>;
 };
-
-export type RelationQueryOf<
-  T extends AnyTable,
-  S extends AnySchema,
-  K extends RelationFieldNamesOf<T>,
-> =
-  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TCols, infer TSchema>
-    ? RelationTypeOf<T, K> extends "has_many"
-      ? QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>
-      : Pick<
-          QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>,
-          "select" | "join"
-        >
-    : RelationTargetOf<T, K> extends AnyUnionDefinition
-      ? RelationTypeOf<T, K> extends "has_many"
-        ? UnionQueryArgs<RelationTargetOf<T, K>, S>
-        : Pick<UnionQueryArgs<RelationTargetOf<T, K>, S>, "select" | "join" | "orderBy" | "on">
-      : never;
 
 export type SelectionResultOf<
   TTable extends AnyTable,
@@ -755,35 +448,6 @@ export type UnionWhereExpressionOf<TUnion extends AnyUnion> = {
   not?: UnionWhereExpressionOf<TUnion>;
 };
 
-/**
- * A select over a union: shared-level `select` / `where` / `orderBy` / `limit` / `offset`, which
- * every member runs, plus `on` for what differs per member — GraphQL's `... on Photo { }`.
- */
-export type UnionQueryArgs<TUnion extends AnyUnion, TSchema extends AnySchema> = {
-  /**
-   * Shared fields to return from every member, and relations declared on the union to join
-   * from every member; merged with each member's `on.<alias>.select`.
-   */
-  select?: Partial<Record<UnionFieldsOf<TUnion> | UnionRelationNamesOf<TUnion, TSchema>, boolean>>;
-  /** Relations declared on the union, joined from every member alongside `on.<alias>.join`. */
-  join?: UnionJoinExpressionOf<TUnion, TSchema>;
-  /** Applied inside every member's branch, AND-ed with its `on.<alias>.where`. */
-  where?: UnionWhereExpressionOf<TUnion>;
-  /**
-   * Orders the combined rows, by shared fields and by `$$key` (member alias). Ties are broken
-   * by member alias and then the primary key, so the order is total whenever the members' keys
-   * line up.
-   */
-  orderBy?: Partial<Record<OrderableUnionFieldsOf<TUnion> | "$$key", "asc" | "desc">>;
-  limit?: number;
-  offset?: number;
-  /**
-   * Per member: `false` drops it, `true` (or leaving it out) runs it with the shared arguments,
-   * and an object adds a member-only `select`, `where` and `join`.
-   */
-  on?: OnSelectionOf<MemberAliasesOf<TUnion>, TSchema>;
-};
-
 /** The query args one member of a union runs with: shared `select` / `join` merged with its own. */
 type MemberArgsOf<TSchema extends AnySchema, TAlias extends string, TShared, TOn, TSharedJoin> = {
   select: TShared extends object
@@ -910,22 +574,6 @@ export type AnyUnionQuery = {
   on?: Record<string, boolean | AnyRelationQuery | undefined> | null;
 };
 
-/** Whether a column of runtime type `R` can be ordered by — `true` if any of `R` can. */
-type IsOrderable<R> = [Extract<R, OrderableRuntimeType>] extends [never] ? false : true;
-
-/** The fields of a table that can be ordered by: not documents, arrays or binary. */
-export type OrderableFieldNamesOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: IsOrderable<ColumnTypeOf<T, K>["runtimeType"]> extends true ? K : never;
-}[FieldNamesOf<T>];
-
-export type OrderByExpressionOf<T extends AnyTable> = Partial<
-  Record<OrderableFieldNamesOf<T>, "asc" | "desc">
->;
-
-export type JoinExpressionOf<T extends AnyTable, S extends AnySchema> = {
-  [K in RelationFieldNamesOf<T>]?: RelationQueryOf<T, S, K> | boolean | null | undefined;
-};
-
 export type AnyRelationQuery =
   | RelationQueryOf<AnyTable, AnySchema, RelationFieldNamesOf<AnyTable>>
   | boolean;
@@ -943,20 +591,6 @@ export type AnyRelationQuery =
  * a table with no unique key at all is listed here and refused at runtime.
  */
 export type NodeAliasesOf<TSchema extends AnySchema> = keyof TSchema["tables"] & string;
-
-/**
- * What to do with each member of a set of tables a single call may resolve to — the members
- * of a union, or every node a global id may name.
- *
- * `true` — or leaving the alias out — runs the member as it is; `false` excludes it, so it is
- * gone from the result union and refused at runtime. An object adds member-only arguments: a
- * `select`, a `where` AND-ed with whatever else filters it, and a `join` over its own relations.
- */
-export type OnSelectionOf<TAliases extends string, TSchema extends AnySchema> = {
-  [K in TAliases]?:
-    | Pick<QueryArgs<TableByAlias<TSchema, K>, TSchema>, "select" | "where" | "join">
-    | boolean;
-};
 
 /** Whether an `on` map excluded a member outright. */
 type IsExcluded<TAlias extends string, TOn> = TAlias extends keyof TOn

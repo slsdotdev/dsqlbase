@@ -50,6 +50,11 @@ export type FieldSelection = [
 
 export type FieldMutation = [fieldName: string, value: SQLNode | SQLValue];
 
+export type RelationSelection = [
+  fieldName: string,
+  args: SelectOperationArgs | UnionSelectOperationArgs,
+];
+
 /**
  * How one field of a result record is produced from a driver row: read a column and decode
  * it, or resolve a nested level.

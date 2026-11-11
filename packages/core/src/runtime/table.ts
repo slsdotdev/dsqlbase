@@ -16,6 +16,7 @@ import { sql, SQLContext, SQLNode, SQLStatement } from "../sql/index.js";
 import { AnyColumn, Column } from "./column.js";
 import { AnyPolicy, resolvePolicy } from "./policy.js";
 import type { PolicyCommand } from "../resolvers/policy.js";
+import { WithRelations } from "./base.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyTable = Table<any, any, any, any>;
@@ -68,14 +69,6 @@ class TableRef implements SQLNode {
   }
 }
 
-export type WithRelations<
-  TColumns extends Record<string, AnyColumnDefinition>,
-  TNamespace extends AnyNamespaceDefinition,
-  TRelations extends AnyTableRelations | undefined,
-> = TableConfig<TColumns, TNamespace> & {
-  relations: TRelations extends AnyTableRelations ? TRelations : never;
-};
-
 export type TableSchemaName<T extends AnyTable> = T["__type"] extends { schema: infer S }
   ? S extends NamespaceDefinition<infer SN>
     ? SN
@@ -107,9 +100,9 @@ export class Table<
   TNamespace extends AnyNamespaceDefinition,
   TRelations extends AnyTableRelations,
 >
-  implements SQLNode, TypedObject<TableConfig<TColumns, TNamespace>>
+  implements SQLNode, TypedObject<WithRelations<TableConfig<TColumns, TNamespace>, TRelations>>
 {
-  declare readonly __type: WithRelations<TColumns, TNamespace, TRelations>;
+  declare readonly __type: WithRelations<TableConfig<TColumns, TNamespace>, TRelations>;
 
   readonly name: TName;
 

@@ -19,6 +19,10 @@ export const asNode = (value: SQLValue): SQLNode => {
   }
 };
 
+export const escapeLike = (value: unknown): string => {
+  return String(value).replace(/[\\%_]/g, "\\$&");
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function sql<T>(strings: TemplateStringsArray, ...params: any[]): SQLQuery<T>;
 function sql(strings: TemplateStringsArray, ...params: SQLNode[]): SQLQuery {

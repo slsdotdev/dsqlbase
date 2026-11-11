@@ -338,17 +338,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       const targetTable = relation.target;
 
       if (targetTable instanceof Union) {
-        entries.push([
-          fieldName,
-          this._getUnionArgs(targetTable, query === true ? {} : (query as AnyUnionQuery)),
-        ]);
+        entries.push([fieldName, this._getUnionArgs(targetTable, query === true ? {} : query)]);
         continue;
       }
 
-      const params = this._getSelectArgs(
-        targetTable,
-        query === true ? {} : (query as QueryArgs<AnyTable, this["__type"]>)
-      );
+      const params = this._getSelectArgs(targetTable, query === true ? {} : query);
       entries.push([fieldName, params]);
     }
 

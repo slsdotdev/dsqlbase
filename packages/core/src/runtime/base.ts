@@ -49,28 +49,29 @@ export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> =
 export type DefinitionTableRelations<
   TDefinition extends DefinitionSchema,
   TTableName extends string,
-> = UnionToIntersection<
-  TDefinition extends Record<string, infer Def>
-    ? Def extends RelationsDefinition<infer TTable, infer R>
-      ? TTable extends TableDefinition<TTableName, infer _, infer __>
-        ? R extends AnyTableRelations
-          ? R
-          : never
-        : // A union's relations, which each member has from its own columns.
-          TTable extends AnyUnionDefinition
-          ? TTable["members"][keyof TTable["members"]] extends infer TMember
-            ? TMember extends TableDefinition<TTableName, infer _, infer __>
-              ? R extends AnyTableRelations
-                ? R
+> =
+  UnionToIntersection<
+    TDefinition extends Record<string, infer Def>
+      ? Def extends RelationsDefinition<infer TTable, infer R>
+        ? TTable extends TableDefinition<TTableName, infer _, infer __>
+          ? R extends AnyTableRelations
+            ? R
+            : never
+          : // A union's relations, which each member has from its own columns.
+            TTable extends AnyUnionDefinition
+            ? TTable["members"][keyof TTable["members"]] extends infer TMember
+              ? TMember extends TableDefinition<TTableName, infer _, infer __>
+                ? R extends AnyTableRelations
+                  ? R
+                  : never
                 : never
               : never
             : never
-          : never
+        : never
       : never
-    : never
-> extends infer TMerged extends AnyTableRelations
-  ? TMerged
-  : never;
+  > extends infer TMerged extends AnyTableRelations
+    ? TMerged
+    : never;
 
 export type SchemaTableDefinitions<TDefinition extends DefinitionSchema> = {
   [K in DefinitionTableName<TDefinition>]: TDefinition[K] extends AnyTableDefinition
@@ -127,3 +128,7 @@ export type FieldRelationConfig<
       : never
     : never
   : never;
+
+export type WithRelations<T, TRelations extends AnyTableRelations | undefined> = T & {
+  relations: TRelations extends AnyTableRelations ? TRelations : never;
+};

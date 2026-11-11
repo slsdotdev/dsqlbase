@@ -36,6 +36,7 @@ export {
   type OperationRequest,
   type OperationResult,
   type OperationType,
+  type RelationSelection,
   type SelectOperation,
   type SelectOperationArgs,
   type UpdateOperation,

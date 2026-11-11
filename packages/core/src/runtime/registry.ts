@@ -27,15 +27,6 @@ export type RuntimeTables<TSchema extends AnySchema> = {
     : never;
 };
 
-export type RuntimeUnions<TSchema extends AnySchema> = {
-  [K in keyof TSchema["unions"]]: TSchema["unions"][K] extends UnionDefinition<
-    infer TMembers,
-    infer TColumns
-  >
-    ? Union<TMembers, TColumns>
-    : never;
-};
-
 export type TableByAlias<
   TSchema extends AnySchema,
   TAlias extends string,
@@ -63,6 +54,24 @@ export type TableByNameOrAlias<
   : TableByAlias<TSchema, TName> extends never
     ? TableByName<TSchema, TName>
     : TableByAlias<TSchema, TName>;
+
+export type RuntimeUnions<TSchema extends AnySchema> = {
+  [K in keyof TSchema["unions"]]: TSchema["unions"][K] extends UnionDefinition<
+    infer TMembers,
+    infer TColumns
+  >
+    ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, K & string>>
+    : never;
+};
+
+export type UnionByAlias<
+  TSchema extends AnySchema,
+  TAlias extends string,
+> = TAlias extends keyof TSchema["unions"]
+  ? TSchema["unions"][TAlias] extends UnionDefinition<infer TMembers, infer TColumns>
+    ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, TAlias>>
+    : never
+  : never;
 
 /**
  * The runtime form of a schema, for lookups.
@@ -133,6 +142,10 @@ export class SchemaRegistry<
     return this.getTable(nameOrAlias).alias;
   }
 
+  public hasRelation(table: AnyTable | string, field: string): boolean {
+    return Object.hasOwn(this.getRelations(table), field);
+  }
+
   /**
    * A table's relation by field, resolved: runtime columns on both sides, the runtime target,
    * and for a relation to a union its per-member columns and discriminator. `undefined` when
@@ -153,14 +166,14 @@ export class SchemaRegistry<
     return this._unions.has(alias);
   }
 
-  public getUnion(alias: string): AnyUnion {
+  public getUnion<TAlias extends string>(alias: TAlias): UnionByAlias<this["__type"], TAlias> {
     const union = this._unions.get(alias);
 
     if (!union) {
       throw new Error(`Union not found: ${alias}`);
     }
 
-    return union;
+    return union as UnionByAlias<this["__type"], TAlias>;
   }
 
   /** One entry per union, keyed by schema alias. */
