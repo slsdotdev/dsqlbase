@@ -12,7 +12,7 @@ import { ModelClient } from "../model/client.js";
 import { UnionClient } from "../union/client.js";
 import { GlobalIdResultOf } from "../model/base.js";
 import { WhereExpressionOf } from "../model/filters.js";
-import { GlobalIdError, decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
+import { GlobalIdError, decodeGlobalId, isGlobalId } from "../../../schema/utils/global-id.js";
 
 /** A global id resolved against the schema: its table, the unique key it matches, its values. */
 type ResolvedId = {

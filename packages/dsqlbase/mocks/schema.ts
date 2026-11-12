@@ -73,3 +73,10 @@ export const mediaRelations = relations(media, {
     to: [users.columns.id],
   }),
 });
+
+export const videoRelations = relations(videos, {
+  posts: hasMany(posts, {
+    from: [videos.columns.id],
+    to: [posts.columns.mediaId],
+  }),
+});

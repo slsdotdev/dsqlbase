@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PolicyViolationError, sql, type Session, type SQLStatement } from "@dsqlbase/core";
-import { belongsTo, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { belongsTo, hasMany, relations, table, text, uuid } from "../../../schema/index.js";
 import { createClient } from "../create.js";
 import { ModelClient } from "../model/client.js";
 import { TxClient } from "./transaction-client.js";

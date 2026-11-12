@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { Session } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { table, text, uuid } from "../../schema/index.js";
+import { table, text, uuid } from "../../../schema/index.js";
 
 // A deprecated column stays in the database until a later release drops it, but the client
 // doesn't see it: not in results, filters, ordering or inputs.

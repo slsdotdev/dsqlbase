@@ -100,17 +100,23 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     const where = [base.where, member.where].filter(isDefined);
+    const hasSelect = [base.select, member.select].filter(isDefined).length > 0;
+    const hasJoin = [base.join, member.join].filter(isDefined).length > 0;
 
     return {
       ...member,
-      select: {
-        ...base.select,
-        ...member.select,
-      },
-      join: {
-        ...base.join,
-        ...member.join,
-      },
+      select: hasSelect
+        ? {
+            ...base.select,
+            ...member.select,
+          }
+        : undefined,
+      join: hasJoin
+        ? {
+            ...base.join,
+            ...member.join,
+          }
+        : undefined,
       where: where.length > 1 ? { and: where } : where[0],
     };
   }
@@ -139,7 +145,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       entries.push([fieldName, column]);
     }
 
-    return entries.length > 0 ? entries : undefined;
+    return entries;
   }
 
   private _getJoinEntries<TTable extends AnyTable>(

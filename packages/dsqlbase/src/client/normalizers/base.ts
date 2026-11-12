@@ -5,13 +5,13 @@ import {
   AnyTable,
   AnyTableRelations,
   AnyUnion,
+  AnyUnionDefinition,
   ColumnConfig,
   ColumnRuntimeType,
   SchemaTableRelations,
   Table,
   TableDefinition,
   Union,
-  UnionDefinition,
 } from "@dsqlbase/core";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
@@ -133,14 +133,20 @@ export type RelationRuntimeObjectOf<
   K extends RelationFieldNamesOf<T>,
   TSchema extends AnySchema,
 > =
-  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
-    ? WithMeta<
-        Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
-        DeclaredMetaOf<RelationTargetOf<T, K>>
-      >
-    : RelationTargetOf<T, K> extends UnionDefinition<infer UMembers, infer UColumns>
-      ? Union<UMembers, UColumns, SchemaTableRelations<TSchema, K & string>>
-      : never;
+  RelationTargetOf<T, K> extends infer Target
+    ? Target extends TableDefinition<infer TName, infer TCols, infer TNamespace>
+      ? WithMeta<
+          Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+          DeclaredMetaOf<Target>
+        >
+      : Target extends AnyUnionDefinition
+        ? TSchema["unions"] extends Record<infer Alias, Target>
+          ? Alias extends string
+            ? Union<Target["members"], Target["columns"], SchemaTableRelations<TSchema, Alias>>
+            : never
+          : never
+        : never
+    : never;
 
 export type UnionMemberOf<
   TUnion extends AnyUnion,

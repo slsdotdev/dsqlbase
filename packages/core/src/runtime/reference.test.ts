@@ -186,7 +186,11 @@ describe("column references", () => {
     // A plain-uuid key projects its discriminator too: dependencies are never gated on type.
     it("projects the discriminator with the column", () => {
       const { query } = new OperationsFactory(
-        new ExecutionContext({ schema, dialect: new QueryBuilder(), session: { execute: vi.fn() } })
+        new ExecutionContext({
+          schema,
+          dialect: new QueryBuilder(),
+          session: { execute: vi.fn() },
+        })
       ).createSelectOperation(table, {
         mode: "many",
         args: { select: [["targetId", targetId]] },

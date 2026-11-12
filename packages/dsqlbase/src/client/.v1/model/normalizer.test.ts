@@ -14,8 +14,8 @@ import {
   text,
   union,
   uuid,
-} from "../../schema/index.js";
-import { encodeGlobalId, GlobalIdError } from "../../schema/utils/global-id.js";
+} from "../../../schema/index.js";
+import { encodeGlobalId, GlobalIdError } from "../../../schema/utils/global-id.js";
 
 describe("RequestNormalizer read-only columns", () => {
   const invoices = table("invoices", {

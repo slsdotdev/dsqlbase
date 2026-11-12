@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Session } from "@dsqlbase/core";
 import { createClient } from "./create.js";
 import { ModelClient } from "./model/client.js";
-import { relations, hasMany, table, text, uuid } from "../schema/index.js";
+import { relations, hasMany, table, text, uuid } from "../../schema/index.js";
 
 const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),

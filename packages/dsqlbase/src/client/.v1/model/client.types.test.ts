@@ -21,8 +21,8 @@ import {
   text,
   union,
   uuid,
-} from "../../schema/index.js";
-import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
+} from "../../../schema/index.js";
+import type { StandardSchemaV1 } from "../../../schema/utils/standard-schema.js";
 
 const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),

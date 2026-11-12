@@ -124,8 +124,5 @@ export class Union<
   }
 }
 
-export type AnyUnion = Union<
-  AnyUnionMembers,
-  UnionColumnsConfig<AnyUnionMembers>,
-  AnyTableRelations
->;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyUnion = Union<any, any, any>;

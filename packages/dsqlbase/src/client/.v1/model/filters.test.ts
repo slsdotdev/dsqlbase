@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ColumnDefinition, type Session, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
-import { encodeGlobalId } from "../../schema/utils/global-id.js";
+import type { StandardSchemaV1 } from "../../../schema/utils/standard-schema.js";
+import { encodeGlobalId } from "../../../schema/utils/global-id.js";
 import {
   array,
   belongsTo,
@@ -24,7 +24,7 @@ import {
   text,
   union,
   uuid,
-} from "../../schema/index.js";
+} from "../../../schema/index.js";
 
 // Refuses anything but a full `{ theme }`, so a filter value it validated would throw.
 const prefsSchema: StandardSchemaV1<{ theme: string }> = {

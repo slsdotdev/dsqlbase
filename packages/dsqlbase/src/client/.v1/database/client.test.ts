@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Session, sql, type SQLStatement } from "@dsqlbase/core";
 import { createClient } from "../create.js";
-import { guid, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, relations, table, text, uuid } from "../../../schema/index.js";
 import { ModelClient } from "../model/client.js";
-import { encodeGlobalId } from "../../schema/utils/global-id.js";
+import { encodeGlobalId } from "../../../schema/utils/global-id.js";
 
 const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -1,9 +1,9 @@
 import { describe, expectTypeOf, it, vi } from "vitest";
 import type { Schema as CoreSchema, Session } from "@dsqlbase/core";
-import { guid, hasMany, relations, table, text, uuid } from "../../schema/index.js";
+import { guid, hasMany, relations, table, text, uuid } from "../../../schema/index.js";
 import { createClient } from "../create.js";
 import type { NodeAliasesOf } from "../model/base.js";
-import { encodeGlobalId } from "../../schema/utils/global-id.js";
+import { encodeGlobalId } from "../../../schema/utils/global-id.js";
 
 const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),

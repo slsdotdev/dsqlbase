@@ -13,9 +13,4 @@ export {
   ColumnValidationError,
   type ColumnValidationErrorCode,
 } from "./schema/utils/column-validation.js";
-export {
-  CURSOR_PREFIX,
-  InvalidCursorError,
-  type InvalidCursorCode,
-} from "./client/pagination/cursor.js";
 export { createClient, type ClientOptions, type QueryClient } from "./client/index.js";

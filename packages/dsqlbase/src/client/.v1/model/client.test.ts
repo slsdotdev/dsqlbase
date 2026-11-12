@@ -11,9 +11,9 @@ import {
   table,
   text,
   uuid,
-} from "../../schema/index.js";
-import { ColumnValidationError } from "../../schema/utils/column-validation.js";
-import type { StandardSchemaV1 } from "../../schema/utils/standard-schema.js";
+} from "../../../schema/index.js";
+import { ColumnValidationError } from "../../../schema/utils/column-validation.js";
+import type { StandardSchemaV1 } from "../../../schema/utils/standard-schema.js";
 
 describe("paginate and count", () => {
   const tasks = table("tasks", {

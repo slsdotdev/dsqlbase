@@ -11,7 +11,7 @@ import {
   text,
   union,
   uuid,
-} from "../../schema/index.js";
+} from "../../../schema/index.js";
 
 const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),

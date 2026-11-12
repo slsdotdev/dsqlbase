@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { InputTypeOf, ValueTypeOf } from "../../client/model/base.js";
-import type { ColumnFilterOf } from "../../client/model/filters.js";
+import type { InputTypeOf, ValueTypeOf } from "../../client/.v1/model/base.js";
+import type { ColumnFilterOf } from "../../client/.v1/model/filters.js";
 import type { ColumnConfig } from "@dsqlbase/core";
 import { numeric } from "./numeric.js";
 

@@ -1,7 +1,7 @@
 import { TypedObject } from "@dsqlbase/core/utils";
 import { KEY_FIELD } from "@dsqlbase/core/definition";
-import { decodeMemberId, getDynamicGuidBinding } from "../../schema/utils/guid-hooks.js";
-import { GlobalIdError } from "../../schema/utils/global-id.js";
+import { decodeMemberId, getDynamicGuidBinding } from "../../../schema/utils/guid-hooks.js";
+import { GlobalIdError } from "../../../schema/utils/global-id.js";
 import {
   AnyColumn,
   AnyTable,
@@ -338,11 +338,17 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       const targetTable = relation.target;
 
       if (targetTable instanceof Union) {
-        entries.push([fieldName, this._getUnionArgs(targetTable, query === true ? {} : query)]);
+        entries.push([
+          fieldName,
+          this._getUnionArgs(targetTable, query === true ? {} : (query as AnyUnionQuery)),
+        ]);
         continue;
       }
 
-      const params = this._getSelectArgs(targetTable, query === true ? {} : query);
+      const params = this._getSelectArgs(
+        targetTable,
+        query === true ? {} : (query as QueryArgs<AnyTable, this["__type"]>)
+      );
       entries.push([fieldName, params]);
     }
 

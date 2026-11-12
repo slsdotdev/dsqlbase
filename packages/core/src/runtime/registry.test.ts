@@ -62,6 +62,7 @@ const teamMembers = new TableDefinition("team_members", {
     userId: new ColumnDefinition("user_id").notNull(),
   },
 });
+
 teamMembers.primaryKey((c) => [c.teamId, c.userId]);
 
 describe("SchemaRegistry", () => {

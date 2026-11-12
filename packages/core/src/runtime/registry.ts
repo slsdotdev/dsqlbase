@@ -56,22 +56,15 @@ export type TableByNameOrAlias<
     : TableByAlias<TSchema, TName>;
 
 export type RuntimeUnions<TSchema extends AnySchema> = {
-  [K in keyof TSchema["unions"]]: TSchema["unions"][K] extends UnionDefinition<
-    infer TMembers,
-    infer TColumns
-  >
-    ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, K & string>>
+  [K in keyof TSchema["unions"]]: K extends string
+    ? TSchema["unions"][K] extends UnionDefinition<infer TMembers, infer TColumns>
+      ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, K>>
+      : never
     : never;
 };
 
-export type UnionByAlias<
-  TSchema extends AnySchema,
-  TAlias extends string,
-> = TAlias extends keyof TSchema["unions"]
-  ? TSchema["unions"][TAlias] extends UnionDefinition<infer TMembers, infer TColumns>
-    ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, TAlias>>
-    : never
-  : never;
+export type UnionByAlias<TSchema extends AnySchema, TAlias extends string> =
+  RuntimeUnions<TSchema> extends Record<TAlias, infer U> ? U : never;
 
 /**
  * The runtime form of a schema, for lookups.

@@ -10,13 +10,137 @@ import {
   decodeMemberId,
   getDynamicGuidBinding,
   getGuidBinding,
-} from "../../schema/utils/guid-hooks.js";
-import { decodeGlobalId, isGlobalId } from "../../schema/utils/global-id.js";
+} from "../../../schema/utils/guid-hooks.js";
+import { decodeGlobalId, isGlobalId } from "../../../schema/utils/global-id.js";
 import type { ColumnTypeOf, FieldNamesOf, ValueTypeOf } from "./base.js";
+
+/**
+ * The `where` language: what a column of each runtime type can be filtered and ordered by, the
+ * filter types written from that table, and {@link WhereBuilder}, which enforces it while
+ * turning a `where` object into SQL. An operator the types refuse is also refused at runtime —
+ * before any SQL is built.
+ */
+
+const COMPARISON = ["eq", "neq", "in", "gt", "gte", "lt", "lte", "between", "exists"] as const;
+const PATTERN = ["beginsWith", "endsWith", "contains"] as const;
+const KEYED = ["hasKey"] as const;
+
+export type FilterOperator =
+  | (typeof COMPARISON)[number]
+  | (typeof PATTERN)[number]
+  | (typeof KEYED)[number];
+
+export type RuntimeTypeRules = {
+  /** The operators a filter on the column may use. */
+  operators: readonly FilterOperator[];
+  /** Whether a bare value stands for `{ eq: value }`. */
+  shorthand: boolean;
+  /** Whether the column can be an `orderBy` key. */
+  orderable: boolean;
+  /** Whether the database can compare two values for equality, which `distinct` needs. */
+  distinct: boolean;
+};
+
+const comparable: RuntimeTypeRules = {
+  operators: COMPARISON,
+  shorthand: true,
+  orderable: true,
+  distinct: true,
+};
+
+const document: RuntimeTypeRules = {
+  operators: ["exists"],
+  shorthand: false,
+  orderable: false,
+  distinct: true,
+};
+
+/**
+ * `jsonb` equality and containment. `contains` means `@>` here, not `LIKE`: the value is a
+ * fragment of a document, matched recursively.
+ */
+const jsonbDocument: RuntimeTypeRules = {
+  ...document,
+  operators: ["eq", "neq", "contains", "exists"],
+};
+
+export const RUNTIME_TYPE_RULES: Readonly<Record<ColumnRuntimeType, RuntimeTypeRules>> = {
+  string: { ...comparable, operators: [...COMPARISON, ...PATTERN] },
+  uuid: comparable,
+  number: comparable,
+  bigint: comparable,
+  date: comparable,
+  interval: comparable,
+  boolean: { ...comparable, operators: ["eq", "neq", "exists"] },
+  bytes: document,
+  // `json` has no equality operator at all.
+  json: { ...document, distinct: false },
+  jsonb: jsonbDocument,
+  array: jsonbDocument,
+  object: { ...jsonbDocument, operators: [...jsonbDocument.operators, ...KEYED] },
+};
+
+/** Every operator any runtime type accepts — what tells an operator object from a value. */
+export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([
+  ...COMPARISON,
+  ...PATTERN,
+  ...KEYED,
+]);
+
+/**
+ * Inside a column's filter, `where` is reserved for filtering into the column's value — a
+ * `jsonb` document's keys. Reserved so that no operator takes the name; not supported yet.
+ */
+export const NESTED_FILTER = "where";
+
+/** The runtime types stored as `jsonb`, where `contains` is containment (`@>`). */
+export const JSONB_RUNTIME_TYPES: ReadonlySet<ColumnRuntimeType> = new Set([
+  "jsonb",
+  "array",
+  "object",
+]);
+
+/** The runtime types whose values can be plain objects: a `Duration`, a JSON document. */
+const PLAIN_OBJECT_VALUES: ReadonlySet<ColumnRuntimeType> = new Set([
+  "interval",
+  "json",
+  "jsonb",
+  "object",
+]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null;
+}
+
+/**
+ * A pattern operator's value as a `LIKE` literal: `%` and `_` match themselves, not any text.
+ * Backslash is PostgreSQL's default `LIKE` escape character, so it is escaped first.
+ */
+function escapeLike(value: unknown): string {
+  return String(value).replace(/[\\%_]/g, "\\$&");
+}
+
+export function rulesOf(column: AnyColumn): RuntimeTypeRules {
+  return RUNTIME_TYPE_RULES[column.runtimeType];
+}
 
 /* -------------------------------------------------------------------------------------------
  * The same table, at type level
  * ---------------------------------------------------------------------------------------- */
+
+/** The operators a runtime type accepts. Mirrors {@link RUNTIME_TYPE_RULES}. */
+export type OperatorsOf<R extends ColumnRuntimeType> = R extends "string"
+  ? (typeof COMPARISON)[number] | (typeof PATTERN)[number]
+  : R extends "uuid" | "number" | "bigint" | "date" | "interval"
+    ? (typeof COMPARISON)[number]
+    : R extends "boolean"
+      ? "eq" | "neq" | "exists"
+      : R extends "object"
+        ? "eq" | "neq" | "contains" | "hasKey" | "exists"
+        : R extends JsonbRuntimeType
+          ? "eq" | "neq" | "contains" | "exists"
+          : "exists";
 
 /** The runtime types stored as `jsonb`. Mirrors {@link JSONB_RUNTIME_TYPES}. */
 export type JsonbRuntimeType = "jsonb" | "array" | "object";

@@ -12,8 +12,8 @@ import {
   text,
   union,
   uuid,
-} from "../../schema/index.js";
-import { encodeGlobalId } from "../../schema/utils/global-id.js";
+} from "../../../schema/index.js";
+import { encodeGlobalId } from "../../../schema/utils/global-id.js";
 
 const photos = table("photos", {
   id: uuid("id").primaryKey().defaultRandom(),
