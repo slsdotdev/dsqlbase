@@ -6,6 +6,6 @@ export class MockSession implements Session {
 
   public async execute<T = unknown>(query: SQLStatement): Promise<T[]> {
     this.mock(query);
-    return {} as T[];
+    return this.mock(query) as T[];
   }
 }

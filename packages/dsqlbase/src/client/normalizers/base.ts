@@ -13,7 +13,7 @@ import {
   Union,
   UnionDefinition,
 } from "@dsqlbase/core";
-import { Prettify } from "@dsqlbase/core/utils";
+import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
 import { TableByAlias } from "@dsqlbase/core/runtime";
 
@@ -68,6 +68,9 @@ export type InputTypeOf<T extends ColumnConfig> = T extends ColumnConfig
     : DeclaredTypeOf<T["runtimeType"], T["inputType"]> | null
   : never;
 
+export type UnionMemberFieldNamesOf<TUnion extends AnyUnion> = keyof TUnion["__type"]["members"] &
+  string;
+
 /**
  * `V`, unless it is untyped on a column whose shape is checked: an untyped `array()` reads and
  * writes as `unknown[]`, an untyped `record()` as `Record<string, unknown>`. The column's own
@@ -91,6 +94,12 @@ export type DeclaredMetaOf<T> = T extends { __type: { meta: infer M } }
     : object
   : object;
 
+/*
+ * -------------------------------------------------------------------------------------------
+ // #region Selection
+ * ----------------------------------------------------------------------------------------
+ */
+
 /** The columns a `return` may name. A read's `select` also takes relations: {@link SelectionOf}. */
 export type SelectableFieldsOf<T extends RuntimeObject> = Partial<
   Record<FieldNamesOf<T>, boolean | null | undefined>
@@ -108,16 +117,46 @@ export type RelationSelectionOf<
   S extends AnySchema,
   R extends RelationFieldNamesOf<T>,
 > =
-  RelationTargetOf<T, R> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
-    ? SelectionOf<Table<TName, TCols, TNamespace, SchemaTableRelations<S, TName>>, S>
-    : RelationTargetOf<T, R> extends UnionDefinition<infer UMembers, infer UColumns>
-      ? SelectionOf<Union<UMembers, UColumns, SchemaTableRelations<S, R & string>>, S>
-      : never;
+  RelationRuntimeObjectOf<T, R, S> extends infer TTarget
+    ? TTarget extends RuntimeObject
+      ? SelectionOf<TTarget, S>
+      : never
+    : never;
 
 export type RelationTargetOf<
   T extends RuntimeObject,
   K extends RelationFieldNamesOf<T>,
 > = FieldRelationOf<T, K>["target"];
+
+export type RelationRuntimeObjectOf<
+  T extends RuntimeObject,
+  K extends RelationFieldNamesOf<T>,
+  TSchema extends AnySchema,
+> =
+  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TCols, infer TNamespace>
+    ? WithMeta<
+        Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+        DeclaredMetaOf<RelationTargetOf<T, K>>
+      >
+    : RelationTargetOf<T, K> extends UnionDefinition<infer UMembers, infer UColumns>
+      ? Union<UMembers, UColumns, SchemaTableRelations<TSchema, K & string>>
+      : never;
+
+export type UnionMemberOf<
+  TUnion extends AnyUnion,
+  TMember extends UnionMemberFieldNamesOf<TUnion>,
+  TSchema extends AnySchema,
+> =
+  TUnion["__type"]["members"][TMember] extends TableDefinition<
+    infer TName,
+    infer TCols,
+    infer TNamespace
+  >
+    ? WithMeta<
+        Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
+        DeclaredMetaOf<TUnion["__type"]["members"][TMember]>
+      >
+    : never;
 
 export type JoinExpressionOf<T extends RuntimeObject, S extends AnySchema> = {
   [K in RelationFieldNamesOf<T>]?: RelationQueryOf<T, S, K> | boolean | null | undefined;
@@ -128,21 +167,17 @@ export type RelationQueryOf<
   S extends AnySchema,
   K extends RelationFieldNamesOf<T>,
 > =
-  RelationTargetOf<T, K> extends TableDefinition<infer TName, infer TCols, infer TSchema>
-    ? RelationTypeOf<T, K> extends "has_many"
-      ? QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>
-      : Pick<
-          QueryArgs<Table<TName, TCols, TSchema, SchemaTableRelations<S, TName>>, S>,
-          "select" | "join"
-        >
-    : RelationTargetOf<T, K> extends UnionDefinition<infer UMembers, infer UColumns>
+  RelationRuntimeObjectOf<T, K, S> extends infer TTarget
+    ? TTarget extends AnyTable
       ? RelationTypeOf<T, K> extends "has_many"
-        ? UnionQueryArgs<Union<UMembers, UColumns, SchemaTableRelations<S, K & string>>, S>
-        : Pick<
-            UnionQueryArgs<Union<UMembers, UColumns, SchemaTableRelations<S, K & string>>, S>,
-            "select" | "join" | "on"
-          >
-      : never;
+        ? QueryArgs<TTarget, S>
+        : Pick<QueryArgs<TTarget, S>, "select" | "join">
+      : TTarget extends AnyUnion
+        ? RelationTypeOf<T, K> extends "has_many"
+          ? UnionQueryArgs<TTarget, S>
+          : Pick<UnionQueryArgs<TTarget, S>, "select" | "join" | "on">
+        : never
+    : never;
 
 export type RelationTypeOf<
   T extends RuntimeObject,
@@ -169,12 +204,12 @@ export type OrderableFieldNamesOf<T extends RuntimeObject> = {
  * `select`, a `where` AND-ed with whatever else filters it, and a `join` over its own relations.
  */
 export type OnSelectionOf<TUnion extends AnyUnion, TSchema extends AnySchema> = {
-  [K in UnionMembersOf<TUnion>]?:
+  [K in UnionMemberFieldNamesOf<TUnion>]?:
     | Pick<QueryArgs<TableByAlias<TSchema, K>, TSchema>, "select" | "where" | "join">
-    | boolean;
+    | boolean
+    | null
+    | undefined;
 };
-
-type UnionMembersOf<TUnion extends AnyUnion> = keyof TUnion["__type"]["members"] & string;
 
 export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
@@ -183,7 +218,9 @@ export type CreateValuesOf<T extends AnyTable> = {
 };
 
 export type UpdateValuesOf<T extends AnyTable> = {
-  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T>>]?: InputTypeOf<ColumnTypeOf<T, K>>;
+  [K in Exclude<FieldNamesOf<T>, ReadOnlyFieldsOf<T> | PrimaryKeyFieldsOf<T>>]?: InputTypeOf<
+    ColumnTypeOf<T, K>
+  >;
 };
 
 export type RequiredFieldsOf<T extends AnyTable> = {
@@ -194,14 +231,6 @@ export type RequiredFieldsOf<T extends AnyTable> = {
     : never;
 }[FieldNamesOf<T>];
 
-/**
- * Fields the caller may not write. They stay fully readable — selectable, filterable and
- * orderable — and are only removed from the two mutation inputs.
- */
-export type ReadOnlyFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
-}[FieldNamesOf<T>];
-
 export type OptionalFieldsOf<T extends AnyTable> = {
   [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
     ? ColumnTypeOf<T, K> extends { hasDefault: true }
@@ -210,9 +239,205 @@ export type OptionalFieldsOf<T extends AnyTable> = {
     : K;
 }[FieldNamesOf<T>];
 
+/**
+ * Fields the caller may not write. They stay fully readable — selectable, filterable and
+ * orderable — and are only removed from the two mutation inputs.
+ */
+export type ReadOnlyFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
+}[FieldNamesOf<T>];
+
+export type PrimaryKeyFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true } ? K : never;
+}[FieldNamesOf<T>];
+
+export type UniqueFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { unique: true } ? K : never;
+}[FieldNamesOf<T>];
+
 /*
  * -------------------------------------------------------------------------------------------
- * Filters
+ // #region Results
+ * ----------------------------------------------------------------------------------------
+ */
+
+/**
+ * Every key a selection names: a column as `true`, a relation as `true` or a field map. None
+ * means every column, as with no selection at all.
+ */
+export type SelectedKeysOf<TSelection> = {
+  [K in keyof TSelection]-?: TSelection[K] extends true | object ? K : never;
+}[keyof TSelection];
+
+export type SelectedFieldsOf<
+  TTable extends RuntimeObject,
+  TSelection extends SelectableFieldsOf<TTable>,
+> = {
+  [K in keyof TSelection]: K extends FieldNamesOf<TTable>
+    ? TSelection[K] extends true
+      ? K
+      : never
+    : never;
+}[keyof TSelection];
+
+export type SelectionResultOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TArgs extends QueryArgs<TTable, TSchema>,
+> =
+  // `object`, not `FieldSelectionOf`: a select naming only relations shares no key with the
+  // column map, so it would not extend it.
+  TArgs["select"] extends object
+    ? SelectedKeysOf<TArgs["select"]> extends never
+      ? { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }
+      : {
+          [K in SelectedFieldsOf<TTable, TArgs["select"]>]: K extends FieldNamesOf<TTable>
+            ? ValueTypeOf<ColumnTypeOf<TTable, K>>
+            : never;
+        }
+    : { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> };
+
+export type RelationResultOf<
+  TTable extends RuntimeObject,
+  TSchema extends AnySchema,
+  TRelationField extends RelationFieldNamesOf<TTable>,
+  TTarget extends RuntimeObject,
+  TArgs extends QueryArgs<TTarget, TSchema>,
+> = TTarget extends infer Target
+  ? Target extends AnyTable
+    ? RelationTypeOf<TTable, TRelationField> extends "has_many"
+      ? QueryResultOf<Target, TSchema, TArgs>[]
+      : QueryResultOf<Target, TSchema, TArgs> | null
+    : TTarget extends AnyUnion
+      ? RelationTypeOf<TTable, TRelationField> extends "has_many"
+        ? UnionQueryResultOf<TTarget, TSchema, TArgs>[]
+        : UnionQueryResultOf<TTarget, TSchema, TArgs> | null
+      : never
+  : never;
+
+export type RelationSelectionResultOf<
+  TTable extends RuntimeObject,
+  TSchema extends AnySchema,
+  TSelection extends SelectableRelationsOf<TTable, TSchema>,
+> = Prettify<{
+  [K in Exclude<
+    SelectedKeysOf<TSelection>,
+    FieldNamesOf<TTable>
+  >]: K extends RelationFieldNamesOf<TTable>
+    ? TSelection[K] extends true | object
+      ? RelationQueryResultOf<
+          TTable,
+          TSchema,
+          K,
+          TSelection[K] extends true ? true : { select: TSelection[K] }
+        >
+      : never
+    : never;
+}>;
+
+export type RelationQueryResultOf<
+  TTable extends RuntimeObject,
+  TSchema extends AnySchema,
+  TField extends keyof SelectableRelationsOf<TTable, TSchema>,
+  TArgs,
+> =
+  RelationRuntimeObjectOf<TTable, TField, TSchema> extends infer TTarget
+    ? TTarget extends RuntimeObject
+      ? TArgs extends true
+        ? RelationResultOf<TTable, TSchema, TField, TTarget, QueryArgs<TTarget, TSchema>>
+        : TTarget extends AnyTable
+          ? TArgs extends QueryArgs<TTarget, TSchema>
+            ? RelationResultOf<TTable, TSchema, TField, TTarget, TArgs>
+            : never
+          : TTarget extends AnyUnion
+            ? TArgs extends UnionQueryArgs<TTarget, TSchema>
+              ? RelationResultOf<TTable, TSchema, TField, TTarget, TArgs>
+              : never
+            : never
+      : never
+    : never;
+
+export type JoinResultOf<
+  TTable extends RuntimeObject,
+  TSchema extends AnySchema,
+  TJoin extends JoinExpressionOf<TTable, TSchema>,
+> = {
+  [K in SelectedKeysOf<TJoin>]: K extends RelationFieldNamesOf<TTable>
+    ? RelationQueryResultOf<TTable, TSchema, K, TJoin[K]>
+    : never;
+};
+
+export type QueryResultOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TArgs extends QueryArgs<TTable, TSchema>,
+> = Prettify<
+  SelectionResultOf<TTable, TSchema, TArgs> &
+    RelationSelectionResultOf<TTable, TSchema, TArgs["select"]> &
+    JoinResultOf<TTable, TSchema, TArgs["join"]>
+>;
+
+export type ExcludedKeysOf<T extends Record<string, unknown>> = {
+  [K in keyof T]: T[K] extends false ? K : never;
+}[keyof T];
+
+export type MergedUnionMemberQueryOf<
+  TUnion extends AnyUnion,
+  TSchema extends AnySchema,
+  TUnionArgs extends UnionQueryArgs<TUnion, TSchema>,
+  TMember extends UnionMemberFieldNamesOf<TUnion>,
+> =
+  TMember extends SelectedKeysOf<TUnionArgs["on"]>
+    ? TUnionArgs["on"][TMember] extends infer TArgs
+      ? TArgs extends true
+        ? TUnionArgs
+        : TArgs extends { select?: infer TSelect; where?: infer TWhere; join?: infer TJoin }
+          ? {
+              select: TSelect extends object ? TUnionArgs["select"] & TSelect : TSelect;
+              where: TWhere extends object ? TUnionArgs["where"] & TWhere : TWhere;
+              join: TJoin extends object ? TUnionArgs["join"] & TJoin : TJoin;
+            }
+          : never
+      : never
+    : never;
+
+export type UnionQueryResultOf<
+  TUnion extends AnyUnion,
+  TSchema extends AnySchema,
+  TArgs extends UnionQueryArgs<TUnion, TSchema>,
+> = Prettify<
+  {
+    [K in UnionMemberFieldNamesOf<TUnion>]: K extends ExcludedKeysOf<TArgs["on"] & {}>
+      ? never
+      : QueryResultOf<
+          UnionMemberOf<TUnion, K, TSchema>,
+          TSchema,
+          MergedUnionMemberQueryOf<TUnion, TSchema, TArgs, K>
+        >;
+  }[UnionMemberFieldNamesOf<TUnion>]
+>;
+
+export type MutationResultOf<
+  TTable extends AnyTable,
+  TArgs extends CreateArgs<TTable> | UpdateArgs<TTable> | DeleteArgs<TTable>,
+> =
+  TArgs["return"] extends SelectableFieldsOf<TTable>
+    ? Prettify<
+        SelectedFieldsOf<TTable, TArgs["return"]> extends never
+          ? { [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }
+          : {
+              [K in SelectedFieldsOf<TTable, TArgs["return"]>]: K extends FieldNamesOf<TTable>
+                ? ValueTypeOf<ColumnTypeOf<TTable, K>>
+                : never;
+            }
+      >
+    : TArgs["return"] extends true
+      ? Prettify<{ [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }>
+      : Record<string, never>;
+
+/*
+ * -------------------------------------------------------------------------------------------
+ // #region Filters
  * ----------------------------------------------------------------------------------------
  */
 
@@ -376,7 +601,7 @@ type NotExpression<T extends RuntimeObject> = {
 
 /*
  * -------------------------------------------------------------------------------------------
- * Queries
+ // #region Queries
  * ----------------------------------------------------------------------------------------
  */
 

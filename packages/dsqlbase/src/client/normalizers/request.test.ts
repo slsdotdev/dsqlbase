@@ -300,4 +300,40 @@ describe("RequestNormalizer", () => {
       });
     });
   });
+
+  describe("mutations", () => {
+    it("creates an insert request", () => {
+      const table = context.schema.getTable("users");
+
+      const request = normalizer.createInsertRequest(
+        table,
+        {
+          data: {
+            id: "1",
+            name: "John Doe",
+          },
+        },
+        "one"
+      );
+
+      expect(request).toBeDefined();
+      expect(request.args.data[0].length).toEqual(2);
+    });
+
+    it("creates an update request", () => {
+      const table = context.schema.getTable("users");
+
+      const request = normalizer.createUpdateRequest(
+        table,
+        {
+          set: { name: "Jane Doe" },
+          where: { id: "1" },
+        },
+        "one"
+      );
+
+      expect(request).toBeDefined();
+      expect(request.args.set.length).toEqual(1);
+    });
+  });
 });
