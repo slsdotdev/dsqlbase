@@ -20,7 +20,7 @@ export type FilterOperator =
   | (typeof PATTERN)[number]
   | (typeof NESTED)[number];
 
-export type FilterRules = {
+export type ColumnRules = {
   /** The operators a filter on the column may use. */
   operators: readonly FilterOperator[];
   /** Whether a bare value stands for `{ eq: value }`. */
@@ -36,14 +36,14 @@ export const comparable = {
   shorthand: true,
   orderable: true,
   distinct: true,
-} as const satisfies FilterRules;
+} as const satisfies ColumnRules;
 
 export const document = {
   operators: ["exists"],
   shorthand: false,
   orderable: false,
   distinct: true,
-} as const satisfies FilterRules;
+} as const satisfies ColumnRules;
 
 /**
  * `jsonb` equality and containment. `contains` means `@>` here, not `LIKE`: the value is a
@@ -52,9 +52,9 @@ export const document = {
 export const jsonbDocument = {
   ...document,
   operators: ["eq", "neq", "contains", "exists"],
-} as const satisfies FilterRules;
+} as const satisfies ColumnRules;
 
-export const RUNTIME_FILTER_RULES = {
+export const RUNTIME_COLUMN_RULES = {
   string: { ...comparable, operators: [...COMPARISON, ...PATTERN] },
   uuid: { ...comparable, operators: ["eq", "neq", "in", "exists"] },
   number: comparable,
@@ -68,7 +68,7 @@ export const RUNTIME_FILTER_RULES = {
   jsonb: jsonbDocument,
   array: jsonbDocument,
   object: { ...jsonbDocument, operators: [...jsonbDocument.operators, ...NESTED] },
-} as const satisfies Record<ColumnRuntimeType, FilterRules>;
+} as const satisfies Record<ColumnRuntimeType, ColumnRules>;
 
 /** Every operator any runtime type accepts — what tells an operator object from a value. */
 export const FILTER_OPERATORS: ReadonlySet<string> = new Set<string>([
@@ -92,24 +92,25 @@ export const PLAIN_OBJECT_VALUES: ReadonlySet<ColumnRuntimeType> = new Set([
   "object",
 ]);
 
-export type ShorthandRuntimeType<T extends ColumnRuntimeType> =
-  T extends keyof typeof RUNTIME_FILTER_RULES
-    ? (typeof RUNTIME_FILTER_RULES)[T]["shorthand"]
-    : never;
+export type RuntimeColumnRules = typeof RUNTIME_COLUMN_RULES;
 
-export type OrderableRuntimeType = {
-  [K in keyof typeof RUNTIME_FILTER_RULES]: (typeof RUNTIME_FILTER_RULES)[K]["orderable"] extends true
-    ? K
-    : never;
-}[keyof typeof RUNTIME_FILTER_RULES];
-
-/** The operators a runtime type accepts. Mirrors {@link RUNTIME_FILTER_RULES}. */
-export type OperatorsOf<R extends ColumnRuntimeType> = R extends keyof typeof RUNTIME_FILTER_RULES
-  ? (typeof RUNTIME_FILTER_RULES)[R]["operators"][number]
+export type ShorthandRuntimeType<T extends ColumnRuntimeType> = T extends keyof RuntimeColumnRules
+  ? RuntimeColumnRules[T]["shorthand"]
   : never;
 
-export function getFilterRules<T extends AnyColumn>(column: T): FilterRules {
-  return RUNTIME_FILTER_RULES[column.runtimeType];
+export type OrderableRuntimeType = {
+  [K in keyof RuntimeColumnRules]: RuntimeColumnRules[K]["orderable"] extends true ? K : never;
+}[keyof RuntimeColumnRules];
+
+/** The operators a runtime type accepts. Mirrors {@link RUNTIME_FILTER_RULES}. */
+export type OperatorsOf<R extends ColumnRuntimeType> = R extends keyof RuntimeColumnRules
+  ? RuntimeColumnRules[R]["operators"][number]
+  : never;
+
+export function getColumnRules<T extends AnyColumn>(
+  column: T
+): RuntimeColumnRules[T["runtimeType"]] {
+  return RUNTIME_COLUMN_RULES[column.runtimeType] as RuntimeColumnRules[T["runtimeType"]];
 }
 
 export const isFilterObject = (condition: unknown): condition is Record<string, unknown> => {
@@ -123,7 +124,7 @@ export const isFilterObject = (condition: unknown): condition is Record<string, 
 };
 
 export const isRuleOperator = (
-  rule: FilterRules,
+  rule: ColumnRules,
   operator: string
 ): operator is (typeof rule)["operators"][number] =>
   rule.operators.includes(operator as FilterOperator);

@@ -15,6 +15,7 @@ import {
   DeleteArgs,
   QueryResultOf,
   MutationResultOf,
+  GetArgs,
 } from "../normalizers/base.js";
 import { RequestNormalizer } from "../normalizers/request.js";
 
@@ -35,7 +36,7 @@ export class ModelClient<
   }
 
   /**
-   * Finds a single record matching the specified criteria.
+   * Finds first record matching the specified criteria.
    *
    * @example
    * ```ts
@@ -49,11 +50,6 @@ export class ModelClient<
    *   }
    * });
    * ```
-   * @notes
-   * * The `where` clause is required to ensure that the operation is deterministic and does not accidentally return an unintended record.
-   * * The `select` clause allows you to specify which fields to retrieve, if not provided, all fields will be selected by default.
-   * * A relation may be named in `select` as `true` or a field map (`select: { profile: { bio: true } }`);
-   *   it reads as the same relation in `join`, which is where its `where` / `orderBy` / `limit` go.
    *
    * @param args
    * @returns An executable query that can be awaited.
@@ -88,6 +84,27 @@ export class ModelClient<
     args: TArgs
   ): ExecutableQuery<OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>> {
     const request = this._normalizer.createSelectRequest(this._table, args, "many");
+    const operation = this._ctx.operations.createSelectOperation(this._table, request);
+
+    return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  /**
+   * Retrieves a single record based on its primary or unique key.
+   *
+   * @example
+   * ```ts
+   * const user = await dsql.users.get({ key: { id: "123" } });
+   * ```
+   *
+   * @param args - The query arguments with required key.
+   * @returns An executable query that can be awaited to retrieve the matching record.
+   */
+
+  public get<TArgs extends GetArgs<TTable, this["__type"]>>(
+    args: TArgs
+  ): ExecutableQuery<OperationResult<"one", QueryResultOf<TTable, this["__type"], TArgs>>> {
+    const request = this._normalizer.createGetRequest(this._table, args);
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);

@@ -96,8 +96,8 @@ export type DsqlQueryClient<TSchema extends DefinitionSchema> = WithModels<
  * @param options - Configuration options for the client, including the schema definition.
  * @returns A new instance of the DSQL client configured with the provided schema.
  * @throws Will throw an error if the schema definition is invalid or if there are issues initializing the client.
+ *
  * @see {@link ClientOptions} for more details on the configuration options.
- * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
 export function createClient<TSchema extends DefinitionSchema>(

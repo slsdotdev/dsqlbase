@@ -3,6 +3,10 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null;
 }
 
+export function isEmptyObject(value: unknown): value is Record<string, unknown> {
+  return isPlainObject(value) && Object.keys(value).length === 0;
+}
+
 export function isDefined<T>(value: T | null | undefined): value is T {
   return value !== null && value !== undefined;
 }

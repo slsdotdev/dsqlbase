@@ -21,11 +21,12 @@ import {
 } from "@dsqlbase/core";
 import { TableByAlias, UnionCountOperationArgs } from "@dsqlbase/core/runtime";
 import { WhereBuilder } from "./where.js";
-import { isDefined, isNullOrFalse } from "./utils.js";
+import { isDefined, isEmptyObject, isNullOrFalse, isPlainObject } from "./utils.js";
 import {
   CountArgs,
   CreateArgs,
   DeleteArgs,
+  GetArgs,
   JoinExpressionOf,
   QueryArgs,
   RuntimeObject,
@@ -33,6 +34,7 @@ import {
   UnionQueryArgs,
   UpdateArgs,
   UpdateValuesOf,
+  WhereExpressionOf,
 } from "./base.js";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
@@ -46,6 +48,21 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   constructor(context: ExecutionContext<TDefinition>) {
     this._ctx = context;
     this._where = new WhereBuilder();
+  }
+
+  private _assertUniqueKeys<TTable extends AnyTable>(table: TTable, keys: Record<string, unknown>) {
+    if (!isPlainObject(keys) || isEmptyObject(keys)) {
+      throw new Error(`Provided keys do not match any unique key for table "${table.alias}".`);
+    }
+
+    if (!table.uniqueKeys.some((key) => key.every((field) => Object.hasOwn(keys, field)))) {
+      const keys = table.uniqueKeys.map((key) => `(${key.join(", ")})`).join(", ");
+
+      throw new Error(
+        `Provided keys do not match any unique key for table "${table.alias}". ` +
+          `Expected one of: ${keys}.`
+      );
+    }
   }
 
   private _parseQuerySelection<TTable extends RuntimeObject>(
@@ -270,6 +287,23 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
   ): OperationRequest<SelectOperationArgs, TMode> {
     const args = this._getSelectArgs(table, query);
     return { args, mode };
+  }
+
+  public createGetRequest<TTable extends AnyTable>(
+    table: TTable,
+    query: GetArgs<TTable, this["__type"]>
+  ): OperationRequest<SelectOperationArgs, "one"> {
+    this._assertUniqueKeys(table, query.key);
+
+    const args = this._getSelectArgs(table, {
+      where: query.key as WhereExpressionOf<TTable>,
+      select: query.select,
+    });
+
+    return {
+      mode: "one",
+      args,
+    };
   }
 
   public createCountRequest<TTable extends AnyTable>(

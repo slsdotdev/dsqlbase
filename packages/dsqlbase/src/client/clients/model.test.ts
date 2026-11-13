@@ -9,7 +9,7 @@ describe("ModelClient", () => {
   });
 
   describe("crud operations", () => {
-    it("should run findOne query", async () => {
+    it("matches findOne query between versions", async () => {
       const table = context.schema.getTable("users");
       const users = new ModelClient(context, table);
       const usersV1 = new ModelClientV1(context, table);
@@ -51,8 +51,32 @@ describe("ModelClient", () => {
     });
   });
 
-  it("should find many records", async () => {
-    // Test implementation for findMany
+  it("retrives a record by key", async () => {
+    const table = context.schema.getTable("users");
+    const users = new ModelClient(context, table);
+
+    session.mock.mockResolvedValue([{ id: "123", name: "John Doe" }]);
+
+    await users.get({ key: { id: "123" } });
+
+    expect(session.mock).toHaveBeenCalledWith({
+      text: 'SELECT "__t0"."id", "__t0"."name" FROM "users" AS "__t0" WHERE "__t0"."id" = $1 LIMIT $2',
+      params: ["123", 1],
+    });
+  });
+
+  it("throws when keys not provided or invalid", () => {
+    const table = context.schema.getTable("users");
+    const users = new ModelClient(context, table);
+
+    expect(() => users.get({ key: {} })).toThrow(
+      `Provided keys do not match any unique key for table "users".`
+    );
+    // @ts-expect-error Testing invalid key scenario
+    expect(() => users.get({ key: { name: "invalid" } })).toThrow(
+      `Provided keys do not match any unique key for table "users". Expected one of: (id).`
+    );
+    expect(session.mock).not.toHaveBeenCalled();
   });
 
   it("should paginate records", async () => {

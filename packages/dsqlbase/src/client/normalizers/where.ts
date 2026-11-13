@@ -3,11 +3,11 @@ import { escapeLike, isDefined, isNullOrFalse, isPlainObject } from "./utils.js"
 import {
   allowPlainObjectFilter,
   FilterOperator,
-  getFilterRules,
+  getColumnRules,
   isFilterObject,
   isNestedFilter,
   isRuleOperator,
-} from "./operators.js";
+} from "./rules.js";
 import {
   ColumnTypeOf,
   FieldNamesOf,
@@ -78,7 +78,7 @@ export class WhereBuilder {
       throw new Error(`Unknown column: ${String(fieldName)}`);
     }
 
-    const rules = getFilterRules(column);
+    const rules = getColumnRules(column);
     const subject = `${column.runtimeType} column "${fieldName}" of "${table.name}"`;
 
     if (!isFilterObject(condition)) {

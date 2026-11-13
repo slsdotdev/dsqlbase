@@ -14,7 +14,7 @@ import {
   Union,
 } from "@dsqlbase/core";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
-import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./operators.js";
+import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./rules.js";
 import { TableByAlias } from "@dsqlbase/core/runtime";
 
 export type RuntimeObject = AnyTable | AnyUnion;
@@ -93,6 +93,46 @@ export type DeclaredMetaOf<T> = T extends { __type: { meta: infer M } }
     ? M
     : object
   : object;
+
+/*
+ * -------------------------------------------------------------------------------------------
+ // #region Fields
+ * ----------------------------------------------------------------------------------------
+ */
+
+/**
+ * Fields the caller may not write. They stay fully readable — selectable, filterable and
+ * orderable — and are only removed from the two mutation inputs.
+ */
+export type ReadOnlyFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
+}[FieldNamesOf<T>];
+
+export type PrimaryKeyFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true } ? K : never;
+}[FieldNamesOf<T>];
+
+export type UniqueFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { unique: true } ? K : never;
+}[FieldNamesOf<T>];
+
+export type RequiredFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+    ? ColumnTypeOf<T, K> extends { hasDefault: true }
+      ? never
+      : K
+    : never;
+}[FieldNamesOf<T>];
+
+export type OptionalFieldsOf<T extends AnyTable> = {
+  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
+    ? ColumnTypeOf<T, K> extends { hasDefault: true }
+      ? K
+      : never
+    : K;
+}[FieldNamesOf<T>];
+
+export type KeyFieldsOf<T extends AnyTable> = PrimaryKeyFieldsOf<T> | UniqueFieldsOf<T>;
 
 /*
  * -------------------------------------------------------------------------------------------
@@ -217,6 +257,12 @@ export type OnSelectionOf<TUnion extends AnyUnion, TSchema extends AnySchema> = 
     | undefined;
 };
 
+/*
+ * -------------------------------------------------------------------------------------------
+ // #region Inputs
+ * ----------------------------------------------------------------------------------------
+ */
+
 export type CreateValuesOf<T extends AnyTable> = {
   [K in Exclude<RequiredFieldsOf<T>, ReadOnlyFieldsOf<T>>]: InputTypeOf<ColumnTypeOf<T, K>>;
 } & {
@@ -228,38 +274,6 @@ export type UpdateValuesOf<T extends AnyTable> = {
     ColumnTypeOf<T, K>
   >;
 };
-
-export type RequiredFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
-    ? ColumnTypeOf<T, K> extends { hasDefault: true }
-      ? never
-      : K
-    : never;
-}[FieldNamesOf<T>];
-
-export type OptionalFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { notNull: true }
-    ? ColumnTypeOf<T, K> extends { hasDefault: true }
-      ? K
-      : never
-    : K;
-}[FieldNamesOf<T>];
-
-/**
- * Fields the caller may not write. They stay fully readable — selectable, filterable and
- * orderable — and are only removed from the two mutation inputs.
- */
-export type ReadOnlyFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { readOnly: true } ? K : never;
-}[FieldNamesOf<T>];
-
-export type PrimaryKeyFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { primaryKey: true } ? K : never;
-}[FieldNamesOf<T>];
-
-export type UniqueFieldsOf<T extends AnyTable> = {
-  [K in FieldNamesOf<T>]: ColumnTypeOf<T, K> extends { unique: true } ? K : never;
-}[FieldNamesOf<T>];
 
 /*
  * -------------------------------------------------------------------------------------------
@@ -607,6 +621,10 @@ type NotExpression<T extends RuntimeObject> = {
   not: WhereExpressionOf<T>;
 };
 
+export type KeyExpressionOf<T extends AnyTable> = {
+  [K in KeyFieldsOf<T>]?: ValueTypeOf<ColumnTypeOf<T, K>> | null | undefined;
+};
+
 /*
  * -------------------------------------------------------------------------------------------
  // #region Queries
@@ -726,6 +744,11 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
   offset?: number;
 }>;
 
+export type GetArgs<TTable extends AnyTable, TSchema extends AnySchema> = {
+  key: KeyExpressionOf<TTable>;
+  select?: SelectionOf<TTable, TSchema>;
+};
+
 export type CountArgs<TTable extends RuntimeObject> = {
   where?: WhereExpressionOf<TTable>;
 };
@@ -742,7 +765,7 @@ export type UnionQueryArgs<TUnion extends AnyUnion, TSchema extends AnySchema> =
 
 /*
  * -------------------------------------------------------------------------------------------
- * Mutations
+ // #region Mutations
  * ----------------------------------------------------------------------------------------
  */
 
