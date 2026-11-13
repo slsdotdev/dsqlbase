@@ -41,7 +41,6 @@ export {
   type SelectOperationArgs,
   type UpdateOperation,
   type UpdateOperationArgs,
-  type UnionOrderKey,
   type UnionSelectOperationArgs,
   type UnionSelectOperation,
   type UnionCountOperationArgs,

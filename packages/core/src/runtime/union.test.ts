@@ -117,10 +117,7 @@ describe("union joins — SQL", () => {
 
   it("orders across members by hidden keys, then $$key and the primary key", () => {
     const { query } = select([
-      [
-        "feed",
-        { members: all("photos", "videos"), orderBy: [{ field: "createdAt", direction: "desc" }] },
-      ],
+      ["feed", { members: all("photos", "videos"), orderBy: [["createdAt", ["desc", undefined]]] }],
     ]);
 
     expect(query.text).toContain(
@@ -143,7 +140,7 @@ describe("union joins — SQL", () => {
         "feed",
         {
           members: all("photos", "videos"),
-          orderBy: [{ field: "createdAt", direction: "desc" }],
+          orderBy: [["createdAt", ["desc", undefined]]],
           limit: 20,
           offset: 5,
         },
@@ -166,7 +163,7 @@ describe("union joins — SQL", () => {
         "feed",
         {
           members: all("photos", "videos"),
-          orderBy: [{ field: KEY_FIELD, direction: "desc" }],
+          orderBy: [[KEY_FIELD, ["desc", undefined]]],
           limit: 3,
         },
       ],
@@ -184,7 +181,7 @@ describe("union joins — SQL", () => {
     const { query } = select([
       [
         "latest",
-        { members: all("photos", "videos"), orderBy: [{ field: "createdAt", direction: "desc" }] },
+        { members: all("photos", "videos"), orderBy: [["createdAt", ["desc", undefined]]] },
       ],
     ]);
 
@@ -246,10 +243,7 @@ describe("union joins — SQL", () => {
   it("rejects ordering by a field the members do not share", () => {
     expect(() =>
       select([
-        [
-          "feed",
-          { members: all("photos", "videos"), orderBy: [{ field: "photoUrl", direction: "asc" }] },
-        ],
+        ["feed", { members: all("photos", "videos"), orderBy: [["photoUrl", ["asc", undefined]]] }],
       ])
     ).toThrow(/only fields every member shares/);
   });
@@ -593,7 +587,7 @@ describe("top-level union select", () => {
     });
 
   it("renders the union at the root, ordered and limited across members", () => {
-    const { query } = run({ orderBy: [{ field: "createdAt", direction: "desc" }], limit: 10 });
+    const { query } = run({ orderBy: [["createdAt", ["desc", undefined]]], limit: 10 });
 
     expect(query.text).toMatch(
       /^SELECT row_to_json\("__j0"\.\*\) AS "data", "__j0"\."__o0", "__j0"\."\$\$key", "__j0"\."__pk0" FROM \(SELECT 'photos' AS "\$\$key"/
@@ -636,7 +630,7 @@ describe("top-level union select", () => {
   describe("keyset", () => {
     it("projects the total order as hidden text keys and carries them", () => {
       const { query } = run({
-        orderBy: [{ field: "createdAt", direction: "desc" }],
+        orderBy: [["createdAt", ["desc", undefined]]],
         keys: true,
         tiebreak: "desc",
       });
@@ -657,7 +651,7 @@ describe("top-level union select", () => {
 
     it("applies the keyset inside each branch, where $$key is a constant", () => {
       const { query } = run({
-        orderBy: [{ field: "createdAt", direction: "desc" }],
+        orderBy: [["createdAt", ["desc", undefined]]],
         keyset: { values: ["2026-01-01", "photos", "p1"], bound: "after" },
         limit: 3,
       });
@@ -672,7 +666,7 @@ describe("top-level union select", () => {
 
     it("reverses every key, pushdown included, for a page before the cursor", () => {
       const { query } = run({
-        orderBy: [{ field: "createdAt", direction: "desc" }],
+        orderBy: [["createdAt", ["desc", undefined]]],
         keyset: { values: ["2026-01-01", "photos", "p1"], bound: "before" },
         limit: 3,
       });
@@ -713,7 +707,7 @@ describe("top-level union select", () => {
         mode: "many",
         args: {
           members: all("photos", "composite"),
-          orderBy: [{ field: "userId", direction: "asc" }],
+          orderBy: [["userId", ["asc", undefined]]],
         },
       });
 
