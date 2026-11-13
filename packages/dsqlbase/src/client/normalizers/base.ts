@@ -399,13 +399,15 @@ export type MergedUnionMemberQueryOf<
         ? TUnionArgs
         : TArgs extends { select?: infer TSelect; where?: infer TWhere; join?: infer TJoin }
           ? {
-              select: TSelect extends object ? TUnionArgs["select"] & TSelect : TSelect;
-              where: TWhere extends object ? TUnionArgs["where"] & TWhere : TWhere;
-              join: TJoin extends object ? TUnionArgs["join"] & TJoin : TJoin;
+              select?: TSelect extends object
+                ? TUnionArgs["select"] & TSelect
+                : TUnionArgs["select"];
+              where?: TWhere extends object ? TUnionArgs["where"] & TWhere : TUnionArgs["where"];
+              join?: TJoin extends object ? TUnionArgs["join"] & TJoin : TUnionArgs["join"];
             }
           : never
       : never
-    : never;
+    : TUnionArgs;
 
 export type UnionQueryResultOf<
   TUnion extends AnyUnion,
@@ -724,7 +726,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
   offset?: number;
 }>;
 
-export type CountArgs<TTable extends AnyTable> = {
+export type CountArgs<TTable extends RuntimeObject> = {
   where?: WhereExpressionOf<TTable>;
 };
 

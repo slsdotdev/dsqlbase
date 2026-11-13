@@ -19,7 +19,7 @@ import {
   Union,
   UnionSelectOperationArgs,
 } from "@dsqlbase/core";
-import { TableByAlias } from "@dsqlbase/core/runtime";
+import { TableByAlias, UnionCountOperationArgs } from "@dsqlbase/core/runtime";
 import { WhereBuilder } from "./where.js";
 import { isDefined, isNullOrFalse } from "./utils.js";
 import {
@@ -86,7 +86,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     return {
-      select,
+      select: isDefined(query.select) ? select : undefined,
       join,
     } as ParsedQuerySelection<TTable, this["__type"]>;
   }
@@ -248,6 +248,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       }
 
       const query = this._mergeMemberQuery(args, args.on?.[alias]);
+
       members.push([
         alias,
         this._getSelectArgs(member as TableByAlias<this["__type"], typeof alias>, query),
@@ -346,6 +347,18 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return {
       mode,
       args,
+    };
+  }
+
+  public createUnionCountRequest<TUnion extends AnyUnion>(
+    union: TUnion,
+    args?: CountArgs<TUnion>
+  ): OperationRequest<UnionCountOperationArgs, "one"> {
+    const { members } = this._getUnionSelectArgs(union, { where: args?.where });
+
+    return {
+      mode: "one",
+      args: { members },
     };
   }
 }

@@ -43,6 +43,18 @@ export const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 });
 
+export const teams = table("teams", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+});
+
+export const teamMembers = table("team_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  teamId: uuid("team_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  role: text("role").notNull(),
+});
+
 export const media = union(
   { photos, videos },
   {
@@ -55,6 +67,10 @@ export const media = union(
 export const userRelations = relations(users, {
   posts: hasMany(posts, { from: [users.columns.id], to: [posts.columns.authorId] }),
   feed: hasMany(media, { from: [users.columns.id], to: [media.columns.userId] }),
+  teamMemberships: hasMany(teamMembers, {
+    from: [users.columns.id],
+    to: [teamMembers.columns.userId],
+  }),
 });
 
 export const postRelations = relations(posts, {
@@ -78,5 +94,23 @@ export const videoRelations = relations(videos, {
   posts: hasMany(posts, {
     from: [videos.columns.id],
     to: [posts.columns.mediaId],
+  }),
+});
+
+export const teamRelations = relations(teams, {
+  members: hasMany(teamMembers, {
+    from: [teams.columns.id],
+    to: [teamMembers.columns.teamId],
+  }),
+});
+
+export const teamMemberRelations = relations(teamMembers, {
+  team: belongsTo(teams, {
+    from: [teamMembers.columns.teamId],
+    to: [teams.columns.id],
+  }),
+  user: belongsTo(users, {
+    from: [teamMembers.columns.userId],
+    to: [users.columns.id],
   }),
 });
