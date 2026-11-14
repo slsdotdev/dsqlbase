@@ -1,1 +1,1 @@
-export * from "./.v1/index.js";
+export { createClient, type DsqlQueryClient, type ClientOptions } from "./create.js";

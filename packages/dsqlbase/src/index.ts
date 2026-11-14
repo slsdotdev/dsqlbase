@@ -13,4 +13,4 @@ export {
   ColumnValidationError,
   type ColumnValidationErrorCode,
 } from "./schema/utils/column-validation.js";
-export { createClient, type ClientOptions, type QueryClient } from "./client/index.js";
+export { createClient, type ClientOptions } from "./client/index.js";

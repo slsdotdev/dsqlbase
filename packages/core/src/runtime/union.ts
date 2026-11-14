@@ -109,6 +109,10 @@ export class Union<
     return Object.hasOwn(this.sharedColumns, field);
   }
 
+  public getColumn(field: string): AnyColumn | undefined {
+    return this.sharedColumns[field]?.[this.memberAliases[0]];
+  }
+
   /** The column a shared field resolves to on one member. */
   public getMemberColumn(alias: string, field: string): AnyColumn {
     const column = this.sharedColumns[field]?.[alias];

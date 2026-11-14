@@ -1,12 +1,6 @@
 import { DefinitionSchema } from "@dsqlbase/core";
 import { TypedObject } from "@dsqlbase/core/utils";
-import {
-  AnyTable,
-  ExecutableQuery,
-  ExecutionContext,
-  OperationResult,
-  Schema,
-} from "@dsqlbase/core/runtime";
+import { AnyTable, ExecutableQuery, OperationResult, Schema } from "@dsqlbase/core/runtime";
 import {
   CountArgs,
   QueryArgs,
@@ -16,8 +10,10 @@ import {
   QueryResultOf,
   MutationResultOf,
   GetArgs,
+  PaginatedQueryArgs,
+  PaginatedQueryResultOf,
 } from "../normalizers/base.js";
-import { RequestNormalizer } from "../normalizers/request.js";
+import { ClientContext } from "../normalizers/context.js";
 
 export class ModelClient<
   TTable extends AnyTable,
@@ -25,14 +21,12 @@ export class ModelClient<
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
 
-  private readonly _ctx: ExecutionContext<TDefinition>;
+  private readonly _ctx: ClientContext<TDefinition>;
   private readonly _table: TTable;
-  private readonly _normalizer: RequestNormalizer<TDefinition>;
 
-  constructor(ctx: ExecutionContext<TDefinition>, table: TTable) {
+  constructor(ctx: ClientContext<TDefinition>, table: TTable) {
     this._ctx = ctx;
     this._table = table;
-    this._normalizer = new RequestNormalizer<TDefinition>(ctx);
   }
 
   /**
@@ -59,7 +53,7 @@ export class ModelClient<
   public findOne<TArgs extends QueryArgs<TTable, this["__type"]>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", QueryResultOf<TTable, this["__type"], TArgs>>> {
-    const request = this._normalizer.createSelectRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createSelectRequest(this._table, args, "one");
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -83,7 +77,7 @@ export class ModelClient<
   public findMany<TArgs extends QueryArgs<TTable, this["__type"]>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"many", QueryResultOf<TTable, this["__type"], TArgs>>> {
-    const request = this._normalizer.createSelectRequest(this._table, args, "many");
+    const request = this._ctx.normalizer.createSelectRequest(this._table, args, "many");
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -104,7 +98,7 @@ export class ModelClient<
   public get<TArgs extends GetArgs<TTable, this["__type"]>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", QueryResultOf<TTable, this["__type"], TArgs>>> {
-    const request = this._normalizer.createGetRequest(this._table, args);
+    const request = this._ctx.normalizer.createGetRequest(this._table, args);
     const operation = this._ctx.operations.createSelectOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -120,10 +114,37 @@ export class ModelClient<
    */
 
   public count(args: CountArgs<TTable>): ExecutableQuery<number> {
-    const request = this._normalizer.createCountRequest(this._table, args);
+    const request = this._ctx.normalizer.createCountRequest(this._table, args);
     const operation = this._ctx.operations.createCountOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  /**
+   * Retrieves records in a paginated manner based on the provided query arguments.
+   *
+   * @example
+   * ```ts
+   * const paginatedTasks = await dsql.tasks.paginatedQuery({
+   *   where: { status: "open" },
+   *   orderBy: { createdAt: "desc" },
+   *   limit: 10,
+   *   after: "<cursor>"
+   * });
+   * ```
+   *
+   * @param args The query arguments for the paginated query, including filtering, ordering, pagination, and field selection options.
+   * @returns An executable query that can be awaited to retrieve a records page.
+   */
+
+  public paginatedQuery<TArgs extends PaginatedQueryArgs<TTable, this["__type"]>>(
+    args: TArgs
+  ): ExecutableQuery<PaginatedQueryResultOf<TTable, this["__type"], TArgs>> {
+    const request = this._ctx.normalizer.createSelectRequest(this._table, args, "many");
+    const withPagination = this._ctx.pagination.paginateRequest(this._table, args, request);
+    const operation = this._ctx.operations.createSelectOperation(this._table, request);
+
+    return new ExecutableQuery(withPagination(operation), this._ctx.session);
   }
 
   /**
@@ -146,7 +167,7 @@ export class ModelClient<
   public create<TArgs extends CreateArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", MutationResultOf<TTable, TArgs>>> {
-    const request = this._normalizer.createInsertRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createInsertRequest(this._table, args, "one");
     const operation = this._ctx.operations.createInsertOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -170,7 +191,7 @@ export class ModelClient<
   public update<TArgs extends UpdateArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", MutationResultOf<TTable, TArgs>>> {
-    const request = this._normalizer.createUpdateRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createUpdateRequest(this._table, args, "one");
     const operation = this._ctx.operations.createUpdateOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -194,7 +215,7 @@ export class ModelClient<
   public updateMany<TArgs extends UpdateArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"many", MutationResultOf<TTable, TArgs>>> {
-    const request = this._normalizer.createUpdateRequest(this._table, args, "many");
+    const request = this._ctx.normalizer.createUpdateRequest(this._table, args, "many");
     const operation = this._ctx.operations.createUpdateOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -224,7 +245,7 @@ export class ModelClient<
   public delete<TArgs extends DeleteArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", MutationResultOf<TTable, TArgs>>> {
-    const request = this._normalizer.createDeleteRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createDeleteRequest(this._table, args, "one");
     const operation = this._ctx.operations.createDeleteOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -246,7 +267,7 @@ export class ModelClient<
   public deleteMany<TArgs extends DeleteArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"many", MutationResultOf<TTable, TArgs>>> {
-    const request = this._normalizer.createDeleteRequest(this._table, args, "many");
+    const request = this._ctx.normalizer.createDeleteRequest(this._table, args, "many");
     const operation = this._ctx.operations.createDeleteOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);

@@ -1,7 +1,6 @@
 import { TypedObject } from "../utils/index.js";
 import { KEY_FIELD, META_FIELD, Relation } from "../definition/index.js";
 import {
-  KeysetBound,
   SQLIdentifier,
   SQLNode,
   SQLQuery,
@@ -124,7 +123,7 @@ export type UnionSelectOperationArgs = {
    * Read only the rows strictly after (or before) this position in the total order, applied
    * inside every branch where `$$key` is a constant. `before` also reverses the order.
    */
-  keyset?: { values: (string | null)[]; bound: KeysetBound };
+  keyset?: { values: (string | null)[]; bound: "before" | "after" };
 };
 
 export type SelectOperationArgs = {
@@ -385,7 +384,7 @@ export class OperationsFactory<
       const item = sql`${column} ${sql.raw(direction.toUpperCase())}`;
 
       if (nulls) {
-        item.append(sql`NULLS ${sql.raw(nulls.toUpperCase())}`);
+        item.append(sql` NULLS ${sql.raw(nulls.toUpperCase())}`);
       }
 
       order.push(item);
@@ -543,7 +542,7 @@ export class OperationsFactory<
     args: SelectOperationArgs,
     mode: OperationMode,
     resolvers: FieldResolverEntry[] = [],
-    /** The level is read as JSON (a join, a union branch): see `Column.textInJson`. */
+    /** The level is read as JSON (a join, a union branch): @see {Column.textInJson}. */
     json = false
   ) {
     const fields = this._resolveFields(table, args.select);
@@ -703,43 +702,10 @@ export class OperationsFactory<
     discriminator?: AnyColumn | ComputedDiscriminator
   ): { params: UnionSelectParams; resolver: UnionResolver } {
     const orderBy = args.orderBy ?? [];
-    const paged = args.keys === true || args.keyset !== undefined;
-    const ordered = orderBy.length > 0 || paged;
-    const limit = mode === "one" ? 1 : args.limit;
     const offset = mode === "one" ? undefined : args.offset;
 
-    for (const [key] of orderBy) {
-      if (key !== KEY_FIELD && !union.isShared(key)) {
-        throw new Error(
-          `Cannot order union "${union.alias}" by "${key}": only fields every member ` +
-            `shares, and ${KEY_FIELD}, order across a union.`
-        );
-      }
-    }
-
-    const tiebreakers = ordered ? union.tiebreakers : 0;
-
-    if (paged && tiebreakers === 0) {
-      throw new Error(
-        `Cannot page union "${union.alias}": its members' primary keys differ in arity or type, ` +
-          `so nothing can break a tie between two members' rows.`
-      );
-    }
-
-    const order = ordered ? this._getUnionOrder(orderBy, tiebreakers, args.tiebreak) : [];
-    const backward = args.keyset?.bound === "before";
-
-    // A page read before its cursor runs every key the other way round; the keyset itself is
-    // written against the order as given.
-    const direction = (key: OrderByEntry) => {
-      const way = backward ? (key[1][0] === "asc" ? "desc" : "asc") : key[1][0];
-
-      if (!key[1][1]) {
-        return [way];
-      }
-
-      return way === "asc" ? [way, "last"] : [way, "first"];
-    };
+    const ordered = orderBy.length > 0;
+    const limit = mode === "one" ? 1 : args.limit;
 
     const branches: UnionBranchParams[] = [];
     const resolvers: Record<string, FieldResolverEntry[]> = {};
@@ -748,41 +714,12 @@ export class OperationsFactory<
       const member = union.getMember(alias);
       const memberResolvers: FieldResolverEntry[] = [];
 
-      const expressions = order.map((key) => this._getUnionKeyExpression(union, alias, key));
-
-      // The branch's own order, used only when it is limited. `$$key` is a constant inside a
-      // branch, so it orders nothing there.
-      const branchOrder = (
-        limit !== undefined && ordered
-          ? order
-              .map((key, index) =>
-                key[0] === KEY_FIELD ? null : [expressions[index], direction(key)]
-              )
-              .filter(Boolean)
-          : undefined
-      ) as OrderByEntry[] | undefined;
-
-      const keyset = args.keyset
-        ? sql.keyset(
-            order.map((key, index) => ({
-              node: expressions[index],
-              direction: key[1][0],
-              nullable: typeof key[1][1] === "undefined" ? false : true,
-            })),
-            args.keyset.values,
-            args.keyset.bound
-          )
-        : undefined;
+      const expressions = orderBy.map((key) => this._getUnionKeyExpression(union, alias, key));
 
       const params = this._resolveSelectParams(
         member,
         {
           ...memberArgs,
-          where: [
-            ...(Array.isArray(memberArgs.where) ? memberArgs.where : [memberArgs.where]),
-            keyset,
-          ].filter((node): node is SQLNode => node !== undefined && node !== null),
-          orderBy: branchOrder,
           limit: limit !== undefined ? limit + (offset ?? 0) : undefined,
           offset: undefined,
         },
@@ -794,7 +731,7 @@ export class OperationsFactory<
       params.select = [
         sql`${sql.literal(alias)} AS ${sql.identifier(KEY_FIELD)}`,
         ...params.select,
-        ...order.flatMap((key, index) => {
+        ...orderBy.flatMap((key, index) => {
           const hidden = this._getUnionKeyName(key, index);
 
           return hidden === KEY_FIELD
@@ -823,8 +760,8 @@ export class OperationsFactory<
     }
 
     const carry = [
-      ...order.map((key, index) => this._getUnionKeyName(key, index)),
-      ...(args.keys ? order.map((_, index) => `__k${index}`) : []),
+      ...orderBy.map((key, index) => this._getUnionKeyName(key, index)),
+      ...(args.keys ? orderBy.map((_, index) => `__k${index}`) : []),
     ];
 
     return {
@@ -833,9 +770,9 @@ export class OperationsFactory<
         carry,
         order: ordered
           ? this._resolveUnionOrderEntries(
-              order.map((key, index) => [
+              orderBy.map((key, index) => [
                 this._getUnionKeyName(key, index),
-                direction(key),
+                key[1],
               ]) as OrderByEntry[]
             )
           : undefined,
@@ -845,30 +782,6 @@ export class OperationsFactory<
       resolver: new UnionResolver(mode, resolvers),
     };
   }
-
-  /**
-   * The total order of a union: the caller's keys, then `$$key` unless they named it, then
-   * every primary-key column when the members' keys line up. The appended keys run in
-   * `tiebreak` — ascending unless a pager asks otherwise.
-   *
-   * A primary-key tiebreaker is written as the field `$$pk<n>`: members may name their key
-   * columns differently, so it is addressed by position rather than by field.
-   */
-  private _getUnionOrder(
-    orderBy: OrderByEntry[],
-    tiebreakers: number,
-    tiebreak: "desc" | "asc" = "asc"
-  ): OrderByEntry[] {
-    return [
-      ...orderBy,
-      ...(orderBy.some((key) => key[0] === KEY_FIELD) ? [] : [[KEY_FIELD, [tiebreak, undefined]]]),
-      ...Array.from({ length: tiebreakers }, (_, index) => [
-        `${PK_FIELD_PREFIX}${index}`,
-        [tiebreak, undefined],
-      ]),
-    ] as OrderByEntry[];
-  }
-
   /** What one order key reads inside one member's branch. */
   private _getUnionKeyExpression(union: AnyUnion, alias: string, key: OrderByEntry): SQLNode {
     if (key[0] === KEY_FIELD) {

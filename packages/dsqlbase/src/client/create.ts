@@ -1,13 +1,8 @@
-import {
-  DefinitionSchema,
-  ExecutionContext,
-  PaginationOptions,
-  QueryBuilder,
-  SchemaRegistry,
-  Session,
-} from "@dsqlbase/core";
+import { DefinitionSchema, QueryBuilder, SchemaRegistry, Session } from "@dsqlbase/core";
 import { withModels, WithModels } from "./clients/base.js";
 import { DsqlClient } from "./clients/dsql.js";
+import { PaginationOptions } from "./normalizers/pagination.js";
+import { ClientContext } from "./normalizers/context.js";
 
 export type ClientOptions<TSchema extends DefinitionSchema> = {
   /**
@@ -106,7 +101,7 @@ export function createClient<TSchema extends DefinitionSchema>(
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
-  const context = new ExecutionContext({
+  const context = new ClientContext({
     schema,
     dialect,
     session: options.session,

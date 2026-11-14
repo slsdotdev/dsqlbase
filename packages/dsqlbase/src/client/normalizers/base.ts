@@ -289,6 +289,10 @@ export type SelectedKeysOf<TSelection> = {
   [K in keyof TSelection]-?: TSelection[K] extends true | object ? K : never;
 }[keyof TSelection];
 
+export type ExcludedKeysOf<T extends Record<string, unknown>> = {
+  [K in keyof T]: T[K] extends false ? K : never;
+}[keyof T];
+
 export type SelectedFieldsOf<
   TTable extends RuntimeObject,
   TSelection extends SelectableFieldsOf<TTable>,
@@ -390,16 +394,32 @@ export type JoinResultOf<
 export type QueryResultOf<
   TTable extends AnyTable,
   TSchema extends AnySchema,
-  TArgs extends QueryArgs<TTable, TSchema>,
+  TArgs extends QueryArgs<TTable, TSchema> | PaginatedQueryArgs<TTable, TSchema>,
 > = Prettify<
   SelectionResultOf<TTable, TSchema, TArgs> &
     RelationSelectionResultOf<TTable, TSchema, TArgs["select"]> &
     JoinResultOf<TTable, TSchema, TArgs["join"]>
 >;
 
-export type ExcludedKeysOf<T extends Record<string, unknown>> = {
-  [K in keyof T]: T[K] extends false ? K : never;
-}[keyof T];
+export type PaginatedQueryResultOf<
+  TTable extends AnyTable,
+  TSchema extends AnySchema,
+  TArgs extends PaginatedQueryArgs<TTable, TSchema>,
+> = Prettify<{
+  items: QueryResultOf<TTable, TSchema, TArgs>[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}>;
+
+export type PaginatedUnionQueryResultOf<
+  TUnion extends AnyUnion,
+  TSchema extends AnySchema,
+  TArgs extends PaginatedUnionQueryArgs<TUnion, TSchema>,
+> = Prettify<{
+  items: UnionQueryResultOf<TUnion, TSchema, TArgs>[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}>;
 
 export type MergedUnionMemberQueryOf<
   TUnion extends AnyUnion,
@@ -753,6 +773,16 @@ export type CountArgs<TTable extends RuntimeObject> = {
   where?: WhereExpressionOf<TTable>;
 };
 
+export type PaginatedQueryArgs<
+  TTable extends RuntimeObject,
+  TSchema extends AnySchema,
+> = (TTable extends AnyUnion
+  ? Omit<UnionQueryArgs<TTable, TSchema>, "offset" | "distinct">
+  : Omit<QueryArgs<TTable, TSchema>, "distinct" | "offset">) & {
+  after?: string | null;
+  before?: string | null;
+};
+
 export type UnionQueryArgs<TUnion extends AnyUnion, TSchema extends AnySchema> = Prettify<
   QueryArgs<TUnion, TSchema> & {
     /**
@@ -762,6 +792,14 @@ export type UnionQueryArgs<TUnion extends AnyUnion, TSchema extends AnySchema> =
     on?: Prettify<OnSelectionOf<TUnion, TSchema>>;
   }
 >;
+
+export type PaginatedUnionQueryArgs<TUnion extends AnyUnion, TSchema extends AnySchema> = Omit<
+  UnionQueryArgs<TUnion, TSchema>,
+  "offset" | "distinct"
+> & {
+  after?: string | null;
+  before?: string | null;
+};
 
 /*
  * -------------------------------------------------------------------------------------------

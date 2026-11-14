@@ -1,13 +1,14 @@
-import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
+import { DefinitionSchema, Executable } from "@dsqlbase/core";
 import { BaseClient, Models, withModels } from "./base.js";
 import { backoffDelay, isOccError, OCCRetryOptions, sleep } from "../utils/occ-retry.js";
+import { ClientContext } from "../normalizers/context.js";
 
 export class TransactionClient<
   TDefinition extends DefinitionSchema,
 > extends BaseClient<TDefinition> {}
 
 export async function createTransactionRunner<TDefinition extends DefinitionSchema>(
-  ctx: ExecutionContext<TDefinition>,
+  ctx: ClientContext<TDefinition>,
   options: OCCRetryOptions = {}
 ) {
   if (typeof ctx.session.beginTransaction !== "function") {
@@ -15,9 +16,10 @@ export async function createTransactionRunner<TDefinition extends DefinitionSche
   }
 
   const session = await ctx.session.beginTransaction();
-  const context = new ExecutionContext<TDefinition>({
+  const context = new ClientContext<TDefinition>({
     ...ctx,
     session: session,
+    pagination: ctx.pagination.options,
   });
 
   const txClient = withModels<TDefinition, TransactionClient<TDefinition>>(

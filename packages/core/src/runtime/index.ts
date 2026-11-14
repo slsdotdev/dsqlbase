@@ -13,21 +13,19 @@ export type {
   TableRelationFieldName,
 } from "./base.js";
 export { Column, type AnyColumn } from "./column.js";
-export {
-  ExecutionContext,
-  type ExecutionContextOptions,
-  type PaginationOptions,
-} from "./context.js";
+export { ExecutionContext, type ExecutionContextOptions } from "./context.js";
 export { CompositeQuery, ExecutableQuery, type Executable } from "./executor.js";
 export { PolicyViolationError } from "./errors.js";
 export {
   OperationsFactory,
+  type AnyOperation,
   type CountOperation,
   type CountOperationArgs,
   type DeleteOperation,
   type DeleteOperationArgs,
   type FieldMutation,
   type FieldResolver,
+  type FieldResolverEntry,
   type FieldSelection,
   type InsertOperation,
   type InsertOperationArgs,
@@ -36,6 +34,7 @@ export {
   type OperationRequest,
   type OperationResult,
   type OperationType,
+  type OrderByEntry,
   type RelationSelection,
   type SelectOperation,
   type SelectOperationArgs,

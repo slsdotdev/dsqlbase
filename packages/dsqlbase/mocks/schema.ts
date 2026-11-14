@@ -19,7 +19,9 @@ export const posts = table("posts", {
   authorId: uuid("author_id").notNull(),
   mediaId: uuid("media_id"),
   title: text("title").notNull(),
+  description: text("description"),
   content: text("content").notNull(),
+  createdAt: datetime("created_at").notNull(),
 });
 
 export const comments = table("comments", {

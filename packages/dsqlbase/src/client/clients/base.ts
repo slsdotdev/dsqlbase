@@ -3,7 +3,6 @@ import {
   AnyUnion,
   DefinitionSchema,
   ExecutableQuery,
-  ExecutionContext,
   RuntimeTables,
   RuntimeUnions,
   Schema,
@@ -12,16 +11,17 @@ import {
 } from "@dsqlbase/core";
 import { ModelClient } from "./model.js";
 import { UnionClient } from "./union.js";
+import { ClientContext } from "../normalizers/context.js";
 
 export abstract class BaseClient<T extends DefinitionSchema> {
-  protected readonly _ctx: ExecutionContext<T>;
+  protected readonly _ctx: ClientContext<T>;
 
   protected readonly _models = new Map<
     string,
     ModelClient<AnyTable, T> | UnionClient<AnyUnion, T>
   >();
 
-  constructor(ctx: ExecutionContext<T>) {
+  constructor(ctx: ClientContext<T>) {
     this._ctx = ctx;
 
     for (const [alias, table] of ctx.schema.getTableEntries()) {

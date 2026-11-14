@@ -19,7 +19,7 @@ import {
   Union,
   UnionSelectOperationArgs,
 } from "@dsqlbase/core";
-import { TableByAlias, UnionCountOperationArgs } from "@dsqlbase/core/runtime";
+import { Column, TableByAlias, UnionCountOperationArgs } from "@dsqlbase/core/runtime";
 import { WhereBuilder } from "./where.js";
 import { isDefined, isEmptyObject, isNullOrFalse, isPlainObject } from "./utils.js";
 import {
@@ -28,6 +28,8 @@ import {
   DeleteArgs,
   GetArgs,
   JoinExpressionOf,
+  OrderByExpressionOf,
+  PaginatedQueryArgs,
   QueryArgs,
   RuntimeObject,
   SelectableFieldsOf,
@@ -36,6 +38,8 @@ import {
   UpdateValuesOf,
   WhereExpressionOf,
 } from "./base.js";
+import { OrderByEntry } from "@dsqlbase/core/runtime/operation";
+import { getColumnRules } from "./rules.js";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -62,6 +66,20 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         `Provided keys do not match any unique key for table "${table.alias}". ` +
           `Expected one of: ${keys}.`
       );
+    }
+  }
+
+  /** `distinct` compares whole rows, so every column it reads needs an equality operator. */
+  private _assertDistinct(table: AnyTable, select: FieldSelection[] | undefined): void {
+    const fields = select ?? table.getColumnEntries();
+
+    for (const [field, column] of fields) {
+      if (column instanceof Column && !getColumnRules(column).distinct) {
+        throw new Error(
+          `\`distinct\` cannot compare the ${column.runtimeType} column "${field}" of ` +
+            `"${table.name}"; leave it out of the selection.`
+        );
+      }
     }
   }
 
@@ -118,6 +136,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
     const where = [base.where, member.where].filter(isDefined);
     const hasSelect = [base.select, member.select].filter(isDefined).length > 0;
+    const hasOrderBy = [base.orderBy, member.orderBy].filter(isDefined).length > 0;
     const hasJoin = [base.join, member.join].filter(isDefined).length > 0;
 
     return {
@@ -132,6 +151,12 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         ? {
             ...base.join,
             ...member.join,
+          }
+        : undefined,
+      orderBy: hasOrderBy
+        ? {
+            ...base.orderBy,
+            ...member.orderBy,
           }
         : undefined,
       where: where.length > 1 ? { and: where } : where[0],
@@ -199,6 +224,48 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return entries.length > 0 ? entries : undefined;
   }
 
+  private _getOrderByEntries<TTable extends RuntimeObject>(
+    table: TTable,
+    orderBy: OrderByExpressionOf<TTable> | null | undefined
+  ): OrderByEntry[] | undefined {
+    if (!isDefined(orderBy)) {
+      return undefined;
+    }
+
+    const entries: OrderByEntry[] = [];
+
+    for (const [field, direction] of Object.entries(orderBy)) {
+      if (!isDefined(direction) || (direction !== "asc" && direction !== "desc")) {
+        throw new Error(
+          `Invalid direction ${JSON.stringify(direction)} for "${field}" in orderBy for table ` +
+            `"${table.alias}"; use "asc" or "desc".`
+        );
+      }
+
+      const column = table.getColumn(field);
+
+      if (!column) {
+        throw new Error(`Invalid field "${field}" in orderBy for table "${table.alias}".`);
+      }
+
+      if (!getColumnRules(column).orderable) {
+        throw new Error(
+          `Cannot order by the ${column.runtimeType} field "${field}" of table "${table.alias}".`
+        );
+      }
+
+      const entry: OrderByEntry = [field, [direction]];
+
+      if (!column.notNull) {
+        entry[1].push(direction === "asc" ? "last" : "first");
+      }
+
+      entries.push(entry);
+    }
+
+    return entries;
+  }
+
   private _getMutationEntries<TTable extends AnyTable>(
     table: TTable,
     values: UpdateValuesOf<TTable>
@@ -229,15 +296,21 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     args: QueryArgs<TTable, this["__type"]>
   ): SelectOperationArgs {
     const selection = this._parseQuerySelection(table, args);
+
     const select = this._getSelectEntries(table, selection.select);
-    const join = this._getJoinEntries(table, selection.join);
     const where = this._where.build(table, args.where);
+    const join = this._getJoinEntries(table, selection.join);
+    const orderBy = this._getOrderByEntries(table, args.orderBy);
+
+    if (args.distinct) {
+      this._assertDistinct(table, select);
+    }
 
     return {
       select,
       where,
       join,
-      orderBy: undefined,
+      orderBy,
       distinct: args.distinct,
       limit: args.limit,
       offset: args.offset,
@@ -272,9 +345,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       ]);
     }
 
+    const orderBy = this._getOrderByEntries(union, args.orderBy ?? []);
+
     return {
       members,
-      orderBy: undefined,
+      orderBy,
       limit: args.limit,
       offset: args.offset,
     };
@@ -282,10 +357,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   public createSelectRequest<TTable extends AnyTable, TMode extends OperationMode>(
     table: TTable,
-    query: QueryArgs<TTable, this["__type"]>,
+    query: QueryArgs<TTable, this["__type"]> | PaginatedQueryArgs<TTable, this["__type"]>,
     mode: TMode
   ): OperationRequest<SelectOperationArgs, TMode> {
     const args = this._getSelectArgs(table, query);
+
     return { args, mode };
   }
 

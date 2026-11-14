@@ -1,6 +1,7 @@
-import { DefinitionSchema, Executable, ExecutionContext } from "@dsqlbase/core";
+import { DefinitionSchema, Executable } from "@dsqlbase/core";
 import { BaseClient, withModels } from "./base.js";
 import { createTransactionRunner, TxClient } from "./transaction.js";
+import { ClientContext } from "../normalizers/context.js";
 
 export class DsqlClient<TDefinition extends DefinitionSchema> extends BaseClient<TDefinition> {
   /**
@@ -17,8 +18,9 @@ export class DsqlClient<TDefinition extends DefinitionSchema> extends BaseClient
    * that built it, so concurrent requests never see each other's values.
    */
   public $withClaims(values: Record<string, unknown>): DsqlClient<TDefinition> {
-    const ctx = new ExecutionContext<TDefinition>({
+    const ctx = new ClientContext<TDefinition>({
       ...this._ctx,
+      pagination: this._ctx.pagination.options,
       settings: Object.freeze({ ...this._ctx.settings, ...values }),
     });
     const client = withModels(new DsqlClient<TDefinition>(ctx));

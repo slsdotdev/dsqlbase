@@ -1,13 +1,13 @@
-import {
-  AnyUnion,
-  DefinitionSchema,
-  ExecutableQuery,
-  ExecutionContext,
-  Schema,
-} from "@dsqlbase/core";
+import { AnyUnion, DefinitionSchema, ExecutableQuery, Schema } from "@dsqlbase/core";
 import { TypedObject } from "@dsqlbase/core/utils";
-import { RequestNormalizer } from "../normalizers/request.js";
-import { CountArgs, UnionQueryArgs, UnionQueryResultOf } from "../normalizers/base.js";
+import {
+  CountArgs,
+  PaginatedUnionQueryArgs,
+  PaginatedUnionQueryResultOf,
+  UnionQueryArgs,
+  UnionQueryResultOf,
+} from "../normalizers/base.js";
+import { ClientContext } from "../normalizers/context.js";
 
 export class UnionClient<
   TUnion extends AnyUnion,
@@ -15,14 +15,12 @@ export class UnionClient<
 > implements TypedObject<Schema<TDefinition>> {
   declare readonly __type: Schema<TDefinition>;
 
-  private readonly _ctx: ExecutionContext<TDefinition>;
+  private readonly _ctx: ClientContext<TDefinition>;
   private readonly _union: TUnion;
-  private readonly _normalizer: RequestNormalizer<TDefinition>;
 
-  constructor(ctx: ExecutionContext<TDefinition>, union: TUnion) {
+  constructor(ctx: ClientContext<TDefinition>, union: TUnion) {
     this._ctx = ctx;
     this._union = union;
-    this._normalizer = new RequestNormalizer<TDefinition>(ctx);
   }
 
   /**
@@ -38,7 +36,7 @@ export class UnionClient<
   public findOne<TArgs extends UnionQueryArgs<TUnion, this["__type"]>>(
     args: TArgs
   ): ExecutableQuery<UnionQueryResultOf<TUnion, this["__type"], TArgs> | null> {
-    const request = this._normalizer.createUnionSelectRequest(this._union, args, "one");
+    const request = this._ctx.normalizer.createUnionSelectRequest(this._union, args, "one");
 
     return new ExecutableQuery(
       this._ctx.operations.createUnionSelectOperation(this._union, request),
@@ -62,17 +60,25 @@ export class UnionClient<
   public findMany<TArgs extends UnionQueryArgs<TUnion, this["__type"]>>(
     args?: TArgs
   ): ExecutableQuery<UnionQueryResultOf<TUnion, this["__type"], TArgs>[]> {
-    const request = this._normalizer.createUnionSelectRequest(this._union, args ?? {}, "many");
+    const request = this._ctx.normalizer.createUnionSelectRequest(this._union, args ?? {}, "many");
+    const operation = this._ctx.operations.createUnionSelectOperation(this._union, request);
 
-    return new ExecutableQuery(
-      this._ctx.operations.createUnionSelectOperation(this._union, request),
-      this._ctx.session
-    );
+    return new ExecutableQuery(operation, this._ctx.session);
+  }
+
+  public paginatedQuery<TArgs extends PaginatedUnionQueryArgs<TUnion, this["__type"]>>(
+    args: TArgs
+  ): ExecutableQuery<PaginatedUnionQueryResultOf<TUnion, this["__type"], TArgs>[]> {
+    const request = this._ctx.normalizer.createUnionSelectRequest(this._union, args, "many");
+    const withPagination = this._ctx.pagination.paginateUnionRequest(this._union, args, request);
+    const operation = this._ctx.operations.createUnionSelectOperation(this._union, request);
+
+    return new ExecutableQuery(withPagination(operation), this._ctx.session);
   }
 
   /** Counts the rows `where` selects, across every member. */
   public count(args?: CountArgs<TUnion>): ExecutableQuery<number> {
-    const request = this._normalizer.createUnionCountRequest(this._union, args);
+    const request = this._ctx.normalizer.createUnionCountRequest(this._union, args);
 
     return new ExecutableQuery(
       this._ctx.operations.createUnionCountOperation(this._union, request),
