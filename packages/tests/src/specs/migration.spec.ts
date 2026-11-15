@@ -2,17 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { sql, SQLStatement } from "@dsqlbase/core";
 import { Session } from "@dsqlbase/core/runtime";
-import {
-  bigint,
-  domain,
-  int,
-  namespace,
-  sequence,
-  table,
-  text,
-  uuid,
-  varchar,
-} from "dsqlbase/schema";
+import { bigint, domain, int, namespace, sequence, table, text, uuid } from "dsqlbase/schema";
 import {
   createMigrationRunner,
   formatPlan,

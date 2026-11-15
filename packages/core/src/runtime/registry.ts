@@ -57,8 +57,8 @@ export type TableByNameOrAlias<
 
 export type RuntimeUnions<TSchema extends AnySchema> = {
   [K in keyof TSchema["unions"]]: K extends string
-    ? TSchema["unions"][K] extends UnionDefinition<infer TMembers, infer TColumns>
-      ? Union<TMembers, TColumns, SchemaTableRelations<TSchema, K>>
+    ? TSchema["unions"][K] extends UnionDefinition<infer TName, infer TMembers, infer TColumns>
+      ? Union<TName, TMembers, TColumns, SchemaTableRelations<TSchema, K>>
       : never
     : never;
 };

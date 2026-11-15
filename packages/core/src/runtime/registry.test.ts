@@ -434,7 +434,10 @@ describe("SchemaRegistry unions", () => {
     createdAt: new ColumnDefinition("created_at", { dataType: "timestamptz" }),
   });
 
-  const posts = new UnionDefinition({ photos, videos }, shared());
+  const posts = new UnionDefinition("posts", {
+    members: { photos, videos },
+    columns: shared(),
+  });
 
   const relate = (relation: Record<string, unknown>) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -483,7 +486,10 @@ describe("SchemaRegistry unions", () => {
   });
 
   it("rejects a member keyed by something other than its schema alias", () => {
-    const pictures = new UnionDefinition({ pictures: photos, videos }, shared());
+    const pictures = new UnionDefinition("pictures", {
+      members: { pictures: photos, videos },
+      columns: shared(),
+    });
 
     expect(() => new SchemaRegistry({ photos, videos, pictures })).toThrow(
       /does not export that table as "pictures"/
@@ -589,7 +595,7 @@ describe("SchemaRegistry unions", () => {
   it("rejects a relation to a union that is not in the schema", () => {
     expect(
       () => new SchemaRegistry({ photos, videos, people, rels: feed([posts.columns.userId]) })
-    ).toThrow(/targets union\(photos\|videos\), which is not in the schema/);
+    ).toThrow(/targets posts, which is not in the schema/);
   });
 
   describe("discriminator", () => {

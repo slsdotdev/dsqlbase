@@ -1,6 +1,6 @@
 import { DefinitionNode, Kind } from "./base.js";
 import { AnyColumnDefinition } from "./column.js";
-import { AnyTableDefinition, TableDefinition } from "./table.js";
+import { AnyTableDefinition } from "./table.js";
 
 export type AnyUnionMembers = Record<string, AnyTableDefinition>;
 
@@ -36,38 +36,20 @@ export type UnionConfig<
  * `UNION ALL` over its members.
  */
 export class UnionDefinition<
-  TMembers extends AnyUnionMembers = AnyUnionMembers,
-  TColumns extends UnionColumnsConfig<TMembers> = UnionColumnsConfig<TMembers>,
-> extends DefinitionNode<string, UnionConfig<TMembers, TColumns>> {
+  TName extends string,
+  TMembers extends AnyUnionMembers,
+  TColumns extends UnionColumnsConfig<TMembers>,
+> extends DefinitionNode<TName, UnionConfig<TMembers, TColumns>> {
   readonly kind = Kind.UNION;
 
   readonly members: Readonly<TMembers>;
-
-  /** The declared shared fields, each resolved to every member's column. */
   readonly columns: Readonly<TColumns>;
 
-  constructor(members: TMembers, columns: TColumns) {
-    const aliases = Object.keys(members);
+  constructor(name: TName, config: UnionConfig<TMembers, TColumns>) {
+    super(name);
 
-    // A union has no name of its own until the registry reads the key it is exported under;
-    // this one exists for error messages raised before then.
-    super(`union(${aliases.join("|")})`);
-
-    if (aliases.length === 0) {
-      throw new Error(`A union must have at least one member.`);
-    }
-
-    for (const [alias, member] of Object.entries(members)) {
-      if (!(member instanceof TableDefinition)) {
-        throw new Error(
-          `Union member "${alias}" is not a table. Members are tables; a union cannot contain ` +
-            `another union.`
-        );
-      }
-    }
-
-    this.members = Object.freeze({ ...members });
-    this.columns = Object.freeze({ ...columns });
+    this.members = Object.freeze({ ...config.members });
+    this.columns = Object.freeze({ ...config.columns });
   }
 
   public toJSON() {
@@ -82,4 +64,4 @@ export class UnionDefinition<
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyUnionDefinition = UnionDefinition<any, any>;
+export type AnyUnionDefinition = UnionDefinition<any, any, any>;

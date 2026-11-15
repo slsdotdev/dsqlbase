@@ -35,10 +35,10 @@ const videos = new TableDefinition("videos", {
   columns: { id: col("id", "uuid").primaryKey(), authorId: col("author_id", "uuid") },
 });
 
-const posts = new UnionDefinition(
-  { photos, videos },
-  { id: col("id", "uuid"), authorId: col("author_id", "uuid") }
-);
+const posts = new UnionDefinition("posts", {
+  members: { photos, videos },
+  columns: { id: col("id", "uuid"), authorId: col("author_id", "uuid") },
+});
 
 const comments = new TableDefinition("comments", {
   columns: {

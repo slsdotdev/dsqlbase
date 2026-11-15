@@ -18,12 +18,14 @@ import { AnyTable } from "./table.js";
  * Built by the registry once every table exists, since a member is only a `Table` from then.
  */
 export class Union<
+  TName extends string,
   TMembers extends AnyUnionMembers,
   TColumns extends UnionColumnsConfig<TMembers>,
   TRelations extends AnyTableRelations,
 > implements TypedObject<WithRelations<UnionConfig<TMembers, TColumns>, TRelations>> {
   declare readonly __type: WithRelations<UnionConfig<TMembers, TColumns>, TRelations>;
 
+  readonly name: TName;
   /** The schema key the union was exported under. */
   readonly alias: string;
   readonly definition: AnyUnionDefinition;
@@ -33,11 +35,12 @@ export class Union<
   readonly sharedColumns: Readonly<Record<string, Readonly<Record<string, AnyColumn>>>>;
 
   constructor(
-    definition: UnionDefinition<TMembers, TColumns>,
+    definition: UnionDefinition<TName, TMembers, TColumns>,
     members: Record<string, AnyTable>,
-    alias: string
+    alias?: string
   ) {
-    this.alias = alias;
+    this.name = definition.name;
+    this.alias = alias ?? definition.name;
     this.definition = definition;
     this.members = Object.freeze({ ...members });
     this.sharedColumns = this._buildSharedColumns();
@@ -129,4 +132,4 @@ export class Union<
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyUnion = Union<any, any, any>;
+export type AnyUnion = Union<any, any, any, any>;

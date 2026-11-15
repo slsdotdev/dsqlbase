@@ -38,14 +38,14 @@ const videos = new TableDefinition("videos", {
   },
 });
 
-const posts = new UnionDefinition(
-  { photos, videos },
-  {
+const posts = new UnionDefinition("posts", {
+  members: { photos, videos },
+  columns: {
     id: col("id", "uuid"),
     userId: col("user_id", "uuid"),
     createdAt: col("created_at", "timestamptz"),
-  }
-);
+  },
+});
 
 const userRelations = new RelationsDefinition(users, {
   feed: {
@@ -328,7 +328,10 @@ describe("read hooks", () => {
   const clips = new TableDefinition("clips", {
     columns: { id: hooked("id").primaryKey() },
   });
-  const media = new UnionDefinition({ pictures, clips }, { id: hooked("id") });
+  const media = new UnionDefinition("media", {
+    members: { pictures, clips },
+    columns: { id: hooked("id") },
+  });
   const comments = new TableDefinition("comments", {
     columns: {
       id: col("id", "uuid").primaryKey(),
@@ -530,10 +533,10 @@ describe("union joins — row policies", () => {
     columns: { id: col("id", "uuid").primaryKey(), userId: col("user_id", "uuid") },
   });
 
-  const items = new UnionDefinition(
-    { notes, links },
-    { id: col("id", "uuid"), userId: col("user_id", "uuid") }
-  );
+  const items = new UnionDefinition("items", {
+    members: { notes, links },
+    columns: { id: col("id", "uuid"), userId: col("user_id", "uuid") },
+  });
 
   const rels = new RelationsDefinition(users, {
     items: {

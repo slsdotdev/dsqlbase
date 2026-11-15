@@ -7,8 +7,9 @@ import {
   DefinitionSchema,
   RelationsDefinition,
   TableDefinition,
+  UnionDefinition,
 } from "../definition/index.js";
-import { UnionToIntersection } from "../utils/types.js";
+import { Prettify, UnionToIntersection } from "../utils/types.js";
 
 /**
  * Schema Definition Types
@@ -31,9 +32,9 @@ export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> =
       ? TableDefinition["name"]
       : // A union's relations belong to every member.
         TableDefinition extends AnyUnionDefinition
-        ? SchemaUnionDefinitions<TDefinition> extends Record<infer U, TableDefinition>
-          ? U | TableDefinition["members"][keyof TableDefinition["members"]]["name"]
-          : TableDefinition["members"][keyof TableDefinition["members"]]["name"]
+        ?
+            | TableDefinition["name"]
+            | TableDefinition["members"][keyof TableDefinition["members"]]["name"]
         : never
     : never;
 }[keyof TDefinition];
@@ -51,7 +52,6 @@ export type DefinitionRelationsTableName<TDefinition extends DefinitionSchema> =
 export type DefinitionTableRelations<
   TDefinition extends DefinitionSchema,
   TTableName extends string,
-  TUnions extends SchemaUnionDefinitions<TDefinition>,
 > =
   UnionToIntersection<
     TDefinition extends Record<string, infer Def>
@@ -61,25 +61,25 @@ export type DefinitionTableRelations<
             ? R
             : never
           : // A union's relations, which each member has from its own columns.
-            TTable extends AnyUnionDefinition
-            ? TUnions extends Record<infer U, TTable>
-              ? U extends TTableName
-                ? R extends AnyTableRelations
-                  ? R
-                  : never
-                : TTable["members"][keyof TTable["members"]] extends infer TMember
+            TTable extends UnionDefinition<TTableName, infer _, infer __>
+            ? R extends AnyTableRelations
+              ? R
+              : never
+            : TTable extends AnyUnionDefinition
+              ? TTable extends UnionDefinition<infer _, infer TMembers, infer __>
+                ? TMembers[keyof TMembers] extends infer TMember
                   ? TMember extends TableDefinition<TTableName, infer _, infer __>
                     ? R extends AnyTableRelations
                       ? R
                       : never
                     : never
                   : never
+                : never
               : never
-            : never
         : never
       : never
   > extends infer TMerged extends AnyTableRelations
-    ? TMerged
+    ? Prettify<TMerged>
     : false;
 
 export type SchemaTableDefinitions<TDefinition extends DefinitionSchema> = {
@@ -89,7 +89,7 @@ export type SchemaTableDefinitions<TDefinition extends DefinitionSchema> = {
 };
 
 export type SchemaRelationDefinitions<T extends DefinitionSchema> = {
-  [K in DefinitionRelationsTableName<T>]: DefinitionTableRelations<T, K, SchemaUnionDefinitions<T>>;
+  [K in DefinitionRelationsTableName<T>]: DefinitionTableRelations<T, K>;
 };
 
 export type SchemaUnionDefinitions<TDefinition extends DefinitionSchema> = {

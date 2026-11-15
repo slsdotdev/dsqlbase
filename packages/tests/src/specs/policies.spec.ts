@@ -125,7 +125,7 @@ describe("row policies", () => {
 
       const rows = await acme().userFeed.findMany({});
       const count = await acme().userFeed.count();
-      const page = await acme().userFeed.paginate({ limit: 100 });
+      const page = await acme().userFeed.paginatedQuery({ limit: 100 });
 
       expect(
         rows
@@ -156,7 +156,7 @@ describe("row policies", () => {
   describe("unset settings", () => {
     it("a client without settings reads nothing from a table with policies", async () => {
       await expect(getClient().documents.findMany({})).resolves.toEqual([]);
-      await expect(getClient().documents.count()).resolves.toBe(0);
+      await expect(getClient().documents.count({})).resolves.toBe(0);
     });
 
     it("a setting left out hides what a policy over it bounds", async () => {
@@ -186,17 +186,17 @@ describe("row policies", () => {
     const byTitle = { title: "asc" } as const;
 
     it("paginate returns only the workspace's rows, and counts only them", async () => {
-      const page = await acme().documents.paginate({ orderBy: byTitle, count: true });
+      const page = await acme().documents.paginatedQuery({ orderBy: byTitle, count: true });
 
       expect(page.items.map((d) => d.title)).toEqual(["Acme onboarding", "Acme roadmap"]);
       expect(page.totalCount).toBe(2);
     });
 
     it("a cursor from another workspace's row is only a position, never a way across", async () => {
-      const everything = await internal().documents.paginate({ orderBy: byTitle });
+      const everything = await internal().documents.paginatedQuery({ orderBy: byTitle });
       const globex = everything.items.find((d) => d.title === "Globex roadmap");
 
-      const before = await acme().documents.paginate({
+      const before = await acme().documents.paginatedQuery({
         orderBy: byTitle,
         before: globex?.$$meta.cursor,
         count: true,
@@ -328,7 +328,7 @@ describe("row policies", () => {
 
   describe("bypass and raw SQL", () => {
     it("a bypass client reads across every workspace", async () => {
-      await expect(internal().documents.count()).resolves.toBe(3);
+      await expect(internal().documents.count({})).resolves.toBe(3);
     });
 
     it("moves a row between workspaces only through raw SQL on a client without settings", async () => {

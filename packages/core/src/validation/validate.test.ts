@@ -97,11 +97,11 @@ describe("validateSchema", () => {
 
 describe("Union validation", () => {
   it("rejects a field a member does not have", () => {
-    const union = new UnionDefinition(
-      { photos, videos },
+    const union = new UnionDefinition("posts", {
+      members: { photos, videos },
       // @ts-expect-error - "photos" has no "duration" column
-      { duration: col("duration", "integer") }
-    );
+      columns: { duration: col("duration", "integer") },
+    });
 
     expect(() => validateSchema({ photos, videos, union })).toThrow(
       /declares "duration", but member "photos" has no such field/
@@ -109,7 +109,10 @@ describe("Union validation", () => {
   });
 
   it("rejects a field a member stores under another column name", () => {
-    const union = new UnionDefinition({ photos, videos }, { userId: col("user_id") });
+    const union = new UnionDefinition("posts", {
+      members: { photos, videos },
+      columns: { userId: col("user_id") },
+    });
 
     expect(() => validateSchema({ photos, videos, union })).toThrow(
       /member "videos" stores it in column "owner_id", not "user_id"/
@@ -119,7 +122,10 @@ describe("Union validation", () => {
   it("rejects a field whose data type differs on a member", () => {
     const a = new TableDefinition("a", { columns: { size: col("size", "integer") } });
     const b = new TableDefinition("b", { columns: { size: col("size", "text") } });
-    const union = new UnionDefinition({ a, b }, { size: col("size", "integer") });
+    const union = new UnionDefinition("ab", {
+      members: { a, b },
+      columns: { size: col("size", "integer") },
+    });
 
     expect(() => validateSchema({ a, b, union })).toThrow(
       /member "b" declares it as a different kind of column \(text\)/
@@ -129,8 +135,14 @@ describe("Union validation", () => {
   it("rejects a NOT NULL field a member allows NULL in", () => {
     const a = new TableDefinition("a", { columns: { url: col("url", "text").notNull() } });
     const b = new TableDefinition("b", { columns: { url: col("url", "text") } });
-    const bad = new UnionDefinition({ a, b }, { url: col("url", "text").notNull() });
-    const ok = new UnionDefinition({ a, b }, { url: col("url", "text") });
+    const bad = new UnionDefinition("ab", {
+      members: { a, b },
+      columns: { url: col("url", "text").notNull() },
+    });
+    const ok = new UnionDefinition("ab", {
+      members: { a, b },
+      columns: { url: col("url", "text") },
+    });
 
     expect(() => validateSchema({ a, b, bad })).toThrow(
       /member "b" allows NULL in it, and the union declares it NOT NULL/
@@ -142,7 +154,10 @@ describe("Union validation", () => {
 describe("collectRelations", () => {
   const photos = new TableDefinition("photos", { columns: { id: col("id").primaryKey() } });
   const videos = new TableDefinition("videos", { columns: { id: col("id").primaryKey() } });
-  const posts = new UnionDefinition({ photos, videos }, { id: col("id") });
+  const posts = new UnionDefinition("posts", {
+    members: { photos, videos },
+    columns: { id: col("id") },
+  });
   const notes = new TableDefinition("notes", {
     columns: { id: col("id").primaryKey(), postId: col("post_id") },
   });
@@ -174,7 +189,7 @@ describe("collectRelations", () => {
       },
     });
     const message =
-      /Relation "notes" on union\(photos\|videos\) has the same name as relation "notes" on its member "photos"/;
+      /Relation "notes" on posts has the same name as relation "notes" on its member "photos"/;
 
     expect(() => collectRelations({ photos, videos, posts, notes, own, onUnion })).toThrow(message);
     expect(() => collectRelations({ photos, videos, posts, notes, onUnion, own })).toThrow(message);
@@ -254,7 +269,10 @@ describe("validateSchema — references", () => {
       const videos = new TableDefinition("videos", {
         columns: { id: hooked("id").primaryKey(), ref: memberKey("ref") },
       });
-      const media = new UnionDefinition({ photos, videos }, { ref: hooked("ref") });
+      const media = new UnionDefinition("media", {
+        members: { photos, videos },
+        columns: { ref: hooked("ref") },
+      });
       const comments = new TableDefinition("comments", {
         columns: {
           id: col("id").primaryKey(),

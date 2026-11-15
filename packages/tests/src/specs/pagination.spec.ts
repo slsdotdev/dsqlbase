@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { sql } from "@dsqlbase/core";
-import { createClient, InvalidCursorError } from "dsqlbase";
+import { createClient } from "dsqlbase";
 import { withSeededClient } from "../fixures/seeded-client";
 import { schema } from "../db/schema";
 
@@ -79,7 +79,7 @@ describe("keyset pagination", () => {
 
       const pages = await walk(
         (after) =>
-          client.tasks.paginate({
+          client.tasks.paginatedQuery({
             select: { id: true },
             orderBy: { createdAt: "desc" },
             limit: 10,
@@ -98,7 +98,7 @@ describe("keyset pagination", () => {
     it("backward from the last row, returns every earlier row in the same order", async () => {
       const client = getClient();
       const read = (before: string | null) =>
-        client.tasks.paginate({
+        client.tasks.paginatedQuery({
           select: { id: true },
           orderBy: { createdAt: "desc" },
           limit: 10,
@@ -107,7 +107,7 @@ describe("keyset pagination", () => {
 
       const forward = await walk(
         (after) =>
-          client.tasks.paginate({
+          client.tasks.paginatedQuery({
             select: { id: true },
             orderBy: { createdAt: "desc" },
             limit: 10,
@@ -222,7 +222,7 @@ describe("keyset pagination", () => {
           orderBy: { dueDate: direction, id: direction },
         });
         const read = (cursor: { after?: string | null; before?: string | null }) =>
-          client.tasks.paginate({
+          client.tasks.paginatedQuery({
             select: { id: true },
             orderBy: { dueDate: direction },
             limit: 4,
