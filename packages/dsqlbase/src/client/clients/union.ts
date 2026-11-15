@@ -68,7 +68,7 @@ export class UnionClient<
 
   public paginatedQuery<TArgs extends PaginatedUnionQueryArgs<TUnion, this["__type"]>>(
     args: TArgs
-  ): ExecutableQuery<PaginatedUnionQueryResultOf<TUnion, this["__type"], TArgs>[]> {
+  ): ExecutableQuery<PaginatedUnionQueryResultOf<TUnion, this["__type"], TArgs>> {
     const request = this._ctx.normalizer.createUnionSelectRequest(this._union, args, "many");
     const withPagination = this._ctx.pagination.paginateUnionRequest(this._union, args, request);
     const operation = this._ctx.operations.createUnionSelectOperation(this._union, request);

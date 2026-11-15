@@ -28,6 +28,7 @@ import {
   DeleteArgs,
   GetArgs,
   JoinExpressionOf,
+  KeyExpressionOf,
   OrderByExpressionOf,
   PaginatedQueryArgs,
   QueryArgs,
@@ -40,6 +41,7 @@ import {
 } from "./base.js";
 import { OrderByEntry } from "@dsqlbase/core/runtime/operation";
 import { getColumnRules } from "./rules.js";
+import { decodeGlobalId } from "../../schema/utils/global-id.js";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -470,6 +472,31 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       mode: "one",
       args: { members },
     };
+  }
+
+  public resolveGlobalId<TTable extends AnyTable>(
+    guid: string
+  ): {
+    alias: string;
+    key: KeyExpressionOf<TTable>;
+  } {
+    const { key, pk } = decodeGlobalId(guid);
+    const table = this._ctx.schema.getTable(key);
+
+    if (!table) {
+      throw new Error(`Invalid global ID: table with alias "${key}" not found`);
+    }
+
+    const keys = Object.keys(pk);
+    const matches = table.uniqueKeys.find(
+      (keySet) => keySet.length === keys.length && keySet.every((col) => keys.includes(col))
+    );
+
+    if (!matches) {
+      throw new Error(`Invalid global ID: key does not match any unique key for table "${key}"`);
+    }
+
+    return { alias: key, key: pk as KeyExpressionOf<TTable> };
   }
 }
 

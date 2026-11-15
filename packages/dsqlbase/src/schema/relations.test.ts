@@ -37,7 +37,10 @@ describe("relations to a union", () => {
     userId: uuid("user_id"),
   });
 
-  const posts = union({ photos, videos }, { id: uuid("id"), userId: uuid("user_id") });
+  const posts = union("posts", {
+    members: { photos, videos },
+    columns: { id: uuid("id"), userId: uuid("user_id") },
+  });
 
   const comments = table("comments", {
     id: uuid("id").primaryKey(),

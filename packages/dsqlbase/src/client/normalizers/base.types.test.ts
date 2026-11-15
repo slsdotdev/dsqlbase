@@ -16,7 +16,7 @@ describe("Base types", () => {
 
   it("infers result for paginated query", () => {
     type Result = QueryResultOf<
-      TableByAlias<MockSchema, "posts">,
+      TableByAlias<MockSchema, "users">,
       MockSchema,
       { select: { id: true } }
     >;

@@ -57,22 +57,25 @@ export const teamMembers = table("team_members", {
   role: text("role").notNull(),
 });
 
-export const media = union(
-  { photos, videos },
-  {
+export const media = union("media", {
+  members: { photos, videos },
+  columns: {
     id: uuid("id"),
     userId: uuid("user_id").notNull(),
     createdAt: datetime("created_at").notNull(),
-  }
-);
+  },
+});
 
 export const userRelations = relations(users, {
   posts: hasMany(posts, { from: [users.columns.id], to: [posts.columns.authorId] }),
-  feed: hasMany(media, { from: [users.columns.id], to: [media.columns.userId] }),
   teamMemberships: hasMany(teamMembers, {
     from: [users.columns.id],
     to: [teamMembers.columns.userId],
   }),
+});
+
+export const userFeedRelation = relations(users, {
+  feed: hasMany(media, { from: [users.columns.id], to: [media.columns.userId] }),
 });
 
 export const postRelations = relations(posts, {

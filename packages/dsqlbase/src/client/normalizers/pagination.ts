@@ -320,22 +320,24 @@ export class PaginationHandler<TDefinition extends DefinitionSchema> {
     }
 
     for (const [index, [member, subquery]] of request.args.members.entries()) {
-      const memberKeyset = orderBy
+      const memberOrderBy = orderBy
         .filter(([field]) => field !== KEY_FIELD)
         .map<OrderByEntry>(([field, options]) => [
           this._getUnionMemberFieldName(union, member, field),
           options,
         ]);
 
-      request.args.members[index][1].orderBy = memberKeyset;
+      request.args.members[index][1].orderBy = memberOrderBy;
 
       if (values) {
+        const memberKeyset = orderBy.map<OrderByEntry>(([field, options]) => [
+          this._getUnionMemberFieldName(union, member, field),
+          options,
+        ]);
+
         const clause = this._ctx.where.buildKeyset(
           union.getMember(member),
-          orderBy.map<OrderByEntry>(([field, options]) => [
-            this._getUnionMemberFieldName(union, member, field),
-            options,
-          ]),
+          memberKeyset,
           values,
           plan.projection
         );

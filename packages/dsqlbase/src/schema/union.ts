@@ -1,4 +1,9 @@
-import { AnyUnionMembers, UnionColumnsConfig, UnionDefinition } from "@dsqlbase/core/definition";
+import {
+  AnyUnionMembers,
+  UnionColumnsConfig,
+  UnionConfig,
+  UnionDefinition,
+} from "@dsqlbase/core/definition";
 
 /**
  * Defines a set of tables that can stand in for one another — a GraphQL union or interface.
@@ -17,7 +22,10 @@ import { AnyUnionMembers, UnionColumnsConfig, UnionDefinition } from "@dsqlbase/
  * export const photos = table("photos", { id: guid("id").primaryKey(), userId: guid("user_id") });
  * export const videos = table("videos", { id: guid("id").primaryKey(), userId: guid("user_id") });
  *
- * export const posts = union({ photos, videos }, { id: guid("id"), userId: guid("user_id") });
+ * export const posts = union("posts", {
+ *  members: { photos, videos },
+ *  columns: { id: guid("id"), userId: guid("user_id") }
+ * });
  *
  * export const userRelations = relations(users, {
  *   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
@@ -25,8 +33,12 @@ import { AnyUnionMembers, UnionColumnsConfig, UnionDefinition } from "@dsqlbase/
  * ```
  */
 export function union<
+  TName extends string,
   TMembers extends AnyUnionMembers,
   TColumns extends UnionColumnsConfig<TMembers>,
->(members: TMembers, columns: TColumns): UnionDefinition<TMembers, TColumns> {
-  return new UnionDefinition(members, columns);
+>(
+  name: TName,
+  config: UnionConfig<TMembers, TColumns>
+): UnionDefinition<TName, TMembers, TColumns> {
+  return new UnionDefinition(name, config);
 }

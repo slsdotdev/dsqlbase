@@ -5,13 +5,13 @@ import {
   AnyTable,
   AnyTableRelations,
   AnyUnion,
-  AnyUnionDefinition,
   ColumnConfig,
   ColumnRuntimeType,
   SchemaTableRelations,
   Table,
   TableDefinition,
   Union,
+  UnionDefinition,
 } from "@dsqlbase/core";
 import { Prettify, WithMeta } from "@dsqlbase/core/utils";
 import { OperatorsOf, OrderableRuntimeType, ShorthandRuntimeType } from "./rules.js";
@@ -179,12 +179,8 @@ export type RelationRuntimeObjectOf<
           Table<TName, TCols, TNamespace, SchemaTableRelations<TSchema, TName>>,
           DeclaredMetaOf<Target>
         >
-      : Target extends AnyUnionDefinition
-        ? TSchema["unions"] extends Record<infer Alias, Target>
-          ? Alias extends string
-            ? Union<Target["members"], Target["columns"], SchemaTableRelations<TSchema, Alias>>
-            : never
-          : never
+      : Target extends UnionDefinition<infer TName, infer TMembers, infer TColumns>
+        ? Union<TName, TMembers, TColumns, SchemaTableRelations<TSchema, TName>>
         : never
     : never;
 
@@ -476,6 +472,18 @@ export type MutationResultOf<
     : TArgs["return"] extends true
       ? Prettify<{ [K in FieldNamesOf<TTable>]: ValueTypeOf<ColumnTypeOf<TTable, K>> }>
       : Record<string, never>;
+
+export type GlobalIdResultOf<TSchema extends AnySchema> = {
+  [K in keyof TSchema["tables"]]: K extends string
+    ? TableByAlias<TSchema, K> extends AnyTable
+      ? SelectionResultOf<
+          TableByAlias<TSchema, K>,
+          TSchema,
+          QueryArgs<TableByAlias<TSchema, K>, TSchema>
+        >
+      : never
+    : never;
+}[keyof TSchema["tables"]];
 
 /*
  * -------------------------------------------------------------------------------------------

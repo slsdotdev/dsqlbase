@@ -12,14 +12,12 @@ import {
 import { ModelClient } from "./model.js";
 import { UnionClient } from "./union.js";
 import { ClientContext } from "../normalizers/context.js";
+import { GlobalIdResultOf } from "../normalizers/base.js";
 
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ClientContext<T>;
 
-  protected readonly _models = new Map<
-    string,
-    ModelClient<AnyTable, T> | UnionClient<AnyUnion, T>
-  >();
+  protected readonly _models = new Map<string, ModelClient<AnyTable, T>>();
 
   constructor(ctx: ClientContext<T>) {
     this._ctx = ctx;
@@ -28,11 +26,17 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       const model = new ModelClient<AnyTable, T>(ctx, table);
       this._models.set(alias, model);
     }
+  }
 
-    for (const [alias, union] of ctx.schema.getUnions()) {
-      const client = new UnionClient<AnyUnion, T>(ctx, union);
-      this._models.set(alias, client);
+  public $findByGlobalId(guid: string): ExecutableQuery<GlobalIdResultOf<Schema<T>> | null> {
+    const { alias, key } = this._ctx.normalizer.resolveGlobalId(guid);
+    const model = this._models.get(alias);
+
+    if (!model) {
+      throw new Error(`Model with alias "${alias}" not found`);
     }
+
+    return model.get({ key }) as ExecutableQuery<GlobalIdResultOf<Schema<T>> | null>;
   }
 
   $query<T = unknown>(sql: SQLQuery) {

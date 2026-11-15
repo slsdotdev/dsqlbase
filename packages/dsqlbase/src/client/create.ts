@@ -97,7 +97,7 @@ export type DsqlQueryClient<TSchema extends DefinitionSchema> = WithModels<
 
 export function createClient<TSchema extends DefinitionSchema>(
   options: ClientOptions<TSchema>
-): DsqlQueryClient<TSchema> {
+): WithModels<TSchema, DsqlClient<TSchema>> {
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
@@ -109,7 +109,7 @@ export function createClient<TSchema extends DefinitionSchema>(
     pagination: options.pagination,
   });
 
-  const client = new DsqlClient(context);
+  const client = new DsqlClient<TSchema>(context);
 
-  return withModels(client) as DsqlQueryClient<TSchema>;
+  return withModels<TSchema, DsqlClient<TSchema>>(client);
 }
