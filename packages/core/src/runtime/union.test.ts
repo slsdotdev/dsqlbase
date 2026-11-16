@@ -105,32 +105,32 @@ describe("union joins — SQL", () => {
       'SELECT "__t0"."id", "__join_feed"."data" AS "feed" FROM "users" AS "__t0" ' +
         'LEFT JOIN LATERAL (SELECT COALESCE(json_agg("__u0"."data"), \'[]\'::json) AS "data" FROM (' +
         'SELECT row_to_json("__j0".*) AS "data" FROM (' +
-        'SELECT \'photos\' AS "$$key", "__t1"."id", "__t1"."user_id", "__t1"."created_at", "__t1"."photo_url" ' +
+        'SELECT \'photos\' AS "__type", "__t1"."id", "__t1"."user_id", "__t1"."created_at", "__t1"."photo_url" ' +
         'FROM "photos" AS "__t1" WHERE "__t1"."user_id" = "__t0"."id") AS "__j0" ' +
         "UNION ALL " +
         'SELECT row_to_json("__j1".*) AS "data" FROM (' +
-        'SELECT \'videos\' AS "$$key", "__t2"."id", "__t2"."user_id", "__t2"."created_at", "__t2"."video_url" ' +
+        'SELECT \'videos\' AS "__type", "__t2"."id", "__t2"."user_id", "__t2"."created_at", "__t2"."video_url" ' +
         'FROM "videos" AS "__t2" WHERE "__t2"."user_id" = "__t0"."id") AS "__j1"' +
         ') AS "__u0") AS "__join_feed" ON true LIMIT $1'
     );
   });
 
-  it("orders across members by hidden keys, then $$key and the primary key", () => {
+  it("orders across members by hidden keys, then __type and the primary key", () => {
     const { query } = select([
       ["feed", { members: all("photos", "videos"), orderBy: [["createdAt", ["desc", undefined]]] }],
     ]);
 
     expect(query.text).toContain(
-      'json_agg("__u0"."data" ORDER BY "__o0" DESC, "$$key" ASC, "__pk0" ASC)'
+      'json_agg("__u0"."data" ORDER BY "__o0" DESC, "__type" ASC, "__pk0" ASC)'
     );
     expect(query.text).toContain(
-      'SELECT row_to_json("__j0".*) AS "data", "__j0"."__o0", "__j0"."$$key", "__j0"."__pk0" FROM ('
+      'SELECT row_to_json("__j0".*) AS "data", "__j0"."__o0", "__j0"."__type", "__j0"."__pk0" FROM ('
     );
     expect(query.text).toContain(
       '"__t1"."created_at" AS "__o0", "__t1"."id" AS "__pk0" FROM "photos" AS "__t1"'
     );
     expect(query.text).toContain(
-      ') AS "__j1" ORDER BY "__o0" DESC, "$$key" ASC, "__pk0" ASC) AS "__u0"'
+      ') AS "__j1" ORDER BY "__o0" DESC, "__type" ASC, "__pk0" ASC) AS "__u0"'
     );
   });
 
@@ -157,7 +157,7 @@ describe("union joins — SQL", () => {
     expect(query.params).toEqual([25, 25, 20, 5, 1]);
   });
 
-  it("orders by $$key as a constant inside each branch and by the column across them", () => {
+  it("orders by __type as a constant inside each branch and by the column across them", () => {
     const { query } = select([
       [
         "feed",
@@ -169,11 +169,11 @@ describe("union joins — SQL", () => {
       ],
     ]);
 
-    // Sorted by the "$$key" column every branch already projects; no second copy.
+    // Sorted by the "__type" column every branch already projects; no second copy.
     expect(query.text).not.toContain('"__o0"');
-    expect(query.text).toContain('ORDER BY "$$key" DESC, "__pk0" ASC LIMIT');
+    expect(query.text).toContain('ORDER BY "__type" DESC, "__pk0" ASC LIMIT');
     // Not repeated as a tiebreaker when the caller already ordered by it.
-    expect(query.text).not.toContain('"$$key" DESC, "$$key" ASC');
+    expect(query.text).not.toContain('"__type" DESC, "__type" ASC');
     expect(query.text).toContain('ORDER BY "__t1"."id" ASC LIMIT');
   });
 
@@ -194,7 +194,7 @@ describe("union joins — SQL", () => {
 
     expect(query.text).not.toContain('"photos"');
     expect(query.text).not.toContain("UNION ALL");
-    expect(query.text).toContain("SELECT 'videos' AS \"$$key\"");
+    expect(query.text).toContain("SELECT 'videos' AS \"__type\"");
   });
 
   it("emits no join at all when every member is pruned", () => {
@@ -205,7 +205,7 @@ describe("union joins — SQL", () => {
 
     expect(query.text).toBe('SELECT "__t0"."id" FROM "users" AS "__t0" LIMIT $1');
     expect(resolve([{ id: "u1" }])).toEqual({
-      $$meta: registry.getTable("users").meta,
+      __meta: registry.getTable("users").meta,
       id: "u1",
       feed: [],
       latest: null,
@@ -391,7 +391,7 @@ describe("read hooks", () => {
       'SELECT "__t0"."subject_id", "__t0"."subject_type" FROM "comments" AS "__t0"'
     );
     expect(resolve([{ subject_id: "s1", subject_type: "pictures" }])).toEqual([
-      { $$meta: table.meta, subjectId: "pictures:s1" },
+      { __meta: table.meta, subjectId: "pictures:s1" },
     ]);
   });
 
@@ -402,7 +402,7 @@ describe("read hooks", () => {
       'SELECT "__t0"."subject_type", "__t0"."subject_id" FROM "comments" AS "__t0"'
     );
     expect(resolve([{ subject_id: "s1", subject_type: "pictures" }])).toEqual([
-      { $$meta: table.meta, subjectType: "pictures", subjectId: "pictures:s1" },
+      { __meta: table.meta, subjectType: "pictures", subjectId: "pictures:s1" },
     ]);
   });
 
@@ -423,9 +423,9 @@ describe("read hooks", () => {
       resolve([{ id: "t1", comments: [{ subject_id: "s1", subject_type: "clips" }] }])
     ).toEqual([
       {
-        $$meta: threadTable.meta,
+        __meta: threadTable.meta,
         id: "t1",
-        comments: [{ $$meta: table.meta, subjectId: "clips:s1" }],
+        comments: [{ __meta: table.meta, subjectId: "clips:s1" }],
       },
     ]);
   });
@@ -437,7 +437,7 @@ describe("read hooks", () => {
       resolve([{ id: "c1", subject_id: null, subject_type: null, thread_id: null, body: null }])
     ).toEqual([
       {
-        $$meta: table.meta,
+        __meta: table.meta,
         id: "c1",
         subjectType: null,
         subjectId: null,
@@ -455,7 +455,7 @@ describe("union joins — results", () => {
   ]);
 
   const photoRow = {
-    $$key: "photos",
+    __type: "photos",
     id: "p1",
     user_id: "u1",
     created_at: "2026-01-01T00:00:00Z",
@@ -463,14 +463,14 @@ describe("union joins — results", () => {
     __o0: "ignored",
   };
   const videoRow = {
-    $$key: "videos",
+    __type: "videos",
     id: "v1",
     user_id: "u1",
     created_at: "2026-01-02T00:00:00Z",
     video_url: "b.mp4",
   };
 
-  it("dispatches every row to its member's resolvers and tags it with $$key", () => {
+  it("dispatches every row to its member's resolvers and tags it with __type", () => {
     const result = resolve([{ id: "u1", feed: [photoRow, videoRow], latest: videoRow }]) as {
       feed: Record<string, unknown>[];
       latest: Record<string, unknown> | null;
@@ -478,23 +478,23 @@ describe("union joins — results", () => {
 
     expect(result?.feed).toEqual([
       {
-        $$key: "photos",
-        $$meta: { key: "photos", table: "photos", __typename: "Photo" },
+        __type: "photos",
+        __meta: { key: "photos", table: "photos", __typename: "Photo" },
         id: "p1",
         userId: "u1",
         createdAt: "2026-01-01T00:00:00Z",
         photoUrl: "a.jpg",
       },
       {
-        $$key: "videos",
-        $$meta: { key: "videos", table: "videos" },
+        __type: "videos",
+        __meta: { key: "videos", table: "videos" },
         id: "v1",
         userId: "u1",
         createdAt: "2026-01-02T00:00:00Z",
         videoUrl: "b.mp4",
       },
     ]);
-    expect((result?.latest as Record<string, unknown>)?.$$key).toBe("videos");
+    expect((result?.latest as Record<string, unknown>)?.__type).toBe("videos");
   });
 
   it("answers an empty has-many with [] and a missing has-one with null", () => {
@@ -603,12 +603,12 @@ describe("top-level union select", () => {
   it("resolves each row's data by its member", () => {
     const { resolve } = run({});
     const rows = resolve([
-      { data: { $$key: "videos", id: "v1", user_id: "u1", created_at: "t", video_url: "b" } },
+      { data: { __type: "videos", id: "v1", user_id: "u1", created_at: "t", video_url: "b" } },
     ]) as Record<string, unknown>[];
 
     expect(rows[0]).toEqual({
-      $$key: "videos",
-      $$meta: { key: "videos", table: "videos" },
+      __type: "videos",
+      __meta: { key: "videos", table: "videos" },
       id: "v1",
       userId: "u1",
       createdAt: "t",

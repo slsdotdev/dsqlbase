@@ -26,6 +26,7 @@ import {
   CountArgs,
   CreateArgs,
   DeleteArgs,
+  DeleteUniqueArgs,
   GetArgs,
   JoinExpressionOf,
   KeyExpressionOf,
@@ -36,6 +37,7 @@ import {
   SelectableFieldsOf,
   UnionQueryArgs,
   UpdateArgs,
+  UpdateUniqueArgs,
   UpdateValuesOf,
   WhereExpressionOf,
 } from "./base.js";
@@ -376,6 +378,7 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     const args = this._getSelectArgs(table, {
       where: query.key as WhereExpressionOf<TTable>,
       select: query.select,
+      join: query.join,
     });
 
     return {
@@ -432,6 +435,23 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     };
   }
 
+  public createUpdateUniqueRequest<TTable extends AnyTable>(
+    table: TTable,
+    args: UpdateUniqueArgs<TTable>
+  ): OperationRequest<UpdateOperationArgs, "one"> {
+    this._assertUniqueKeys(table, args.key);
+
+    return this.createUpdateRequest(
+      table,
+      {
+        set: args.set,
+        where: args.key as WhereExpressionOf<TTable>,
+        return: args.return,
+      },
+      "one"
+    );
+  }
+
   public createDeleteRequest<TTable extends AnyTable, TMode extends OperationMode>(
     table: TTable,
     args: DeleteArgs<TTable>,
@@ -447,6 +467,22 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
         return: returning,
       },
     };
+  }
+
+  public createDeleteUniqueRequest<TTable extends AnyTable>(
+    table: TTable,
+    args: DeleteUniqueArgs<TTable>
+  ): OperationRequest<DeleteOperationArgs, "one"> {
+    this._assertUniqueKeys(table, args.key);
+
+    return this.createDeleteRequest(
+      table,
+      {
+        where: args.key as WhereExpressionOf<TTable>,
+        return: args.return,
+      },
+      "one"
+    );
   }
 
   public createUnionSelectRequest<TUnion extends AnyUnion, TMode extends OperationMode>(
@@ -476,27 +512,15 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
 
   public resolveGlobalId<TTable extends AnyTable>(
     guid: string
-  ): {
-    alias: string;
-    key: KeyExpressionOf<TTable>;
-  } {
+  ): { table: TTable; request: OperationRequest<SelectOperationArgs, "one"> } {
     const { key, pk } = decodeGlobalId(guid);
-    const table = this._ctx.schema.getTable(key);
+    const table = this._ctx.schema.getTable(key) as TTable;
 
     if (!table) {
       throw new Error(`Invalid global ID: table with alias "${key}" not found`);
     }
 
-    const keys = Object.keys(pk);
-    const matches = table.uniqueKeys.find(
-      (keySet) => keySet.length === keys.length && keySet.every((col) => keys.includes(col))
-    );
-
-    if (!matches) {
-      throw new Error(`Invalid global ID: key does not match any unique key for table "${key}"`);
-    }
-
-    return { alias: key, key: pk as KeyExpressionOf<TTable> };
+    return { table, request: this.createGetRequest(table, { key: pk as KeyExpressionOf<TTable> }) };
   }
 }
 

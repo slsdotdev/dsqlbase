@@ -300,7 +300,7 @@ describe("SchemaRegistry", () => {
       expect(registry.getRelations("authors")).toHaveProperty("author");
     });
 
-    it.each(["$$meta", "$$key"])("rejects a relation named %s", (field) => {
+    it.each(["__meta", "__type"])("rejects a relation named %s", (field) => {
       expect(
         () =>
           new SchemaRegistry({

@@ -56,7 +56,7 @@ describe("ModelClient", () => {
       expect(() => users.get({ key: {} })).toThrow(
         `Provided keys do not match any unique key for table "users".`
       );
-      // @ts-expect-error Testing invalid key scenario
+
       expect(() => users.get({ key: { name: "invalid" } })).toThrow(
         `Provided keys do not match any unique key for table "users". Expected one of: (id).`
       );

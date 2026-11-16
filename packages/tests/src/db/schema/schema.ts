@@ -86,8 +86,8 @@ export const projects = table("projects", {
 projects.index("projects_team_key_idx", { unique: true }).columns((c) => [c.teamId, c.key]);
 projects.index("projects_team_idx").columns((c) => [c.teamId]);
 
-const taskStatus = $enum("task_status", ["todo", "in_progress", "done", "archived"]);
-const priorityLevel = $enum("priority_level", ["urgent", "high", "medium", "low", "none"]);
+export const taskStatus = $enum("task_status", ["todo", "in_progress", "done", "archived"]);
+export const priorityLevel = $enum("priority_level", ["urgent", "high", "medium", "low", "none"]);
 
 export const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 

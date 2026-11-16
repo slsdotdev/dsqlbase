@@ -158,6 +158,7 @@ describe("json columns", () => {
       await createBoard({ payload: ["x", { id: 1, name: "n" }] });
 
       const count = (contains: unknown) =>
+        // @ts-expect-error: bypassing the column's schema validation
         getClient().boards.count({ where: { payload: { contains } } });
 
       expect(await count({ a: { b: 1 } })).toBe(1);
@@ -184,6 +185,7 @@ describe("json columns", () => {
 
       // The schema would refuse a config without a kind, and fill in columns: 3.
       expect(
+        // @ts-expect-error: bypassing the column's schema validation
         await getClient().boards.count({ where: { config: { contains: { columns: 3 } } } })
       ).toBe(1);
     });

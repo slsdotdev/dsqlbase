@@ -3,6 +3,7 @@ import {
   AnyUnion,
   DefinitionSchema,
   ExecutableQuery,
+  OperationResult,
   RuntimeTables,
   RuntimeUnions,
   Schema,
@@ -17,7 +18,10 @@ import { GlobalIdResultOf } from "../normalizers/base.js";
 export abstract class BaseClient<T extends DefinitionSchema> {
   protected readonly _ctx: ClientContext<T>;
 
-  protected readonly _models = new Map<string, ModelClient<AnyTable, T>>();
+  protected readonly _models = new Map<
+    string,
+    ModelClient<AnyTable, T> | UnionClient<AnyUnion, T>
+  >();
 
   constructor(ctx: ClientContext<T>) {
     this._ctx = ctx;
@@ -26,17 +30,20 @@ export abstract class BaseClient<T extends DefinitionSchema> {
       const model = new ModelClient<AnyTable, T>(ctx, table);
       this._models.set(alias, model);
     }
+
+    for (const [alias, union] of ctx.schema.getUnions()) {
+      const client = new UnionClient<AnyUnion, T>(ctx, union);
+      this._models.set(alias, client);
+    }
   }
 
-  public $findByGlobalId(guid: string): ExecutableQuery<GlobalIdResultOf<Schema<T>> | null> {
-    const { alias, key } = this._ctx.normalizer.resolveGlobalId(guid);
-    const model = this._models.get(alias);
+  public $findByGlobalId(
+    guid: string
+  ): ExecutableQuery<OperationResult<"one", GlobalIdResultOf<Schema<T>>>> {
+    const { table, request } = this._ctx.normalizer.resolveGlobalId(guid);
+    const operation = this._ctx.operations.createSelectOperation(table, request);
 
-    if (!model) {
-      throw new Error(`Model with alias "${alias}" not found`);
-    }
-
-    return model.get({ key }) as ExecutableQuery<GlobalIdResultOf<Schema<T>> | null>;
+    return new ExecutableQuery(operation, this._ctx.session);
   }
 
   $query<T = unknown>(sql: SQLQuery) {

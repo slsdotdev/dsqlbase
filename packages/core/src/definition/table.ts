@@ -246,7 +246,7 @@ export class TableDefinition<
    * // row.$$meta.__typename === "User"
    * ```
    */
-  public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
+  public meta<const M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
     this._meta = meta;
 
     return this as WithMeta<this, M>;

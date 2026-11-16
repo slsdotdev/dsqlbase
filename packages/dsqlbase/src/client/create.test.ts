@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "./create.js";
 import { schema, session } from "../../mocks/context.js";
 import { ModelClient } from "./clients/model.js";
+import { encodeGlobalId } from "../schema/utils/global-id.js";
 
 describe("createClient", () => {
   beforeEach(() => {
-    session.mock.mockClear();
+    vi.clearAllMocks();
     session.mock.mockResolvedValue([]);
   });
 
@@ -33,5 +34,41 @@ describe("createClient", () => {
     expect(session.mock).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining('FROM "team_members"') })
     );
+  });
+
+  it("binds each union to it's own client", async () => {
+    const dsql = createClient({ schema, session });
+
+    await dsql.media.findMany({ select: { id: true } });
+
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('SELECT row_to_json("__j0".*) AS "data" FROM'),
+      })
+    );
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('UNION ALL SELECT row_to_json("__j1".*) AS "data" '),
+      })
+    );
+  });
+
+  it("fetches record by global id", async () => {
+    const dsql = createClient({ schema, session });
+    const guid = encodeGlobalId("users", { id: "1" });
+
+    await dsql.$findByGlobalId(guid);
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('FROM "users" AS "__t0" WHERE "__t0"."id" = $1'),
+      })
+    );
+  });
+
+  it("refuses global ids for unions", () => {
+    const dsql = createClient({ schema, session });
+    const guid = encodeGlobalId("media", { id: "1" });
+
+    expect(() => dsql.$findByGlobalId(guid)).toThrow("Table not found: media");
   });
 });

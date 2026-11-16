@@ -12,6 +12,8 @@ import {
   GetArgs,
   PaginatedQueryArgs,
   PaginatedQueryResultOf,
+  UpdateUniqueArgs,
+  DeleteUniqueArgs,
 } from "../normalizers/base.js";
 import { ClientContext } from "../normalizers/context.js";
 
@@ -113,7 +115,7 @@ export class ModelClient<
    * ```
    */
 
-  public count(args: CountArgs<TTable>): ExecutableQuery<number> {
+  public count(args: CountArgs<TTable> = {}): ExecutableQuery<number> {
     const request = this._ctx.normalizer.createCountRequest(this._table, args);
     const operation = this._ctx.operations.createCountOperation(this._table, request);
 
@@ -188,10 +190,10 @@ export class ModelClient<
    * @returns An executable query that can be awaited to retrieve the updated record.
    */
 
-  public update<TArgs extends UpdateArgs<TTable>>(
+  public update<TArgs extends UpdateUniqueArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", MutationResultOf<TTable, TArgs>>> {
-    const request = this._ctx.normalizer.createUpdateRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createUpdateUniqueRequest(this._table, args);
     const operation = this._ctx.operations.createUpdateOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);
@@ -242,10 +244,10 @@ export class ModelClient<
    * @returns An executable query that can be awaited to retrieve the deleted record.
    */
 
-  public delete<TArgs extends DeleteArgs<TTable>>(
+  public delete<TArgs extends DeleteUniqueArgs<TTable>>(
     args: TArgs
   ): ExecutableQuery<OperationResult<"one", MutationResultOf<TTable, TArgs>>> {
-    const request = this._ctx.normalizer.createDeleteRequest(this._table, args, "one");
+    const request = this._ctx.normalizer.createDeleteUniqueRequest(this._table, args);
     const operation = this._ctx.operations.createDeleteOperation(this._table, request);
 
     return new ExecutableQuery(operation, this._ctx.session);

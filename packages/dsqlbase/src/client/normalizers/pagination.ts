@@ -233,8 +233,7 @@ export class PaginationHandler<TDefinition extends DefinitionSchema> {
 
         const cursor = encodeCursor(plan.signature, values);
 
-        // `$$meta` is the table's frozen, shared meta object: copied, never written to.
-        return { ...record, $$meta: { cursor } };
+        return { ...record, __cursor: cursor };
       });
 
       // Read backwards, the page arrives nearest-the-cursor first; put it back in order.
@@ -245,7 +244,7 @@ export class PaginationHandler<TDefinition extends DefinitionSchema> {
       return {
         items,
         hasMore,
-        nextCursor: hasMore ? items[items.length - 1].$$meta.cursor : null,
+        nextCursor: hasMore ? items[items.length - 1].__cursor : null,
       } as PaginatedQueryResultOf<TTable, Schema<TDefinition>, TArgs>;
     };
   }
