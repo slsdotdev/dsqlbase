@@ -43,12 +43,16 @@ describe("createClient", () => {
 
     expect(session.mock).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining('SELECT row_to_json("__j0".*) AS "data" FROM'),
+        text: expect.stringContaining(
+          'SELECT row_to_json("__j0".*) AS "data", "__j0"."__type" FROM'
+        ),
       })
     );
     expect(session.mock).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining('UNION ALL SELECT row_to_json("__j1".*) AS "data" '),
+        text: expect.stringContaining(
+          'UNION ALL SELECT row_to_json("__j1".*) AS "data", "__j1"."__type" FROM'
+        ),
       })
     );
   });

@@ -763,8 +763,10 @@ export class OperationsFactory<
       resolvers[alias] = branchResolvers;
     }
 
+    const hasKeyField = orderBy.some((key) => key[0] === KEY_FIELD);
     const carry = [
       ...orderBy.map((key, index) => this._getUnionKeyName(key, index)),
+      ...(!hasKeyField ? [KEY_FIELD] : []),
       ...(args.keys ? orderBy.map((_, index) => `__k${index}`) : []),
     ];
 

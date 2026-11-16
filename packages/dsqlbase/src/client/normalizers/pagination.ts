@@ -184,6 +184,7 @@ export class PaginationHandler<TDefinition extends DefinitionSchema> {
 
     return key;
   }
+
   private _getPaginationPlan<TTable extends RuntimeObject>(
     table: TTable,
     query: TTable extends AnyUnion
