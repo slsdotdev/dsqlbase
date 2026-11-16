@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sql } from "@dsqlbase/core";
-import { encodeGlobalId, GlobalIdError } from "dsqlbase";
+import { encodeGlobalId } from "dsqlbase";
 import { withSeededClient } from "../fixures/seeded-client";
 import { SeededData } from "../fixures/seed";
 
@@ -113,12 +113,17 @@ describe("polymorphic relations", () => {
       expect(photo?.__type === "photos" ? photo.author?.name : undefined).toBe(author.name);
     });
 
-    it("filters by member from a runtime $$key value", async () => {
+    // Not possible anymore to filter by key.
+    it("filters by member from a runtime alias value", async () => {
       const author = getData().authors[0];
 
       const result = await getClient().authors.findOne({
         where: { id: { eq: author.id } },
-        join: { posts: true },
+        join: {
+          posts: {
+            on: { photos: false },
+          },
+        },
       });
 
       expect(result?.posts.map((post) => post.__type)).toEqual(
@@ -254,7 +259,7 @@ describe("polymorphic relations", () => {
             body: "Wrong",
           },
         })
-      ).toThrow(GlobalIdError);
+      ).toThrow("Conflicting values when setting dependent column");
     });
 
     it("filters by a global id on the discriminator and the key together", async () => {

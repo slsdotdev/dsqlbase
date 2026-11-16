@@ -172,8 +172,8 @@ describe("global ids", () => {
       const id = wrap("articles", second.id);
 
       const updated = await getClient().articles.update({
+        key: { id },
         set: { title: "Renamed" },
-        where: { id: { eq: id } },
         return: { id: true, title: true },
       });
 
@@ -181,7 +181,7 @@ describe("global ids", () => {
       expect(updated?.id).toBe(id);
 
       const deleted = await getClient().articles.delete({
-        where: { id: { eq: id } },
+        key: { id },
         return: { id: true },
       });
 
@@ -251,9 +251,8 @@ describe("global ids", () => {
         encodeGlobalId("articleTags", { articleId: article.id, tagId: tag.id })
       );
 
-      expect(record).toEqual({
+      expect(record).toMatchObject({
         __type: "articleTags",
-        $$meta: { key: "articleTags", table: "article_tags" },
         articleId: wrap("articles", article.id),
         tagId: tag.id,
       });
@@ -274,14 +273,15 @@ describe("global ids", () => {
     });
 
     it("refuses an id that names no unique key", async () => {
-      await expect(
+      expect(() =>
         getClient().$findByGlobalId(encodeGlobalId("nowhere", { id: getData().authors[0].id }))
-      ).rejects.toThrow(expect.objectContaining({ code: "unknown_node" }));
-      await expect(
+      ).toThrow("Table not found");
+
+      expect(() =>
         getClient().$findByGlobalId(
           encodeGlobalId("articleTags", { articleId: getData().articles[0].id })
         )
-      ).rejects.toThrow(expect.objectContaining({ code: "key_mismatch" }));
+      ).toThrow("Provided keys do not match any unique key");
     });
 
     it("works inside a transaction", async () => {

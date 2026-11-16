@@ -217,7 +217,7 @@ describe("json columns", () => {
         'Filter the jsonb column "config" of "boards" with one of its operators'
       );
       expect(() => client.boards.findMany({ orderBy: { notes: "asc" } })).toThrow(
-        'Cannot order by the json column "notes" of "boards".'
+        'Cannot order by the json field "notes" of table "boards".'
       );
     });
   });

@@ -241,7 +241,7 @@ describe("row policies", () => {
 
     it("update cannot touch another workspace's row", async () => {
       const updated = await acme().documents.update({
-        where: { id: foreignDocument()?.id ?? "" },
+        key: { id: foreignDocument()?.id ?? "" },
         set: { title: "hijacked" },
         return: true,
       });
@@ -258,7 +258,7 @@ describe("row policies", () => {
       const theirs = data.documents.find((d) => d.title === "Acme onboarding");
 
       const updated = await acme().documents.update({
-        where: { id: theirs?.id ?? "" },
+        key: { id: theirs?.id ?? "" },
         set: { title: "taken over" },
         return: true,
       });
@@ -273,7 +273,7 @@ describe("row policies", () => {
       // Handing the row to someone else: visible before, fails `author_writes` after.
       await expect(
         acme().documents.update({
-          where: { id: own?.id ?? "" },
+          key: { id: own?.id ?? "" },
           set: { authorId: data.users[1].id },
         })
       ).rejects.toMatchObject({ name: "PolicyViolationError", policies: ["author_writes"] });
@@ -302,7 +302,7 @@ describe("row policies", () => {
       const [own] = getData().drafts;
 
       await expect(
-        acme().drafts.update({ where: { id: own?.id ?? "" }, set: { title: "edited" } })
+        acme().drafts.update({ key: { id: own?.id ?? "" }, set: { title: "edited" } })
       ).resolves.toBeNull();
 
       const row = await internal().drafts.findOne({ where: { id: own?.id ?? "" } });
@@ -314,9 +314,9 @@ describe("row policies", () => {
       const own = data.documents.find((d) => d.title === "Acme roadmap");
       const theirs = data.documents.find((d) => d.title === "Acme onboarding");
 
-      await acme().documents.delete({ where: { id: foreignDocument()?.id ?? "" } });
-      await acme().documents.delete({ where: { id: theirs?.id ?? "" } });
-      await acme().documents.delete({ where: { id: own?.id ?? "" } });
+      await acme().documents.delete({ key: { id: foreignDocument()?.id ?? "" } });
+      await acme().documents.delete({ key: { id: theirs?.id ?? "" } });
+      await acme().documents.delete({ key: { id: own?.id ?? "" } });
 
       const left = await internal().documents.findMany({ select: { title: true } });
       expect(left.map((d) => d.title).sort()).toEqual(["Acme onboarding", "Globex roadmap"]);
