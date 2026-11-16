@@ -37,11 +37,9 @@ export class UnionClient<
     args: TArgs
   ): ExecutableQuery<UnionQueryResultOf<TUnion, this["__type"], TArgs> | null> {
     const request = this._ctx.normalizer.createUnionSelectRequest(this._union, args, "one");
+    const operation = this._ctx.operations.createUnionSelectOperation(this._union, request);
 
-    return new ExecutableQuery(
-      this._ctx.operations.createUnionSelectOperation(this._union, request),
-      this._ctx.session
-    );
+    return new ExecutableQuery(operation, this._ctx.session);
   }
 
   /**

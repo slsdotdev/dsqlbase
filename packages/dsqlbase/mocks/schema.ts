@@ -36,6 +36,7 @@ export const photos = table("photos", {
   userId: uuid("user_id").notNull(),
   createdAt: datetime("created_at").notNull(),
   photoUrl: text("photo_url").notNull(),
+  caption: text("caption"),
 });
 
 export const videos = table("videos", {
@@ -43,6 +44,7 @@ export const videos = table("videos", {
   userId: uuid("user_id").notNull(),
   createdAt: datetime("created_at").notNull(),
   videoUrl: text("video_url").notNull(),
+  caption: text("caption"),
 });
 
 export const teams = table("teams", {
@@ -63,6 +65,7 @@ export const media = union("media", {
     id: uuid("id"),
     userId: uuid("user_id").notNull(),
     createdAt: datetime("created_at").notNull(),
+    caption: text("caption"),
   },
 });
 

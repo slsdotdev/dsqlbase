@@ -38,7 +38,7 @@ const record = (index: number) => ({
 
 const unionRecord = (key: string, index: number) => ({
   data: {
-    $$key: key,
+    __type: key,
     id: `id-${index}`,
     user_id: "u1",
     created_at: `2026-01-0${3 - index}T00:00:00Z`,
@@ -204,11 +204,11 @@ describe("PaginationHandler", () => {
 
       expect(query.text).toBe(
         `SELECT row_to_json("__j0".*) AS "data", ` +
-          `"__j0"."__o0", "__j0"."$$key", "__j0"."__pk0", "__j0"."__k0", "__j0"."__k1", "__j0"."__k2" ` +
-          `FROM (SELECT 'photos' AS "$$key", "__t0"."id", "__t0"."created_at" AS "__o0", "__t0"."id" AS "__pk0", "__t0"."created_at"::text AS "__k0", 'photos'::text AS "__k1", "__t0"."id"::text AS "__k2" FROM "photos" AS "__t0" ORDER BY "__t0"."created_at" DESC, "__t0"."id" DESC LIMIT $1) AS "__j0" ` +
+          `"__j0"."__o0", "__j0"."__type", "__j0"."__pk0", "__j0"."__k0", "__j0"."__k1", "__j0"."__k2" ` +
+          `FROM (SELECT 'photos' AS "__type", "__t0"."id", "__t0"."created_at" AS "__o0", "__t0"."id" AS "__pk0", "__t0"."created_at"::text AS "__k0", 'photos'::text AS "__k1", "__t0"."id"::text AS "__k2" FROM "photos" AS "__t0" ORDER BY "__t0"."created_at" DESC, "__t0"."id" DESC LIMIT $1) AS "__j0" ` +
           `UNION ALL SELECT row_to_json("__j1".*) AS "data", ` +
-          `"__j1"."__o0", "__j1"."$$key", "__j1"."__pk0", "__j1"."__k0", "__j1"."__k1", "__j1"."__k2" FROM (SELECT 'videos' AS "$$key", "__t1"."id", "__t1"."created_at" AS "__o0", "__t1"."id" AS "__pk0", "__t1"."created_at"::text AS "__k0", 'videos'::text AS "__k1", "__t1"."id"::text AS "__k2" FROM "videos" AS "__t1" ORDER BY "__t1"."created_at" DESC, "__t1"."id" DESC LIMIT $2) AS "__j1" ` +
-          `ORDER BY "__o0" DESC, "$$key" DESC, "__pk0" DESC LIMIT $3`
+          `"__j1"."__o0", "__j1"."__type", "__j1"."__pk0", "__j1"."__k0", "__j1"."__k1", "__j1"."__k2" FROM (SELECT 'videos' AS "__type", "__t1"."id", "__t1"."created_at" AS "__o0", "__t1"."id" AS "__pk0", "__t1"."created_at"::text AS "__k0", 'videos'::text AS "__k1", "__t1"."id"::text AS "__k2" FROM "videos" AS "__t1" ORDER BY "__t1"."created_at" DESC, "__t1"."id" DESC LIMIT $2) AS "__j1" ` +
+          `ORDER BY "__o0" DESC, "__type" DESC, "__pk0" DESC LIMIT $3`
       );
     });
 
@@ -221,7 +221,7 @@ describe("PaginationHandler", () => {
         keys: true,
       });
 
-      expect(query.text).toContain(`ORDER BY "$$key" ASC, "__pk0" ASC LIMIT $3`);
+      expect(query.text).toContain(`ORDER BY "__type" ASC, "__pk0" ASC LIMIT $3`);
     });
 
     it("continues after cursor with keyset clause in every branch", () => {
@@ -242,16 +242,16 @@ describe("PaginationHandler", () => {
 
       expect(query.text).toContain(
         `SELECT row_to_json("__j0".*) AS "data", ` +
-          `"__j0"."__o0", "__j0"."$$key", "__j0"."__pk0", "__j0"."__k0", "__j0"."__k1", "__j0"."__k2" ` + // Photos keys selection
-          `FROM (SELECT 'photos' AS "$$key", "__t0"."id", "__t0"."created_at" AS "__o0", "__t0"."id" AS "__pk0", "__t0"."created_at"::text AS "__k0", 'photos'::text AS "__k1", "__t0"."id"::text AS "__k2" FROM "photos" AS "__t0" ` + // Photos subquery
+          `"__j0"."__o0", "__j0"."__type", "__j0"."__pk0", "__j0"."__k0", "__j0"."__k1", "__j0"."__k2" ` + // Photos keys selection
+          `FROM (SELECT 'photos' AS "__type", "__t0"."id", "__t0"."created_at" AS "__o0", "__t0"."id" AS "__pk0", "__t0"."created_at"::text AS "__k0", 'photos'::text AS "__k1", "__t0"."id"::text AS "__k2" FROM "photos" AS "__t0" ` + // Photos subquery
           `WHERE "__t0"."created_at" < $1 OR ("__t0"."created_at" = $2 AND ('photos' < $3 OR ('photos' = $4 AND "__t0"."id" < $5))) ` + // Photos keyset clause
           `ORDER BY "__t0"."created_at" DESC, "__t0"."id" DESC LIMIT $6) AS "__j0" ` + // Photos order
           `UNION ALL SELECT row_to_json("__j1".*) AS "data", ` +
-          `"__j1"."__o0", "__j1"."$$key", "__j1"."__pk0", "__j1"."__k0", "__j1"."__k1", "__j1"."__k2" ` + // Videos keys selection
-          `FROM (SELECT 'videos' AS "$$key", "__t1"."id", "__t1"."created_at" AS "__o0", "__t1"."id" AS "__pk0", "__t1"."created_at"::text AS "__k0", 'videos'::text AS "__k1", "__t1"."id"::text AS "__k2" FROM "videos" AS "__t1" ` + // Videos subquery
+          `"__j1"."__o0", "__j1"."__type", "__j1"."__pk0", "__j1"."__k0", "__j1"."__k1", "__j1"."__k2" ` + // Videos keys selection
+          `FROM (SELECT 'videos' AS "__type", "__t1"."id", "__t1"."created_at" AS "__o0", "__t1"."id" AS "__pk0", "__t1"."created_at"::text AS "__k0", 'videos'::text AS "__k1", "__t1"."id"::text AS "__k2" FROM "videos" AS "__t1" ` + // Videos subquery
           `WHERE "__t1"."created_at" < $7 OR ("__t1"."created_at" = $8 AND ('videos' < $9 OR ('videos' = $10 AND "__t1"."id" < $11))) ` + // Videos keyset clause
           `ORDER BY "__t1"."created_at" DESC, "__t1"."id" DESC LIMIT $12) AS "__j1" ` + // Videos order
-          `ORDER BY "__o0" DESC, "$$key" DESC, "__pk0" DESC LIMIT $13` // Final order
+          `ORDER BY "__o0" DESC, "__type" DESC, "__pk0" DESC LIMIT $13` // Final order
       );
     });
 
@@ -277,7 +277,7 @@ describe("PaginationHandler", () => {
       expect(query.text).toContain(
         `WHERE "__t1"."created_at" < $7 OR ("__t1"."created_at" = $8 AND ('videos' < $9 OR ('videos' = $10 AND "__t1"."id" < $11)))` // Videos keyset clause
       );
-      expect(query.text).toContain(`ORDER BY "__o0" ASC, "$$key" ASC, "__pk0" ASC LIMIT $13`);
+      expect(query.text).toContain(`ORDER BY "__o0" ASC, "__type" ASC, "__pk0" ASC LIMIT $13`);
     });
   });
 });

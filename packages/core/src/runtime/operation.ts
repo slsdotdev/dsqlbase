@@ -132,12 +132,13 @@ export type SelectOperationArgs = {
    * joins.
    */
   select?: FieldSelection[];
+  distinct?: boolean;
   where?: SQLNode | SQLNode[];
   orderBy?: OrderByEntry[];
   join?: [fieldName: string, args: SelectOperationArgs | UnionSelectOperationArgs][];
-  distinct?: boolean;
   limit?: number;
   offset?: number;
+  resolvers?: FieldResolverEntry[];
   /**
    * Columns projected a second time as their database text, under the hidden names `__k0`,
    * `__k1`, ... — the order keys a keyset cursor is built from. They reach the raw driver row
@@ -397,10 +398,10 @@ export class OperationsFactory<
     const order: SQLNode[] = [];
 
     for (const [key, [direction, nulls]] of entries) {
-      let item = sql`${sql.identifier(key)} ${sql.raw(direction.toUpperCase())}`;
+      const item = sql`${sql.identifier(key)} ${sql.raw(direction.toUpperCase())}`;
 
       if (nulls) {
-        item = sql`${item} ${sql.raw(nulls.toUpperCase())}`;
+        item.append(sql` NULLS ${sql.raw(nulls.toUpperCase())}`);
       }
 
       order.push(item);
@@ -416,11 +417,15 @@ export class OperationsFactory<
    *
    * No selection projects every column; an empty one projects none.
    */
-  private _resolveFields<T extends AnyTable>(table: T, selection?: FieldSelection[]) {
+  private _resolveFields<T extends AnyTable>(
+    table: T,
+    selection?: FieldSelection[],
+    initialResolvers: FieldResolverEntry[] = []
+  ) {
     // A computed discriminator is projected as its aliased expression.
     const columns: (AnyColumn | SQLNode)[] = [];
     const seen = new Set<unknown>();
-    const resolvers: FieldResolverEntry[] = [];
+    const resolvers: FieldResolverEntry[] = [...initialResolvers];
 
     // First, so `$$meta` leads every record. Resolvers only — it projects no SQL.
     resolvers.push([META_FIELD, { resolve: () => table.meta }]);
@@ -488,8 +493,7 @@ export class OperationsFactory<
           throw new Error(`Cannot write read-only column "${fieldName}"`);
         }
 
-        const value = column.getInsertValue(values[fieldName]);
-        row.push(value);
+        row.push(column.getInsertValue(values[fieldName]));
       }
 
       rows.push(row);
@@ -545,7 +549,7 @@ export class OperationsFactory<
     /** The level is read as JSON (a join, a union branch): @see {Column.textInJson}. */
     json = false
   ) {
-    const fields = this._resolveFields(table, args.select);
+    const fields = this._resolveFields(table, args.select, args.resolvers);
     resolvers.push(...fields.resolvers);
 
     const where = this._resolveWhere(table, ["select"], args.where);

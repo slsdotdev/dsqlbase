@@ -30,6 +30,7 @@ import {
   GetArgs,
   JoinExpressionOf,
   KeyExpressionOf,
+  MutationInputOf,
   OrderByExpressionOf,
   PaginatedQueryArgs,
   QueryArgs,
@@ -44,6 +45,7 @@ import {
 import { OrderByEntry } from "@dsqlbase/core/runtime/operation";
 import { getColumnRules } from "./rules.js";
 import { decodeGlobalId } from "../../schema/utils/global-id.js";
+import { KEY_FIELD } from "@dsqlbase/core/definition";
 
 export class RequestNormalizer<TDefinition extends DefinitionSchema> implements TypedObject<
   Schema<TDefinition>
@@ -167,6 +169,43 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     };
   }
 
+  private _resolveMutationValues<TTable extends AnyTable>(
+    table: TTable,
+    input: Record<string, unknown>
+  ): MutationInputOf<TTable> {
+    const values: Record<string, unknown> = {};
+
+    for (const [fieldName, value] of Object.entries(input)) {
+      const column = table.getColumn(fieldName);
+
+      if (!column) {
+        throw new Error(`Column "${fieldName}" does not exist on table "${table.name}"`);
+      }
+
+      values[fieldName] = value;
+
+      for (const dep of column.dependsOn) {
+        if (dep instanceof Column && typeof column.hooks?.writeDeps === "function") {
+          const depValue = column.hooks.writeDeps?.(values[fieldName], { column });
+
+          if (!depValue) {
+            continue;
+          }
+
+          if (input[dep.fieldName] && input[dep.fieldName] !== depValue) {
+            throw new Error(
+              `Conflicting values when setting dependent column "${dep.fieldName}" of "${fieldName}" on table "${table.alias}". Given: '${input[dep.fieldName]}', computed: '${depValue}'`
+            );
+          }
+
+          values[dep.fieldName] = depValue;
+        }
+      }
+    }
+
+    return values as MutationInputOf<TTable>;
+  }
+
   private _getSelectEntries<TTable extends AnyTable>(
     table: TTable,
     select: SelectableFieldsOf<TTable> | boolean | null | undefined
@@ -274,9 +313,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     table: TTable,
     values: UpdateValuesOf<TTable>
   ): FieldMutation[] {
+    const input = this._resolveMutationValues(table, values);
+
     const entries: FieldMutation[] = [];
 
-    for (const [fieldName, value] of Object.entries(values)) {
+    for (const [fieldName, value] of Object.entries(input)) {
       const column = table.getColumn(fieldName);
 
       if (!column) {
@@ -315,9 +356,9 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       where,
       join,
       orderBy,
-      distinct: args.distinct,
-      limit: args.limit,
-      offset: args.offset,
+      distinct: args.distinct ?? undefined,
+      limit: args.limit ?? undefined,
+      offset: args.offset ?? undefined,
     };
   }
 
@@ -335,13 +376,14 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     }
 
     const members: [string, SelectOperationArgs][] = [];
+    const where = this._where.unwrap(union, args.where);
 
     for (const [alias, member] of Object.entries(union.members)) {
       if (args.on?.[alias] === false) {
         continue;
       }
 
-      const query = this._mergeMemberQuery(args, args.on?.[alias]);
+      const query = this._mergeMemberQuery({ ...args, where }, args.on?.[alias]);
 
       members.push([
         alias,
@@ -354,8 +396,8 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
     return {
       members,
       orderBy,
-      limit: args.limit,
-      offset: args.offset,
+      limit: args.limit ?? undefined,
+      offset: args.offset ?? undefined,
     };
   }
 
@@ -520,7 +562,11 @@ export class RequestNormalizer<TDefinition extends DefinitionSchema> implements 
       throw new Error(`Invalid global ID: table with alias "${key}" not found`);
     }
 
-    return { table, request: this.createGetRequest(table, { key: pk as KeyExpressionOf<TTable> }) };
+    const request = this.createGetRequest(table, { key: pk as KeyExpressionOf<TTable> });
+    request.args.resolvers ??= [];
+    request.args.resolvers.push([KEY_FIELD, { resolve: () => table.alias }]);
+
+    return { table, request };
   }
 }
 

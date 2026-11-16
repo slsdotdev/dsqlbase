@@ -181,7 +181,7 @@ export class Table<
       // Deprecated: still in the database until a later release drops it, but not the client's.
       if (def["_deprecated"]) continue;
 
-      columns[name] = new Column(this, def);
+      columns[name] = new Column(this, def, name);
     }
 
     return columns as TableColumns<this>;

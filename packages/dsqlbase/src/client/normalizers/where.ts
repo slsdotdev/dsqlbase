@@ -1,4 +1,4 @@
-import { AnyColumn, AnyTable, OrderByEntry, sql, SQLNode } from "@dsqlbase/core";
+import { AnyColumn, AnyTable, AnyUnion, OrderByEntry, sql, SQLNode } from "@dsqlbase/core";
 import { escapeLike, isDefined, isNullOrFalse, isPlainObject } from "./utils.js";
 import {
   allowPlainObjectFilter,
@@ -271,6 +271,60 @@ export class WhereBuilder {
     // Nothing can sort past the cursor — only possible when the last key is a nullable one read
     // ascending from a null. A primary key, which every page ends on, is never nullable.
     return inner ?? sql.raw("FALSE");
+  }
+
+  public unwrap<T extends AnyUnion>(
+    union: T,
+    where: WhereExpressionOf<T> | null | undefined
+  ): WhereExpressionOf<T> | null | undefined {
+    if (!isDefined(where)) {
+      return where;
+    }
+
+    const result: Record<string, unknown> = { ...where };
+
+    for (const [fieldName, condition] of Object.entries(where)) {
+      if (isAndEntry(fieldName, condition) || isOrEntry(fieldName, condition)) {
+        result[fieldName] = condition.map((entry) => this.unwrap(union, entry));
+        continue;
+      }
+
+      if (isNotEntry(fieldName, condition)) {
+        result[fieldName] = this.unwrap(union, condition);
+        continue;
+      }
+
+      const column = union.getColumn(fieldName);
+
+      if (!column || typeof column.hooks?.filter !== "function") {
+        result[fieldName] = condition;
+        continue;
+      }
+
+      if (!isFilterObject(condition)) {
+        result[fieldName] = column.hooks.filter(condition, { column });
+        continue;
+      }
+
+      const unwrapped: Record<string, unknown> = {};
+
+      for (const [operator, value] of Object.entries(condition)) {
+        if (!isDefined(value)) {
+          continue;
+        }
+
+        if ((operator === "in" || operator === "or") && Array.isArray(value)) {
+          unwrapped[operator] = value.map((v) => column.hooks?.filter?.(v, { column }));
+          continue;
+        }
+
+        unwrapped[operator] = column.hooks?.filter?.(value, { column });
+      }
+
+      result[fieldName] = unwrapped;
+    }
+
+    return result as WhereExpressionOf<T>;
   }
 }
 

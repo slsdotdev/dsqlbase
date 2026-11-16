@@ -275,6 +275,10 @@ export type UpdateValuesOf<T extends AnyTable> = {
   >;
 };
 
+export type MutationInputOf<TTable extends AnyTable> =
+  | CreateValuesOf<TTable>
+  | UpdateValuesOf<TTable>;
+
 /*
  * -------------------------------------------------------------------------------------------
  // #region Results
@@ -671,7 +675,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  select?: SelectionOf<TTable, TSchema>;
+  select?: SelectionOf<TTable, TSchema> | null | undefined;
 
   /**
    * A filter expression to specify which records to retrieve. This is optional for `findMany`, if not provided, all records will be returned.
@@ -684,7 +688,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  where?: WhereExpressionOf<TTable>;
+  where?: WhereExpressionOf<TTable> | null | undefined;
 
   /**
    * Join related records based on the relations defined in the schema. The value can be a boolean or a nested query object for more complex queries.
@@ -709,7 +713,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * })
    * ```
    */
-  join?: Prettify<JoinExpressionOf<TTable, TSchema>>;
+  join?: Prettify<JoinExpressionOf<TTable, TSchema>> | null | undefined;
 
   /**
    * Specify the order in which to return the records. The keys must be field names of the table, and the values must be either "asc" for ascending order or "desc" for descending order.
@@ -722,7 +726,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  orderBy?: OrderByExpressionOf<TTable>;
+  orderBy?: OrderByExpressionOf<TTable> | null | undefined;
 
   /**
    * Specify that the query should return only distinct records based on the selected fields. This is useful when you want to eliminate duplicate records from the result set.
@@ -736,7 +740,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  distinct?: boolean;
+  distinct?: boolean | null | undefined;
 
   /**
    * Specify the maximum number of records to return and the number of records to skip. This is useful for implementing pagination in your queries.
@@ -751,7 +755,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  limit?: number;
+  limit?: number | null | undefined;
 
   /**
    * The `offset` parameter specifies the number of records to skip before starting to return records. This is useful for implementing pagination in your queries. If not provided, no records will be skipped.
@@ -765,7 +769,7 @@ export type QueryArgs<TTable extends RuntimeObject, TSchema extends AnySchema> =
    * ```
    *
    */
-  offset?: number;
+  offset?: number | null | undefined;
 }>;
 
 export type GetArgs<TTable extends AnyTable, TSchema extends AnySchema> = {

@@ -17,7 +17,7 @@ describe("UnionClient", () => {
     session.mock.mockResolvedValue([
       {
         data: {
-          $$key: "photos",
+          __type: "photos",
           id: "p1",
           user_id: "u1",
           created_at: "2026-01-01T00:00:00Z",
@@ -26,7 +26,7 @@ describe("UnionClient", () => {
       },
       {
         data: {
-          $$key: "videos",
+          __type: "videos",
           id: "v1",
           user_id: "u1",
           created_at: "2026-01-02T00:00:00Z",

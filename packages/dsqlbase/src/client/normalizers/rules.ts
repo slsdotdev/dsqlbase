@@ -1,5 +1,6 @@
 import { AnyColumn } from "@dsqlbase/core";
 import { ColumnRuntimeType } from "@dsqlbase/core/definition";
+import { FilterCondition } from "./base.js";
 
 export const COMPARISON = [
   "eq",
@@ -113,7 +114,9 @@ export function getColumnRules<T extends AnyColumn>(
   return RUNTIME_COLUMN_RULES[column.runtimeType] as RuntimeColumnRules[T["runtimeType"]];
 }
 
-export const isFilterObject = (condition: unknown): condition is Record<string, unknown> => {
+export const isFilterObject = <TValue>(
+  condition: unknown
+): condition is FilterCondition<TValue> => {
   if (typeof condition !== "object" || condition === null || Array.isArray(condition)) {
     return false;
   }
