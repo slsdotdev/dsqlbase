@@ -41,7 +41,7 @@ This directory is the single reference for `dsqlbase`, for people using it and f
 
 ## Page conventions
 
-- Code is cited by path (`packages/dsqlbase/src/client/model/base.ts`), never by line number.
+- Code is cited by path (`packages/dsqlbase/src/client/normalizers/base.ts`), never by line number.
 - DSQL capability claims carry the AWS doc URL and a `Verified: YYYY-MM-DD` line.
 - Every page opens with an `_Audience_` line and ends with `## Related`.
 - Stub pages carry a `> **Status: stub**` callout and list what they will contain.

@@ -64,7 +64,7 @@ Nested `where` / `select` / `orderBy` / `limit` / `join` all work inside a join,
 When a relation needs no filter, order or limit, name it in `select` instead, as `true` or a field map — `select: { name: true, membership: { role: true } }` reads exactly as `join: { membership: { select: { role: true } } }`. See [Relations in `select`](./querying.md#relations-in-select).
 
 - **A relation may not be named after a column of the same table.** Columns and relations share one field namespace, because `select`, `join` and the keys of a result row all address them as fields of the same model. `createClient` throws when they collide, naming both.
-- **`$$meta` and `$$key` are reserved.** A relation of either name throws when the client is created; the runtime writes them onto result rows itself. See [`$$meta`](./querying.md#meta-on-every-row).
+- **`__meta` and `__type` are reserved.** A relation of either name throws when the client is created; the runtime writes them onto result rows itself. See [`__meta`](./querying.md#__meta-on-every-row).
 
 ## Relations to a union
 
@@ -111,7 +111,7 @@ export const commentRelations = relations(comments, {
 `from` by type, and a per-member map must name each member exactly once. A list given in
 the first form may only hold fields the union declares.
 
-Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `$$key` on
+Joining one — the shared `select` / `where` / `orderBy`, the per-member `on` map, and `__type` on
 every row — is covered in [Polymorphic relations](./polymorphic-relations.md).
 
 ## Relations declared on a union

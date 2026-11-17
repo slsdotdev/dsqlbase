@@ -2,6 +2,7 @@
 
 - **Date:** 2026-09-27
 - **Status:** accepted
+- **Amended by [0025](./0025-client-rewrite.md):** `paginate` is `paginatedQuery`; a page is `{ items, hasMore, nextCursor }` with `__cursor` per item; `count: true` and `totalCount` are removed; `maxLimit` defaults to 100.
 - **Proposal:** `client-pagination.md` (local working artifact, not tracked)
 
 ## Context

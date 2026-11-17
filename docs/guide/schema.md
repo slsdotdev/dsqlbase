@@ -74,24 +74,26 @@ accepted as input — are in
 
 ### Row policies
 
-`table.policy(name, (t) => ({ as, for, using, check }))` declares a row policy, shaped like
+`table.policy(name, { as, for, using, check })` declares a row policy, shaped like
 `CREATE POLICY`, that the client enforces on every statement — DSQL has no RLS. Its conditions
-compare columns with [settings](./policies.md#settings), per-request values declared with
-`settings({ ... })`:
+compare columns with [claims](./policies.md#claims), per-request values read with
+`sql.claim("key")`:
 
 ```ts
-const params = settings({ workspaceId: uuid("identity.workspace_id") });
-
 const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
-    .$onCreate(() => params.settings.workspaceId),
+    .$onCreate(() => sql.claim("workspaceId")),
   number: text("number").notNull(),
-}).policy("workspace_isolation", (t) => ({
-  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
-}));
+});
+
+// `policy()` registers the policy on the table and returns a `PolicyDefinition`, so call it on
+// its own rather than chaining it onto `table()`.
+invoices.policy("workspace_isolation", {
+  using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+});
 ```
 
 A table with any policy denies by default. Policies emit no DDL, and the column a policy reads is
@@ -132,7 +134,7 @@ Expressions and predicates must be immutable, and a query uses a partial index o
 ### Table metadata
 
 `.meta()` attaches arbitrary data to a table, surfaced on every result row as part of
-[`$$meta`](./querying.md#meta-on-every-row):
+[`__meta`](./querying.md#__meta-on-every-row):
 
 ```ts
 const tasks = table("tasks", {
@@ -141,7 +143,7 @@ const tasks = table("tasks", {
 }).meta({ __typename: "Task" });
 
 // later
-row.$$meta.__typename; // "Task", typed from the declaration
+row.__meta.__typename; // "Task", typed from the declaration
 ```
 
 It chains off `table()` — that is what carries the type through — and describes the table to
@@ -149,14 +151,14 @@ your application, never to the database. Metadata is excluded from `toJSON`, so 
 reaches a migration; changing it produces no DDL.
 
 The built-in keys `key`, `table` and `schema` are set from the schema itself and may not be
-redeclared. `$$meta` and `$$key` are reserved field names: a column or a relation of either
+redeclared. `__meta` and `__type` are reserved field names: a column or a relation of either
 name throws.
 
 ## Unions
 
 `union()` groups tables that can stand in for one another — what GraphQL calls a union or an
-interface. Key every member by the alias it is exported under, and declare the fields they
-share:
+interface. Name it, key every member by the alias it is exported under, and declare the fields
+they share:
 
 ```ts
 import { union } from "dsqlbase/schema";
@@ -173,10 +175,10 @@ export const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 });
 
-export const posts = union(
-  { photos, videos },
-  { id: guid("id"), userId: guid("user_id").notNull() }
-);
+export const posts = union("posts", {
+  members: { photos, videos },
+  columns: { id: guid("id"), userId: guid("user_id").notNull() },
+});
 // posts.columns: { id, userId } — the shared fields
 ```
 

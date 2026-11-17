@@ -67,7 +67,7 @@ one id names at most one row:
 encodeGlobalId("articles", { id }); // the primary key
 encodeGlobalId("articleTags", { articleId, tagId }); // a composite key: both fields
 encodeGlobalId("tags", { label: "news" }); // a unique column
-encodeGlobalId("articleTags", { articleId }); // ✗ part of a key: GlobalIdError("key_mismatch")
+encodeGlobalId("articleTags", { articleId }); // ✗ part of a key: the lookup throws
 ```
 
 Only `guid()` columns _emit_ ids. A table keyed by a plain `uuid()`, or by a composite key, is
@@ -141,43 +141,30 @@ import { decodeGlobalId, encodeGlobalId, isGlobalId, GlobalIdError } from "dsqlb
 
 const record = await dsql.$findByGlobalId(id);
 
-if (record?.$$key === "authors") record.name;
-if (record?.$$key === "articles") record.title;
+if (record?.__type === "authors") record.name;
+if (record?.__type === "articles") record.title;
 ```
 
-`$findByGlobalId(id)` returns the row with every column, or `null` if it no longer exists. The
-result is a union over every node in the schema, and **`$$key` is what narrows it** — the
-literal alias, on the row itself. `$$meta.key` carries the same value, but TypeScript does not narrow a union
-on a nested property, so `record.$$meta.key === "authors"` compiles and narrows nothing.
+`$findByGlobalId(id)` returns a query — it runs when awaited, or inside a
+[`$transaction`](./transactions.md) batch — that resolves to the row with every column, or `null`
+if it no longer exists. The result is a union over every node in the schema, and **`__type` is
+what narrows it** — the literal alias, on the row itself. `__meta.key` carries the same value at
+runtime, but TypeScript does not narrow a union on a nested property.
 
-Neither lookup takes anything else. A narrower read — some columns, a join, an extra filter — is
-the table's own `findOne` or `findMany`, which accept the same ids:
+There is no batch lookup: resolve a list by awaiting one `$findByGlobalId` per id, or group the
+ids by table and use that table's `findMany` with `where: { id: { in: ids } }`.
+
+The lookup takes nothing else. A narrower read — some columns, a join, an extra filter — is the
+table's own `get`, `findOne` or `findMany`, which accept the same ids:
 
 ```ts
 const { key } = decodeGlobalId(id);
 
 if (key === "authors") {
   await dsql.authors.findOne({ where: { id: { eq: id } }, select: { name: true } });
+  await dsql.authors.get({ key: { id }, select: { name: true } }); // by unique key
 }
 ```
-
-`$listByGlobalId(ids)` resolves many at once — one query per table rather than one per id — and
-returns them **in the order you asked**, each with every column, and `null` wherever a row is
-missing. That is the shape a batch resolver wants:
-
-```ts
-const [a, b, c] = await dsql.$listByGlobalId([id1, id2, id3]); // [{ … }, null, { … }] if id2 is gone
-```
-
-A row is matched back to its id by node and key, not by the id's text: an id whose uuid is
-spelled differently — upper case, braces, no hyphens — resolves here as it does in
-`$findByGlobalId`.
-
-## Row policies
-
-Both lookups go through the table's own model client, so a node lookup carries the table's
-[row policies](./policies.md) like any other read. An id for a row the policies hide resolves to
-`null` — the row exists, it is simply not visible to this client.
 
 ## Failure modes
 
@@ -186,10 +173,9 @@ Both lookups go through the table's own model client, so a node lookup carries t
 | Raw uuid to a guid column                                   | accepted                                                 |
 | Malformed `guid:` string                                    | `GlobalIdError("format")`                                |
 | Wrapped id naming another node                              | `GlobalIdError("key_mismatch")`, when the query is built |
-| Lookup fields that are not one of the table's unique keys   | `GlobalIdError("key_mismatch")`                          |
-| A lookup for a table not in the schema, or with no key      | `GlobalIdError("unknown_node")`                          |
+| Lookup fields that are not one of the table's unique keys   | plain `Error` (`Provided keys do not match any unique key…`) |
+| A lookup for a table not in the schema                      | plain `Error` (`Invalid global ID: table with alias "…" not found`) |
 | `$findByGlobalId` for a row that is gone                    | `null`                                                   |
-| `$listByGlobalId` with one unusable id                      | throws; a missing _row_ is a `null` in place             |
 | A relation pairing a guid with a uuid                       | throws when the schema is validated (`createClient`)     |
 | A column whose relations end at different columns           | throws when the schema is validated (`createClient`)     |
 | `$query` with a wrapped id                                  | **not** unwrapped — see below                            |
@@ -228,6 +214,6 @@ follows your API's identity rather than the physical schema.
 
 - [Schema](./schema.md) — `guid()` beside the other column builders
 - [Relations](./relations.md) — the guid pair rule
-- [Querying](./querying.md) — `$$meta` on every row
+- [Querying](./querying.md) — `__meta` on every row
 - [Row policies](./policies.md) — a node lookup is bounded like any other read
 - [Codec boundary](../internals/codec-boundary.md) — where the wrapping runs

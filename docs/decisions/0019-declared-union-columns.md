@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-04
 - **Status:** accepted
+- **Amended by [0025](./0025-client-rewrite.md):** `union(name, { members, columns })` takes a name.
 - **Supersedes:** how shared fields are defined, and the rejection of "A declared shared-field
   list on `union()`", in [0009](./0009-polymorphic-relations.md)
 - **Proposal:** `schema-definition-cleanup.md` (local working artifact, not tracked)

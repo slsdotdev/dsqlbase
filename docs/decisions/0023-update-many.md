@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-07
 - **Status:** accepted
+- **Amended by [0025](./0025-client-rewrite.md):** `update` / `delete` take a typed `key` instead of a unique-pinning `where`; `updateMany` / `deleteMany` are unchanged.
 - **Supersedes:** the "change every matching row but return one" known gap in
   [Runtime pipeline](../internals/runtime-pipeline.md)
 - **Proposal:** `row-policies.md`, prerequisite story (local working artifact, not tracked)
