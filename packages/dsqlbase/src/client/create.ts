@@ -1,13 +1,8 @@
-import {
-  DefinitionSchema,
-  ExecutionContext,
-  PaginationOptions,
-  QueryBuilder,
-  SchemaRegistry,
-  Session,
-} from "@dsqlbase/core";
-import { attachModels } from "./database/base.js";
-import { DatabaseClient, QueryClient } from "./database/index.js";
+import { DefinitionSchema, QueryBuilder, SchemaRegistry, Session } from "@dsqlbase/core";
+import { withModels, WithModels } from "./clients/base.js";
+import { DsqlClient } from "./clients/dsql.js";
+import { PaginationOptions } from "./normalizers/pagination.js";
+import { ClientContext } from "./normalizers/context.js";
 
 export type ClientOptions<TSchema extends DefinitionSchema> = {
   /**
@@ -35,24 +30,13 @@ export type ClientOptions<TSchema extends DefinitionSchema> = {
   pagination?: PaginationOptions;
 };
 
-function assertPagination(options: PaginationOptions | undefined) {
-  for (const [name, value] of Object.entries(options ?? {})) {
-    if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
-      throw new Error(`pagination.${name} must be a positive integer (got ${String(value)}).`);
-    }
-  }
-
-  const { defaultLimit, maxLimit } = options ?? {};
-
-  if (defaultLimit !== undefined && maxLimit !== undefined && defaultLimit > maxLimit) {
-    throw new Error(
-      `pagination.defaultLimit (${defaultLimit}) exceeds pagination.maxLimit (${maxLimit}).`
-    );
-  }
-}
+export type DsqlQueryClient<TSchema extends DefinitionSchema> = WithModels<
+  TSchema,
+  DsqlClient<TSchema>
+>;
 
 /**
- * Creates a new client instance for interacting with the database using the provided schema definition.
+ * Creates a new {@link DsqlClient} instance for interacting with the database using the provided schema definition.
  *
  * @example
  * ```ts
@@ -107,19 +91,17 @@ function assertPagination(options: PaginationOptions | undefined) {
  * @param options - Configuration options for the client, including the schema definition.
  * @returns A new instance of the DSQL client configured with the provided schema.
  * @throws Will throw an error if the schema definition is invalid or if there are issues initializing the client.
+ *
  * @see {@link ClientOptions} for more details on the configuration options.
- * @see {@link ModelClient} for information on the methods available for interacting with the database tables.
  */
 
 export function createClient<TSchema extends DefinitionSchema>(
   options: ClientOptions<TSchema>
-): QueryClient<TSchema> {
-  assertPagination(options.pagination);
-
+): WithModels<TSchema, DsqlClient<TSchema>> {
   const schema = new SchemaRegistry(options.schema);
   const dialect = new QueryBuilder();
 
-  const context = new ExecutionContext({
+  const context = new ClientContext({
     schema,
     dialect,
     session: options.session,
@@ -127,8 +109,7 @@ export function createClient<TSchema extends DefinitionSchema>(
     pagination: options.pagination,
   });
 
-  const dbClient = new DatabaseClient(context);
-  attachModels(dbClient, context);
+  const client = new DsqlClient<TSchema>(context);
 
-  return dbClient as unknown as QueryClient<TSchema>;
+  return withModels<TSchema, DsqlClient<TSchema>>(client);
 }

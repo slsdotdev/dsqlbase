@@ -1,5 +1,5 @@
 import {
-  AnyColumnDefinition,
+  AnyTableRelations,
   AnyUnionDefinition,
   AnyUnionMembers,
   UnionColumnsConfig,
@@ -7,6 +7,7 @@ import {
   UnionDefinition,
 } from "../definition/index.js";
 import { TypedObject } from "../utils/types.js";
+import { WithRelations } from "./base.js";
 import { AnyColumn } from "./column.js";
 import { AnyTable } from "./table.js";
 
@@ -17,33 +18,43 @@ import { AnyTable } from "./table.js";
  * Built by the registry once every table exists, since a member is only a `Table` from then.
  */
 export class Union<
+  TName extends string,
   TMembers extends AnyUnionMembers,
   TColumns extends UnionColumnsConfig<TMembers>,
-> implements TypedObject<UnionConfig<TMembers, TColumns>> {
-  declare readonly __type: UnionConfig<TMembers, TColumns>;
+  TRelations extends AnyTableRelations,
+> implements TypedObject<WithRelations<UnionConfig<TMembers, TColumns>, TRelations>> {
+  declare readonly __type: WithRelations<UnionConfig<TMembers, TColumns>, TRelations>;
 
+  readonly name: TName;
   /** The schema key the union was exported under. */
   readonly alias: string;
-
   readonly definition: AnyUnionDefinition;
-
   readonly members: Readonly<Record<string, AnyTable>>;
 
   /** Shared field → member alias → that member's column for the field. */
   readonly sharedColumns: Readonly<Record<string, Readonly<Record<string, AnyColumn>>>>;
 
   constructor(
-    definition: UnionDefinition<TMembers, TColumns>,
+    definition: UnionDefinition<TName, TMembers, TColumns>,
     members: Record<string, AnyTable>,
-    alias: string
+    alias?: string
   ) {
-    this.alias = alias;
+    this.name = definition.name;
+    this.alias = alias ?? definition.name;
     this.definition = definition;
     this.members = Object.freeze({ ...members });
+    this.sharedColumns = this._buildSharedColumns();
+  }
 
+  /** The member aliases, in declaration order. */
+  public get memberAliases(): string[] {
+    return Object.keys(this.members);
+  }
+
+  private _buildSharedColumns(): Record<string, Readonly<Record<string, AnyColumn>>> {
     const shared: Record<string, Record<string, AnyColumn>> = {};
 
-    for (const field of Object.keys(definition.columns)) {
+    for (const field of Object.keys(this.definition.columns)) {
       shared[field] = Object.freeze(
         Object.fromEntries(
           Object.entries(this.members).map(([key, member]) => [
@@ -54,12 +65,7 @@ export class Union<
       );
     }
 
-    this.sharedColumns = Object.freeze(shared);
-  }
-
-  /** The member aliases, in declaration order. */
-  public get memberAliases(): string[] {
-    return Object.keys(this.members);
+    return Object.freeze(shared);
   }
 
   public hasMember(alias: string): boolean {
@@ -102,6 +108,14 @@ export class Union<
     return Object.hasOwn(this.sharedColumns, field);
   }
 
+  public hasColumn(field: string): boolean {
+    return Object.hasOwn(this.sharedColumns, field);
+  }
+
+  public getColumn(field: string): AnyColumn | undefined {
+    return this.sharedColumns[field]?.[this.memberAliases[0]];
+  }
+
   /** The column a shared field resolves to on one member. */
   public getMemberColumn(alias: string, field: string): AnyColumn {
     const column = this.sharedColumns[field]?.[alias];
@@ -117,4 +131,5 @@ export class Union<
   }
 }
 
-export type AnyUnion = Union<AnyUnionMembers, Record<string, AnyColumnDefinition>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyUnion = Union<any, any, any, any>;

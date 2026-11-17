@@ -2,7 +2,7 @@
 
 _Audience: application developers._
 
-`dsql.$transaction(...)` runs work inside `BEGIN … COMMIT` on a dedicated transaction session and retries on DSQL's optimistic-concurrency failure (`SQLSTATE 40001`). Source: `packages/dsqlbase/src/client/transaction/`.
+`dsql.$transaction(...)` runs work inside `BEGIN … COMMIT` on a dedicated transaction session and retries on DSQL's optimistic-concurrency failure (`SQLSTATE 40001`). Source: `packages/dsqlbase/src/client/clients/transaction.ts` and `packages/dsqlbase/src/client/clients/dsql.ts`.
 
 Two forms:
 
@@ -16,7 +16,7 @@ const [user, task] = await dsql.$transaction([
 // 2. Callback: a scoped client with the same models bound to the transaction session.
 await dsql.$transaction(async (tx) => {
   const user = await tx.users.findOne({ where: { id: { eq: userId } } });
-  await tx.tasks.update({ set: { assigneeId: user?.id }, where: { id: { eq: taskId } } });
+  await tx.tasks.update({ key: { id: taskId }, set: { assigneeId: user?.id } });
 });
 ```
 
@@ -24,32 +24,30 @@ The session passed to `createClient` must implement `beginTransaction()`; both p
 
 The transaction client carries every model the client it came from shows, [union clients](./polymorphic-relations.md#reading-a-union-directly) included, bound to the transaction session.
 
-A batch takes anything a model method returns, including a [page](./pagination.md) counted with
-`count: true`, which is two statements rather than one. Inside the transaction both run on its
-session, so the page and its `totalCount` read the same snapshot:
+A batch takes anything a model method returns, including a [page](./pagination.md). Inside the transaction every statement runs on its session, so a page and a count read the same snapshot:
 
 ```ts
 const [page, open] = await dsql.$transaction([
-  dsql.tasks.paginate({ limit: 20, count: true }),
+  dsql.tasks.paginatedQuery({ limit: 20 }),
   dsql.tasks.count({ where: { status: "todo" } }),
 ]);
 ```
 
-## Transactions with settings
+## Transactions with claims
 
-A transaction opened on a client with [settings](./policies.md#per-request-clients) carries them: every query inside it is bounded by the [row policies](./policies.md) with those values, and a column filled from a setting is filled in it too.
+A transaction opened on a client with [claims](./policies.md#per-request-clients) carries them: every query inside it is bounded by the [row policies](./policies.md) with those values, and a column filled from a setting is filled in it too.
 
 ```ts
-const db = dsql.$settings({ workspaceId, userId });
+const db = dsql.$withClaims({ workspaceId, userId });
 
 await db.$transaction(async (tx) => {
   await tx.invoices.create({ data: { number: "INV-2" } });
 });
 ```
 
-Give the settings first, then open the transaction — a transaction client has no `$settings` of its own, so there is one order rather than two.
+Give the claims first, then open the transaction — a transaction client has no `$withClaims` of its own, so there is one order rather than two.
 
-Batching a query built on a settings client into a transaction without settings is safe. An `ExecutableQuery` has its SQL fixed when the client builds it, and `$transaction([...])` only swaps the session each operation runs on, so the values are already bound:
+Batching a query built on a claims client into a transaction without claims is safe. An `ExecutableQuery` has its SQL fixed when the client builds it, and `$transaction([...])` only swaps the session each operation runs on, so the values are already bound:
 
 ```ts
 await dsql.$transaction([db.invoices.findMany({})]);   // still bounded by `workspaceId`
@@ -62,7 +60,7 @@ A write that fails a policy's check throws `PolicyViolationError`; the transacti
 DSQL takes no locks: two transactions that touch the same rows both run, and the one that commits second fails with `SQLSTATE 40001` — usually at `COMMIT`. `$transaction` rolls back and runs the whole transaction again on a fresh one:
 
 - **What reruns** — the callback, from the start, against a new transaction client; or every query of a batch, in order. Anything the callback does besides querying (a request, an email, a counter in memory) runs again too, so keep side effects out of it, or make them safe to repeat.
-- **How often** — at most 3 runs: the first, then 2 retries. The delay before a retry doubles each time from 100 ms (with up to 10% jitter), capped at 1 s. Source: `packages/dsqlbase/src/client/transaction/occ-retry.ts`. These aren't configurable from `$transaction` yet.
+- **How often** — at most 3 runs: the first, then 2 retries. The delay before a retry doubles each time from 100 ms (with up to 10% jitter), capped at 1 s. Source: `packages/dsqlbase/src/client/utils/occ-retry.ts`. These aren't configurable from `$transaction` yet.
 - **What doesn't retry** — any other error. It is thrown as is, after the rollback; a rollback that fails too never replaces it.
 
 A query awaited outside `$transaction` is its own transaction, and a `40001` from it is thrown to you: nothing retries it. Put writes that can conflict in a `$transaction`.

@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-07
 - **Status:** accepted
+- **Amended by [0025](./0025-client-rewrite.md):** the settings API is `dsql.$withClaims(values)` (merging over existing values), not `$settings`; `createClient` has no `settings` option.
 - **Supersedes:** [0005](./0005-tenant-client-visibility.md) (tenant table visibility on the
   client) and [0006](./0006-client-tenancy.md) (application-level tenancy)
 - **Proposal:** `row-policies.md` (local working artifact, not tracked)

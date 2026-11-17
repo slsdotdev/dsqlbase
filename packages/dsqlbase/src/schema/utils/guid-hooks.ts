@@ -1,7 +1,6 @@
 import {
   AnyColumn,
   AnyTable,
-  ColumnHookContext,
   ColumnHooks,
   ComputedDiscriminator,
   ReferenceEnd,
@@ -48,7 +47,24 @@ export type DynamicGuidBinding = {
  * relation pair to carry it, and refuse a guid column referencing two targets.
  */
 export const guidHooks: ColumnHooks<string> = {
-  read(value: string, { column, row }: ColumnHookContext): string {
+  filter(value, { column }) {
+    if (!isGlobalId(value)) {
+      return value;
+    }
+
+    const { pk } = decodeGlobalId(value);
+
+    if (!Object.hasOwn(pk, column.fieldName)) {
+      throw new Error(
+        `Global id for "${column.fieldName}" carries ${Object.keys(pk).join(
+          ", "
+        )} rather than its key "${column.fieldName}".`
+      );
+    }
+
+    return pk[column.fieldName];
+  },
+  read(value, { column, row }) {
     const binding = bindingOf(column);
 
     if ("key" in binding) {
@@ -63,12 +79,21 @@ export const guidHooks: ColumnHooks<string> = {
       : value;
   },
 
-  write(value: string, { column }: ColumnHookContext): string {
+  write(value, { column }) {
     const binding = bindingOf(column);
 
     return "key" in binding
       ? unwrap(value, binding.key, binding.keyField)
       : (decodeMemberId(value, binding.members)?.value ?? value);
+  },
+
+  writeDeps(value) {
+    if (!isGlobalId(value)) {
+      return null;
+    }
+
+    const { key } = decodeGlobalId(value);
+    return key;
   },
 };
 
@@ -201,21 +226,21 @@ export function decodeMemberId(
  * point of carrying the table in the value. `decodeGlobalId` catches the wrong table; the
  * field check below catches a payload that names the right table but the wrong key.
  */
-function unwrap(value: string, key: string, keyField: string): string {
+function unwrap(value: string, alias: string, fieldName: string): string {
   if (!isGlobalId(value)) {
     return value;
   }
 
-  const { pk } = decodeGlobalId(value, key);
+  const { pk } = decodeGlobalId(value, alias);
 
-  if (!Object.hasOwn(pk, keyField)) {
+  if (!Object.hasOwn(pk, fieldName)) {
     throw new GlobalIdError(
       "key_mismatch",
-      `Global id for "${key}" carries ${Object.keys(pk)
+      `Global id for "${alias}" carries ${Object.keys(pk)
         .map((field) => `"${field}"`)
-        .join(", ")} rather than its key "${keyField}".`
+        .join(", ")} rather than its key "${fieldName}".`
     );
   }
 
-  return pk[keyField];
+  return pk[fieldName];
 }

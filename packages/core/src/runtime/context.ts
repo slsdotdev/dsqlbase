@@ -6,14 +6,6 @@ import { Session } from "./session.js";
 import { SchemaRegistry } from "./registry.js";
 import { OperationsFactory } from "./operation.js";
 
-/** Page-size bounds for keyset pagination. Carried here for the client; core reads neither. */
-export type PaginationOptions = {
-  /** The page size when a call names none. */
-  defaultLimit?: number;
-  /** The largest page size a call may ask for. Unbounded when absent. */
-  maxLimit?: number;
-};
-
 export type ExecutionContextOptions<TSchema extends DefinitionSchema> = {
   session: Session;
   dialect: QueryBuilder;
@@ -33,8 +25,6 @@ export type ExecutionContextOptions<TSchema extends DefinitionSchema> = {
    * Set per client, never per call. Settings still render.
    */
   policies?: { bypass?: boolean };
-
-  pagination?: PaginationOptions;
 };
 
 export class ExecutionContext<
@@ -48,7 +38,6 @@ export class ExecutionContext<
   readonly operations: OperationsFactory<Schema<TDefinition>>;
   readonly settings?: Readonly<Record<string, unknown>>;
   readonly policies: { readonly bypass: boolean };
-  readonly pagination?: PaginationOptions;
 
   constructor(options: ExecutionContextOptions<TDefinition>) {
     this.session = options.session;
@@ -56,7 +45,6 @@ export class ExecutionContext<
     this.schema = options.schema;
     this.settings = options.settings;
     this.policies = Object.freeze({ bypass: options.policies?.bypass ?? false });
-    this.pagination = options.pagination;
     this.operations = new OperationsFactory<Schema<TDefinition>>(this);
   }
 }

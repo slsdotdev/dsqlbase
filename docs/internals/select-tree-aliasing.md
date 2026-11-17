@@ -39,7 +39,7 @@ Aliasing is entirely owned by `QueryBuilder` (`packages/core/src/runtime/query.t
 
 | Layer | Knows about aliases? |
 |---|---|
-| `RequestNormalizer` (`packages/dsqlbase/src/client/model/normalizer.ts`) | no — unchanged by this work |
+| `RequestNormalizer` (`packages/dsqlbase/src/client/normalizers/request.ts`) | no — unchanged by this work |
 | `OperationsFactory` (`packages/core/src/runtime/operation.ts`) | no — it resolves a relation to column pairs and stops |
 | `QueryBuilder` (`packages/core/src/runtime/query.ts`) | yes — allocates aliases, builds the correlation |
 

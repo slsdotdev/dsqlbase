@@ -14,9 +14,9 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0004](./0004-record-meta.md)              | `$$meta` on every result row                                            | 2026-09-22 | accepted                                                                          |
 | [0005](./0005-tenant-client-visibility.md) | Tenant table visibility on the client                                   | 2026-09-23 | superseded by [0024](./0024-row-policies.md)                                      |
 | [0006](./0006-client-tenancy.md)           | Application-level tenancy                                               | 2026-09-23 | superseded by [0024](./0024-row-policies.md)                                      |
-| [0007](./0007-global-ids.md)               | Global ids                                                              | 2026-09-27 | accepted; key resolution superseded by [0018](./0018-guid-keys-from-relations.md) |
-| [0008](./0008-client-pagination.md)        | Keyset pagination                                                       | 2026-09-27 | accepted                                                                          |
-| [0009](./0009-polymorphic-relations.md)    | Polymorphic relations                                                   | 2026-09-29 | accepted; shared fields superseded by [0019](./0019-declared-union-columns.md)    |
+| [0007](./0007-global-ids.md)               | Global ids                                                              | 2026-09-27 | accepted; key resolution superseded by [0018](./0018-guid-keys-from-relations.md); lookups amended by [0025](./0025-client-rewrite.md) |
+| [0008](./0008-client-pagination.md)        | Keyset pagination                                                       | 2026-09-27 | accepted; client API amended by [0025](./0025-client-rewrite.md)                   |
+| [0009](./0009-polymorphic-relations.md)    | Polymorphic relations                                                   | 2026-09-29 | accepted; shared fields superseded by [0019](./0019-declared-union-columns.md); amended by [0025](./0025-client-rewrite.md) |
 | [0010](./0010-relation-select.md)          | Relations in `select`                                                   | 2026-09-30 | accepted                                                                          |
 | [0011](./0011-json-columns.md)             | JSON columns and operators by runtime type                              | 2026-10-01 | accepted                                                                          |
 | [0012](./0012-json-array-record.md)        | Column validators, `jsonb` operators, `array()` / `record()` on `jsonb` | 2026-10-02 | accepted                                                                          |
@@ -30,8 +30,9 @@ Accepted design decisions, numbered in the order they were accepted. A record is
 | [0020](./0020-column-references.md)        | Column references                                                       | 2026-11-05 | accepted                                                                          |
 | [0021](./0021-schema-registry-phases.md)   | Schema registry phases                                                  | 2026-11-05 | accepted                                                                          |
 | [0022](./0022-column-hooks.md)             | Pure codecs, runtime column hooks                                       | 2026-11-05 | accepted                                                                          |
-| [0023](./0023-update-many.md)              | One-row `update` / `delete`, `updateMany` / `deleteMany`                | 2026-11-07 | accepted                                                                          |
+| [0023](./0023-update-many.md)              | One-row `update` / `delete`, `updateMany` / `deleteMany`                | 2026-11-07 | accepted; `where` form amended by [0025](./0025-client-rewrite.md)                |
 | [0024](./0024-row-policies.md)             | Row policies, enforced by the runtime                                   | 2026-11-07 | accepted                                                                          |
+| [0025](./0025-client-rewrite.md)           | Client rewrite: `get` / `key`, `paginatedQuery`, named unions           | 2026-11-17 | accepted                                                                          |
 
 ## Template
 

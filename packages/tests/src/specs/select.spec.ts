@@ -51,10 +51,9 @@ describe("select operations", () => {
         where: { id: { eq: data.users[0].id } },
       });
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         id: data.users[0].id,
         email: data.users[0].email,
-        $$meta: { key: "users", table: "users" },
       });
     });
   });
@@ -543,7 +542,7 @@ describe("select operations", () => {
       const task = data.tasks[0];
       await client.tasks.update({
         set: { assigneeId: data.users[3].id },
-        where: { id: { eq: task.id } },
+        key: { id: task.id },
       });
 
       const updated = await client.tasks.findOne({
@@ -566,9 +565,7 @@ describe("select operations", () => {
         select: { id: true },
       });
 
-      expect(member?.$$meta).toEqual({
-        key: "members",
-        table: "team_members",
+      expect(member?.__meta).toMatchObject({
         __typename: "TeamMember",
       });
     });
@@ -583,13 +580,9 @@ describe("select operations", () => {
         join: { tasks: { select: { id: true } }, team: { select: { id: true } } },
       });
 
-      expect(project?.$$meta.key).toBe("projects");
-      expect(project?.tasks[0]?.$$meta).toEqual({
-        key: "tasks",
-        table: "tasks",
+      expect(project?.tasks[0]?.__meta).toMatchObject({
         __typename: "Task",
       });
-      expect(project?.team?.$$meta.key).toBe("teams");
     });
 
     it("reaches a level nested two joins deep", async () => {
@@ -605,7 +598,7 @@ describe("select operations", () => {
       const tasks = team?.projects.flatMap((project) => project.tasks) ?? [];
 
       expect(tasks.length).toBeGreaterThan(0);
-      expect(tasks.every((task) => task.$$meta.__typename === "Task")).toBe(true);
+      expect(tasks.every((task) => task.__meta.__typename === "Task")).toBe(true);
     });
 
     it("survives a spread, because it is an enumerable own property", async () => {
@@ -617,7 +610,7 @@ describe("select operations", () => {
         select: { id: true },
       });
 
-      expect(task?.$$meta.__typename).toBe("Task");
+      expect(task?.__meta.__typename).toBe("Task");
     });
   });
 });

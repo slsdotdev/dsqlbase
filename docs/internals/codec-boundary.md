@@ -7,7 +7,7 @@ Every column carries a `ColumnConfig.codec { encode, decode }` (`ColumnCodec`, `
 A codec **translates** one value and nothing else. It is pure — it sees the value and no context — which is why a definition can run it for a DDL default. Two things sit around it:
 
 - the optional `ColumnConfig.validator { write, read }` checks values, on writes and reads only — never on filters; see [Validators](#validators-run-on-writes-and-reads-never-on-filters);
-- the optional `ColumnConfig.hooks { read, write }` transforms values with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them; `guid()` is built on them. See [Column hooks](#column-hooks).
+- the optional `ColumnConfig.hooks { read, write, filter, writeDeps }` transforms values with what a codec cannot see — the runtime column and, on a read, the row. Only the runtime `Column` runs them; `guid()` is built on them. See [Column hooks](#column-hooks).
 
 `ColumnCodec`, `ColumnValidator` and `ColumnHooks` live in `packages/core/src/resolvers/`, the module for what a definition declares and the runtime runs.
 
@@ -19,8 +19,8 @@ A codec **translates** one value and nothing else. It is pure — it sees the va
 | Insert values                                                  | encode    | `getInsertValue` in `runtime/column.ts`                                                                                                   |
 | Update values                                                  | encode    | `getUpdateValue` in `runtime/column.ts`                                                                                                   |
 | Column defaults set from JS                                    | encode    | `ColumnDefinition.default()` in `definition/column.ts`                                                                                    |
-| Where-clause values, including `update.where` / `delete.where` | encode    | `Column.param` in `runtime/column.ts`, applied by `WhereBuilder` in `packages/dsqlbase/src/client/model/filters.ts`                       |
-| Setting values (row policies, `$onCreate` returning a setting) | encode    | `SQLSetting` in `packages/core/src/sql/nodes.ts`, by the setting's own column codec — no validator, no hooks                              |
+| Where-clause values, including `get.key`, `update.key` / `delete.key` and `updateMany.where` / `deleteMany.where` | encode    | `Column.param` in `runtime/column.ts`, applied by `WhereBuilder` in `packages/dsqlbase/src/client/normalizers/where.ts`                       |
+| Claim values (row policies, `$onCreate` returning a claim) | none | `SQLClaim` in `packages/core/src/sql/nodes.ts` — bound as given, or through the serializer passed to `sql.claim`; no validator, no hooks |
 
 ## Where codecs do NOT apply
 
@@ -29,7 +29,7 @@ A codec **translates** one value and nothing else. It is pure — it sees the va
 - **`sql.eq(column, value)` and the rest of `sql.*`** — `packages/core/src/sql/tag.ts` wraps a bare value in an unencoded `SQLParam`. It has no access to the column's codec by design; use `column.param(value)` when hand-writing SQL against a codec column.
 - `$query` / `$execute` — by design; they are raw.
 - **Keyset cursors** — a cursor carries each order key as the database's own text (`col::text`,
-  read off the raw row), and `sql.keyset` binds those values back as bare parameters. No codec
+  read off the raw row), and `WhereBuilder.buildKeyset` binds those values back as bare parameters. No codec
   sees them in either direction, which is deliberate: a codec decodes to a JS value that can
   have lost precision the database still compares on. A `timestamptz` holds microseconds, a
   `Date` milliseconds, so a cursor rebuilt from the decoded `Date` of a row at `.123456`
@@ -47,7 +47,7 @@ A column may carry a `ColumnValidator` (`packages/core/src/resolvers/validator.t
 | `ColumnDefinition.default()`                                                  | `validator.write`, then `codec.encode` — no hooks          |
 | reads, root, joined and union branches (`Column.resolve`)                     | `codec.decode`, then `hooks.read`, then `validator.read`   |
 | where-clause values (`Column.param`)                                          | `hooks.write`, then `codec.encode`                         |
-| settings (`SQLSetting`)                                                       | `codec.encode` of the setting's column — no hooks          |
+| claims (`SQLClaim`)                                                           | none — bound as given, or through `sql.claim`'s serializer |
 
 `NULL` reaches neither. A filter value is compared with stored values, not stored, and may be a
 fragment of one (a containment pattern), so validating it would refuse or rewrite it. This is why
@@ -109,7 +109,7 @@ sql`${users.columns.createdAt} > ${users.columns.createdAt.param(cutoff)}`;
 
 `Column.param` is the filter counterpart to `getInsertValue` / `getUpdateValue`. A value that is already an `SQLNode` passes through untouched, so a column reference or sub-expression is never encoded.
 
-Settings are the one place a value is encoded inside `core` rather than by the normalizer: a setting is bound where a policy or `$onCreate` reads it, below the client, so it does not depend on a caller having passed the value through anything. Only its column's codec runs — a setting has no table for a hook to read references from, and it is compared or copied, not validated as input. An unset setting is `NULL` and reaches no codec.
+Claims are the one place a value is bound inside `core` rather than by the normalizer: a claim is bound where a policy or `$onCreate` reads it, below the client, so it does not depend on a column. They bypass codecs, validators and hooks.
 
 ## Column hooks
 
@@ -120,7 +120,14 @@ a union, the member its row's discriminator names. `ColumnHooks`
 
 - `read(value, { column, row })` runs after the codec decodes, before the read validator;
 - `write(value, { column })` runs before the codec encodes, on every value bound for the column —
-  writes, after the write validator, and filters.
+  writes, after the write validator, and filters;
+- `filter(value, { column })` transforms a filter value on a **union's shared field** before it
+  is mapped onto each member, where there is no single member column to run `write` against
+  (`WhereBuilder.unwrap`, `packages/dsqlbase/src/client/normalizers/where.ts`);
+- `writeDeps(value, { column })` returns the value for the column's `dependsOn` columns, or
+  `null` when it cannot say, so a write that sets the column also fills them
+  (`RequestNormalizer._resolveMutationValues`, `normalizers/request.ts`). A conflicting
+  caller-given value throws.
 
 `column` is the runtime `Column`, its references already linked and frozen, so a hook reads
 `column.references` / `column.resolveReferences()` when it runs and nothing is bound up front.
@@ -152,11 +159,11 @@ column:
   the id raw;
 - `write` unwraps, refusing an id naming another node, or a non-member.
 
-Filters and writes that need the discriminator — a global-id `eq` becoming
-`(discriminator = key AND id = pk)`, a write filling the discriminator — read the same binding
-(`getGuidBinding` / `getDynamicGuidBinding`) in `WhereBuilder._getPolymorphicFilter`
-(`filters.ts`) and the normalizer's `_fillDiscriminators`, the only places that see the whole
-filter or row. Since the hooks travel with the column, a `SchemaRegistry` built without
+Filters and writes that need the discriminator go through hooks too: `guidHooks.filter`
+unwraps a global id on a union's shared field to the key its member stores, and
+`guidHooks.writeDeps` returns the discriminator a write fills in, both reading the same binding
+(`getGuidBinding` / `getDynamicGuidBinding`). The normalizer only calls them — in
+`WhereBuilder.unwrap` and `RequestNormalizer._resolveMutationValues`. Since the hooks travel with the column, a `SchemaRegistry` built without
 `createClient` wraps ids too. Global ids stay out of `@dsqlbase/core`: core runs hooks without
 knowing what they do. See [0007](../decisions/0007-global-ids.md),
 [0022](../decisions/0022-column-hooks.md).

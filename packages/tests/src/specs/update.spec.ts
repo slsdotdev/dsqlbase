@@ -10,7 +10,7 @@ describe("update operations", () => {
       const data = getData();
 
       await client.users.update({
-        where: { id: { eq: data.users[0].id } },
+        key: { id: data.users[0].id },
         set: { name: "Alice Renamed" },
       });
 
@@ -79,10 +79,10 @@ describe("update operations", () => {
 
       expect(() =>
         client.tasks.update({
-          where: { projectId: { eq: data.projects[0].id } },
+          key: { projectId: data.projects[0].id },
           set: { priority: "urgent" },
         })
-      ).toThrow(/changes one row.*updateMany/);
+      ).toThrow(/Provided keys do not match any unique key/);
       expect(await client.tasks.count({ where: { priority: { eq: "urgent" } } })).toBe(0);
     });
   });
@@ -95,7 +95,7 @@ describe("update operations", () => {
 
       await expect(
         client.users.update({
-          where: { id: { eq: "00000000-0000-0000-0000-000000000000" } },
+          key: { id: "00000000-0000-0000-0000-000000000000" },
           set: { name: "Phantom" },
         })
       ).resolves.not.toThrow();
@@ -111,7 +111,7 @@ describe("update operations", () => {
       const data = getData();
 
       const result = await client.users.update({
-        where: { id: { eq: data.users[1].id } },
+        key: { id: data.users[1].id },
         set: { name: "Bob Updated" },
         return: true,
       });
@@ -127,7 +127,7 @@ describe("update operations", () => {
       const data = getData();
 
       const result = await client.users.update({
-        where: { id: { eq: data.users[2].id } },
+        key: { id: data.users[2].id },
         set: { name: "Carol Updated" },
         return: { id: true, name: true },
       });
@@ -135,7 +135,7 @@ describe("update operations", () => {
       expect(result).toEqual({
         id: data.users[2].id,
         name: "Carol Updated",
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
     });
   });
@@ -150,7 +150,7 @@ describe("update operations", () => {
       const firstTask = data.tasks[0];
 
       await client.projects.update({
-        where: { id: { eq: apiProject.id } },
+        key: { id: apiProject.id },
         set: {
           name: "API Platform v2",
           isArchived: false,
@@ -158,7 +158,7 @@ describe("update operations", () => {
         },
       });
       await client.tasks.update({
-        where: { id: { eq: firstTask.id } },
+        key: { id: firstTask.id },
         set: {
           status: "done",
           dueDate: new Date("2027-01-15"),
@@ -190,7 +190,7 @@ describe("update operations", () => {
 
       await expect(
         client.users.update({
-          where: { id: { eq: data.users[0].id } },
+          key: { id: data.users[0].id },
           set: { email: data.users[1].email },
         })
       ).rejects.toThrow();
@@ -202,7 +202,7 @@ describe("update operations", () => {
 
       await expect(
         client.tasks.update({
-          where: { id: { eq: data.tasks[0].id } },
+          key: { id: data.tasks[0].id },
           // @ts-expect-error — invalid domain value, runtime CHECK should reject
           set: { status: "bogus" },
         })

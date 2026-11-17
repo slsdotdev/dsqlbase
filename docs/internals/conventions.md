@@ -51,7 +51,7 @@ _Audience: contributors and agents._
 
 Page rules:
 
-- Cite code by path (`packages/dsqlbase/src/client/model/base.ts`), never by line number.
+- Cite code by path (`packages/dsqlbase/src/client/normalizers/base.ts`), never by line number.
 - DSQL capability claims link [DSQL capabilities](./dsql-capabilities.md) rather than restating; that page carries the URL and `Verified:` date.
 - Every page opens with an `_Audience_` line and ends with `## Related`.
 - Stubs carry `> **Status: stub**` and list intended contents and the code paths they will cover.

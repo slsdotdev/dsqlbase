@@ -43,8 +43,9 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
   readonly primaryKey: TConfig["primaryKey"];
   readonly unique: TConfig["unique"];
   readonly readOnly: TConfig["readOnly"];
+  readonly fieldName: string;
 
-  constructor(table: TTable, definition: ColumnDefinition<TName, TConfig>) {
+  constructor(table: TTable, definition: ColumnDefinition<TName, TConfig>, fieldName: string) {
     this.table = table;
     this.name = definition.name;
     this.dataType = definition["_dataType"];
@@ -55,6 +56,7 @@ export class Column<TName extends string, TConfig extends ColumnConfig, TTable e
     this.primaryKey = definition["_primaryKey"];
     this.unique = definition["_unique"];
     this.readOnly = definition["_readOnly"];
+    this.fieldName = fieldName;
 
     this.codec = definition["_codec"];
     this.validator = definition["_validator"];

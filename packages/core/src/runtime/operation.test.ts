@@ -120,7 +120,7 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1 }]);
-    expect(result).toEqual({ id: 1, $$meta: { key: "users", table: "users" } });
+    expect(result).toEqual({ id: 1, __meta: { key: "users", table: "users" } });
   });
 
   it("should create a select operation", () => {
@@ -166,7 +166,7 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1, name: "Alice" }]);
-    expect(result).toEqual({ id: 1, name: "Alice", $$meta: { key: "users", table: "users" } });
+    expect(result).toEqual({ id: 1, name: "Alice", __meta: { key: "users", table: "users" } });
   });
 
   it("should resolve many select operation results", () => {
@@ -191,8 +191,8 @@ describe("OperationFactory", () => {
     ]);
 
     expect(result).toEqual([
-      { id: 1, name: "Alice", $$meta: { key: "users", table: "users" } },
-      { id: 2, name: "Alex", $$meta: { key: "users", table: "users" } },
+      { id: 1, name: "Alice", __meta: { key: "users", table: "users" } },
+      { id: 2, name: "Alex", __meta: { key: "users", table: "users" } },
     ]);
   });
 
@@ -252,11 +252,11 @@ describe("OperationFactory", () => {
     });
 
     const result = operation.resolve([{ id: 1 }]);
-    expect(result).toEqual({ id: 1, $$meta: { key: "users", table: "users" } });
+    expect(result).toEqual({ id: 1, __meta: { key: "users", table: "users" } });
   });
 });
 
-describe("OperationFactory / $$meta", () => {
+describe("OperationFactory / __meta", () => {
   let factory: OperationsFactory;
 
   beforeAll(() => {
@@ -271,7 +271,7 @@ describe("OperationFactory / $$meta", () => {
   const selectUsers = (args: Parameters<typeof factory.createSelectOperation>[1]["args"]) =>
     factory.createSelectOperation(registry.getTable("users"), { mode: "many", args });
 
-  it("stamps $$meta on rows of a joined level, not only the top level", () => {
+  it("stamps __meta on rows of a joined level, not only the top level", () => {
     const users = registry.getTable("users");
     const operation = selectUsers({
       select: [["id", users.columns.id]],
@@ -280,10 +280,10 @@ describe("OperationFactory / $$meta", () => {
 
     const [row] = operation.resolve([
       { id: 1, posts: [{ title: "First" }, { title: "Second" }] },
-    ]) as Record<string, { $$meta: unknown }[]>[];
+    ]) as Record<string, { __meta: unknown }[]>[];
 
-    expect(row.posts?.[0]?.$$meta).toEqual({ key: "posts", table: "posts" });
-    expect(row.posts?.[1]?.$$meta).toEqual({ key: "posts", table: "posts" });
+    expect(row.posts?.[0]?.__meta).toEqual({ key: "posts", table: "posts" });
+    expect(row.posts?.[1]?.__meta).toEqual({ key: "posts", table: "posts" });
   });
 
   it("reports the joined level's own table, not the parent's", () => {
@@ -298,8 +298,8 @@ describe("OperationFactory / $$meta", () => {
       unknown
     >[];
 
-    expect((row.$$meta as { key: string }).key).toBe("users");
-    expect((row.posts as { $$meta: { key: string } }[])[0]?.$$meta.key).toBe("posts");
+    expect((row.__meta as { key: string }).key).toBe("users");
+    expect((row.posts as { __meta: { key: string } }[])[0]?.__meta.key).toBe("posts");
   });
 
   it("shares one frozen object across every row of a level", () => {
@@ -307,11 +307,11 @@ describe("OperationFactory / $$meta", () => {
     const rows = selectUsers({ select: [["id", users.columns.id]] }).resolve([
       { id: 1 },
       { id: 2 },
-    ]) as { $$meta: object }[];
+    ]) as { __meta: object }[];
 
-    expect(rows[0]?.$$meta).toBe(rows[1]?.$$meta);
-    expect(rows[0]?.$$meta).toBe(users.meta);
-    expect(Object.isFrozen(rows[0]?.$$meta)).toBe(true);
+    expect(rows[0]?.__meta).toBe(rows[1]?.__meta);
+    expect(rows[0]?.__meta).toBe(users.meta);
+    expect(Object.isFrozen(rows[0]?.__meta)).toBe(true);
   });
 
   it("leaves an absent join null rather than stamping meta on it", () => {
@@ -326,7 +326,7 @@ describe("OperationFactory / $$meta", () => {
     expect(row.posts).toBeNull();
   });
 
-  it("leads every record, so $$meta is the first key", () => {
+  it("leads every record, so __meta is the first key", () => {
     const users = registry.getTable("users");
     const [row] = selectUsers({
       select: [
@@ -335,10 +335,10 @@ describe("OperationFactory / $$meta", () => {
       ],
     }).resolve([{ id: 1, name: "Alice" }]) as object[];
 
-    expect(Object.keys(row)).toEqual(["$$meta", "id", "name"]);
+    expect(Object.keys(row)).toEqual(["__meta", "id", "name"]);
   });
 
-  it("stamps $$meta on `return` rows of a mutation", () => {
+  it("stamps __meta on `return` rows of a mutation", () => {
     const users = registry.getTable("users");
     const operation = factory.createDeleteOperation(users, {
       mode: "one",
@@ -350,7 +350,7 @@ describe("OperationFactory / $$meta", () => {
 
     expect(operation.resolve([{ id: 1 }])).toEqual({
       id: 1,
-      $$meta: { key: "users", table: "users" },
+      __meta: { key: "users", table: "users" },
     });
   });
 });
@@ -381,8 +381,8 @@ describe("OperationFactory / selection", () => {
     expect(query.text).toMatch(/^SELECT "__join_posts"\."data" AS "posts" FROM "users" AS "__t0"/);
     expect(resolve([{ posts: [{ title: "First" }] }])).toEqual([
       {
-        $$meta: { key: "users", table: "users" },
-        posts: [{ $$meta: { key: "posts", table: "posts" }, title: "First" }],
+        __meta: { key: "users", table: "users" },
+        posts: [{ __meta: { key: "posts", table: "posts" }, title: "First" }],
       },
     ]);
   });
@@ -647,7 +647,7 @@ describe("OperationFactory / read-only columns", () => {
     expect(operation.resolve([{ id: 1, tenant_id: "ws-1" }])).toEqual({
       id: 1,
       tenantId: "ws-1",
-      $$meta: { key: "managed", table: "managed" },
+      __meta: { key: "managed", table: "managed" },
     });
   });
 });
@@ -1135,7 +1135,7 @@ describe("OperationFactory / row policies", () => {
       expect(
         operation.resolve([{ id: "l1", invoice_id: "i1", workspace_id: "w1", __pc: null }])
       ).toEqual({
-        $$meta: { key: "lineItems", table: "line_items" },
+        __meta: { key: "lineItems", table: "line_items" },
         id: "l1",
         invoiceId: "i1",
         workspaceId: "w1",

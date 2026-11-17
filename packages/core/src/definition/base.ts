@@ -27,14 +27,14 @@ export const Relation = Object.freeze({
 } as const);
 
 /** The field carrying per-row table metadata on every result record. */
-export const META_FIELD = "$$meta";
+export const META_FIELD = "__meta";
 
 /**
  * The field naming which member of a union a row came from, on every row of a union result.
  * Top level rather than inside `$$meta`: TypeScript narrows a union on a top-level property
  * only (`docs/decisions/0007-global-ids.md`).
  */
-export const KEY_FIELD = "$$key";
+export const KEY_FIELD = "__type";
 
 /**
  * Field names a table may use for neither a column nor a relation.

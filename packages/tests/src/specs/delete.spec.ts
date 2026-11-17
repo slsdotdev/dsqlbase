@@ -10,7 +10,7 @@ describe("delete operations", () => {
       const data = getData();
 
       await client.users.delete({
-        where: { id: { eq: data.users[0].id } },
+        key: { id: data.users[0].id },
       });
 
       const fetched = await client.users.findOne({
@@ -63,8 +63,8 @@ describe("delete operations", () => {
       const client = getClient();
       const before = await client.tasks.count({});
 
-      expect(() => client.tasks.delete({ where: { status: { eq: "done" } } })).toThrow(
-        /changes one row.*deleteMany/
+      expect(() => client.tasks.delete({ key: { status: "done" } })).toThrow(
+        'do not match any unique key for table "tasks"'
       );
       expect(await client.tasks.count({})).toBe(before);
     });
@@ -78,7 +78,7 @@ describe("delete operations", () => {
 
       await expect(
         client.users.delete({
-          where: { id: { eq: "00000000-0000-0000-0000-000000000000" } },
+          key: { id: "00000000-0000-0000-0000-000000000000" },
         })
       ).resolves.not.toThrow();
 
@@ -93,7 +93,7 @@ describe("delete operations", () => {
       const data = getData();
 
       const result = await client.users.delete({
-        where: { id: { eq: data.users[0].id } },
+        key: { id: data.users[0].id },
         return: true,
       });
 
@@ -109,14 +109,14 @@ describe("delete operations", () => {
       const data = getData();
 
       const result = await client.users.delete({
-        where: { id: { eq: data.users[1].id } },
+        key: { id: data.users[1].id },
         return: { id: true, email: true },
       });
 
       expect(result).toEqual({
         id: data.users[1].id,
         email: data.users[1].email,
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
     });
   });
@@ -132,7 +132,7 @@ describe("delete operations", () => {
       ).length;
 
       await client.projects.delete({
-        where: { id: { eq: apiProject.id } },
+        key: { id: apiProject.id },
       });
 
       const orphans = await client.tasks.findMany({

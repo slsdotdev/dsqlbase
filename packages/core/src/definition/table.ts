@@ -191,19 +191,19 @@ export class TableDefinition<
    * statement. A table with any policy denies by default: a command no permissive policy covers
    * reads nothing and writes nothing.
    *
-   * The callback receives the table's runtime columns and runs once, when the client is built.
+   * `using` and `check` may be functions of the table's runtime columns, run once, when the client is built.
    * Policies are not DDL: they never reach `toJSON` or a migration.
    *
    * @example
    * ```ts
-   * documents.policy("workspace_isolation", (t) => ({
+   * documents.policy("workspace_isolation", {
    *   as: "restrictive",
-   *   using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
-   * }));
+   *   using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+   * });
    * ```
    */
   public policy(name: string, config: Omit<PolicyConfig<this>, "table">) {
-    // move this to runtime / migration validation
+    // TODO: move this to runtime / migration validation
     // if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
     //   throw new Error(
     //     `Table "${this.name}" declares policy "${name}": a policy name is a SQL-style ` +
@@ -246,7 +246,7 @@ export class TableDefinition<
    * // row.$$meta.__typename === "User"
    * ```
    */
-  public meta<M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
+  public meta<const M extends Record<string, unknown>>(meta: M): WithMeta<this, M> {
     this._meta = meta;
 
     return this as WithMeta<this, M>;

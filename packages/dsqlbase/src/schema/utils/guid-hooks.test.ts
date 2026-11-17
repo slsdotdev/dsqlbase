@@ -10,7 +10,7 @@ const authors = table("authors", { id: guid("id").primaryKey() });
 const articles = table("articles", { id: guid("id").primaryKey(), authorId: guid("author_id") });
 const companies = table("companies", { id: guid("id").primaryKey() });
 const persons = table("persons", { id: guid("id").primaryKey() });
-const parties = union({ companies, persons }, { id: guid("id") });
+const parties = union("parties", { members: { companies, persons }, columns: { id: guid("id") } });
 const entries = table("entries", {
   id: guid("id").primaryKey(),
   partyType: text("party_type"),

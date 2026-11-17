@@ -66,7 +66,7 @@ describe("insert operations", () => {
       expect(result).toEqual({
         id: expect.any(String),
         email: "gina@example.com",
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
     });
   });

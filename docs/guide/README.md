@@ -9,7 +9,7 @@ _Audience: application developers using `dsqlbase`._
 | Import                | What you get                                                                                             |
 | --------------------- | -------------------------------------------------------------------------------------------------------- |
 | `dsqlbase`            | `createClient`, `sql`, `SQLQuery`, `PolicyViolationError`, the global-id helpers, and the `Session` / `SQLStatement` types |
-| `dsqlbase/schema`     | Column builders, `table`, `union`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `settings`, `guid` |
+| `dsqlbase/schema`     | Column builders, `table`, `union`, `relations`, `domain`, `$enum`, `sequence`, `namespace`, `guid` |
 | `dsqlbase/client`     | Client classes and the `QueryArgs` family of types, for advanced typing                                  |
 | `dsqlbase/pg`         | `createPgSession` for a `pg` `Pool` (production, via the Aurora DSQL connector)                          |
 | `dsqlbase/pglite`     | `createPgLiteSession` for `@electric-sql/pglite` (tests, local dev)                                      |

@@ -29,8 +29,12 @@ export type ColumnHookContext = {
  * column depends on what it references.
  */
 export type ColumnHooks<TValue> = {
+  /** A value used in a filter, before it is encoded. */
+  filter?(value: TValue, context: ColumnHookContext): TValue;
   /** A value decoded from the row, as the client returns it. `NULL` never reaches it. */
   read?(value: TValue, context: ColumnHookContext): TValue;
   /** A value bound for the column — a write or a filter — before it is encoded. */
   write?(value: TValue, context: ColumnHookContext): TValue;
+  /** A value for the dependency columns, before it is encoded. When the value can be resoved from input or other sources, this hook allows transforming it accordingly.*/
+  writeDeps?(value: TValue, context: ColumnHookContext): TValue | null;
 };

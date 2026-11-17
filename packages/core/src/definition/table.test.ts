@@ -180,7 +180,7 @@ describe("TableDefinition meta", () => {
 });
 
 describe("TableDefinition reserved field names", () => {
-  it.each(["$$meta", "$$key"])("rejects a column named %s", (field) => {
+  it.each(["__meta", "__type"])("rejects a column named %s", (field) => {
     expect(
       () => new TableDefinition("users", { columns: { [field]: new ColumnDefinition("value") } })
     ).toThrow(`declares a column named "${field}", which is reserved`);

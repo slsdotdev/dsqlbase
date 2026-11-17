@@ -39,14 +39,16 @@ export type FieldRelation<
   discriminator?: RelationObjectColumn<TSource>;
 };
 
-export type RelationsConfig<TSource extends AnyRelationObject = AnyTableDefinition> = {
+export type RelationsConfig<TSource extends AnyRelationObject = AnyRelationObject> = {
   table: TSource;
   relations: Record<string, FieldRelation<RelationType, TSource, AnyRelationObject>>;
 };
 
 export type AnyFieldRelation = FieldRelation<RelationType, AnyTableDefinition, AnyRelationObject>;
 export type AnyTableRelations = Record<string, AnyFieldRelation>;
-export type AnyRelationDefinition = RelationsDefinition<AnyTableDefinition, AnyTableRelations>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyRelationDefinition = RelationsDefinition<any, any>;
 
 export class RelationsDefinition<
   TSource extends AnyRelationObject,

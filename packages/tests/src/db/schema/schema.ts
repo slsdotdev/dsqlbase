@@ -31,7 +31,7 @@ export type ProjectSettings = {
   theme: "light" | "dark";
 };
 
-const teams = table("teams", {
+export const teams = table("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", 100).notNull(),
   slug: text("slug").notNull().unique(),
@@ -45,7 +45,7 @@ teams.index("teams_slug_idx", { unique: true }).columns((c) => [c.slug]);
 
 // Declares metadata and is keyed under an alias that differs from its database name, so
 // `$$meta` has something to get wrong: `key` is "members", `table` is "team_members".
-const members = table("team_members", {
+export const members = table("team_members", {
   id: uuid("id").primaryKey().defaultRandom(),
   teamId: uuid("team_id").notNull(),
   userId: uuid("user_id").notNull(),
@@ -60,7 +60,7 @@ members
   .columns((c) => [c.teamId, c.userId])
   .unique();
 
-const users = table("users", {
+export const users = table("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
@@ -70,7 +70,7 @@ const users = table("users", {
 
 users.index("users_email_idx", { unique: true }).columns((c) => [c.email]);
 
-const projects = table("projects", {
+export const projects = table("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   teamId: uuid("team_id").notNull(),
   name: text("name").notNull(),
@@ -86,12 +86,12 @@ const projects = table("projects", {
 projects.index("projects_team_key_idx", { unique: true }).columns((c) => [c.teamId, c.key]);
 projects.index("projects_team_idx").columns((c) => [c.teamId]);
 
-const taskStatus = $enum("task_status", ["todo", "in_progress", "done", "archived"]);
-const priorityLevel = $enum("priority_level", ["urgent", "high", "medium", "low", "none"]);
+export const taskStatus = $enum("task_status", ["todo", "in_progress", "done", "archived"]);
+export const priorityLevel = $enum("priority_level", ["urgent", "high", "medium", "low", "none"]);
 
-const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
+export const taskNumberSeq = sequence("task_number_seq").startWith(1).incrementBy(1);
 
-const tasks = table("tasks", {
+export const tasks = table("tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
   teamId: uuid("team_id"),
@@ -126,13 +126,13 @@ tasks
  * the client's workspace setting — so a read has to carry the policies into two nested levels,
  * not just the one below the root. Each fills its `workspace_id` from the same setting.
  */
-const workspaces = table("workspaces", {
+export const workspaces = table("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
 });
 
-const documents = table("documents", {
+export const documents = table("documents", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
@@ -141,7 +141,7 @@ const documents = table("documents", {
   // Points at a table without policies, so a join from `users` correlates on something other
   // than `workspace_id` — the only shape where the policy, rather than the correlation, is what
   // keeps another workspace's rows out.
-  authorId: uuid("author_id"),
+  authorId: uuid("author_id").notNull(),
   title: text("title").notNull(),
   body: varchar("body", 5000),
   createdAt: datetime("created_at").notNull().defaultNow(),
@@ -163,7 +163,7 @@ documents.policy("author_writes", {
 });
 
 // Keyed under an alias that differs from its database name, like `members` above.
-const comments = table("document_comments", {
+export const comments = table("document_comments", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
@@ -182,14 +182,14 @@ comments.policy("workspace_isolation", {
 documents.index("documents_workspace_idx").columns((c) => [c.workspaceId, c.id]);
 comments.index("document_comments_workspace_idx").columns((c) => [c.workspaceId, c.documentId]);
 
-const workspaceRelations = relations(workspaces, {
+export const workspaceRelations = relations(workspaces, {
   documents: hasMany(documents, {
     from: [workspaces.columns.id],
     to: [documents.columns.workspaceId],
   }),
 });
 
-const documentRelations = relations(documents, {
+export const documentRelations = relations(documents, {
   workspace: belongsTo(workspaces, {
     from: [documents.columns.workspaceId],
     to: [workspaces.columns.id],
@@ -200,7 +200,7 @@ const documentRelations = relations(documents, {
   }),
 });
 
-const commentRelations = relations(comments, {
+export const commentRelations = relations(comments, {
   document: belongsTo(documents, {
     from: [comments.columns.documentId],
     to: [documents.columns.id],
@@ -208,14 +208,14 @@ const commentRelations = relations(comments, {
 });
 
 // A second declaration for `users`, merged with `userRelations` by the registry.
-const userDocumentRelations = relations(users, {
+export const userDocumentRelations = relations(users, {
   authoredDocuments: hasMany(documents, {
     from: [users.columns.id],
     to: [documents.columns.authorId],
   }),
 });
 
-const userRelations = relations(users, {
+export const userRelations = relations(users, {
   membership: hasOne(members, {
     from: [users.columns.id],
     to: [members.columns.userId],
@@ -226,7 +226,7 @@ const userRelations = relations(users, {
   }),
 });
 
-const memberRelations = relations(members, {
+export const memberRelations = relations(members, {
   user: belongsTo(users, {
     from: [members.columns.userId],
     to: [users.columns.id],
@@ -237,7 +237,7 @@ const memberRelations = relations(members, {
   }),
 });
 
-const teamRelations = relations(teams, {
+export const teamRelations = relations(teams, {
   members: hasMany(members, {
     from: [teams.columns.id],
     to: [members.columns.teamId],
@@ -248,7 +248,7 @@ const teamRelations = relations(teams, {
   }),
 });
 
-const projectRelations = relations(projects, {
+export const projectRelations = relations(projects, {
   team: belongsTo(teams, {
     from: [projects.columns.teamId],
     to: [teams.columns.id],
@@ -259,7 +259,7 @@ const projectRelations = relations(projects, {
   }),
 });
 
-const taskRelations = relations(tasks, {
+export const taskRelations = relations(tasks, {
   project: belongsTo(projects, {
     from: [tasks.columns.projectId],
     to: [projects.columns.id],
@@ -297,12 +297,12 @@ const taskRelations = relations(tasks, {
  * key, so its rows emit no ids, but a hand-built id over its key or its unique `label` still
  * resolves; `articleTags` is addressed by both fields of its composite key.
  */
-const authors = table("authors", {
+export const authors = table("authors", {
   id: guid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
 }).meta({ __typename: "Author" });
 
-const articles = table("articles", {
+export const articles = table("articles", {
   id: guid("id").primaryKey().defaultRandom(),
   authorId: guid("author_id").notNull(),
   title: text("title").notNull(),
@@ -310,7 +310,7 @@ const articles = table("articles", {
 }).meta({ __typename: "Article" });
 
 // Keyed under an alias that differs from its database name, so its node key is "revisions".
-const revisions = table("article_revisions", {
+export const revisions = table("article_revisions", {
   id: guid("id").primaryKey().defaultRandom(),
   articleId: guid("article_id").notNull(),
   note: text("note").notNull(),
@@ -321,7 +321,7 @@ const revisions = table("article_revisions", {
  * `$findByGlobalId` goes through the model client, which means the policy applies to a node
  * lookup without the lookup knowing anything about policies.
  */
-const drafts = table("drafts", {
+export const drafts = table("drafts", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .readOnly()
@@ -337,13 +337,13 @@ drafts.policy("workspace_isolation", {
 });
 
 // A plain uuid key: its rows emit no ids, but it is addressable by `id` or `label`.
-const tags = table("tags", {
+export const tags = table("tags", {
   id: uuid("id").primaryKey().defaultRandom(),
   label: text("label").notNull().unique(),
 });
 
 // Addressable by both fields of its composite key; its rows emit no id of their own.
-const articleTags = table("article_tags", {
+export const articleTags = table("article_tags", {
   articleId: guid("article_id"),
   tagId: uuid("tag_id"),
 });
@@ -352,21 +352,21 @@ const articleTags = table("article_tags", {
 articleTags.primaryKey((c) => [c.articleId, c.tagId]);
 
 // Its relation is what makes `articleId` read as an articles id rather than its own.
-const articleTagRelations = relations(articleTags, {
+export const articleTagRelations = relations(articleTags, {
   article: belongsTo(articles, {
     from: [articleTags.columns.articleId],
     to: [articles.columns.id],
   }),
 });
 
-const authorRelations = relations(authors, {
+export const authorRelations = relations(authors, {
   articles: hasMany(articles, {
     from: [authors.columns.id],
     to: [articles.columns.authorId],
   }),
 });
 
-const articleRelations = relations(articles, {
+export const articleRelations = relations(articles, {
   author: belongsTo(authors, {
     from: [articles.columns.authorId],
     to: [authors.columns.id],
@@ -377,7 +377,7 @@ const articleRelations = relations(articles, {
   }),
 });
 
-const revisionRelations = relations(revisions, {
+export const revisionRelations = relations(revisions, {
   article: belongsTo(articles, {
     from: [revisions.columns.articleId],
     to: [articles.columns.id],
@@ -401,7 +401,7 @@ const revisionRelations = relations(revisions, {
  * - `userFeed` unions `documents`, bounded by policies, with `bookmarks`, which has none, so a
  *   union join and the union client have to apply the policies to one member and not the other.
  */
-const photos = table("photos", {
+export const photos = table("photos", {
   id: guid("id").primaryKey().defaultRandom(),
   authorId: guid("author_id").notNull(),
   caption: text("caption"),
@@ -409,7 +409,7 @@ const photos = table("photos", {
   photoUrl: text("photo_url").notNull(),
 }).meta({ __typename: "Photo" });
 
-const videos = table("videos", {
+export const videos = table("videos", {
   id: guid("id").primaryKey().defaultRandom(),
   authorId: guid("author_id").notNull(),
   caption: text("caption"),
@@ -417,75 +417,75 @@ const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-const posts = union(
-  { photos, videos },
-  {
+export const posts = union("posts", {
+  members: { photos, videos },
+  columns: {
     id: guid("id"),
     authorId: guid("author_id").notNull(),
     caption: text("caption"),
     createdAt: datetime("created_at").notNull(),
-  }
-);
+  },
+});
 
-const postComments = table("post_comments", {
+export const postComments = table("post_comments", {
   id: guid("id").primaryKey().defaultRandom(),
   subjectType: text("subject_type"),
   subjectId: guid("subject_id"),
   body: text("body").notNull(),
 });
 
-const postReactions = table("post_reactions", {
+export const postReactions = table("post_reactions", {
   id: guid("id").primaryKey().defaultRandom(),
   postId: guid("post_id").notNull(),
   emoji: text("emoji").notNull(),
 });
 
-const folders = table("folders", {
+export const folders = table("folders", {
   id: guid("id").primaryKey().defaultRandom(),
   parentId: guid("parent_id"),
   name: text("name").notNull(),
 });
 
-const files = table("files", {
+export const files = table("files", {
   id: guid("id").primaryKey().defaultRandom(),
   parentId: guid("parent_id"),
   name: text("name").notNull(),
   size: bigint("size").notNull(),
 });
 
-const entries = union(
-  { folders, files },
-  { id: guid("id"), parentId: guid("parent_id"), name: text("name").notNull() }
-);
+export const entries = union("entries", {
+  members: { folders, files },
+  columns: { id: guid("id"), parentId: guid("parent_id"), name: text("name").notNull() },
+});
 
-const bookmarks = table("bookmarks", {
+export const bookmarks = table("bookmarks", {
   id: uuid("id").primaryKey().defaultRandom(),
-  authorId: uuid("author_id"),
+  authorId: uuid("author_id").notNull(),
   title: text("title").notNull(),
   createdAt: datetime("created_at").notNull().defaultNow(),
 });
 
-const userFeed = union(
-  { documents, bookmarks },
-  {
+export const userFeed = union("user_feed", {
+  members: { documents, bookmarks },
+  columns: {
     id: uuid("id"),
     authorId: uuid("author_id"),
     title: text("title").notNull(),
     createdAt: datetime("created_at").notNull(),
-  }
-);
+  },
+});
 
 // A second block for `authors`, merged with `authorRelations`.
-const authorPostRelations = relations(authors, {
+export const authorPostRelations = relations(authors, {
   posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
   latestPost: hasOne(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
 });
 
-const photoRelations = relations(photos, {
+export const photoRelations = relations(photos, {
   author: belongsTo(authors, { from: [photos.columns.authorId], to: [authors.columns.id] }),
 });
 
-const postCommentRelations = relations(postComments, {
+export const postCommentRelations = relations(postComments, {
   subject: belongsTo(posts, {
     from: [postComments.columns.subjectId],
     to: [posts.columns.id],
@@ -495,7 +495,7 @@ const postCommentRelations = relations(postComments, {
 
 // Declared on the union: every member has `reactions`, from its own `id`. `comments` points at
 // the key `postComments.subject` stores with a discriminator, which it keeps.
-const postRelations = relations(posts, {
+export const postRelations = relations(posts, {
   reactions: hasMany(postReactions, {
     from: [posts.columns.id],
     to: [postReactions.columns.postId],
@@ -506,16 +506,26 @@ const postRelations = relations(posts, {
   }),
 });
 
-const postReactionRelations = relations(postReactions, {
+export const postReactionRelations = relations(postReactions, {
   post: belongsTo(posts, { from: [postReactions.columns.postId], to: [posts.columns.id] }),
 });
 
-const folderRelations = relations(folders, {
+export const folderRelations = relations(folders, {
   entries: hasMany(entries, { from: [folders.columns.id], to: [entries.columns.parentId] }),
 });
 
-const userFeedRelations = relations(users, {
-  feed: hasMany(userFeed, { from: [users.columns.id], to: [userFeed.columns.authorId] }),
+export const usersMediaRelations = relations(users, {
+  feed: hasMany(userFeed, {
+    from: [users.columns.id],
+    to: [userFeed.columns.authorId],
+  }),
+});
+
+export const userFeedRelations = relations(userFeed, {
+  author: belongsTo(users, {
+    from: [userFeed.columns.authorId],
+    to: [users.columns.id],
+  }),
 });
 
 /**
@@ -529,7 +539,7 @@ const BoardConfig = z.object({
   since: z.coerce.date().optional(),
 });
 
-const boards = table("boards", {
+export const boards = table("boards", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
   name: text("name").notNull(),
@@ -540,11 +550,11 @@ const boards = table("boards", {
   limits: record("limits").schema(z.record(z.string(), z.number())),
 });
 
-const boardRelations = relations(boards, {
+export const boardRelations = relations(boards, {
   project: belongsTo(projects, { from: [boards.columns.projectId], to: [projects.columns.id] }),
 });
 
-const projectBoardRelations = relations(projects, {
+export const projectBoardRelations = relations(projects, {
   boards: hasMany(boards, { from: [projects.columns.id], to: [boards.columns.projectId] }),
 });
 
@@ -552,79 +562,23 @@ const projectBoardRelations = relations(projects, {
  * `numeric` read modes, wider than a double holds: `amount` as exact text, `balance` as a
  * decimal.js `Decimal`. Entries hang off projects so a nested select reads them through JSON.
  */
-const ledgerEntries = table("ledger_entries", {
+export const ledgerEntries = table("ledger_entries", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
   amount: numeric("amount", { precision: 38, scale: 6, mode: "string" }).notNull(),
   balance: numeric("balance", { precision: 38, scale: 6, mode: Decimal }),
 });
 
-const ledgerEntryRelations = relations(ledgerEntries, {
+export const ledgerEntryRelations = relations(ledgerEntries, {
   project: belongsTo(projects, {
     from: [ledgerEntries.columns.projectId],
     to: [projects.columns.id],
   }),
 });
 
-const projectLedgerRelations = relations(projects, {
+export const projectLedgerRelations = relations(projects, {
   ledgerEntries: hasMany(ledgerEntries, {
     from: [projects.columns.id],
     to: [ledgerEntries.columns.projectId],
   }),
 });
-
-export {
-  teams,
-  members,
-  users,
-  projects,
-  tasks,
-  workspaces,
-  documents,
-  comments,
-  authors,
-  articles,
-  revisions,
-  drafts,
-  tags,
-  articleTags,
-  taskStatus,
-  priorityLevel,
-  taskNumberSeq,
-  userRelations,
-  memberRelations,
-  teamRelations,
-  projectRelations,
-  taskRelations,
-  workspaceRelations,
-  documentRelations,
-  commentRelations,
-  userDocumentRelations,
-  authorRelations,
-  articleRelations,
-  revisionRelations,
-  articleTagRelations,
-  photos,
-  videos,
-  posts,
-  postComments,
-  postReactions,
-  folders,
-  files,
-  entries,
-  bookmarks,
-  userFeed,
-  authorPostRelations,
-  photoRelations,
-  postCommentRelations,
-  postRelations,
-  postReactionRelations,
-  folderRelations,
-  userFeedRelations,
-  boards,
-  boardRelations,
-  projectBoardRelations,
-  ledgerEntries,
-  ledgerEntryRelations,
-  projectLedgerRelations,
-};

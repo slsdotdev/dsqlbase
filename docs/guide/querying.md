@@ -16,38 +16,37 @@ Models are keyed by the **export name** in `schema`, not by the table name: `exp
 
 ## Model methods
 
-Every method returns a query that runs when awaited — an `ExecutableQuery`, or for a counted page a `CompositeQuery` of two statements. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
+Every method returns a query that runs when awaited — an `ExecutableQuery`. `await` it to run it, or pass it unawaited to `$transaction([...])` (see [Transactions](./transactions.md)).
 
 | Method                                | Args                                            | Returns                                  |
 | ------------------------------------- | ----------------------------------------------- | ---------------------------------------- |
 | `findOne(args)`                       | `where` (required), `select`, `join`            | one row or `null`                        |
 | `findMany(args)`                      | `QueryArgs` (below)                             | array of rows                            |
-| `paginate(args)`                      | see [Pagination](./pagination.md)               | a page of rows with cursors              |
+| `get({ key, select?, join? })`        | `key` names one unique key (below)              | one row or `null`                        |
+| `paginatedQuery(args)`                | see [Pagination](./pagination.md)               | `{ items, hasMore, nextCursor }`         |
 | `count(args?)`                        | `where`                                         | number                                   |
 | `create({ data, return? })`           | column values; `return` selects what comes back | created row, selected fields, or nothing |
-| `update({ set, where, return? })`     | `where` must pin one row (below)                | the updated row, or `null`               |
-| `delete({ where, return? })`          | `where` must pin one row (below)                | the deleted row, or `null`               |
+| `update({ key, set, return? })`       | `key` names one unique key (below)              | the updated row, or `null`               |
+| `delete({ key, return? })`            | `key` names one unique key (below)              | the deleted row, or `null`               |
 | `updateMany({ set, where, return? })` |                                                 | every updated row                        |
 | `deleteMany({ where, return? })`      |                                                 | every deleted row                        |
 
-Every write except `create` requires a `where`; there is no "delete everything" form. An empty
-`where: {}` does not count: `findOne`, `update`, `delete`, `updateMany` and `deleteMany` refuse it
-when the query is built, before any SQL runs.
+`updateMany` and `deleteMany` require a `where`; there is no "delete everything" form. An empty
+`where: {}` does not count: `findOne`, `updateMany` and `deleteMany` refuse it when the query is
+built, before any SQL runs.
 
-`update` and `delete` change **one** row. Their `where` must compare every field of one unique key
-— the primary key, a `.unique()` column, a unique constraint or a non-partial unique index — for
-equality with a value, at the top level or inside `and`; other conditions may sit beside it. A
-key compared under `or` / `not`, with `in` / `neq`, or with `null` (a unique column admits many
-`NULL`s) does not count, and a table with no unique key has no `update` / `delete` at all. Anything
-else is refused when the query is built:
+`get`, `update` and `delete` address **one** row by a `key`: an object holding every field of one
+unique key — the primary key, a `.unique()` column, a unique constraint or a non-partial unique
+index. Fields that are not a full unique key are refused when the query is built
+(`Provided keys do not match any unique key…`), and a table with no unique key has no `get` /
+`update` / `delete`. For a filter that may match several rows, use `updateMany` / `deleteMany`:
 
 ```ts
-await dsql.tasks.update({ where: { id: taskId }, set: { status: "done" } }); // one row
-await dsql.tasks.update({ where: { status: "todo" }, set: { status: "done" } }); // throws
+await dsql.tasks.get({ key: { id: taskId } }); // one row or null
+await dsql.tasks.update({ key: { id: taskId }, set: { status: "done" } }); // one row
+await dsql.tasks.update({ key: { status: "todo" }, set: { status: "done" } }); // throws
 await dsql.tasks.updateMany({ where: { status: "todo" }, set: { status: "done" } }); // every match
 ```
-
-The rule is checked at runtime only; the types accept any `where`.
 
 Columns marked [`.readOnly()`](./schema.md) are not part of `data` or `set`: the types exclude
 them, and a value that reaches them through an untyped spread is dropped. They stay fully
@@ -55,7 +54,7 @@ readable — `select`, `where`, `orderBy` and the result row are unaffected.
 
 On a table with [row policies](./policies.md), every one of these methods also carries the
 policies' conditions. They are AND-ed in **ahead of** the `where` you wrote, at the root and at
-every joined level, with the values of the client's settings (`dsql.$settings({ ... })`):
+every joined level, with the values of the client's settings (`dsql.$withClaims({ ... })`):
 
 ```sql
 SELECT … FROM "invoices" AS "__t0"
@@ -69,7 +68,7 @@ check throws `PolicyViolationError`. See [Row policies](./policies.md).
 
 ## `QueryArgs`
 
-Defined in `packages/dsqlbase/src/client/model/base.ts` (the JSDoc there is the most detailed reference).
+Defined in `packages/dsqlbase/src/client/normalizers/base.ts` (the JSDoc there is the most detailed reference).
 
 ```ts
 const tasks = await dsql.tasks.findMany({
@@ -99,7 +98,7 @@ const tasks = await dsql.tasks.findMany({
 - **`orderBy`** — object of field → `"asc" | "desc"`; ordering follows key insertion order. Only columns whose type can be ordered (below). Any other direction (`"DESC"`, `"up"`) throws; a field set to `undefined` is skipped.
 - **`limit` / `offset`** — **no default limit is applied.** A `findMany` without `limit` returns every matching row.
 - **`distinct`** — `SELECT DISTINCT` over the selected columns. A `json` column has no equality and is refused, so `distinct` throws when one is selected — including when nothing is named and every column is. A `jsonb` column is compared.
-- **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `$$key` (see [Polymorphic relations](./polymorphic-relations.md)).
+- **`join`** — declared relations only, with their own `where` / `orderBy` / `limit` / `offset`; `true` or a nested `QueryArgs` (see [Relations](./relations.md)). A relation to a `union()` takes shared-field arguments plus a per-member `on` map, and its rows carry `__type` (see [Polymorphic relations](./polymorphic-relations.md)).
 
 ### Operators by column type
 
@@ -165,7 +164,7 @@ const same = await dsql.tasks.findMany({
 });
 
 await dsql.tasks.findOne({ where: { id: { eq: id } }, select: { project: true } });
-// { $$meta, project: { …every project column } | null } — no task columns
+// { __meta, project: { …every project column } | null } — no task columns
 ```
 
 - A field map takes fields only. A relation that needs `where`, `orderBy`, `limit` or `offset`
@@ -176,12 +175,12 @@ await dsql.tasks.findOne({ where: { id: { eq: id } }, select: { project: true } 
   an error when the query is built (at any depth). A `false` in `join` beside it is ignored.
 - `return` on `create` / `update` / `delete` takes columns only.
 
-For cursor pagination and counts, use [`paginate` and `count`](./pagination.md) rather than
+For cursor pagination and counts, use [`paginatedQuery` and `count`](./pagination.md) rather than
 `offset`. There is no aggregate helper beyond `count`; use `$query` for the rest.
 
-## `$$meta` on every row
+## `__meta` on every row
 
-Every result record carries a `$$meta` property describing the table it came from — rows from
+Every result record carries a `__meta` property describing the table it came from — rows from
 `findOne` / `findMany`, rows of a joined level, and rows returned by `create` / `update` /
 `delete` with `return`:
 
@@ -192,17 +191,19 @@ const task = await dsql.tasks.findOne({
   join: { project: { select: { name: true } } },
 });
 
-task?.$$meta; // { key: "tasks", table: "tasks" }
-task?.project?.$$meta; // { key: "projects", table: "projects" } — its own, not the parent's
+task?.__meta; // { key: "tasks", table: "tasks" }
+task?.project?.__meta; // { key: "projects", table: "projects" } — its own, not the parent's
 ```
 
 - **`key`** — the name the table is exported under in the schema object, which is how the
-  client addresses it (`dsql.members`). It is typed as the literal alias, not `string`.
+  client addresses it (`dsql.members`).
 - **`table`** — the database table name, which may differ (`team_members`).
 - **`schema`** — present only when the table declares a namespace.
 
-`$$meta` is an ordinary enumerable property, so it survives `{ ...row }` and `JSON.stringify`.
+`__meta` is an ordinary enumerable property, so it survives `{ ...row }` and `JSON.stringify`.
 It is the first key on each record. A whole-row `toEqual` in your tests must account for it.
+The result type exposes only the fields you declare with `table().meta()`; `key`, `table` and
+`schema` are there at runtime.
 
 Add your own fields with [`table().meta()`](./schema.md#table-metadata):
 
@@ -211,15 +212,14 @@ const tasks = table("tasks", {
   /* … */
 }).meta({ __typename: "Task" });
 
-task?.$$meta.__typename; // "Task", typed
+task?.__meta.__typename; // "Task", typed
 ```
 
-`$$meta` and `$$key` are reserved: a column or relation of either name throws.
+`__meta` and `__type` are reserved: a column or relation of either name throws.
 
-`$$meta.key` is typed as the literal alias, but it **cannot discriminate a union** —
-TypeScript does not narrow on a nested property, so `row.$$meta.key === "users"` compiles and
-narrows nothing. Where a result really is a union of tables, the row carries a top-level
-`$$key` instead; see [Global ids](./global-ids.md).
+`__meta.key` is a nested property, so it cannot discriminate a union in TypeScript. Where a
+result really is a union of tables, the row carries a top-level `__type` — the literal alias —
+instead; see [Global ids](./global-ids.md).
 
 ## Escape hatches
 

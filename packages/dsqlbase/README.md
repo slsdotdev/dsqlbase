@@ -87,22 +87,22 @@ every statement it builds — joins, unions, counts and node lookups included.
 
 ```ts
 import { sql } from "dsqlbase";
-import { settings, table, text, uuid } from "dsqlbase/schema";
-
-export const params = settings({ workspaceId: uuid("identity.workspace_id") });
+import { table, text, uuid } from "dsqlbase/schema";
 
 export const invoices = table("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => params.settings.workspaceId),
+  workspaceId: uuid("workspace_id").notNull().readOnly().$onCreate(() => sql.claim("workspaceId")),
   number: text("number").notNull(),
-}).policy("workspace_isolation", (t) => ({
-  using: sql`${t.workspaceId} = ${params.settings.workspaceId}`,
-}));
+});
 
-const dsql = createClient({ schema, session, settings: params });
+invoices.policy("workspace_isolation", {
+  using: (t) => sql`${t.workspaceId} = ${sql.claim("workspaceId")}`,
+});
+
+const dsql = createClient({ schema, session });
 
 // Per request:
-const db = dsql.$settings({ workspaceId: claims.workspace_id });
+const db = dsql.$withClaims({ workspaceId: claims.workspace_id });
 
 await db.invoices.findMany({});                            // … WHERE "workspace_id" = $1
 await db.invoices.create({ data: { number: "INV-1" } });   // workspace_id filled from the setting
@@ -133,13 +133,13 @@ export const articles = table("articles", {
 ```
 
 ```ts
-const article = await dsql.articles.findOne({ where: { id }, join: { author: true } });
+const article = await dsql.articles.get({ key: { id }, join: { author: true } });
 
 article?.id;                                 // "guid:WyJhcnRpY2xlcyIs…"
 article?.authorId === article?.author?.id;   // true
 
 const record = await dsql.$findByGlobalId(id);
-if (record?.$$key === "articles") record.title;
+if (record?.__type === "articles") record.title;
 ```
 
 A raw uuid is still accepted on input; an id from another table throws rather than quietly
@@ -148,21 +148,20 @@ matching nothing. It serializes as a plain `uuid`, so adopting it produces no mi
 
 ## Pagination
 
-`paginate` reads one page at a time from a cursor rather than an offset, ordered by your
+`paginatedQuery` reads one page at a time from a cursor rather than an offset, ordered by your
 `orderBy` and then the primary key, so no row is skipped or repeated between pages:
 
 ```ts
-const page = await dsql.tasks.paginate({
+const page = await dsql.tasks.paginatedQuery({
   where: { status: "todo" },
   orderBy: { createdAt: "desc" },
   limit: 20,
-  after: previous?.endCursor,
-  count: true,                     // adds totalCount
+  after: previous?.nextCursor,
 });
 
-page.items;        // each with $$meta.cursor
-page.hasNextPage;
-page.endCursor;
+page.items;        // each with __cursor
+page.hasMore;
+page.nextCursor;
 
 const open = await dsql.tasks.count({ where: { status: "todo" } });
 ```
@@ -219,16 +218,16 @@ See the
 
 `union()` groups tables that stand in for one another — a GraphQL union or interface — and
 relations can point at it. The client reads it as one `UNION ALL`, ordered and limited across
-members in SQL, and `$$key` on every row says which member it came from:
+members in SQL, and `__type` on every row says which member it came from:
 
 ```ts
 import { datetime, guid, union, relations, hasMany } from "dsqlbase/schema";
 
-// The second argument declares the fields every member shares — the ones that work across it.
-export const posts = union(
-  { photos, videos },
-  { id: guid("id"), authorId: guid("author_id").notNull(), createdAt: datetime("created_at") }
-);
+// `columns` declares the fields every member shares — the ones that work across it.
+export const posts = union("posts", {
+  members: { photos, videos },
+  columns: { id: guid("id"), authorId: guid("author_id").notNull(), createdAt: datetime("created_at") },
+});
 
 export const authorRelations = relations(authors, {
   posts: hasMany(posts, { from: [authors.columns.id], to: [posts.columns.authorId] }),
@@ -246,10 +245,10 @@ const author = await dsql.authors.findOne({
 });
 
 for (const post of author?.posts ?? []) {
-  if (post.$$key === "photos") post.photoUrl;
+  if (post.__type === "photos") post.photoUrl;
 }
 
-const page = await dsql.posts.paginate({ where: { $$key: { in: types } }, limit: 20 });
+const page = await dsql.posts.paginatedQuery({ where: { __type: { in: types } }, limit: 20 });
 ```
 
 A `belongsTo(union, { ..., discriminator })` points one row at one of several tables. Its

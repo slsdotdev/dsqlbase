@@ -36,7 +36,7 @@ describe("transaction operations", () => {
       expect(result).toEqual({
         id: expect.any(String),
         email: "tx-return@example.com",
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
     });
 
@@ -133,13 +133,13 @@ describe("transaction operations", () => {
       expect(result[0]).toEqual({
         id: expect.any(String),
         email: "array-alice@example.com",
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
       expect(result[1]).toEqual({
         id: expect.any(String),
         email: "array-bob@example.com",
         name: "Array Bob",
-        $$meta: { key: "users", table: "users" },
+        __meta: { key: "users", table: "users" },
       });
 
       const persisted = await client.users.findMany({

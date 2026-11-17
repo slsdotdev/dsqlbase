@@ -15,10 +15,10 @@ Source: `packages/dsqlbase/src/schema/union.ts`, `packages/core/src/runtime/quer
 
 | GraphQL                       | dsqlbase                                                            |
 | ----------------------------- | ------------------------------------------------------------------- |
-| `union Post = Photo \| Video` | `union({ photos, videos }, {})` — members keyed by schema alias     |
-| `interface Post { id }`       | `union({ photos, videos }, { id: guid("id") })` — **shared fields** |
+| `union Post = Photo \| Video` | `union("posts", { members: { photos, videos }, columns: {} })` — members keyed by schema alias |
+| `interface Post { id }`       | `union("posts", { members, columns: { id: guid("id") } })` — **shared fields** |
 | `... on Photo { photoUrl }`   | `on: { photos: { select: { photoUrl: true } } }`                    |
-| `__typename`                  | `$$key` (the member alias), or `$$meta.__typename` from `.meta()`   |
+| `__typename`                  | `__type` (the member alias), or `__meta.__typename` from `.meta()`   |
 
 ## Declaring one
 
@@ -37,14 +37,14 @@ export const videos = table("videos", {
   videoUrl: text("video_url").notNull(),
 }).meta({ __typename: "Video" });
 
-export const posts = union(
-  { photos, videos },
-  {
+export const posts = union("posts", {
+  members: { photos, videos },
+  columns: {
     id: guid("id"),
     userId: guid("user_id").notNull(),
     createdAt: datetime("created_at").notNull(),
-  }
-);
+  },
+});
 
 export const userRelations = relations(users, {
   feed: hasMany(posts, { from: [users.columns.id], to: [posts.columns.userId] }),
@@ -52,7 +52,7 @@ export const userRelations = relations(users, {
 });
 ```
 
-The second argument declares the **shared fields** — what `posts.columns` holds, and what
+The first argument names the union; `columns` declares the **shared fields** — what `posts.columns` holds, and what
 selects, filters and orders across the union. Each must be the same column on every member:
 same field, database name, type and kind, and `NOT NULL` on every member if declared so
 ([Schema → Unions](./schema.md#unions)). A field on one member only is not declared; it is
@@ -81,12 +81,12 @@ const user = await dsql.users.findOne({
 });
 
 for (const post of user?.feed ?? []) {
-  if (post.$$key === "photos") post.photoUrl; // narrowed to the photos row
+  if (post.__type === "photos") post.photoUrl; // narrowed to the photos row
 }
 ```
 
 - **The shared level** — `select`, `where`, `orderBy`, `limit`, `offset` — accepts the union's
-  shared fields only, plus [`$$key`](#filtering-and-ordering-by-member) in `where` and `orderBy`. Every member runs it, each against its own columns. A field on one member
+  shared fields only, plus [`__type`](#filtering-and-ordering-by-member) in `where` and `orderBy`. Every member runs it, each against its own columns. A field on one member
   only goes through `on`.
 - **`on.<alias>`** is `true` (the default: the member runs with the shared arguments),
   `false` (the member produces no branch and leaves the result type), or an object that adds
@@ -104,34 +104,34 @@ for (const post of user?.feed ?? []) {
 - **A belongs-to a union** joins only the member its discriminator names — see
   [below](#a-belongs-to-a-union).
 
-## `$$key`: which member a row came from
+## `__type`: which member a row came from
 
-Every row of a union carries a top-level **`$$key`**: the alias of the member it came from.
-That is what narrows the result type. `$$meta.key` holds the same value, but TypeScript does not
-narrow a union on a nested property, so `post.$$meta.key === "photos"` compiles and narrows
-nothing. `$$meta` itself is the member's own, including anything `table().meta()` declared,
-such as `__typename`. Ordinary single-table rows have no `$$key`.
+Every row of a union carries a top-level **`__type`**: the alias of the member it came from.
+That is what narrows the result type. `__meta.key` holds the same value, but TypeScript does not
+narrow a union on a nested property, so `post.__meta.key === "photos"` compiles and narrows
+nothing. `__meta` itself is the member's own, including anything `table().meta()` declared,
+such as `__typename`. Ordinary single-table rows have no `__type`.
 
 ### Filtering and ordering by member
 
-`$$key` is also a pseudo-field in the shared `where` and `orderBy`, typed as the member aliases.
+`__type` is also a pseudo-field in the shared `where` and `orderBy`, typed as the member aliases.
 That is the way to turn a runtime value, such as a resolver's `type: VIDEO` argument, into a
 filter:
 
 ```ts
 await dsql.users.findOne({
   where: { id: { eq: userId } },
-  join: { feed: { where: { $$key: { in: types } }, orderBy: { $$key: "asc", createdAt: "desc" } } },
+  join: { feed: { where: { __type: { in: types } }, orderBy: { __type: "asc", createdAt: "desc" } } },
 });
 ```
 
 - **Operators.** It accepts `eq`, `neq`, `in` and the bare-value shorthand, inside `and` / `or` /
   `not` too. A value that is not a member alias throws.
-- **Never sent to SQL.** Within one member, `$$key` is a constant, so each condition is decided
+- **Never sent to SQL.** Within one member, `__type` is a constant, so each condition is decided
   per member while the query is built:
   - a member that cannot match produces no branch;
   - a condition every member satisfies is dropped;
-  - an `or` mixing `$$key` with other fields keeps only the conditions still open for that
+  - an `or` mixing `__type` with other fields keeps only the conditions still open for that
     member.
 
   When no member is left, the join adds no SQL.
@@ -139,7 +139,7 @@ await dsql.users.findOne({
 - **The result type does not change.** Its value is usually only known at runtime, so every
   member stays in the type. Use `on: { alias: false }` to remove a member from the query and
   the type both.
-- **Ordering by `$$key`** sorts by member alias. Not naming it still uses it as the first
+- **Ordering by `__type`** sorts by member alias. Not naming it still uses it as the first
   tiebreaker.
 
 ### Filtering by global id
@@ -160,7 +160,7 @@ const post = await dsql.posts.findOne({ where: { id: { eq: postId } } }); // rea
 
 ## Ordering and pages
 
-With an `orderBy`, rows are sorted by the shared fields first. Ties are then broken by `$$key`,
+With an `orderBy`, rows are sorted by the shared fields first. Ties are then broken by `__type`,
 and after that by the primary key when every member's key has the same arity and types. That
 makes the order total, so `limit` / `offset` pages never skip or repeat a row.
 
@@ -172,7 +172,7 @@ combined rows do.
 
 Each member's branch passes through the same `WHERE` seam as a table level, so a member with
 [row policies](./policies.md) is filtered inside its own branch by its own policies, and a member
-without any is not. On a client whose settings a member's policies need but does not carry, that
+without any is not. On a client whose claims a member's policies need but does not carry, that
 branch simply yields nothing, exactly as a join to that member alone would.
 
 ## A belongs-to a union
@@ -284,11 +284,11 @@ const photo = await dsql.photos.findOne({ where, select: { reactions: true } });
 Every union in the schema is also a read-only client under its own alias — `dsql.posts`, next
 to `dsql.photos` and `dsql.videos` — for queries that start at the union rather than at a row
 related to it, such as a top-level `partners: [Partner]` field. It takes the same shared-level
-arguments and `on` map as a join. Source: `packages/dsqlbase/src/client/union/client.ts`.
+arguments and `on` map as a join. Source: `packages/dsqlbase/src/client/clients/union.ts`.
 
 ```ts
 const posts = await dsql.posts.findMany({
-  where: { userId: { eq: userId }, $$key: { in: types } },
+  where: { userId: { eq: userId }, __type: { in: types } },
   orderBy: { createdAt: "desc" },
   limit: 20,
   on: { photos: { join: { owner: true } } },
@@ -304,30 +304,30 @@ const total = await dsql.posts.count({ where: { userId: { eq: userId } } });
 
 ### Pages
 
-`paginate` works as it does on a table ([Pagination](./pagination.md)), with cursors, `after` /
-`before`, `limit` and `count: true`:
+`paginatedQuery` works as it does on a table ([Pagination](./pagination.md)), with cursors,
+`after` / `before` and `limit`, and returns `{ items, hasMore, nextCursor }`:
 
 ```ts
-const page = await dsql.posts.paginate({
+const page = await dsql.posts.paginatedQuery({
   where: { userId: { eq: userId } },
   orderBy: { createdAt: "desc" },
   limit: 20,
-  after: previous?.endCursor,
+  after: previous?.nextCursor,
 });
 
-page.items[0].$$meta.cursor;
+page.items[0].__cursor;
 ```
 
-- **Total order.** Pages are read under the `orderBy`, then `$$key`, then every primary-key
+- **Total order.** Pages are read under the `orderBy`, then `__type`, then every primary-key
   column by position. The appended keys follow the direction of the last `orderBy` key, the
   same rule as a table.
 - **Cursors.** A cursor is signed against the union's alias and that order, so a table's cursor
   never reads a union's page.
-- **Where the keyset applies.** It is applied inside each member's branch, where `$$key` is a
+- **Where the keyset applies.** It is applied inside each member's branch, where `__type` is a
   constant, so the per-member `limit` stays valid.
 - **Aligned keys required.** Paging needs every member's primary key to have the same arity and
   column types, because the key is what breaks a tie between two members' rows. A union whose
-  keys do not line up can still be read with `findMany` and `offset`, but `paginate` throws.
+  keys do not line up can still be read with `findMany` and `offset`, but `paginatedQuery` throws.
 
 ### Visibility
 
@@ -340,7 +340,7 @@ union read, a count and a page, as they bound a read of the member alone.
   carry one in the database; relations emit none anyway.
 - Only declared shared fields filter, select or order across a union; only relations declared
   on the union join across it.
-- `paginate` needs members whose primary keys line up.
+- `paginatedQuery` needs members whose primary keys line up.
 
 ## Related
 

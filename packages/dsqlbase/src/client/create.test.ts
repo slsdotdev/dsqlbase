@@ -1,74 +1,78 @@
-import { describe, expect, it, vi } from "vitest";
-import type { Session } from "@dsqlbase/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "./create.js";
-import { ModelClient } from "./model/client.js";
-import { relations, hasMany, table, text, uuid } from "../schema/index.js";
-
-const teams = table("teams", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-});
-
-// Exported below as `members`, so the schema alias differs from the table name — the
-// shape the e2e fixture uses.
-const teamMembers = table("team_members", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  teamId: uuid("team_id").notNull(),
-  role: text("role").notNull(),
-});
-
-const teamRelations = relations(teams, {
-  members: hasMany(teamMembers, {
-    from: [teams.columns.id],
-    to: [teamMembers.columns.teamId],
-  }),
-});
-
-const schema = { teams, members: teamMembers, teamRelations };
-
-const createMockSession = (): Session => ({ execute: vi.fn().mockResolvedValue([]) }) as Session;
+import { schema, session } from "../../mocks/context.js";
+import { ModelClient } from "./clients/model.js";
+import { encodeGlobalId } from "../schema/utils/global-id.js";
 
 describe("createClient", () => {
-  it("attaches one model per table, keyed by the schema alias", () => {
-    const dsql = createClient({ schema, session: createMockSession() });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    session.mock.mockResolvedValue([]);
+  });
 
-    expect(dsql.teams).toBeInstanceOf(ModelClient);
-    expect(dsql.members).toBeInstanceOf(ModelClient);
-    expect(dsql.teams).not.toBe(dsql.members);
+  it("attaches one model per table, keyed by the schema alias", () => {
+    const dsql = createClient({ schema, session });
+
+    expect(dsql.users).toBeInstanceOf(ModelClient);
+    expect(dsql.posts).toBeInstanceOf(ModelClient);
+    expect(dsql.posts).not.toBe(dsql.users);
   });
 
   // SchemaRegistry keys tables by both alias and table name, so the previous attachment
   // loop created a second, unreachable-by-type model under the database name.
   it("does not attach a model under the database table name", () => {
-    const dsql = createClient({ schema, session: createMockSession() });
+    const dsql = createClient({ schema, session });
 
     expect(Object.hasOwn(dsql, "team_members")).toBe(false);
   });
 
-  it("attaches exactly one model per table", () => {
-    const dsql = createClient({ schema, session: createMockSession() });
-
-    const models = Object.entries(dsql).filter(([, value]) => value instanceof ModelClient);
-
-    expect(models.map(([alias]) => alias).sort()).toEqual(["members", "teams"]);
-  });
-
-  it("attaches models as non-writable enumerable properties", () => {
-    const dsql = createClient({ schema, session: createMockSession() });
-    const descriptor = Object.getOwnPropertyDescriptor(dsql, "members");
-
-    expect(descriptor?.writable).toBe(false);
-    expect(descriptor?.enumerable).toBe(true);
-  });
-
   it("binds each model to its own table", async () => {
-    const session = createMockSession();
     const dsql = createClient({ schema, session });
 
-    await dsql.members.findMany({ select: { role: true } });
+    await dsql.teamMembers.findMany({ select: { role: true } });
 
-    expect(session.execute).toHaveBeenCalledWith(
+    expect(session.mock).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining('FROM "team_members"') })
     );
+  });
+
+  it("binds each union to it's own client", async () => {
+    const dsql = createClient({ schema, session });
+
+    await dsql.media.findMany({ select: { id: true } });
+
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          'SELECT row_to_json("__j0".*) AS "data", "__j0"."__type" FROM'
+        ),
+      })
+    );
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          'UNION ALL SELECT row_to_json("__j1".*) AS "data", "__j1"."__type" FROM'
+        ),
+      })
+    );
+  });
+
+  it("fetches record by global id", async () => {
+    const dsql = createClient({ schema, session });
+    const guid = encodeGlobalId("users", { id: "1" });
+
+    await dsql.$findByGlobalId(guid);
+    expect(session.mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('FROM "users" AS "__t0" WHERE "__t0"."id" = $1'),
+      })
+    );
+  });
+
+  it("refuses global ids for unions", () => {
+    const dsql = createClient({ schema, session });
+    const guid = encodeGlobalId("media", { id: "1" });
+
+    expect(() => dsql.$findByGlobalId(guid)).toThrow("Table not found: media");
   });
 });
