@@ -73,7 +73,7 @@
     "@dsqlbase/core": "^0.3.0"
   },
   "peerDependencies": {
-    "@electric-sql/pglite": ">=0.4.6",
+    "@electric-sql/pglite": "^0.5.17",
     "pg": ">=8.20.0"
   },
   "peerDependenciesMeta": {
